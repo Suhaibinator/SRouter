@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +25,26 @@ type TestProfileResponse struct {
 	LoggedIn bool   `json:"logged_in"`
 }
 
+// Test request and response types for query parameters
+type TestQueryRequest struct {
+	ID   int    `query:"id"`
+	Name string `query:"name"`
+}
+
+type TestQueryResponse struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+
+// Test request and response types for error handling
+type TestErrorRequest struct {
+	ShouldError bool `json:"should_error"`
+}
+
+type TestErrorResponse struct {
+	Message string `json:"message"`
+}
+
 // Test handler that accesses user information from the request context
 func testProfileHandler(req *http.Request, data TestProfileRequest) (TestProfileResponse, error) {
 	// Get the user ID from the request context
@@ -41,6 +62,22 @@ func testProfileHandler(req *http.Request, data TestProfileRequest) (TestProfile
 	}
 
 	return response, nil
+}
+
+// Test handler for query parameters
+func testQueryHandler(req *http.Request, data TestQueryRequest) (TestQueryResponse, error) {
+	// Simply echo back the query parameters
+	return TestQueryResponse(data), nil
+}
+
+// Test handler for error handling
+func testErrorHandler(req *http.Request, data TestErrorRequest) (TestErrorResponse, error) {
+	if data.ShouldError {
+		return TestErrorResponse{}, NewHTTPError(http.StatusBadRequest, "Error requested by client")
+	}
+	return TestErrorResponse{
+		Message: "Success",
+	}, nil
 }
 
 // Test that generic routes registered with SubRouters can access user information from the request context
@@ -206,6 +243,226 @@ func TestRegisterGenericRouteWithSubRouterUserContext(t *testing.T) {
 		// Check the status code (should be 401 Unauthorized)
 		if status := rr.Code; status != http.StatusUnauthorized {
 			t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusUnauthorized)
+		}
+	})
+}
+
+// Test that generic routes registered with SubRouters can handle query parameters
+func TestRegisterGenericRouteWithSubRouterQuery(t *testing.T) {
+	// Create a logger
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	// Define the auth function
+	authFunction := func(ctx context.Context, token string) (string, bool) {
+		return "", false
+	}
+
+	// Define the function to get the user ID from a string
+	userIdFromUserFunction := func(user string) string {
+		return user
+	}
+
+	// Create a router
+	r := NewRouter[string, string](RouterConfig{
+		Logger:        logger,
+		GlobalTimeout: 5 * time.Second,
+	}, authFunction, userIdFromUserFunction)
+
+	// Create a JSON codec for our generic routes
+	queryCodec := codec.NewJSONCodec[TestQueryRequest, TestQueryResponse]()
+
+	// Create a main API sub-router
+	apiSubRouter := SubRouterConfig{
+		PathPrefix: "/api",
+	}
+
+	// Create a v1 sub-router
+	apiV1SubRouter := SubRouterConfig{
+		PathPrefix: "/v1",
+	}
+
+	// Register a generic route with the v1 sub-router that handles query parameters
+	RegisterGenericRouteWithSubRouter[TestQueryRequest, TestQueryResponse, string, string](
+		&apiV1SubRouter,
+		RouteConfig[TestQueryRequest, TestQueryResponse]{
+			Path:       "/query",
+			Methods:    []string{"GET"},
+			AuthLevel:  NoAuth,
+			Codec:      queryCodec,
+			Handler:    testQueryHandler,
+			SourceType: Base64QueryParameter,
+			SourceKey:  "data",
+		},
+	)
+
+	// Add the v1 sub-router to the main API sub-router
+	RegisterSubRouterWithSubRouter(&apiSubRouter, apiV1SubRouter)
+
+	// Register the main API sub-router with the router
+	r.RegisterSubRouter(apiSubRouter)
+
+	// Test with query parameters
+	t.Run("Query Parameters", func(t *testing.T) {
+		// Create a request with base64-encoded query parameter
+		reqData := TestQueryRequest{
+			ID:   123,
+			Name: "test",
+		}
+		reqBytes, _ := json.Marshal(reqData)
+		base64Data := base64.StdEncoding.EncodeToString(reqBytes)
+		req := httptest.NewRequest("GET", "/api/v1/query?data="+base64Data, nil)
+
+		// Create a response recorder
+		rr := httptest.NewRecorder()
+
+		// Serve the request
+		r.ServeHTTP(rr, req)
+
+		// Check the status code
+		if status := rr.Code; status != http.StatusOK {
+			t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+		}
+
+		// Check the response body
+		var response TestQueryResponse
+		err := json.Unmarshal(rr.Body.Bytes(), &response)
+		if err != nil {
+			t.Errorf("error unmarshaling response: %v", err)
+		}
+
+		// Check that the ID is 123
+		if response.ID != 123 {
+			t.Errorf("handler returned wrong ID: got %v want %v", response.ID, 123)
+		}
+
+		// Check that the name is "test"
+		if response.Name != "test" {
+			t.Errorf("handler returned wrong name: got %v want %v", response.Name, "test")
+		}
+	})
+
+	// Test with missing query parameters
+	t.Run("Missing Query Parameters", func(t *testing.T) {
+		// Create a request with no query parameters
+		req := httptest.NewRequest("GET", "/api/v1/query", nil)
+
+		// Create a response recorder
+		rr := httptest.NewRecorder()
+
+		// Serve the request
+		r.ServeHTTP(rr, req)
+
+		// Check the status code (should be 400 Bad Request)
+		if status := rr.Code; status != http.StatusBadRequest {
+			t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusBadRequest)
+		}
+	})
+}
+
+// Test that generic routes registered with SubRouters can handle errors
+func TestRegisterGenericRouteWithSubRouterError(t *testing.T) {
+	// Create a logger
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	// Define the auth function
+	authFunction := func(ctx context.Context, token string) (string, bool) {
+		return "", false
+	}
+
+	// Define the function to get the user ID from a string
+	userIdFromUserFunction := func(user string) string {
+		return user
+	}
+
+	// Create a router
+	r := NewRouter[string, string](RouterConfig{
+		Logger:        logger,
+		GlobalTimeout: 5 * time.Second,
+	}, authFunction, userIdFromUserFunction)
+
+	// Create a JSON codec for our generic routes
+	errorCodec := codec.NewJSONCodec[TestErrorRequest, TestErrorResponse]()
+
+	// Create a main API sub-router
+	apiSubRouter := SubRouterConfig{
+		PathPrefix: "/api",
+	}
+
+	// Create a v1 sub-router
+	apiV1SubRouter := SubRouterConfig{
+		PathPrefix: "/v1",
+	}
+
+	// Register a generic route with the v1 sub-router that handles errors
+	RegisterGenericRouteWithSubRouter[TestErrorRequest, TestErrorResponse, string, string](
+		&apiV1SubRouter,
+		RouteConfig[TestErrorRequest, TestErrorResponse]{
+			Path:      "/error",
+			Methods:   []string{"POST"},
+			AuthLevel: NoAuth,
+			Codec:     errorCodec,
+			Handler:   testErrorHandler,
+		},
+	)
+
+	// Add the v1 sub-router to the main API sub-router
+	RegisterSubRouterWithSubRouter(&apiSubRouter, apiV1SubRouter)
+
+	// Register the main API sub-router with the router
+	r.RegisterSubRouter(apiSubRouter)
+
+	// Test with no error
+	t.Run("No Error", func(t *testing.T) {
+		// Create a request with no error
+		req := httptest.NewRequest("POST", "/api/v1/error", strings.NewReader(`{"should_error":false}`))
+		req.Header.Set("Content-Type", "application/json")
+
+		// Create a response recorder
+		rr := httptest.NewRecorder()
+
+		// Serve the request
+		r.ServeHTTP(rr, req)
+
+		// Check the status code
+		if status := rr.Code; status != http.StatusOK {
+			t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+		}
+
+		// Check the response body
+		var response TestErrorResponse
+		err := json.Unmarshal(rr.Body.Bytes(), &response)
+		if err != nil {
+			t.Errorf("error unmarshaling response: %v", err)
+		}
+
+		// Check that the message is "Success"
+		if response.Message != "Success" {
+			t.Errorf("handler returned wrong message: got %v want %v", response.Message, "Success")
+		}
+	})
+
+	// Test with error
+	t.Run("With Error", func(t *testing.T) {
+		// Create a request with error
+		req := httptest.NewRequest("POST", "/api/v1/error", strings.NewReader(`{"should_error":true}`))
+		req.Header.Set("Content-Type", "application/json")
+
+		// Create a response recorder
+		rr := httptest.NewRecorder()
+
+		// Serve the request
+		r.ServeHTTP(rr, req)
+
+		// Check the status code (should be 400 Bad Request)
+		if status := rr.Code; status != http.StatusBadRequest {
+			t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusBadRequest)
+		}
+
+		// Check the response body contains the error message
+		if !strings.Contains(rr.Body.String(), "Error requested by client") {
+			t.Errorf("handler returned wrong error message: got %v", rr.Body.String())
 		}
 	})
 }
