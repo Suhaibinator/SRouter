@@ -732,6 +732,161 @@ func TestRegisterSubRouterErrorHandling(t *testing.T) {
 	})
 }
 
+// Test RegisterGenericRouteWithSubRouter function
+func TestRegisterGenericRouteWithSubRouterFunction(t *testing.T) {
+	// Create a logger
+	logger, _ := zap.NewDevelopment()
+	defer func() {
+		_ = logger.Sync() // ignoring sync error
+	}()
+
+	// Define the auth function
+	authFunction := func(ctx context.Context, token string) (string, bool) {
+		return "", false
+	}
+
+	// Define the function to get the user ID from a string
+	userIdFromUserFunction := func(user string) string {
+		return user
+	}
+
+	// Create a router
+	r := NewRouter[string, string](RouterConfig{
+		Logger:        logger,
+		GlobalTimeout: 5 * time.Second,
+	}, authFunction, userIdFromUserFunction)
+
+	// Create a JSON codec for our generic routes
+	queryCodec := codec.NewJSONCodec[TestQueryRequest, TestQueryResponse]()
+
+	// Test case 1: GenericRoutes is nil
+	t.Run("GenericRoutes is nil", func(t *testing.T) {
+		// Create a sub-router with nil GenericRoutes
+		subRouter := SubRouterConfig{
+			PathPrefix:    "/api",
+			GenericRoutes: nil,
+		}
+
+		// Register a generic route with the sub-router
+		RegisterGenericRouteWithSubRouter[TestQueryRequest, TestQueryResponse, string, string](
+			&subRouter,
+			RouteConfig[TestQueryRequest, TestQueryResponse]{
+				Path:      "/query",
+				Methods:   []string{"GET"},
+				AuthLevel: NoAuth,
+				Codec:     queryCodec,
+				Handler:   testQueryHandler,
+			},
+		)
+
+		// Check that GenericRoutes is now a GenericRouteConfigs with one route
+		routes, ok := subRouter.GenericRoutes.(GenericRouteConfigs)
+		if !ok {
+			t.Errorf("Expected GenericRoutes to be a GenericRouteConfigs, got %T", subRouter.GenericRoutes)
+		}
+		if len(routes) != 1 {
+			t.Errorf("Expected GenericRoutes to have 1 route, got %d", len(routes))
+		}
+
+		// Register the sub-router with the router
+		r.RegisterSubRouter(subRouter)
+	})
+
+	// Test case 2: GenericRoutes is already a GenericRouteConfigs
+	t.Run("GenericRoutes is already a GenericRouteConfigs", func(t *testing.T) {
+		// Create a GenericRouteConfigs with one route
+		var routes GenericRouteConfigs
+		routes = append(routes, MockGenericRouteConfig{})
+
+		// Create a sub-router with the GenericRouteConfigs
+		subRouter := SubRouterConfig{
+			PathPrefix:    "/api",
+			GenericRoutes: routes,
+		}
+
+		// Register a generic route with the sub-router
+		RegisterGenericRouteWithSubRouter[TestQueryRequest, TestQueryResponse, string, string](
+			&subRouter,
+			RouteConfig[TestQueryRequest, TestQueryResponse]{
+				Path:      "/query",
+				Methods:   []string{"GET"},
+				AuthLevel: NoAuth,
+				Codec:     queryCodec,
+				Handler:   testQueryHandler,
+			},
+		)
+
+		// Check that GenericRoutes is still a GenericRouteConfigs but now with two routes
+		routes, ok := subRouter.GenericRoutes.(GenericRouteConfigs)
+		if !ok {
+			t.Errorf("Expected GenericRoutes to be a GenericRouteConfigs, got %T", subRouter.GenericRoutes)
+		}
+		if len(routes) != 2 {
+			t.Errorf("Expected GenericRoutes to have 2 routes, got %d", len(routes))
+		}
+	})
+
+	// Test case 3: GenericRoutes is a single GenericRouteRegistrar
+	t.Run("GenericRoutes is a single GenericRouteRegistrar", func(t *testing.T) {
+		// Create a sub-router with a single GenericRouteRegistrar
+		subRouter := SubRouterConfig{
+			PathPrefix:    "/api",
+			GenericRoutes: MockGenericRouteConfig{},
+		}
+
+		// Register a generic route with the sub-router
+		RegisterGenericRouteWithSubRouter[TestQueryRequest, TestQueryResponse, string, string](
+			&subRouter,
+			RouteConfig[TestQueryRequest, TestQueryResponse]{
+				Path:      "/query",
+				Methods:   []string{"GET"},
+				AuthLevel: NoAuth,
+				Codec:     queryCodec,
+				Handler:   testQueryHandler,
+			},
+		)
+
+		// Check that GenericRoutes is now a GenericRouteConfigs with two routes
+		routes, ok := subRouter.GenericRoutes.(GenericRouteConfigs)
+		if !ok {
+			t.Errorf("Expected GenericRoutes to be a GenericRouteConfigs, got %T", subRouter.GenericRoutes)
+		}
+		if len(routes) != 2 {
+			t.Errorf("Expected GenericRoutes to have 2 routes, got %d", len(routes))
+		}
+	})
+
+	// Test case 4: GenericRoutes is something else
+	t.Run("GenericRoutes is something else", func(t *testing.T) {
+		// Create a sub-router with an invalid GenericRoutes type (string)
+		subRouter := SubRouterConfig{
+			PathPrefix:    "/api",
+			GenericRoutes: "invalid",
+		}
+
+		// Register a generic route with the sub-router
+		RegisterGenericRouteWithSubRouter[TestQueryRequest, TestQueryResponse, string, string](
+			&subRouter,
+			RouteConfig[TestQueryRequest, TestQueryResponse]{
+				Path:      "/query",
+				Methods:   []string{"GET"},
+				AuthLevel: NoAuth,
+				Codec:     queryCodec,
+				Handler:   testQueryHandler,
+			},
+		)
+
+		// Check that GenericRoutes is now a GenericRouteConfigs with one route
+		routes, ok := subRouter.GenericRoutes.(GenericRouteConfigs)
+		if !ok {
+			t.Errorf("Expected GenericRoutes to be a GenericRouteConfigs, got %T", subRouter.GenericRoutes)
+		}
+		if len(routes) != 1 {
+			t.Errorf("Expected GenericRoutes to have 1 route, got %d", len(routes))
+		}
+	})
+}
+
 // Test that nested SubRouters work correctly
 func TestNestedSubRouters(t *testing.T) {
 	// Create a logger
