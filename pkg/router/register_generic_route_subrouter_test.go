@@ -615,8 +615,20 @@ func TestCreateGenericRouteForSubRouter(t *testing.T) {
 // Mock GenericRouteRegistrar that returns an error
 type MockErrorGenericRouteRegistrar struct{}
 
-func (m MockErrorGenericRouteRegistrar) RegisterWith(router any, pathPrefix string) error {
+func (m MockErrorGenericRouteRegistrar) RegisterWith(router interface{}, pathPrefix string) error {
 	return fmt.Errorf("mock error")
+}
+
+// Mock GenericRouteConfig that implements GenericRouteRegistrar
+type MockGenericRouteConfig struct{}
+
+func (m MockGenericRouteConfig) RegisterWith(router interface{}, pathPrefix string) error {
+	// Cast will fail because we're passing a string, not a *Router
+	_, ok := router.(string)
+	if !ok {
+		return fmt.Errorf("router is not of type string")
+	}
+	return nil
 }
 
 // Test error handling in registerSubRouter
@@ -688,6 +700,34 @@ func TestRegisterSubRouterErrorHandling(t *testing.T) {
 		logs := buf.String()
 		if !strings.Contains(logs, "Invalid GenericRoutes type") {
 			t.Errorf("Expected error log not found: %s", logs)
+		}
+	})
+
+	// Test case 3: Type casting error in RegisterWith
+	t.Run("Type Casting Error", func(t *testing.T) {
+		// Clear the buffer
+		buf.Reset()
+
+		// Create a GenericRouteConfigs with a mock GenericRouteConfig
+		var routes GenericRouteConfigs
+		routes = append(routes, MockGenericRouteConfig{})
+
+		// Create a sub-router with the GenericRouteConfigs
+		subRouter := SubRouterConfig{
+			PathPrefix:    "/api",
+			GenericRoutes: routes,
+		}
+
+		// Register the sub-router
+		r.RegisterSubRouter(subRouter)
+
+		// Check that the error was logged
+		logs := buf.String()
+		if !strings.Contains(logs, "Failed to register generic route") {
+			t.Errorf("Expected error log not found: %s", logs)
+		}
+		if !strings.Contains(logs, "router is not of type string") {
+			t.Errorf("Expected error message not found: %s", logs)
 		}
 	})
 }
