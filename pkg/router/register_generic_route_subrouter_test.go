@@ -1,9 +1,11 @@
 package router
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // Test request and response types
@@ -605,6 +608,86 @@ func TestCreateGenericRouteForSubRouter(t *testing.T) {
 		// Check the status code (should be 401 Unauthorized)
 		if status := rr.Code; status != http.StatusUnauthorized {
 			t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusUnauthorized)
+		}
+	})
+}
+
+// Mock GenericRouteRegistrar that returns an error
+type MockErrorGenericRouteRegistrar struct{}
+
+func (m MockErrorGenericRouteRegistrar) RegisterWith(router any, pathPrefix string) error {
+	return fmt.Errorf("mock error")
+}
+
+// Test error handling in registerSubRouter
+func TestRegisterSubRouterErrorHandling(t *testing.T) {
+	// Create a logger with a buffer to capture logs
+	var buf bytes.Buffer
+	core := zapcore.NewCore(
+		zapcore.NewJSONEncoder(zap.NewDevelopmentEncoderConfig()),
+		zapcore.AddSync(&buf),
+		zapcore.DebugLevel,
+	)
+	logger := zap.New(core)
+
+	// Define the auth function
+	authFunction := func(ctx context.Context, token string) (string, bool) {
+		return "", false
+	}
+
+	// Define the function to get the user ID from a string
+	userIdFromUserFunction := func(user string) string {
+		return user
+	}
+
+	// Create a router
+	r := NewRouter[string, string](RouterConfig{
+		Logger:        logger,
+		GlobalTimeout: 5 * time.Second,
+	}, authFunction, userIdFromUserFunction)
+
+	// Test case 1: RegisterWith returns an error
+	t.Run("RegisterWith Error", func(t *testing.T) {
+		// Clear the buffer
+		buf.Reset()
+
+		// Create a sub-router with a mock GenericRouteRegistrar that returns an error
+		subRouter := SubRouterConfig{
+			PathPrefix:    "/api",
+			GenericRoutes: MockErrorGenericRouteRegistrar{},
+		}
+
+		// Register the sub-router
+		r.RegisterSubRouter(subRouter)
+
+		// Check that the error was logged
+		logs := buf.String()
+		if !strings.Contains(logs, "Failed to register generic route") {
+			t.Errorf("Expected error log not found: %s", logs)
+		}
+		if !strings.Contains(logs, "mock error") {
+			t.Errorf("Expected error message not found: %s", logs)
+		}
+	})
+
+	// Test case 2: Invalid GenericRoutes type
+	t.Run("Invalid GenericRoutes Type", func(t *testing.T) {
+		// Clear the buffer
+		buf.Reset()
+
+		// Create a sub-router with an invalid GenericRoutes type (string)
+		subRouter := SubRouterConfig{
+			PathPrefix:    "/api",
+			GenericRoutes: "invalid",
+		}
+
+		// Register the sub-router
+		r.RegisterSubRouter(subRouter)
+
+		// Check that the error was logged
+		logs := buf.String()
+		if !strings.Contains(logs, "Invalid GenericRoutes type") {
+			t.Errorf("Expected error log not found: %s", logs)
 		}
 	})
 }
