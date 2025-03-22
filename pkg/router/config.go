@@ -129,6 +129,12 @@ type SubRouterConfig struct {
 	Middlewares         []common.Middleware                   // Middlewares applied to all routes in this sub-router
 	CacheResponse       bool                                  // Whether to cache responses for routes in this sub-router
 	CacheKeyPrefix      string                                // Prefix for cache keys to avoid collisions
+	// GenericRoutes is an interface{} that will be cast to the appropriate type in registerSubRouter
+	// It allows storing generic routes with different type parameters
+	GenericRoutes interface{} // Generic routes in this sub-router
+	// SubRouters is a slice of nested sub-routers
+	// This allows for creating a hierarchy of sub-routers
+	SubRouters []SubRouterConfig // Nested sub-routers
 }
 
 // RouteConfigBase defines the base configuration for a route without generics.

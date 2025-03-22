@@ -59,6 +59,82 @@ type userIDContextKey[T comparable] struct{}
 // It's now generic to support different user object types
 type userObjectContextKey[U any] struct{}
 
+// GenericRouteRegistrar is an interface for registering generic routes
+// It's used to store generic routes with different type parameters in SubRouterConfig
+type GenericRouteRegistrar interface {
+	RegisterWith(router interface{}, pathPrefix string) error
+}
+
+// GenericRouteConfig is a wrapper for RouteConfig that implements GenericRouteRegistrar
+// It allows storing generic routes with different type parameters in SubRouterConfig
+type GenericRouteConfig[Req any, Resp any, UserID comparable, User any] struct {
+	Config RouteConfig[Req, Resp]
+}
+
+// RegisterWith registers the generic route with the router
+// It implements the GenericRouteRegistrar interface
+func (g GenericRouteConfig[Req, Resp, UserID, User]) RegisterWith(router interface{}, pathPrefix string) error {
+	r, ok := router.(*Router[UserID, User])
+	if !ok {
+		return fmt.Errorf("router is not of type *Router[%T, %T]", *new(UserID), *new(User))
+	}
+
+	// Create a copy of the config with the path prefixed
+	config := g.Config
+	config.Path = pathPrefix + config.Path
+
+	// Register the generic route with the router
+	RegisterGenericRoute[Req, Resp, UserID, User](r, config)
+	return nil
+}
+
+// GenericRouteConfigs is a slice of GenericRouteRegistrar
+// It's used to store multiple generic routes in SubRouterConfig
+type GenericRouteConfigs []GenericRouteRegistrar
+
+// CreateGenericRouteForSubRouter creates a GenericRouteConfig that can be added to a SubRouterConfig's GenericRoutes field
+// This is a helper function to make it easier to register generic routes with SubRouters
+func CreateGenericRouteForSubRouter[Req any, Resp any, UserID comparable, User any](route RouteConfig[Req, Resp]) GenericRouteConfig[Req, Resp, UserID, User] {
+	return GenericRouteConfig[Req, Resp, UserID, User]{
+		Config: route,
+	}
+}
+
+// RegisterGenericRouteWithSubRouter registers a generic route with a SubRouter
+// This is a helper function that creates a GenericRouteConfig and adds it to the SubRouter's GenericRoutes field
+func RegisterGenericRouteWithSubRouter[Req any, Resp any, UserID comparable, User any](sr *SubRouterConfig, route RouteConfig[Req, Resp]) {
+	genericRoute := CreateGenericRouteForSubRouter[Req, Resp, UserID, User](route)
+
+	// If GenericRoutes is nil, initialize it as a GenericRouteConfigs
+	if sr.GenericRoutes == nil {
+		sr.GenericRoutes = GenericRouteConfigs{genericRoute}
+		return
+	}
+
+	// If GenericRoutes is already a GenericRouteConfigs, append to it
+	if routes, ok := sr.GenericRoutes.(GenericRouteConfigs); ok {
+		sr.GenericRoutes = append(routes, genericRoute)
+		return
+	}
+
+	// If GenericRoutes is a single GenericRouteRegistrar, convert to GenericRouteConfigs and append
+	if route, ok := sr.GenericRoutes.(GenericRouteRegistrar); ok {
+		sr.GenericRoutes = GenericRouteConfigs{route, genericRoute}
+		return
+	}
+
+	// If GenericRoutes is something else, log a warning and replace it
+	// This shouldn't happen in normal usage, but we handle it just in case
+	sr.GenericRoutes = GenericRouteConfigs{genericRoute}
+}
+
+// RegisterSubRouterWithSubRouter registers a nested SubRouter with a parent SubRouter
+// This is a helper function that adds a SubRouter to the parent SubRouter's SubRouters field
+func RegisterSubRouterWithSubRouter(parent *SubRouterConfig, child SubRouterConfig) {
+	// Add the child SubRouter to the parent's SubRouters field
+	parent.SubRouters = append(parent.SubRouters, child)
+}
+
 // NewRouter creates a new Router with the given configuration.
 // It initializes the underlying httprouter, sets up logging, and registers routes from sub-routers.
 func NewRouter[T comparable, U any](config RouterConfig, authFunction func(context.Context, string) (U, bool), userIdFromuserFunction func(U) T) *Router[T, U] {
@@ -167,6 +243,7 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 // registerSubRouter registers all routes in a sub-router.
 // It applies the sub-router's path prefix to all routes and registers them with the router.
 func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
+	// Register regular routes
 	for _, route := range sr.Routes {
 		// Create a full path by combining the sub-router prefix with the route path
 		fullPath := sr.PathPrefix + route.Path
@@ -289,6 +366,45 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 			r.router.Handle(method, fullPath, r.convertToHTTPRouterHandle(handler))
 		}
 	}
+
+	// Register generic routes if any
+	if sr.GenericRoutes != nil {
+		// Try to cast to GenericRouteConfigs
+		if routes, ok := sr.GenericRoutes.(GenericRouteConfigs); ok {
+			for _, route := range routes {
+				err := route.RegisterWith(r, sr.PathPrefix)
+				if err != nil {
+					r.logger.Error("Failed to register generic route",
+						zap.Error(err),
+						zap.String("path_prefix", sr.PathPrefix))
+				}
+			}
+		} else {
+			// Try to cast to a single GenericRouteRegistrar
+			if route, ok := sr.GenericRoutes.(GenericRouteRegistrar); ok {
+				err := route.RegisterWith(r, sr.PathPrefix)
+				if err != nil {
+					r.logger.Error("Failed to register generic route",
+						zap.Error(err),
+						zap.String("path_prefix", sr.PathPrefix))
+				}
+			} else {
+				r.logger.Error("Invalid GenericRoutes type",
+					zap.String("path_prefix", sr.PathPrefix),
+					zap.String("type", fmt.Sprintf("%T", sr.GenericRoutes)))
+			}
+		}
+	}
+
+	// Register nested sub-routers if any
+	for _, nestedSR := range sr.SubRouters {
+		// Create a new sub-router with the combined path prefix
+		nestedSRWithPrefix := nestedSR
+		nestedSRWithPrefix.PathPrefix = sr.PathPrefix + nestedSR.PathPrefix
+
+		// Register the nested sub-router
+		r.registerSubRouter(nestedSRWithPrefix)
+	}
 }
 
 // getEffectiveCacheKeyPrefix returns the effective cache key prefix for a route.
@@ -301,6 +417,13 @@ func (r *Router[T, U]) getEffectiveCacheKeyPrefix(routePrefix, subRouterPrefix s
 		return subRouterPrefix
 	}
 	return r.config.CacheKeyPrefix
+}
+
+// RegisterSubRouter registers a sub-router with the router.
+// It applies the sub-router's path prefix to all routes and registers them with the router.
+// This is an exported wrapper for the unexported registerSubRouter method.
+func (r *Router[T, U]) RegisterSubRouter(sr SubRouterConfig) {
+	r.registerSubRouter(sr)
 }
 
 // RegisterRoute registers a route with the router.
