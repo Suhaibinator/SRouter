@@ -84,7 +84,9 @@ func testErrorHandler(req *http.Request, data TestErrorRequest) (TestErrorRespon
 func TestRegisterGenericRouteWithSubRouterUserContext(t *testing.T) {
 	// Create a logger
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync() // ignoring sync error
+	}()
 
 	// Define the auth function
 	authFunction := func(ctx context.Context, token string) (string, bool) {
@@ -251,7 +253,9 @@ func TestRegisterGenericRouteWithSubRouterUserContext(t *testing.T) {
 func TestRegisterGenericRouteWithSubRouterQuery(t *testing.T) {
 	// Create a logger
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync() // ignoring sync error
+	}()
 
 	// Define the auth function
 	authFunction := func(ctx context.Context, token string) (string, bool) {
@@ -364,7 +368,9 @@ func TestRegisterGenericRouteWithSubRouterQuery(t *testing.T) {
 func TestRegisterGenericRouteWithSubRouterError(t *testing.T) {
 	// Create a logger
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync() // ignoring sync error
+	}()
 
 	// Define the auth function
 	authFunction := func(ctx context.Context, token string) (string, bool) {
@@ -471,7 +477,9 @@ func TestRegisterGenericRouteWithSubRouterError(t *testing.T) {
 func TestCreateGenericRouteForSubRouter(t *testing.T) {
 	// Create a logger
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync() // ignoring sync error
+	}()
 
 	// Define the auth function
 	authFunction := func(ctx context.Context, token string) (string, bool) {
@@ -605,7 +613,9 @@ func TestCreateGenericRouteForSubRouter(t *testing.T) {
 func TestNestedSubRouters(t *testing.T) {
 	// Create a logger
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync() // ignoring sync error
+	}()
 
 	// Define the auth function
 	authFunction := func(ctx context.Context, token string) (string, bool) {
@@ -621,7 +631,7 @@ func TestNestedSubRouters(t *testing.T) {
 	}
 
 	// Create a router
-	r := NewRouter[string, string](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger:        logger,
 		GlobalTimeout: 5 * time.Second,
 	}, authFunction, userIdFromUserFunction)
@@ -636,7 +646,7 @@ func TestNestedSubRouters(t *testing.T) {
 				AuthLevel: NoAuth,
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
-					w.Write([]byte(`{"status":"ok"}`))
+					_, _ = w.Write([]byte(`{"status":"ok"}`))
 				},
 			},
 		},
@@ -652,7 +662,7 @@ func TestNestedSubRouters(t *testing.T) {
 				AuthLevel: NoAuth,
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
-					w.Write([]byte(`{"message":"Hello from API v1!"}`))
+					_, _ = w.Write([]byte(`{"message":"Hello from API v1!"}`))
 				},
 			},
 		},
@@ -668,7 +678,7 @@ func TestNestedSubRouters(t *testing.T) {
 				AuthLevel: NoAuth,
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
-					w.Write([]byte(`{"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]}`))
+					_, _ = w.Write([]byte(`{"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]}`))
 				},
 			},
 		},
