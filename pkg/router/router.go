@@ -1087,6 +1087,11 @@ func GetUserID[T comparable, U any](r *http.Request) (T, bool) {
 	return userID, ok
 }
 
+func GetUser[T comparable, U any](r *http.Request) (U, bool) {
+	user, ok := r.Context().Value(userObjectContextKey[U]{}).(U)
+	return user, ok
+}
+
 // getEffectiveTimeout returns the effective timeout for a route.
 // It considers route-specific, sub-router, and global timeout settings in that order of precedence.
 func (r *Router[T, U]) getEffectiveTimeout(routeTimeout, subRouterTimeout time.Duration) time.Duration {

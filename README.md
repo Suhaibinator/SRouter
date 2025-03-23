@@ -2046,6 +2046,22 @@ Retrieves all parameters from the request context:
 router.GetParams(r *http.Request) httprouter.Params
 ```
 
+### GetUserID
+
+Retrieves the user ID from the request context:
+
+```go
+router.GetUserID[T comparable, U any](r *http.Request) (T, bool)
+```
+
+### GetUser
+
+Retrieves the user object from the request context:
+
+```go
+router.GetUser[T comparable, U any](r *http.Request) (U, bool)
+```
+
 ## Error Handling Reference
 
 ### NewHTTPError
