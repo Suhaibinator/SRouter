@@ -52,103 +52,203 @@ Here's a simple example of how to use SRouter:
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
-	"time"
+ "fmt"
+ "log"
+ "net/http"
+ "time"
 
-	"github.com/Suhaibinator/SRouter/pkg/router"
-	"go.uber.org/zap"
+ "github.com/Suhaibinator/SRouter/pkg/router"
+ "go.uber.org/zap"
 )
 
 func main() {
-	// Create a logger
-	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+ // Create a logger
+ logger, _ := zap.NewProduction()
+ defer logger.Sync()
 
-	// Create a router configuration
-	routerConfig := router.RouterConfig{
-		Logger:            logger,
-		GlobalTimeout:     2 * time.Second,
-		GlobalMaxBodySize: 1 << 20, // 1 MB
-	}
+ // Create a router configuration
+ routerConfig := router.RouterConfig{
+  Logger:            logger,
+  GlobalTimeout:     2 * time.Second,
+  GlobalMaxBodySize: 1 << 20, // 1 MB
+ }
 
 // Define the auth function that takes a context and token and returns a string and a boolean
 // Note: The router's auth function includes context, but middleware auth functions don't
 authFunction := func(ctx context.Context, token string) (string, bool) {
-	// This is a simple example, so we'll just validate that the token is not empty
-	if token != "" {
-		return token, true
-	}
-	return "", false
+ // This is a simple example, so we'll just validate that the token is not empty
+ if token != "" {
+  return token, true
+ }
+ return "", false
 }
 
-	// Define the function to get the user ID from a string
-	userIdFromUserFunction := func(user string) string {
-		// In this example, we're using the string itself as the ID
-		return user
-	}
+ // Define the function to get the user ID from a string
+ userIdFromUserFunction := func(user string) string {
+  // In this example, we're using the string itself as the ID
+  return user
+ }
 
-	// Create a router with string as both the user ID and user type
-	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+ // Create a router with string as both the user ID and user type
+ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
-	// Register a simple route
-	r.RegisterRoute(router.RouteConfigBase{
-		Path:    "/hello",
-		Methods: []string{"GET"},
-		Handler: func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"message":"Hello, World!"}`))
-		},
-	})
+ // Register a simple route
+ r.RegisterRoute(router.RouteConfigBase{
+  Path:    "/hello",
+  Methods: []string{"GET"},
+  Handler: func(w http.ResponseWriter, r *http.Request) {
+   w.Header().Set("Content-Type", "application/json")
+   w.Write([]byte(`{"message":"Hello, World!"}`))
+  },
+ })
 
-	// Start the server
-	fmt.Println("Server listening on :8080")
-	log.Fatal(http.ListenAndServe(":8080", r))
+ // Start the server
+ fmt.Println("Server listening on :8080")
+ log.Fatal(http.ListenAndServe(":8080", r))
 }
 ```
 
 ### Using Sub-Routers
 
-Sub-routers allow you to group routes with a common path prefix and apply shared configuration:
+Sub-routers allow you to group routes with a common path prefix and apply shared configuration. They support both regular routes and generic routes:
 
 ```go
 // Create a router with sub-routers
 routerConfig := router.RouterConfig{
-	Logger:            logger,
-	GlobalTimeout:     2 * time.Second,
-	GlobalMaxBodySize: 1 << 20, // 1 MB
-	SubRouters: []router.SubRouterConfig{
-		{
-			PathPrefix:          "/api/v1",
-			TimeoutOverride:     3 * time.Second,
-			MaxBodySizeOverride: 2 << 20, // 2 MB
-			Routes: []router.RouteConfigBase{
-				{
-					Path:    "/users",
-					Methods: []string{"GET"},
-					Handler: ListUsersHandler,
-				},
-				{
-					Path:    "/users/:id",
-					Methods: []string{"GET"},
-					Handler: GetUserHandler,
-				},
-			},
-		},
-		{
-			PathPrefix: "/api/v2",
-			Routes: []router.RouteConfigBase{
-				{
-					Path:    "/users",
-					Methods: []string{"GET"},
-					Handler: ListUsersV2Handler,
-				},
-			},
-		},
-	},
+ Logger:            logger,
+ GlobalTimeout:     2 * time.Second,
+ GlobalMaxBodySize: 1 << 20, // 1 MB
+ SubRouters: []router.SubRouterConfig{
+  {
+   PathPrefix:          "/api/v1",
+   TimeoutOverride:     3 * time.Second,
+   MaxBodySizeOverride: 2 << 20, // 2 MB
+   Routes: []router.RouteConfigBase{
+    {
+     Path:    "/users",
+     Methods: []string{"GET"},
+     Handler: ListUsersHandler,
+    },
+    {
+     Path:    "/users/:id",
+     Methods: []string{"GET"},
+     Handler: GetUserHandler,
+    },
+   },
+  },
+  {
+   PathPrefix: "/api/v2",
+   Routes: []router.RouteConfigBase{
+    {
+     Path:    "/users",
+     Methods: []string{"GET"},
+     Handler: ListUsersV2Handler,
+    },
+   },
+  },
+ },
 }
 ```
+
+#### Registering Generic Routes with SubRouters
+
+You can register generic routes with sub-routers in two ways:
+
+1. Using the `RegisterGenericRouteWithSubRouter` function:
+
+```go
+// Create a sub-router
+subRouter := router.SubRouterConfig{
+ PathPrefix: "/api/v1",
+}
+
+// Register a generic route with the sub-router
+router.RegisterGenericRouteWithSubRouter[CreateUserReq, CreateUserResp, string, string](
+ &subRouter,
+ router.RouteConfig[CreateUserReq, CreateUserResp]{
+  Path:      "/users",
+  Methods:   []string{"POST"},
+  AuthLevel: router.AuthRequired,
+  Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
+  Handler:   CreateUserHandler,
+ },
+)
+
+// Register the sub-router with the router
+r.RegisterSubRouter(subRouter)
+```
+
+2. Using the `CreateGenericRouteForSubRouter` function and adding it to the `GenericRoutes` field:
+
+```go
+// Create a sub-router
+subRouter := router.SubRouterConfig{
+ PathPrefix: "/api/v1",
+}
+
+// Create a GenericRouteConfigs to hold multiple generic routes
+var routes router.GenericRouteConfigs
+
+// Create a generic route for the sub-router
+userRoute := router.CreateGenericRouteForSubRouter[CreateUserReq, CreateUserResp, string, string](
+ router.RouteConfig[CreateUserReq, CreateUserResp]{
+  Path:      "/users",
+  Methods:   []string{"POST"},
+  AuthLevel: router.AuthRequired,
+  Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
+  Handler:   CreateUserHandler,
+ },
+)
+
+// Add the generic route to the GenericRouteConfigs
+routes = append(routes, userRoute)
+
+// Set the GenericRoutes field of the sub-router
+subRouter.GenericRoutes = routes
+
+// Register the sub-router with the router
+r.RegisterSubRouter(subRouter)
+```
+
+#### Nested SubRouters
+
+You can also nest sub-routers to create a hierarchical routing structure:
+
+```go
+// Create a main API sub-router
+apiSubRouter := router.SubRouterConfig{
+ PathPrefix: "/api",
+}
+
+// Create a v1 sub-router
+apiV1SubRouter := router.SubRouterConfig{
+ PathPrefix: "/v1",
+}
+
+// Create a users sub-router under v1
+usersV1SubRouter := router.SubRouterConfig{
+ PathPrefix: "/users",
+ Routes: []router.RouteConfigBase{
+  {
+   Path:      "",
+   Methods:   []string{"GET"},
+   AuthLevel: router.NoAuth,
+   Handler:   ListUsersHandler,
+  },
+ },
+}
+
+// Add the users sub-router to the v1 sub-router
+router.RegisterSubRouterWithSubRouter(&apiV1SubRouter, usersV1SubRouter)
+
+// Add the v1 sub-router to the main API sub-router
+router.RegisterSubRouterWithSubRouter(&apiSubRouter, apiV1SubRouter)
+
+// Register the main API sub-router with the router
+r.RegisterSubRouter(apiSubRouter)
+```
+
+This creates routes like `/api/v1/users` with proper path prefixing.
 
 ### Using Generic Routes
 
@@ -157,33 +257,33 @@ SRouter supports generic routes for type-safe request and response handling:
 ```go
 // Define request and response types
 type CreateUserReq struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+ Name  string `json:"name"`
+ Email string `json:"email"`
 }
 
 type CreateUserResp struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
+ ID    string `json:"id"`
+ Name  string `json:"name"`
+ Email string `json:"email"`
 }
 
 // Define a generic handler
 func CreateUserHandler(r *http.Request, req CreateUserReq) (CreateUserResp, error) {
-	// In a real application, you would create a user in a database
-	return CreateUserResp{
-		ID:    "123",
-		Name:  req.Name,
-		Email: req.Email,
-	}, nil
+ // In a real application, you would create a user in a database
+ return CreateUserResp{
+  ID:    "123",
+  Name:  req.Name,
+  Email: req.Email,
+ }, nil
 }
 
 // Register the generic route
 router.RegisterGenericRoute[CreateUserReq, CreateUserResp, string](r, router.RouteConfig[CreateUserReq, CreateUserResp]{
-	Path:        "/api/users",
-	Methods:     []string{"POST"},
-	AuthLevel:   router.AuthRequired,
-	Codec:       codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
-	Handler:     CreateUserHandler,
+ Path:        "/api/users",
+ Methods:     []string{"POST"},
+ AuthLevel:   router.AuthRequired,
+ Codec:       codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
+ Handler:     CreateUserHandler,
 })
 ```
 
@@ -195,15 +295,15 @@ SRouter makes it easy to access path parameters:
 
 ```go
 func GetUserHandler(w http.ResponseWriter, r *http.Request) {
-	// Get the user ID from the path parameters
-	id := router.GetParam(r, "id")
-	
-	// Use the ID to fetch the user
-	user := fetchUser(id)
-	
-	// Return the user as JSON
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+ // Get the user ID from the path parameters
+ id := router.GetParam(r, "id")
+ 
+ // Use the ID to fetch the user
+ user := fetchUser(id)
+ 
+ // Return the user as JSON
+ w.Header().Set("Content-Type", "application/json")
+ json.NewEncoder(w).Encode(user)
 }
 ```
 
@@ -307,15 +407,15 @@ SRouter provides a `Shutdown` method for graceful shutdown:
 ```go
 // Create a server
 srv := &http.Server{
-	Addr:    ":8080",
-	Handler: r,
+ Addr:    ":8080",
+ Handler: r,
 }
 
 // Start the server in a goroutine
 go func() {
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("listen: %s\n", err)
-	}
+ if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+  log.Fatalf("listen: %s\n", err)
+ }
 }()
 
 // Wait for interrupt signal
@@ -329,12 +429,12 @@ defer cancel()
 
 // Shut down the router
 if err := r.Shutdown(ctx); err != nil {
-	log.Fatalf("Router shutdown failed: %v", err)
+ log.Fatalf("Router shutdown failed: %v", err)
 }
 
 // Shut down the server
 if err := srv.Shutdown(ctx); err != nil {
-	log.Fatalf("Server shutdown failed: %v", err)
+ log.Fatalf("Server shutdown failed: %v", err)
 }
 ```
 
@@ -590,17 +690,17 @@ The simplest approach is to use a function that returns a boolean indicating whe
 ```go
 // Create a custom authentication function
 func customAuth(r *http.Request) bool {
-	// Get the token from the Authorization header
-	token := r.Header.Get("Authorization")
-	if token == "" {
-		return false
-	}
-	
-	// Remove the "Bearer " prefix if present
-	token = strings.TrimPrefix(token, "Bearer ")
-	
-	// Validate the token (e.g., verify JWT, check against database, etc.)
-	return validateToken(token)
+ // Get the token from the Authorization header
+ token := r.Header.Get("Authorization")
+ if token == "" {
+  return false
+ }
+ 
+ // Remove the "Bearer " prefix if present
+ token = strings.TrimPrefix(token, "Bearer ")
+ 
+ // Validate the token (e.g., verify JWT, check against database, etc.)
+ return validateToken(token)
 }
 
 // Create a middleware that uses the custom authentication function
@@ -608,13 +708,13 @@ authMiddleware := middleware.Authentication(customAuth)
 
 // Apply the middleware to a route
 r.RegisterRoute(router.RouteConfigBase{
-	Path:        "/protected",
-	Methods:     []string{"GET"},
-	AuthLevel:   router.AuthRequired,
-	Handler:     ProtectedHandler,
-	Middlewares: []common.Middleware{
-		authMiddleware,
-	},
+ Path:        "/protected",
+ Methods:     []string{"GET"},
+ AuthLevel:   router.AuthRequired,
+ Handler:     ProtectedHandler,
+ Middlewares: []common.Middleware{
+  authMiddleware,
+ },
 })
 ```
 
@@ -629,30 +729,30 @@ For more advanced use cases, you can use a function that returns a user object a
 ```go
 // Define your User type
 type User struct {
-	ID    string
-	Name  string
-	Email string
-	Roles []string
+ ID    string
+ Name  string
+ Email string
+ Roles []string
 }
 
 // Create a custom authentication function that returns a User
 func customUserAuth(r *http.Request) (*User, error) {
-	// Get the token from the Authorization header
-	token := r.Header.Get("Authorization")
-	if token == "" {
-		return nil, errors.New("no authorization header")
-	}
-	
-	// Remove the "Bearer " prefix if present
-	token = strings.TrimPrefix(token, "Bearer ")
-	
-	// Validate the token and retrieve the user
-	user, err := validateTokenAndGetUser(token)
-	if err != nil {
-		return nil, err
-	}
-	
-	return user, nil
+ // Get the token from the Authorization header
+ token := r.Header.Get("Authorization")
+ if token == "" {
+  return nil, errors.New("no authorization header")
+ }
+ 
+ // Remove the "Bearer " prefix if present
+ token = strings.TrimPrefix(token, "Bearer ")
+ 
+ // Validate the token and retrieve the user
+ user, err := validateTokenAndGetUser(token)
+ if err != nil {
+  return nil, err
+ }
+ 
+ return user, nil
 }
 
 // Create a middleware that uses the custom authentication function
@@ -660,23 +760,23 @@ authMiddleware := middleware.AuthenticationWithUser[User](customUserAuth)
 
 // Apply the middleware to a route
 r.RegisterRoute(router.RouteConfigBase{
-	Path:        "/protected",
-	Methods:     []string{"GET"},
-	AuthLevel:   router.AuthRequired,
-	Middlewares: []common.Middleware{
-		authMiddleware,
-	},
-	Handler: func(w http.ResponseWriter, r *http.Request) {
-		// Get the user from the context
-		user := middleware.GetUser[User](r)
-		if user == nil {
-			http.Error(w, "User not found in context", http.StatusInternalServerError)
-			return
-		}
-		
-		// Use the user object
-		fmt.Fprintf(w, "Hello, %s!", user.Name)
-	},
+ Path:        "/protected",
+ Methods:     []string{"GET"},
+ AuthLevel:   router.AuthRequired,
+ Middlewares: []common.Middleware{
+  authMiddleware,
+ },
+ Handler: func(w http.ResponseWriter, r *http.Request) {
+  // Get the user from the context
+  user := middleware.GetUser[User](r)
+  if user == nil {
+   http.Error(w, "User not found in context", http.StatusInternalServerError)
+   return
+  }
+  
+  // Use the user object
+  fmt.Fprintf(w, "Hello, %s!", user.Name)
+ },
 })
 ```
 
@@ -685,55 +785,55 @@ SRouter provides several pre-built user authentication providers:
 ```go
 // Basic Authentication with User
 middleware.NewBasicAuthWithUserMiddleware[User](
-	func(username, password string) (*User, error) {
-		// Validate credentials and return user
-		if username == "user1" && password == "password1" {
-			return &User{
-				ID:    "1",
-				Name:  "User One",
-				Email: "user1@example.com",
-				Roles: []string{"user"},
-			}, nil
-		}
-		return nil, errors.New("invalid credentials")
-	},
-	logger,
+ func(username, password string) (*User, error) {
+  // Validate credentials and return user
+  if username == "user1" && password == "password1" {
+   return &User{
+    ID:    "1",
+    Name:  "User One",
+    Email: "user1@example.com",
+    Roles: []string{"user"},
+   }, nil
+  }
+  return nil, errors.New("invalid credentials")
+ },
+ logger,
 )
 
 // Bearer Token Authentication with User
 middleware.NewBearerTokenWithUserMiddleware[User](
-	func(token string) (*User, error) {
-		// Validate token and return user
-		if token == "valid-token" {
-			return &User{
-				ID:    "1",
-				Name:  "User One",
-				Email: "user1@example.com",
-				Roles: []string{"user"},
-			}, nil
-		}
-		return nil, errors.New("invalid token")
-	},
-	logger,
+ func(token string) (*User, error) {
+  // Validate token and return user
+  if token == "valid-token" {
+   return &User{
+    ID:    "1",
+    Name:  "User One",
+    Email: "user1@example.com",
+    Roles: []string{"user"},
+   }, nil
+  }
+  return nil, errors.New("invalid token")
+ },
+ logger,
 )
 
 // API Key Authentication with User
 middleware.NewAPIKeyWithUserMiddleware[User](
-	func(key string) (*User, error) {
-		// Validate API key and return user
-		if key == "valid-key" {
-			return &User{
-				ID:    "1",
-				Name:  "User One",
-				Email: "user1@example.com",
-				Roles: []string{"user"},
-			}, nil
-		}
-		return nil, errors.New("invalid API key")
-	},
-	"X-API-Key",
-	"api_key",
-	logger,
+ func(key string) (*User, error) {
+  // Validate API key and return user
+  if key == "valid-key" {
+   return &User{
+    ID:    "1",
+    Name:  "User One",
+    Email: "user1@example.com",
+    Roles: []string{"user"},
+   }, nil
+  }
+  return nil, errors.New("invalid API key")
+ },
+ "X-API-Key",
+ "api_key",
+ logger,
 )
 ```
 
@@ -746,30 +846,30 @@ You can create custom HTTP errors with specific status codes and messages:
 ```go
 // Create a custom HTTP error
 func NotFoundError(resourceType, id string) *router.HTTPError {
-	return router.NewHTTPError(
-		http.StatusNotFound,
-		fmt.Sprintf("%s with ID %s not found", resourceType, id),
-	)
+ return router.NewHTTPError(
+  http.StatusNotFound,
+  fmt.Sprintf("%s with ID %s not found", resourceType, id),
+ )
 }
 
 // Use the custom error in a handler
 func GetUserHandler(r *http.Request, req GetUserReq) (GetUserResp, error) {
-	// Get the user ID from the request
-	id := req.ID
-	
-	// Try to find the user
-	user, found := findUser(id)
-	if !found {
-		// Return a custom error
-		return GetUserResp{}, NotFoundError("User", id)
-	}
-	
-	// Return the user
-	return GetUserResp{
-		ID:    user.ID,
-		Name:  user.Name,
-		Email: user.Email,
-	}, nil
+ // Get the user ID from the request
+ id := req.ID
+ 
+ // Try to find the user
+ user, found := findUser(id)
+ if !found {
+  // Return a custom error
+  return GetUserResp{}, NotFoundError("User", id)
+ }
+ 
+ // Return the user
+ return GetUserResp{
+  ID:    user.ID,
+  Name:  user.Name,
+  Email: user.Email,
+ }, nil
 }
 ```
 
@@ -780,31 +880,31 @@ You can create custom middleware to add functionality to your routes:
 ```go
 // Create a custom middleware that adds a request ID to the context
 func RequestID() common.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Generate a request ID
-			requestID := uuid.New().String()
-			
-			// Add it to the context
-			ctx := context.WithValue(r.Context(), "request_id", requestID)
-			
-			// Add it to the response headers
-			w.Header().Set("X-Request-ID", requestID)
-			
-			// Call the next handler with the updated request
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
+ return func(next http.Handler) http.Handler {
+  return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+   // Generate a request ID
+   requestID := uuid.New().String()
+   
+   // Add it to the context
+   ctx := context.WithValue(r.Context(), "request_id", requestID)
+   
+   // Add it to the response headers
+   w.Header().Set("X-Request-ID", requestID)
+   
+   // Call the next handler with the updated request
+   next.ServeHTTP(w, r.WithContext(ctx))
+  })
+ }
 }
 
 // Apply the middleware to the router
 routerConfig := router.RouterConfig{
-	// ...
-	Middlewares: []common.Middleware{
-		RequestID(),
-		middleware.Logging(logger),
-	},
-	// ...
+ // ...
+ Middlewares: []common.Middleware{
+  RequestID(),
+  middleware.Logging(logger),
+ },
+ // ...
 }
 ```
 
@@ -819,6 +919,7 @@ SRouter provides flexible ways to retrieve and decode request data beyond just t
 SRouter supports the following source types:
 
 1. **Body** (default): Retrieves data from the request body.
+
    ```go
    router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
        // ...
@@ -827,6 +928,7 @@ SRouter supports the following source types:
    ```
 
 2. **Base64QueryParameter**: Retrieves data from a base64-encoded query parameter.
+
    ```go
    router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
        // ...
@@ -836,6 +938,7 @@ SRouter supports the following source types:
    ```
 
 3. **Base62QueryParameter**: Retrieves data from a base62-encoded query parameter.
+
    ```go
    router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
        // ...
@@ -845,6 +948,7 @@ SRouter supports the following source types:
    ```
 
 4. **Base64PathParameter**: Retrieves data from a base64-encoded path parameter.
+
    ```go
    router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
        Path:       "/users/:data",
@@ -855,6 +959,7 @@ SRouter supports the following source types:
    ```
 
 5. **Base62PathParameter**: Retrieves data from a base62-encoded path parameter.
+
    ```go
    router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
        Path:       "/users/:data",
@@ -872,109 +977,109 @@ Here's a complete example of using different source types:
 package main
 
 import (
-	"context"
-	"encoding/base64"
-	"encoding/json"
-	"fmt"
-	"log"
-	"net/http"
-	"time"
+ "context"
+ "encoding/base64"
+ "encoding/json"
+ "fmt"
+ "log"
+ "net/http"
+ "time"
 
-	"github.com/Suhaibinator/SRouter/pkg/codec"
-	"github.com/Suhaibinator/SRouter/pkg/router"
-	"go.uber.org/zap"
+ "github.com/Suhaibinator/SRouter/pkg/codec"
+ "github.com/Suhaibinator/SRouter/pkg/router"
+ "go.uber.org/zap"
 )
 
 // Define request and response types
 type UserRequest struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+ ID   string `json:"id"`
+ Name string `json:"name"`
 }
 
 type UserResponse struct {
-	Message string `json:"message"`
-	ID      string `json:"id"`
-	Name    string `json:"name"`
+ Message string `json:"message"`
+ ID      string `json:"id"`
+ Name    string `json:"name"`
 }
 
 // Define a handler
 func UserHandler(r *http.Request, req UserRequest) (UserResponse, error) {
-	return UserResponse{
-		Message: "Hello, " + req.Name + "!",
-		ID:      req.ID,
-		Name:    req.Name,
-	}, nil
+ return UserResponse{
+  Message: "Hello, " + req.Name + "!",
+  ID:      req.ID,
+  Name:    req.Name,
+ }, nil
 }
 
 func main() {
-	// Create a logger
-	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+ // Create a logger
+ logger, _ := zap.NewProduction()
+ defer logger.Sync()
 
-	// Create a router configuration
-	routerConfig := router.RouterConfig{
-		Logger:            logger,
-		GlobalTimeout:     2 * time.Second,
-		GlobalMaxBodySize: 1 << 20, // 1 MB
-	}
+ // Create a router configuration
+ routerConfig := router.RouterConfig{
+  Logger:            logger,
+  GlobalTimeout:     2 * time.Second,
+  GlobalMaxBodySize: 1 << 20, // 1 MB
+ }
 
-	// Define auth and user ID functions
-	authFunction := func(ctx context.Context, token string) (string, bool) {
-		return token, token != ""
-	}
+ // Define auth and user ID functions
+ authFunction := func(ctx context.Context, token string) (string, bool) {
+  return token, token != ""
+ }
 
-	userIdFromUserFunction := func(user string) string {
-		return user
-	}
+ userIdFromUserFunction := func(user string) string {
+  return user
+ }
 
-	// Create a router
-	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+ // Create a router
+ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
-	// Register routes with different source types
+ // Register routes with different source types
 
-	// 1. Standard body-based route (default)
-	router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
-		Path:    "/users/body/:id",
-		Methods: []string{"POST"},
-		Codec:   codec.NewJSONCodec[UserRequest, UserResponse](),
-		Handler: UserHandler,
-		// SourceType defaults to Body
-	})
+ // 1. Standard body-based route (default)
+ router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
+  Path:    "/users/body/:id",
+  Methods: []string{"POST"},
+  Codec:   codec.NewJSONCodec[UserRequest, UserResponse](),
+  Handler: UserHandler,
+  // SourceType defaults to Body
+ })
 
-	// 2. Base64 query parameter route
-	router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
-		Path:       "/users/query/:id",
-		Methods:    []string{"GET"},
-		Codec:      codec.NewJSONCodec[UserRequest, UserResponse](),
-		Handler:    UserHandler,
-		SourceType: router.Base64QueryParameter,
-		SourceKey:  "data", // Will look for ?data=base64encodedstring
-	})
+ // 2. Base64 query parameter route
+ router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
+  Path:       "/users/query/:id",
+  Methods:    []string{"GET"},
+  Codec:      codec.NewJSONCodec[UserRequest, UserResponse](),
+  Handler:    UserHandler,
+  SourceType: router.Base64QueryParameter,
+  SourceKey:  "data", // Will look for ?data=base64encodedstring
+ })
 
-	// 3. Base64 path parameter route
-	router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
-		Path:       "/users/path/:data",
-		Methods:    []string{"GET"},
-		Codec:      codec.NewJSONCodec[UserRequest, UserResponse](),
-		Handler:    UserHandler,
-		SourceType: router.Base64PathParameter,
-		SourceKey:  "data", // Will use the :data path parameter
-	})
+ // 3. Base64 path parameter route
+ router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
+  Path:       "/users/path/:data",
+  Methods:    []string{"GET"},
+  Codec:      codec.NewJSONCodec[UserRequest, UserResponse](),
+  Handler:    UserHandler,
+  SourceType: router.Base64PathParameter,
+  SourceKey:  "data", // Will use the :data path parameter
+ })
 
-	// Start the server
-	fmt.Println("Server listening on :8080")
-	
-	// Example of how to create a base64-encoded request
-	reqData := UserRequest{ID: "123", Name: "John"}
-	jsonBytes, _ := json.Marshal(reqData)
-	base64Data := base64.StdEncoding.EncodeToString(jsonBytes)
-	
-	fmt.Println("Example curl commands:")
-	fmt.Println("  curl -X POST -H \"Content-Type: application/json\" -d '{\"id\":\"123\",\"name\":\"John\"}' http://localhost:8080/users/body/123")
-	fmt.Printf("  curl -X GET \"http://localhost:8080/users/query/123?data=%s\"\n", base64Data)
-	fmt.Printf("  curl -X GET http://localhost:8080/users/path/%s\n", base64Data)
-	
-	log.Fatal(http.ListenAndServe(":8080", r))
+ // Start the server
+ fmt.Println("Server listening on :8080")
+ 
+ // Example of how to create a base64-encoded request
+ reqData := UserRequest{ID: "123", Name: "John"}
+ jsonBytes, _ := json.Marshal(reqData)
+ base64Data := base64.StdEncoding.EncodeToString(jsonBytes)
+ 
+ fmt.Println("Example curl commands:")
+ fmt.Println("  curl -X POST -H \"Content-Type: application/json\" -d '{\"id\":\"123\",\"name\":\"John\"}' http://localhost:8080/users/body/123")
+ fmt.Printf("  curl -X GET \"http://localhost:8080/users/query/123?data=%s\"\n", base64Data)
+ fmt.Printf("  curl -X GET http://localhost:8080/users/path/%s\n", base64Data)
+ 
+ log.Fatal(http.ListenAndServe(":8080", r))
 }
 ```
 
@@ -1008,28 +1113,28 @@ To enable caching, you need to:
 ```go
 // Create a simple in-memory cache
 type InMemoryCache struct {
-	cache map[string][]byte
-	mu    sync.RWMutex
+ cache map[string][]byte
+ mu    sync.RWMutex
 }
 
 func NewInMemoryCache() *InMemoryCache {
-	return &InMemoryCache{
-		cache: make(map[string][]byte),
-	}
+ return &InMemoryCache{
+  cache: make(map[string][]byte),
+ }
 }
 
 func (c *InMemoryCache) Get(key string) ([]byte, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	value, found := c.cache[key]
-	return value, found
+ c.mu.RLock()
+ defer c.mu.RUnlock()
+ value, found := c.cache[key]
+ return value, found
 }
 
 func (c *InMemoryCache) Set(key string, value []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.cache[key] = value
-	return nil
+ c.mu.Lock()
+ defer c.mu.Unlock()
+ c.cache[key] = value
+ return nil
 }
 
 // Create a cache instance
@@ -1037,10 +1142,10 @@ cache := NewInMemoryCache()
 
 // Configure the router with cache functions
 routerConfig := router.RouterConfig{
-	// ... other config
-	CacheGet: cache.Get,
-	CacheSet: cache.Set,
-	CacheKeyPrefix: "global:", // Global prefix for all cache keys
+ // ... other config
+ CacheGet: cache.Get,
+ CacheSet: cache.Set,
+ CacheKeyPrefix: "global:", // Global prefix for all cache keys
 }
 
 // Create a router
@@ -1048,24 +1153,24 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 
 // Register routes with caching enabled
 router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
-	Path:          "/users/query",
-	Methods:       []string{"GET"},
-	Codec:         jsonCodec,
-	Handler:       getUserHandler,
-	SourceType:    router.Base64QueryParameter,
-	SourceKey:     "data",
-	CacheResponse: true, // Enable caching for this route
-	CacheKeyPrefix: "users:", // Route-specific prefix (will override global prefix)
+ Path:          "/users/query",
+ Methods:       []string{"GET"},
+ Codec:         jsonCodec,
+ Handler:       getUserHandler,
+ SourceType:    router.Base64QueryParameter,
+ SourceKey:     "data",
+ CacheResponse: true, // Enable caching for this route
+ CacheKeyPrefix: "users:", // Route-specific prefix (will override global prefix)
 })
 
 // Create a sub-router with caching enabled for all routes
 subRouter := router.SubRouterConfig{
-	PathPrefix:     "/api/v1",
-	CacheResponse:  true, // Enable caching for all routes in this sub-router
-	CacheKeyPrefix: "api-v1:", // Sub-router specific prefix
-	Routes: []router.RouteConfigBase{
-		// Routes will inherit caching settings from the sub-router
-	},
+ PathPrefix:     "/api/v1",
+ CacheResponse:  true, // Enable caching for all routes in this sub-router
+ CacheKeyPrefix: "api-v1:", // Sub-router specific prefix
+ Routes: []router.RouteConfigBase{
+  // Routes will inherit caching settings from the sub-router
+ },
 }
 ```
 
@@ -1088,44 +1193,44 @@ For example:
 ```go
 // Global prefix: "global:"
 routerConfig := router.RouterConfig{
-	// ... other config
-	CacheGet: cache.Get,
-	CacheSet: cache.Set,
-	CacheKeyPrefix: "global:",
-	SubRouters: []router.SubRouterConfig{
-		{
-			PathPrefix: "/api/v1",
-			CacheResponse: true,
-			CacheKeyPrefix: "api-v1:", // Override global prefix for this sub-router
-			Routes: []router.RouteConfigBase{
-				// These routes will use "api-v1:" as their cache key prefix
-			},
-		},
-		{
-			PathPrefix: "/api/v2",
-			CacheResponse: true,
-			// No CacheKeyPrefix, will use global prefix "global:"
-			Routes: []router.RouteConfigBase{
-				// These routes will use "global:" as their cache key prefix
-			},
-		},
-	},
+ // ... other config
+ CacheGet: cache.Get,
+ CacheSet: cache.Set,
+ CacheKeyPrefix: "global:",
+ SubRouters: []router.SubRouterConfig{
+  {
+   PathPrefix: "/api/v1",
+   CacheResponse: true,
+   CacheKeyPrefix: "api-v1:", // Override global prefix for this sub-router
+   Routes: []router.RouteConfigBase{
+    // These routes will use "api-v1:" as their cache key prefix
+   },
+  },
+  {
+   PathPrefix: "/api/v2",
+   CacheResponse: true,
+   // No CacheKeyPrefix, will use global prefix "global:"
+   Routes: []router.RouteConfigBase{
+    // These routes will use "global:" as their cache key prefix
+   },
+  },
+ },
 }
 
 // Route-specific prefix: "users:"
 router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
-	Path: "/api/v1/users/query",
-	// ... other config
-	CacheResponse: true,
-	CacheKeyPrefix: "users:", // Override sub-router prefix for this route
+ Path: "/api/v1/users/query",
+ // ... other config
+ CacheResponse: true,
+ CacheKeyPrefix: "users:", // Override sub-router prefix for this route
 })
 
 // No route-specific prefix, will use sub-router prefix "api-v1:"
 router.RegisterGenericRoute[UserRequest, UserResponse, string](r, router.RouteConfig[UserRequest, UserResponse]{
-	Path: "/api/v1/products/query",
-	// ... other config
-	CacheResponse: true,
-	// No CacheKeyPrefix, will use sub-router prefix "api-v1:"
+ Path: "/api/v1/products/query",
+ // ... other config
+ CacheResponse: true,
+ // No CacheKeyPrefix, will use sub-router prefix "api-v1:"
 })
 ```
 
@@ -1172,22 +1277,22 @@ import "github.com/go-redis/redis/v8"
 
 // Create a Redis client
 rdb := redis.NewClient(&redis.Options{
-	Addr: "localhost:6379",
+ Addr: "localhost:6379",
 })
 
 // Configure the router with Redis cache functions
 routerConfig := router.RouterConfig{
-	// ... other config
-	CacheGet: func(key string) ([]byte, bool) {
-		val, err := rdb.Get(context.Background(), key).Bytes()
-		if err != nil {
-			return nil, false
-		}
-		return val, true
-	},
-	CacheSet: func(key string, value []byte) error {
-		return rdb.Set(context.Background(), key, value, time.Hour).Err()
-	},
+ // ... other config
+ CacheGet: func(key string) ([]byte, bool) {
+  val, err := rdb.Get(context.Background(), key).Bytes()
+  if err != nil {
+   return nil, false
+  }
+  return val, true
+ },
+ CacheSet: func(key string, value []byte) error {
+  return rdb.Set(context.Background(), key, value, time.Hour).Err()
+ },
 }
 ```
 
@@ -1202,51 +1307,51 @@ You can create custom codecs for different data formats:
 type XMLCodec[T any, U any] struct{}
 
 func (c *XMLCodec[T, U]) Decode(r *http.Request) (T, error) {
-	var data T
-	
-	// Read the request body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return data, err
-	}
-	defer r.Body.Close()
-	
-	// Unmarshal the XML
-	err = xml.Unmarshal(body, &data)
-	if err != nil {
-		return data, err
-	}
-	
-	return data, nil
+ var data T
+ 
+ // Read the request body
+ body, err := io.ReadAll(r.Body)
+ if err != nil {
+  return data, err
+ }
+ defer r.Body.Close()
+ 
+ // Unmarshal the XML
+ err = xml.Unmarshal(body, &data)
+ if err != nil {
+  return data, err
+ }
+ 
+ return data, nil
 }
 
 func (c *XMLCodec[T, U]) Encode(w http.ResponseWriter, resp U) error {
-	// Set the content type
-	w.Header().Set("Content-Type", "application/xml")
-	
-	// Marshal the response
-	body, err := xml.Marshal(resp)
-	if err != nil {
-		return err
-	}
-	
-	// Write the response
-	_, err = w.Write(body)
-	return err
+ // Set the content type
+ w.Header().Set("Content-Type", "application/xml")
+ 
+ // Marshal the response
+ body, err := xml.Marshal(resp)
+ if err != nil {
+  return err
+ }
+ 
+ // Write the response
+ _, err = w.Write(body)
+ return err
 }
 
 // Create a new XML codec
 func NewXMLCodec[T any, U any]() *XMLCodec[T, U] {
-	return &XMLCodec[T, U]{}
+ return &XMLCodec[T, U]{}
 }
 
 // Use the XML codec with a generic route
 router.RegisterGenericRoute[CreateUserReq, CreateUserResp, string](r, router.RouteConfig[CreateUserReq, CreateUserResp]{
-	Path:        "/api/users",
-	Methods:     []string{"POST"},
-	AuthLevel:   router.NoAuth, // No authentication required
-	Codec:       NewXMLCodec[CreateUserReq, CreateUserResp](),
-	Handler:     CreateUserHandler,
+ Path:        "/api/users",
+ Methods:     []string{"POST"},
+ AuthLevel:   router.NoAuth, // No authentication required
+ Codec:       NewXMLCodec[CreateUserReq, CreateUserResp](),
+ Handler:     CreateUserHandler,
 })
 ```
 
@@ -1277,48 +1382,48 @@ Here's an example of using Prometheus metrics with SRouter:
 package main
 
 import (
-	"context"
-	"fmt"
-	"log"
-	"net/http"
-	"time"
+ "context"
+ "fmt"
+ "log"
+ "net/http"
+ "time"
 
-	"github.com/Suhaibinator/SRouter/pkg/metrics"
-	"github.com/Suhaibinator/SRouter/pkg/router"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.uber.org/zap"
+ "github.com/Suhaibinator/SRouter/pkg/metrics"
+ "github.com/Suhaibinator/SRouter/pkg/router"
+ "github.com/prometheus/client_golang/prometheus"
+ "github.com/prometheus/client_golang/prometheus/promhttp"
+ "go.uber.org/zap"
 )
 
 // PrometheusRegistry implements the metrics.MetricsRegistry interface
 type PrometheusRegistry struct {
-	registry *prometheus.Registry
+ registry *prometheus.Registry
 }
 
 func NewPrometheusRegistry() *PrometheusRegistry {
-	return &PrometheusRegistry{
-		registry: prometheus.NewRegistry(),
-	}
+ return &PrometheusRegistry{
+  registry: prometheus.NewRegistry(),
+ }
 }
 
 // Implement the metrics.MetricsRegistry interface methods...
 
 // Create a router configuration with metrics enabled
 routerConfig := router.RouterConfig{
-	Logger:            logger,
-	GlobalTimeout:     2 * time.Second,
-	GlobalMaxBodySize: 1 << 20, // 1 MB
-	EnableMetrics:     true,
-	MetricsConfig: &router.MetricsConfig{
-		Collector:        registry, // Your implementation of metrics.MetricsRegistry
-		Namespace:        "myapp",
-		Subsystem:        "api",
-		EnableLatency:    true,
-		EnableThroughput: true,
-		EnableQPS:        true,
-		EnableErrors:     true,
-	},
-	// ...
+ Logger:            logger,
+ GlobalTimeout:     2 * time.Second,
+ GlobalMaxBodySize: 1 << 20, // 1 MB
+ EnableMetrics:     true,
+ MetricsConfig: &router.MetricsConfig{
+  Collector:        registry, // Your implementation of metrics.MetricsRegistry
+  Namespace:        "myapp",
+  Subsystem:        "api",
+  EnableLatency:    true,
+  EnableThroughput: true,
+  EnableQPS:        true,
+  EnableErrors:     true,
+ },
+ // ...
 }
 
 // Create a router
@@ -1345,70 +1450,70 @@ You can create your own metrics implementation by implementing the interfaces de
 ```go
 // Create a custom metrics registry
 type CustomRegistry struct {
-	// Your implementation details
+ // Your implementation details
 }
 
 // Implement the metrics.MetricsRegistry interface
 func (r *CustomRegistry) Register(metric metrics.Metric) error {
-	// Your implementation
+ // Your implementation
 }
 
 func (r *CustomRegistry) Get(name string) (metrics.Metric, bool) {
-	// Your implementation
+ // Your implementation
 }
 
 func (r *CustomRegistry) Unregister(name string) bool {
-	// Your implementation
+ // Your implementation
 }
 
 func (r *CustomRegistry) Clear() {
-	// Your implementation
+ // Your implementation
 }
 
 func (r *CustomRegistry) Snapshot() metrics.MetricsSnapshot {
-	// Your implementation
+ // Your implementation
 }
 
 func (r *CustomRegistry) WithTags(tags metrics.Tags) metrics.MetricsRegistry {
-	// Your implementation
+ // Your implementation
 }
 
 func (r *CustomRegistry) NewCounter() metrics.CounterBuilder {
-	// Your implementation
+ // Your implementation
 }
 
 func (r *CustomRegistry) NewGauge() metrics.GaugeBuilder {
-	// Your implementation
+ // Your implementation
 }
 
 func (r *CustomRegistry) NewHistogram() metrics.HistogramBuilder {
-	// Your implementation
+ // Your implementation
 }
 
 func (r *CustomRegistry) NewSummary() metrics.SummaryBuilder {
-	// Your implementation
+ // Your implementation
 }
 
 // Create a custom metrics exporter
 type CustomExporter struct {
-	// Your implementation details
+ // Your implementation details
 }
 
 // Implement the metrics.MetricsExporter interface
 func (e *CustomExporter) Export(snapshot metrics.MetricsSnapshot) error {
-	// Your implementation
+ // Your implementation
 }
 
 func (e *CustomExporter) Start() error {
-	// Your implementation
+ // Your implementation
 }
 
 func (e *CustomExporter) Stop() error {
-	// Your implementation
+ // Your implementation
 }
 
 func (e *CustomExporter) Handler() http.Handler {
-	// Your implementation
+ // Your implementation
 }
 ```
 
@@ -1425,18 +1530,18 @@ You can configure which metrics are collected using the `MetricsConfig`:
 
 ```go
 routerConfig := router.RouterConfig{
-	// ...
-	EnableMetrics: true,
-	MetricsConfig: &router.MetricsConfig{
-		Collector:        registry,
-		Namespace:        "myapp",
-		Subsystem:        "api",
-		EnableLatency:    true,  // Enable latency metrics
-		EnableThroughput: true,  // Enable throughput metrics
-		EnableQPS:        true,  // Enable QPS metrics
-		EnableErrors:     true,  // Enable error metrics
-	},
-	// ...
+ // ...
+ EnableMetrics: true,
+ MetricsConfig: &router.MetricsConfig{
+  Collector:        registry,
+  Namespace:        "myapp",
+  Subsystem:        "api",
+  EnableLatency:    true,  // Enable latency metrics
+  EnableThroughput: true,  // Enable throughput metrics
+  EnableQPS:        true,  // Enable QPS metrics
+  EnableErrors:     true,  // Enable error metrics
+ },
+ // ...
 }
 ```
 
@@ -1447,32 +1552,32 @@ You can customize metrics collection by implementing the `MetricsFilter` and `Me
 ```go
 // Create a custom metrics filter
 type CustomFilter struct {
-	// Your implementation details
+ // Your implementation details
 }
 
 // Implement the metrics.MetricsFilter interface
 func (f *CustomFilter) Filter(r *http.Request) bool {
-	// Return true if metrics should be collected for this request
-	return r.URL.Path != "/health" // Don't collect metrics for health checks
+ // Return true if metrics should be collected for this request
+ return r.URL.Path != "/health" // Don't collect metrics for health checks
 }
 
 // Create a custom metrics sampler
 type CustomSampler struct {
-	// Your implementation details
+ // Your implementation details
 }
 
 // Implement the metrics.MetricsSampler interface
 func (s *CustomSampler) Sample() bool {
-	// Return true if this request should be sampled
-	return rand.Float64() < 0.1 // Sample 10% of requests
+ // Return true if this request should be sampled
+ return rand.Float64() < 0.1 // Sample 10% of requests
 }
 
 // Create a metrics middleware with the custom filter and sampler
 middleware := metrics.NewMetricsMiddleware(registry, metrics.MetricsMiddlewareConfig{
-	EnableLatency:    true,
-	EnableThroughput: true,
-	EnableQPS:        true,
-	EnableErrors:     true,
+ EnableLatency:    true,
+ EnableThroughput: true,
+ EnableQPS:        true,
+ EnableErrors:     true,
 }).WithFilter(&CustomFilter{}).WithSampler(&CustomSampler{})
 ```
 
@@ -1494,6 +1599,8 @@ SRouter includes several examples to help you get started:
 - **examples/rate-limiting**: An example of using rate limiting with SRouter
 - **examples/source-types**: An example of using different source types for request data
 - **examples/subrouters**: An example of using sub-routers with SRouter
+- **examples/subrouter-generic-routes**: An example of using generic routes with sub-routers
+- **examples/nested-subrouters**: An example of nesting sub-routers for hierarchical routing
 - **examples/trace-logging**: An example of using trace ID logging with SRouter
 - **examples/caching**: An example of using response caching with SRouter
 
@@ -1505,22 +1612,22 @@ Each example includes a complete, runnable application that demonstrates a speci
 
 ```go
 type RouterConfig struct {
-	Logger             *zap.Logger                           // Logger for all router operations
-	GlobalTimeout      time.Duration                         // Default response timeout for all routes
-	GlobalMaxBodySize  int64                                 // Default maximum request body size in bytes
-	GlobalRateLimit    *middleware.RateLimitConfig[any, any] // Default rate limit for all routes
-	IPConfig           *middleware.IPConfig                  // Configuration for client IP extraction
-	EnableMetrics      bool                                  // Enable metrics collection
-	EnableTracing      bool                                  // Enable distributed tracing
-	EnableTraceID      bool                                  // Enable trace ID logging
-	PrometheusConfig   *PrometheusConfig                     // Prometheus metrics configuration (optional, deprecated)
-	MetricsConfig      *MetricsConfig                        // Metrics configuration (optional)
-	SubRouters         []SubRouterConfig                     // Sub-routers with their own configurations
-	Middlewares        []common.Middleware                   // Global middlewares applied to all routes
-	AddUserObjectToCtx bool                                  // Add user object to context
-	CacheGet           func(string) ([]byte, bool)           // Function to retrieve cached responses
-	CacheSet           func(string, []byte) error            // Function to store responses in the cache
-	CacheKeyPrefix     string                                // Prefix for cache keys to avoid collisions
+ Logger             *zap.Logger                           // Logger for all router operations
+ GlobalTimeout      time.Duration                         // Default response timeout for all routes
+ GlobalMaxBodySize  int64                                 // Default maximum request body size in bytes
+ GlobalRateLimit    *middleware.RateLimitConfig[any, any] // Default rate limit for all routes
+ IPConfig           *middleware.IPConfig                  // Configuration for client IP extraction
+ EnableMetrics      bool                                  // Enable metrics collection
+ EnableTracing      bool                                  // Enable distributed tracing
+ EnableTraceID      bool                                  // Enable trace ID logging
+ PrometheusConfig   *PrometheusConfig                     // Prometheus metrics configuration (optional, deprecated)
+ MetricsConfig      *MetricsConfig                        // Metrics configuration (optional)
+ SubRouters         []SubRouterConfig                     // Sub-routers with their own configurations
+ Middlewares        []common.Middleware                   // Global middlewares applied to all routes
+ AddUserObjectToCtx bool                                  // Add user object to context
+ CacheGet           func(string) ([]byte, bool)           // Function to retrieve cached responses
+ CacheSet           func(string, []byte) error            // Function to store responses in the cache
+ CacheKeyPrefix     string                                // Prefix for cache keys to avoid collisions
 }
 ```
 
@@ -1528,13 +1635,13 @@ type RouterConfig struct {
 
 ```go
 type PrometheusConfig struct {
-	Registry         interface{} // Prometheus registry (prometheus.Registerer)
-	Namespace        string      // Namespace for metrics
-	Subsystem        string      // Subsystem for metrics
-	EnableLatency    bool        // Enable latency metrics
-	EnableThroughput bool        // Enable throughput metrics
-	EnableQPS        bool        // Enable queries per second metrics
-	EnableErrors     bool        // Enable error metrics
+ Registry         interface{} // Prometheus registry (prometheus.Registerer)
+ Namespace        string      // Namespace for metrics
+ Subsystem        string      // Subsystem for metrics
+ EnableLatency    bool        // Enable latency metrics
+ EnableThroughput bool        // Enable throughput metrics
+ EnableQPS        bool        // Enable queries per second metrics
+ EnableErrors     bool        // Enable error metrics
 }
 ```
 
@@ -1542,35 +1649,35 @@ type PrometheusConfig struct {
 
 ```go
 type MetricsConfig struct {
-	// Collector is the metrics collector to use.
-	// If nil, a default collector will be used if metrics are enabled.
-	Collector interface{} // metrics.Collector
+ // Collector is the metrics collector to use.
+ // If nil, a default collector will be used if metrics are enabled.
+ Collector interface{} // metrics.Collector
 
-	// Exporter is the metrics exporter to use.
-	// If nil, a default exporter will be used if metrics are enabled.
-	Exporter interface{} // metrics.Exporter
+ // Exporter is the metrics exporter to use.
+ // If nil, a default exporter will be used if metrics are enabled.
+ Exporter interface{} // metrics.Exporter
 
-	// MiddlewareFactory is the factory for creating metrics middleware.
-	// If nil, a default middleware factory will be used if metrics are enabled.
-	MiddlewareFactory interface{} // metrics.MiddlewareFactory
+ // MiddlewareFactory is the factory for creating metrics middleware.
+ // If nil, a default middleware factory will be used if metrics are enabled.
+ MiddlewareFactory interface{} // metrics.MiddlewareFactory
 
-	// Namespace for metrics.
-	Namespace string
+ // Namespace for metrics.
+ Namespace string
 
-	// Subsystem for metrics.
-	Subsystem string
+ // Subsystem for metrics.
+ Subsystem string
 
-	// EnableLatency enables latency metrics.
-	EnableLatency bool
+ // EnableLatency enables latency metrics.
+ EnableLatency bool
 
-	// EnableThroughput enables throughput metrics.
-	EnableThroughput bool
+ // EnableThroughput enables throughput metrics.
+ EnableThroughput bool
 
-	// EnableQPS enables queries per second metrics.
-	EnableQPS bool
+ // EnableQPS enables queries per second metrics.
+ EnableQPS bool
 
-	// EnableErrors enables error metrics.
-	EnableErrors bool
+ // EnableErrors enables error metrics.
+ EnableErrors bool
 }
 ```
 
@@ -1578,14 +1685,15 @@ type MetricsConfig struct {
 
 ```go
 type SubRouterConfig struct {
-	PathPrefix          string                                // Common path prefix for all routes in this sub-router
-	TimeoutOverride     time.Duration                         // Override global timeout for all routes in this sub-router
-	MaxBodySizeOverride int64                                 // Override global max body size for all routes in this sub-router
-	RateLimitOverride   *middleware.RateLimitConfig[any, any] // Override global rate limit for all routes in this sub-router
-	Routes              []RouteConfigBase                     // Routes in this sub-router
-	Middlewares         []common.Middleware                   // Middlewares applied to all routes in this sub-router
-	CacheResponse       bool                                  // Enable caching for all routes in this sub-router
-	CacheKeyPrefix      string                                // Prefix for cache keys to avoid collisions
+ PathPrefix          string                                // Common path prefix for all routes in this sub-router
+ TimeoutOverride     time.Duration                         // Override global timeout for all routes in this sub-router
+ MaxBodySizeOverride int64                                 // Override global max body size for all routes in this sub-router
+ RateLimitOverride   *middleware.RateLimitConfig[any, any] // Override global rate limit for all routes in this sub-router
+ Routes              []RouteConfigBase                     // Regular routes in this sub-router
+ GenericRoutes       interface{}                           // Generic routes in this sub-router (can be a single GenericRouteRegistrar or GenericRouteConfigs)
+ Middlewares         []common.Middleware                   // Middlewares applied to all routes in this sub-router
+ CacheResponse       bool                                  // Enable caching for all routes in this sub-router
+ CacheKeyPrefix      string                                // Prefix for cache keys to avoid collisions
 }
 ```
 
@@ -1593,14 +1701,14 @@ type SubRouterConfig struct {
 
 ```go
 type RouteConfigBase struct {
-	Path        string                                // Route path (will be prefixed with sub-router path prefix if applicable)
-	Methods     []string                              // HTTP methods this route handles
-	AuthLevel   AuthLevel                             // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired)
-	Timeout     time.Duration                         // Override timeout for this specific route
-	MaxBodySize int64                                 // Override max body size for this specific route
-	RateLimit   *middleware.RateLimitConfig[any, any] // Rate limit for this specific route
-	Handler     http.HandlerFunc                      // Standard HTTP handler function
-	Middlewares []common.Middleware                   // Middlewares applied to this specific route
+ Path        string                                // Route path (will be prefixed with sub-router path prefix if applicable)
+ Methods     []string                              // HTTP methods this route handles
+ AuthLevel   AuthLevel                             // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired)
+ Timeout     time.Duration                         // Override timeout for this specific route
+ MaxBodySize int64                                 // Override max body size for this specific route
+ RateLimit   *middleware.RateLimitConfig[any, any] // Rate limit for this specific route
+ Handler     http.HandlerFunc                      // Standard HTTP handler function
+ Middlewares []common.Middleware                   // Middlewares applied to this specific route
 }
 ```
 
@@ -1608,19 +1716,19 @@ type RouteConfigBase struct {
 
 ```go
 type RouteConfig[T any, U any] struct {
-	Path          string                                // Route path (will be prefixed with sub-router path prefix if applicable)
-	Methods       []string                              // HTTP methods this route handles
-	AuthLevel     AuthLevel                             // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired)
-	Timeout       time.Duration                         // Override timeout for this specific route
-	MaxBodySize   int64                                 // Override max body size for this specific route
-	RateLimit     *middleware.RateLimitConfig[any, any] // Rate limit for this specific route
-	Codec         Codec[T, U]                           // Codec for marshaling/unmarshaling request and response
-	Handler       GenericHandler[T, U]                  // Generic handler function
-	Middlewares   []common.Middleware                   // Middlewares applied to this specific route
-	SourceType    SourceType                            // How to retrieve request data (defaults to Body)
-	SourceKey     string                                // Parameter name for query or path parameters
-	CacheResponse bool                                  // Enable caching for this route (only works with query/path parameter source types)
-	CacheKeyPrefix string                               // Prefix for cache keys to avoid collisions
+ Path          string                                // Route path (will be prefixed with sub-router path prefix if applicable)
+ Methods       []string                              // HTTP methods this route handles
+ AuthLevel     AuthLevel                             // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired)
+ Timeout       time.Duration                         // Override timeout for this specific route
+ MaxBodySize   int64                                 // Override max body size for this specific route
+ RateLimit     *middleware.RateLimitConfig[any, any] // Rate limit for this specific route
+ Codec         Codec[T, U]                           // Codec for marshaling/unmarshaling request and response
+ Handler       GenericHandler[T, U]                  // Generic handler function
+ Middlewares   []common.Middleware                   // Middlewares applied to this specific route
+ SourceType    SourceType                            // How to retrieve request data (defaults to Body)
+ SourceKey     string                                // Parameter name for query or path parameters
+ CacheResponse bool                                  // Enable caching for this route (only works with query/path parameter source types)
+ CacheKeyPrefix string                               // Prefix for cache keys to avoid collisions
 }
 ```
 
@@ -1630,14 +1738,14 @@ type RouteConfig[T any, U any] struct {
 type AuthLevel int
 
 const (
-	// NoAuth indicates that no authentication is required for the route.
-	NoAuth AuthLevel = iota
+ // NoAuth indicates that no authentication is required for the route.
+ NoAuth AuthLevel = iota
 
-	// AuthOptional indicates that authentication is optional for the route.
-	AuthOptional
+ // AuthOptional indicates that authentication is optional for the route.
+ AuthOptional
 
-	// AuthRequired indicates that authentication is required for the route.
-	AuthRequired
+ // AuthRequired indicates that authentication is required for the route.
+ AuthRequired
 )
 ```
 
@@ -1647,20 +1755,20 @@ const (
 type SourceType int
 
 const (
-	// Body retrieves data from the request body (default).
-	Body SourceType = iota
+ // Body retrieves data from the request body (default).
+ Body SourceType = iota
 
-	// Base64QueryParameter retrieves data from a base64-encoded query parameter.
-	Base64QueryParameter
+ // Base64QueryParameter retrieves data from a base64-encoded query parameter.
+ Base64QueryParameter
 
-	// Base62QueryParameter retrieves data from a base62-encoded query parameter.
-	Base62QueryParameter
+ // Base62QueryParameter retrieves data from a base62-encoded query parameter.
+ Base62QueryParameter
 
-	// Base64PathParameter retrieves data from a base64-encoded path parameter.
-	Base64PathParameter
+ // Base64PathParameter retrieves data from a base64-encoded path parameter.
+ Base64PathParameter
 
-	// Base62PathParameter retrieves data from a base62-encoded path parameter.
-	Base62PathParameter
+ // Base62PathParameter retrieves data from a base62-encoded path parameter.
+ Base62PathParameter
 )
 ```
 
@@ -1695,6 +1803,7 @@ middleware.NewBasicAuthMiddleware(credentials map[string]string, logger *zap.Log
 ```
 
 Example:
+
 ```go
 // Create a middleware that uses basic authentication
 authMiddleware := middleware.NewBasicAuthMiddleware(
@@ -1713,6 +1822,7 @@ middleware.NewBearerTokenMiddleware(validTokens map[string]bool, logger *zap.Log
 ```
 
 Example:
+
 ```go
 // Create a middleware that uses bearer token authentication
 authMiddleware := middleware.NewBearerTokenMiddleware(
@@ -1731,6 +1841,7 @@ middleware.NewBearerTokenValidatorMiddleware[T comparable](validator func(string
 ```
 
 Example:
+
 ```go
 // Create a middleware that uses bearer token authentication with a validator function
 authMiddleware := middleware.NewBearerTokenValidatorMiddleware(
@@ -1752,6 +1863,7 @@ middleware.NewAPIKeyMiddleware(validKeys map[string]bool, header, query string, 
 ```
 
 Example:
+
 ```go
 // Create a middleware that uses API key authentication
 authMiddleware := middleware.NewAPIKeyMiddleware(
@@ -1772,6 +1884,7 @@ middleware.Authentication(authFunc func(*http.Request) bool) Middleware
 ```
 
 Example:
+
 ```go
 // Create a middleware that uses custom authentication
 authMiddleware := middleware.Authentication(
@@ -1822,13 +1935,13 @@ Adds Prometheus metrics collection:
 
 ```go
 middleware.PrometheusMetrics(
-	registry interface{},
-	namespace string,
-	subsystem string,
-	enableLatency bool,
-	enableThroughput bool,
-	enableQPS bool,
-	enableErrors bool,
+ registry interface{},
+ namespace string,
+ subsystem string,
+ enableLatency bool,
+ enableThroughput bool,
+ enableQPS bool,
+ enableErrors bool,
 ) Middleware
 ```
 
@@ -1844,17 +1957,17 @@ middleware.PrometheusHandler(registry interface{}) http.Handler
 
 ```go
 type Collector interface {
-	// Counter creates or retrieves a counter metric.
-	Counter(name, help string, labelNames ...string) Counter
+ // Counter creates or retrieves a counter metric.
+ Counter(name, help string, labelNames ...string) Counter
 
-	// Gauge creates or retrieves a gauge metric.
-	Gauge(name, help string, labelNames ...string) Gauge
+ // Gauge creates or retrieves a gauge metric.
+ Gauge(name, help string, labelNames ...string) Gauge
 
-	// Histogram creates or retrieves a histogram metric.
-	Histogram(name, help string, buckets []float64, labelNames ...string) Histogram
+ // Histogram creates or retrieves a histogram metric.
+ Histogram(name, help string, buckets []float64, labelNames ...string) Histogram
 
-	// Summary creates or retrieves a summary metric.
-	Summary(name, help string, objectives map[float64]float64, maxAge, ageBuckets int, labelNames ...string) Summary
+ // Summary creates or retrieves a summary metric.
+ Summary(name, help string, objectives map[float64]float64, maxAge, ageBuckets int, labelNames ...string) Summary
 }
 ```
 
@@ -1862,8 +1975,8 @@ type Collector interface {
 
 ```go
 type Exporter interface {
-	// Handler returns an HTTP handler for exposing metrics.
-	Handler() http.Handler
+ // Handler returns an HTTP handler for exposing metrics.
+ Handler() http.Handler
 }
 ```
 
@@ -1871,8 +1984,8 @@ type Exporter interface {
 
 ```go
 type MiddlewareFactory interface {
-	// CreateMiddleware creates a middleware for collecting metrics.
-	CreateMiddleware() func(http.Handler) http.Handler
+ // CreateMiddleware creates a middleware for collecting metrics.
+ CreateMiddleware() func(http.Handler) http.Handler
 }
 ```
 
@@ -1910,8 +2023,8 @@ You can create your own codecs by implementing the `Codec` interface:
 
 ```go
 type Codec[T any, U any] interface {
-	Decode(r *http.Request) (T, error)
-	Encode(w http.ResponseWriter, resp U) error
+ Decode(r *http.Request) (T, error)
+ Encode(w http.ResponseWriter, resp U) error
 }
 ```
 
@@ -1949,8 +2062,8 @@ Represents an HTTP error with a status code and message:
 
 ```go
 type HTTPError struct {
-	StatusCode int
-	Message    string
+ StatusCode int
+ Message    string
 }
 ```
 
@@ -1998,6 +2111,7 @@ SRouter uses intelligent logging with appropriate log levels to provide useful i
 - **Debug**: For detailed request metrics, tracing information, and other development-related data
 
 This approach ensures that your logs contain the right information at the right level:
+
 - Critical issues are immediately visible at the Error level
 - Potential problems are highlighted at the Warn level
 - Normal operations are logged at the Debug level to avoid log spam
