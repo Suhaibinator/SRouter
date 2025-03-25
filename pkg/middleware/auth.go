@@ -108,6 +108,10 @@ func (p *APIKeyProvider[T]) Authenticate(r *http.Request) (T, bool) {
 // using the provided auth provider. If authentication fails, it returns a 401 Unauthorized response.
 // This middleware allows for flexible authentication mechanisms by accepting any AuthProvider implementation.
 // T is the User ID type (comparable), U is the User object type (any).
+//
+// This implementation uses the SRouterContext approach to store the authenticated user ID,
+// which avoids deep nesting of context values by using a single wrapper structure. The type
+// parameters allow for type-safe access to the user ID without type assertions.
 func AuthenticationWithProvider[T comparable, U any](
 	provider AuthProvider[T],
 	logger *zap.Logger,

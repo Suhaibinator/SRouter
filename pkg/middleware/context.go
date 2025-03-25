@@ -10,8 +10,14 @@ import (
 type sRouterContextKey struct{}
 
 // SRouterContext holds all values that SRouter adds to request contexts.
-// It allows storing multiple types of values with only a single level of context nesting.
+// It allows storing multiple types of values with only a single level of context nesting,
+// solving the problem of deep context nesting which occurs when multiple middleware
+// components each add their own values to the context.
+//
 // T is the User ID type (comparable), U is the User object type (any).
+// This structure centralizes all context values that middleware components need to store
+// or access, providing a cleaner and more efficient approach than using multiple separate
+// context keys.
 type SRouterContext[T comparable, U any] struct {
 	// User ID and User object storage
 	UserID T

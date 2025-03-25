@@ -16,6 +16,9 @@ var TraceIDKey = traceIDKey{}
 
 // WithTraceID adds a trace ID to the SRouterContext in the provided context.
 // If no SRouterContext exists, one will be created.
+//
+// This function is part of the SRouterContext approach for storing values in the context,
+// which avoids deep nesting of context values by using a single wrapper structure.
 func WithTraceID[T comparable, U any](ctx context.Context, traceID string) context.Context {
 	// Get or create the router context
 	rc, ok := GetSRouterContext[T, U](ctx)
@@ -34,6 +37,8 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 }
 
 // GetTraceIDFromContext extracts the trace ID from a context.
+// It first tries to find the trace ID in the SRouterContext using the flags map,
+// and falls back to the legacy context key approach for backward compatibility.
 // Returns an empty string if no trace ID is found.
 func GetTraceIDFromContext(ctx context.Context) string {
 	// Try the new way first

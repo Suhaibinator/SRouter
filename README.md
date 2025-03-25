@@ -679,6 +679,78 @@ routerConfig := router.RouterConfig{
 
 See the `examples/auth-levels` directory for a complete example of authentication levels.
 
+### Context Management
+
+SRouter uses a structured approach to context management using the `SRouterContext` wrapper. This approach avoids deep nesting of context values by storing all values in a single wrapper structure.
+
+#### SRouterContext Wrapper
+
+The `SRouterContext` wrapper is a generic type that holds all values that SRouter adds to request contexts:
+
+```go
+type SRouterContext[T comparable, U any] struct {
+    // User ID and User object storage
+    UserID T
+    User   *U
+    
+    // Client IP address
+    ClientIP string
+    
+    // Track which fields are set
+    UserIDSet   bool
+    UserSet     bool
+    ClientIPSet bool
+    
+    // Additional flags
+    Flags map[string]bool
+}
+```
+
+The type parameters `T` and `U` represent the user ID type and user object type, respectively. This generic approach provides type safety while allowing flexibility in the types used for user IDs and objects.
+
+#### Benefits of SRouterContext
+
+The SRouterContext approach offers several advantages:
+
+1. **Reduced Context Nesting**: Instead of wrapping contexts multiple times like:
+   ```go
+   ctx = context.WithValue(context.WithValue(r.Context(), userIDKey, userID), userKey, user)
+   ```
+   SRouter uses a single context wrapper:
+   ```go
+   ctx := WithUserID[T, U](r.Context(), userID)
+   ctx = WithUser[T, U](ctx, user)
+   ```
+
+2. **Type Safety**: The generic type parameters ensure proper type handling without the need for type assertions.
+
+3. **Extensibility**: New fields can be added to the `SRouterContext` struct without creating more nested contexts.
+
+4. **Organization**: Related context values are grouped logically, making the code more maintainable.
+
+#### Accessing Context Values
+
+SRouter provides several helper functions for accessing context values:
+
+```go
+// Get the user ID from the request
+userID, ok := middleware.GetUserIDFromRequest[string, User](r)
+
+// Get the user object from the request
+user, ok := middleware.GetUserFromRequest[string, User](r)
+
+// Get the client IP from the request
+ip, ok := middleware.GetClientIPFromRequest[string, User](r)
+
+// Get a flag from the request
+flagValue, ok := middleware.GetFlagFromRequest[string, User](r, "flagName")
+
+// Get the trace ID from the request
+traceID := middleware.GetTraceID(r)
+```
+
+These functions automatically handle the type parameters and provide a clean, consistent interface for accessing context values.
+
 #### Authentication Approaches
 
 SRouter provides two approaches to authentication:
