@@ -148,3 +148,31 @@ func GetClientIP[T comparable, U any](ctx context.Context) (string, bool) {
 func GetClientIPFromRequest[T comparable, U any](r *http.Request) (string, bool) {
 	return GetClientIP[T, U](r.Context())
 }
+
+// getAllFlagsFromContext retrieves all flags from any SRouterContext in the context.
+// This is a helper function that attempts to retrieve flags regardless of the type parameters.
+func getAllFlagsFromContext(ctx context.Context) map[string]bool {
+	// Extract the raw context value
+	rawValue := ctx.Value(sRouterContextKey{})
+	if rawValue == nil {
+		return nil
+	}
+
+	// Try to type assert to the most common type parameters first
+	if rc, ok := rawValue.(*SRouterContext[string, any]); ok {
+		if rc.Flags != nil {
+			return rc.Flags
+		}
+		return nil
+	}
+
+	if rc, ok := rawValue.(*SRouterContext[int, any]); ok {
+		if rc.Flags != nil {
+			return rc.Flags
+		}
+		return nil
+	}
+
+	// If we can't find the flags, return nil
+	return nil
+}

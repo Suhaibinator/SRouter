@@ -1,11 +1,9 @@
 package middleware
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 	"time"
 
@@ -341,9 +339,9 @@ func TestRateLimitMiddlewareWithUserStrategy(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Add the user to the context
+		// Add the user to the context using the new wrapper
 		user := TestUser{ID: "test-user", Name: "Test User"}
-		ctx := context.WithValue(r.Context(), reflect.TypeOf(TestUser{}), &user)
+		ctx := WithUser[string, TestUser](r.Context(), &user)
 
 		// Call the handler with the updated context
 		handler.ServeHTTP(w, r.WithContext(ctx))
@@ -406,9 +404,9 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Add the user to the context
+		// Add the user to the context using the new wrapper
 		user := TestUser{ID: "test-user", Name: "Test User"}
-		ctx := context.WithValue(r.Context(), reflect.TypeOf(TestUser{}), &user)
+		ctx := WithUser[string, TestUser](r.Context(), &user)
 
 		// Call the handler with the updated context
 		handler.ServeHTTP(w, r.WithContext(ctx))
