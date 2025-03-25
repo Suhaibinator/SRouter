@@ -9,10 +9,66 @@ import (
 	"github.com/google/uuid"
 )
 
-// TraceIDKey is the key used to store the trace ID in the request context
+// TraceIDKey is retained for backward compatibility
 type traceIDKey struct{}
 
 var TraceIDKey = traceIDKey{}
+
+// WithTraceID adds a trace ID to the SRouterContext in the provided context.
+// If no SRouterContext exists, one will be created.
+//
+// This function is part of the SRouterContext approach for storing values in the context,
+// which avoids deep nesting of context values by using a single wrapper structure.
+func WithTraceID[T comparable, U any](ctx context.Context, traceID string) context.Context {
+	// Get or create the router context
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok {
+		rc = &SRouterContext[T, U]{
+			Flags: make(map[string]bool),
+		}
+	}
+
+	// Store the trace ID in the flags
+	rc.Flags["traceID"] = true
+	rc.Flags["traceID:"+traceID] = true
+
+	// Update the context
+	return context.WithValue(ctx, sRouterContextKey{}, rc)
+}
+
+// GetTraceIDFromContext extracts the trace ID from a context.
+// It first tries to find the trace ID in the SRouterContext using the flags map,
+// and falls back to the legacy context key approach for backward compatibility.
+// Returns an empty string if no trace ID is found.
+func GetTraceIDFromContext(ctx context.Context) string {
+	// Try the new way first
+	flags := getAllFlagsFromContext(ctx)
+	for key, value := range flags {
+		if len(key) > 8 && key[:8] == "traceID:" && value {
+			return key[8:]
+		}
+	}
+
+	// Fallback to the old way for backward compatibility
+	if traceID, ok := ctx.Value(TraceIDKey).(string); ok {
+		return traceID
+	}
+
+	return ""
+}
+
+// GetTraceID extracts the trace ID from the request context.
+// Returns an empty string if no trace ID is found.
+func GetTraceID(r *http.Request) string {
+	return GetTraceIDFromContext(r.Context())
+}
+
+// AddTraceIDToRequest adds a trace ID to the request context.
+// This is useful for testing or for manually setting a trace ID.
+func AddTraceIDToRequest(r *http.Request, traceID string) *http.Request {
+	ctx := WithTraceID[string, any](r.Context(), traceID)
+	return r.WithContext(ctx)
+}
 
 // TraceMiddleware creates a middleware that generates a unique trace ID for each request
 // and adds it to the request context. This allows for request tracing across logs.
@@ -22,36 +78,14 @@ func TraceMiddleware() common.Middleware {
 			// Generate a unique trace ID
 			traceID := uuid.New().String()
 
-			// Add the trace ID to the request context
-			ctx := context.WithValue(r.Context(), TraceIDKey, traceID)
+			// Add the trace ID to the request context using the new wrapper
+			ctx := WithTraceID[string, any](r.Context(), traceID)
+
+			// For backward compatibility, also store it the old way
+			ctx = context.WithValue(ctx, TraceIDKey, traceID)
 
 			// Call the next handler with the updated request
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
-}
-
-// GetTraceID extracts the trace ID from the request context.
-// Returns an empty string if no trace ID is found.
-func GetTraceID(r *http.Request) string {
-	if traceID, ok := r.Context().Value(TraceIDKey).(string); ok {
-		return traceID
-	}
-	return ""
-}
-
-// GetTraceIDFromContext extracts the trace ID from a context.
-// Returns an empty string if no trace ID is found.
-func GetTraceIDFromContext(ctx context.Context) string {
-	if traceID, ok := ctx.Value(TraceIDKey).(string); ok {
-		return traceID
-	}
-	return ""
-}
-
-// AddTraceIDToRequest adds a trace ID to the request context.
-// This is useful for testing or for manually setting a trace ID.
-func AddTraceIDToRequest(r *http.Request, traceID string) *http.Request {
-	ctx := context.WithValue(r.Context(), TraceIDKey, traceID)
-	return r.WithContext(ctx)
 }

@@ -21,7 +21,7 @@ require (
 	github.com/prometheus/procfs v0.16.0 // indirect
 	go.uber.org/ratelimit v0.3.1
 	golang.org/x/sys v0.31.0 // indirect
-	google.golang.org/protobuf v1.36.5
+	google.golang.org/protobuf v1.36.6
 )
 
 require (

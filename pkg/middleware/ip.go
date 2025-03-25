@@ -69,6 +69,10 @@ func ClientIP(r *http.Request) string {
 // ClientIPMiddleware creates a middleware that extracts the client IP from the request
 // and adds it to the request context.
 // This is the standard middleware that works with both the legacy context key and the new SRouterContext.
+//
+// This implementation uses the SRouterContext approach for storing the IP address, which avoids
+// deep nesting of context values by using a single wrapper structure. For backward compatibility,
+// it also stores the IP address using the legacy context key.
 func ClientIPMiddleware(config *IPConfig) func(http.Handler) http.Handler {
 	if config == nil {
 		config = DefaultIPConfig()
@@ -93,6 +97,10 @@ func ClientIPMiddleware(config *IPConfig) func(http.Handler) http.Handler {
 // ClientIPMiddlewareGeneric creates a middleware that extracts the client IP from the request
 // and adds it to the SRouterContext with specific type parameters.
 // T is the User ID type (comparable), U is the User object type (any).
+//
+// This implementation uses the SRouterContext approach with specific type parameters, making it
+// useful when working with strongly typed middleware chains. It stores the IP address only
+// in the SRouterContext wrapper, avoiding context nesting issues.
 func ClientIPMiddlewareGeneric[T comparable, U any](config *IPConfig) func(http.Handler) http.Handler {
 	if config == nil {
 		config = DefaultIPConfig()

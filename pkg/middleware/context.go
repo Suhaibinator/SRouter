@@ -10,8 +10,14 @@ import (
 type sRouterContextKey struct{}
 
 // SRouterContext holds all values that SRouter adds to request contexts.
-// It allows storing multiple types of values with only a single level of context nesting.
+// It allows storing multiple types of values with only a single level of context nesting,
+// solving the problem of deep context nesting which occurs when multiple middleware
+// components each add their own values to the context.
+//
 // T is the User ID type (comparable), U is the User object type (any).
+// This structure centralizes all context values that middleware components need to store
+// or access, providing a cleaner and more efficient approach than using multiple separate
+// context keys.
 type SRouterContext[T comparable, U any] struct {
 	// User ID and User object storage
 	UserID T
@@ -147,4 +153,32 @@ func GetClientIP[T comparable, U any](ctx context.Context) (string, bool) {
 // GetClientIPFromRequest is a convenience function to get the client IP from a request
 func GetClientIPFromRequest[T comparable, U any](r *http.Request) (string, bool) {
 	return GetClientIP[T, U](r.Context())
+}
+
+// getAllFlagsFromContext retrieves all flags from any SRouterContext in the context.
+// This is a helper function that attempts to retrieve flags regardless of the type parameters.
+func getAllFlagsFromContext(ctx context.Context) map[string]bool {
+	// Extract the raw context value
+	rawValue := ctx.Value(sRouterContextKey{})
+	if rawValue == nil {
+		return nil
+	}
+
+	// Try to type assert to the most common type parameters first
+	if rc, ok := rawValue.(*SRouterContext[string, any]); ok {
+		if rc.Flags != nil {
+			return rc.Flags
+		}
+		return nil
+	}
+
+	if rc, ok := rawValue.(*SRouterContext[int, any]); ok {
+		if rc.Flags != nil {
+			return rc.Flags
+		}
+		return nil
+	}
+
+	// If we can't find the flags, return nil
+	return nil
 }

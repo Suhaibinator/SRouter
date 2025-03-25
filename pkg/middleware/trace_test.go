@@ -83,10 +83,9 @@ func TestGetTraceID(t *testing.T) {
 		t.Errorf("Expected trace ID to be empty, got %q", traceID)
 	}
 
-	// Add a trace ID to the context
+	// Add a trace ID to the context using the new method
 	expectedTraceID := "test-trace-id"
-	ctx := context.WithValue(req.Context(), TraceIDKey, expectedTraceID)
-	req = req.WithContext(ctx)
+	req = AddTraceIDToRequest(req, expectedTraceID)
 
 	// Test with trace ID
 	if traceID := GetTraceID(req); traceID != expectedTraceID {
@@ -104,9 +103,9 @@ func TestGetTraceIDFromContext(t *testing.T) {
 		t.Errorf("Expected trace ID to be empty, got %q", traceID)
 	}
 
-	// Add a trace ID to the context
+	// Add a trace ID to the context using the new approach
 	expectedTraceID := "test-trace-id"
-	ctx = context.WithValue(ctx, TraceIDKey, expectedTraceID)
+	ctx = WithTraceID[string, any](ctx, expectedTraceID)
 
 	// Test with trace ID
 	if traceID := GetTraceIDFromContext(ctx); traceID != expectedTraceID {
