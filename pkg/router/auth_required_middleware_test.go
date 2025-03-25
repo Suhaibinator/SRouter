@@ -35,7 +35,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 
 	// Create a test handler that checks if the user ID is in the context
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := r.Context().Value(userIDContextKey[string]{}).(string)
+		userID, ok := middleware.GetUserIDFromRequest[string, string](r)
 		if !ok {
 			t.Error("Expected user ID to be in context")
 		}
@@ -222,6 +222,11 @@ func TestAuthRequiredMiddlewareWithTraceID(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/test", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
 	req = middleware.AddTraceIDToRequest(req, "test-trace-id")
+
+	// Verify trace ID was set in the request context
+	traceID := middleware.GetTraceID(req)
+	t.Logf("Initial trace ID: %s", traceID)
+
 	rr := httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)
 
@@ -234,6 +239,15 @@ func TestAuthRequiredMiddlewareWithTraceID(t *testing.T) {
 	logEntries := logs.All()
 	if len(logEntries) == 0 {
 		t.Errorf("Expected debug log to be recorded")
+	}
+
+	// Print out all log entries for debugging
+	t.Logf("Found %d log entries", len(logEntries))
+	for i, log := range logEntries {
+		t.Logf("Log entry %d: Message: %s", i, log.Message)
+		for _, field := range log.Context {
+			t.Logf("  Field: %s = %v", field.Key, field.String)
+		}
 	}
 
 	// Check that the log contains the expected message and trace ID

@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	mw "github.com/Suhaibinator/SRouter/pkg/middleware"
 )
 
 // TestAuthOptionalMiddlewareWithValidToken tests the authOptionalMiddleware function
@@ -53,8 +55,8 @@ func TestAuthOptionalMiddlewareWithValidToken(t *testing.T) {
 		validTokenHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			handlerCalled = true
 
-			// Check if user ID is in context
-			userID, ok := GetUserID[string, string](r)
+			// Check if user ID is in context using the router instance's method
+			userID, ok := mw.GetUserIDFromRequest[string, string](r)
 			if !ok {
 				t.Error("Expected user ID in context, but not found")
 			} else if userID != "user123" {

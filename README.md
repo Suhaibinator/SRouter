@@ -2118,21 +2118,30 @@ Retrieves all parameters from the request context:
 router.GetParams(r *http.Request) httprouter.Params
 ```
 
-### GetUserID
+### Retrieving Information from Request Context
 
-Retrieves the user ID from the request context:
-
-```go
-router.GetUserID[T comparable, U any](r *http.Request) (T, bool)
-```
-
-### GetUser
-
-Retrieves the user object from the request context:
+The SRouter framework uses a structured approach for retrieving information from request contexts. You should use these middleware package functions for context-related operations:
 
 ```go
-router.GetUser[T comparable, U any](r *http.Request) (U, bool)
+// Get the user ID from the request
+userID, ok := middleware.GetUserIDFromRequest[T, U](r)
+
+// Get the user object from the request
+user, ok := middleware.GetUserFromRequest[T, U](r)
+
+// Get the client IP from the request
+ip, ok := middleware.GetClientIPFromRequest[T, U](r)
+
+// Get a flag from the request
+flagValue, ok := middleware.GetFlagFromRequest[T, U](r, "flagName")
+
+// Get the trace ID from the request
+traceID := middleware.GetTraceID(r)
 ```
+
+These functions access values through the SRouterContext wrapper, providing a consistent and type-safe way to retrieve context values.
+
+**Note:** The user object returned by `middleware.GetUserFromRequest` is a pointer (`*U`). This matches the internal storage format and avoids unnecessary copying.
 
 ## Error Handling Reference
 
