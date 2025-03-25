@@ -1,16 +1,24 @@
 package middleware
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 	"time"
 
 	"go.uber.org/zap"
 )
+
+// Define a custom type with String method for testing
+type CustomID struct {
+	id string
+}
+
+// String implements the fmt.Stringer interface
+func (c CustomID) String() string {
+	return c.id
+}
 
 // TestExtractUser tests the extractUser function with various scenarios
 func TestExtractUser(t *testing.T) {
@@ -20,8 +28,8 @@ func TestExtractUser(t *testing.T) {
 		// Create a request with a user object in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		user := "testUser"
-		// Use reflect.TypeOf(*new(string)) as the context key, which is what GetUser uses
-		ctx := context.WithValue(req.Context(), reflect.TypeOf(*new(string)), &user)
+		// Use the new context wrapper
+		ctx := WithUser[string, string](req.Context(), &user)
 		req = req.WithContext(ctx)
 
 		// Create a config with UserIDFromUser function
@@ -46,8 +54,8 @@ func TestExtractUser(t *testing.T) {
 		// Create a request with a user object in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		user := "testUser"
-		// Use reflect.TypeOf(*new(string)) as the context key, which is what GetUser uses
-		ctx := context.WithValue(req.Context(), reflect.TypeOf(*new(string)), &user)
+		// Use the new context wrapper
+		ctx := WithUser[string, string](req.Context(), &user)
 		req = req.WithContext(ctx)
 
 		// Create a config with UserIDFromUser function but no UserIDToString
@@ -69,8 +77,8 @@ func TestExtractUser(t *testing.T) {
 		// Create a request with a user object in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		user := "testUser"
-		// Use reflect.TypeOf(*new(string)) as the context key, which is what GetUser uses
-		ctx := context.WithValue(req.Context(), reflect.TypeOf(*new(string)), &user)
+		// Use the new context wrapper
+		ctx := WithUser[int, string](req.Context(), &user)
 		req = req.WithContext(ctx)
 
 		// Create a config with UserIDFromUser function returning int
@@ -92,15 +100,11 @@ func TestExtractUser(t *testing.T) {
 		// Create a request with a user object in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		user := "testUser"
-		// Use reflect.TypeOf(*new(string)) as the context key, which is what GetUser uses
-		ctx := context.WithValue(req.Context(), reflect.TypeOf(*new(string)), &user)
+		// Use the new context wrapper
+		ctx := WithUser[CustomID, string](req.Context(), &user)
 		req = req.WithContext(ctx)
 
-		// Define a custom type with String method
-		type CustomID struct {
-			id string
-		}
-		// Add String method to CustomID
+		// Create a CustomID instance
 		customID := CustomID{id: "custom-id"}
 
 		// Create a config with UserIDFromUser function returning CustomID
@@ -123,7 +127,7 @@ func TestExtractUser(t *testing.T) {
 		// Create a request with a user ID in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		userID := "user123"
-		ctx := context.WithValue(req.Context(), userIDContextKey[string]{}, userID)
+		ctx := WithUserID[string, string](req.Context(), userID)
 		req = req.WithContext(ctx)
 
 		// Create a config with UserIDToString function
@@ -145,7 +149,7 @@ func TestExtractUser(t *testing.T) {
 		// Create a request with a user ID in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		userID := "user123"
-		ctx := context.WithValue(req.Context(), userIDContextKey[string]{}, userID)
+		ctx := WithUserID[string, string](req.Context(), userID)
 		req = req.WithContext(ctx)
 
 		// Create a config without UserIDToString function
@@ -163,7 +167,7 @@ func TestExtractUser(t *testing.T) {
 		// Create a request with an int user ID in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		userID := 42
-		ctx := context.WithValue(req.Context(), userIDContextKey[int]{}, userID)
+		ctx := WithUserID[int, string](req.Context(), userID)
 		req = req.WithContext(ctx)
 
 		// Create a config without UserIDToString function
@@ -181,7 +185,7 @@ func TestExtractUser(t *testing.T) {
 		// Create a request with a bool user ID in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		userID := true
-		ctx := context.WithValue(req.Context(), userIDContextKey[bool]{}, userID)
+		ctx := WithUserID[bool, string](req.Context(), userID)
 		req = req.WithContext(ctx)
 
 		// Create a config without UserIDToString function
@@ -297,7 +301,7 @@ func TestRateLimit(t *testing.T) {
 		// Create a request with a user ID in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		userID := "user123"
-		ctx := context.WithValue(req.Context(), userIDContextKey[string]{}, userID)
+		ctx := WithUserID[string, string](req.Context(), userID)
 		req = req.WithContext(ctx)
 		rr := httptest.NewRecorder()
 

@@ -47,7 +47,7 @@ func TestExtractIP(t *testing.T) {
 	// Create a nil logger for testing
 	var logger *zap.Logger = nil
 
-	// Test with IP in context
+	// Test with IP in context using legacy method
 	req := httptest.NewRequest("GET", "/test", nil)
 	ctx := req.Context()
 	ctx = context.WithValue(ctx, ClientIPKey, "192.168.1.1")
@@ -55,6 +55,15 @@ func TestExtractIP(t *testing.T) {
 	ip := extractIP(req, logger)
 	if ip != "192.168.1.1" {
 		t.Errorf("Expected IP '192.168.1.1', got '%s'", ip)
+	}
+
+	// Test with IP in context using SRouterContext wrapper
+	req = httptest.NewRequest("GET", "/test", nil)
+	ctx = WithClientIP[string, any](req.Context(), "192.168.1.2")
+	req = req.WithContext(ctx)
+	ip = extractIP(req, logger)
+	if ip != "192.168.1.2" {
+		t.Errorf("Expected IP '192.168.1.2', got '%s'", ip)
 	}
 
 	// Test with X-Forwarded-For header

@@ -31,8 +31,8 @@ func optionalAuthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Try to get the user from the context
-	user := middleware.GetUser[User](r)
-	if user != nil {
+	user, ok := middleware.GetUserFromRequest[*User, User](r)
+	if ok && user != nil {
 		// User is authenticated
 		fmt.Fprintf(w, `{"message":"Hello, %s! This route has optional authentication", "authenticated":true}`, user.Name)
 	} else {
@@ -46,8 +46,8 @@ func requiredAuthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Get the user from the context
-	user := middleware.GetUser[User](r)
-	if user == nil {
+	user, ok := middleware.GetUserFromRequest[*User, User](r)
+	if !ok || user == nil {
 		// This should not happen since the middleware should have rejected the request
 		http.Error(w, "User not found in context", http.StatusInternalServerError)
 		return
@@ -131,7 +131,7 @@ func main() {
 						Methods:   []string{"GET"},
 						AuthLevel: router.AuthOptional,
 						Middlewares: []router.Middleware{
-							middleware.AuthenticationWithUser(customUserAuth),
+							middleware.AuthenticationWithUser[*User, User](customUserAuth),
 						},
 						Handler: optionalAuthHandler,
 					},
@@ -140,7 +140,7 @@ func main() {
 						Methods:   []string{"GET"},
 						AuthLevel: router.AuthRequired,
 						Middlewares: []router.Middleware{
-							middleware.AuthenticationWithUser(customUserAuth),
+							middleware.AuthenticationWithUser[*User, User](customUserAuth),
 						},
 						Handler: requiredAuthHandler,
 					},

@@ -178,7 +178,7 @@ func TestAuthenticationWithProvider(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := GetUserID[string](r)
+		userID, ok := GetUserIDFromRequest[string, any](r)
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}
@@ -198,7 +198,7 @@ func TestAuthenticationWithProvider(t *testing.T) {
 	}
 
 	// Apply the AuthenticationWithProvider middleware
-	middleware := AuthenticationWithProvider(provider, logger)
+	middleware := AuthenticationWithProvider[string, any](provider, logger)
 	wrappedHandler := middleware(handler)
 
 	// Test with valid authentication
@@ -236,7 +236,7 @@ func TestNewBearerTokenMiddleware(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := GetUserID[string](r)
+		userID, ok := GetUserIDFromRequest[string, any](r)
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}
@@ -253,7 +253,7 @@ func TestNewBearerTokenMiddleware(t *testing.T) {
 	}
 
 	// Apply the NewBearerTokenMiddleware
-	middleware := NewBearerTokenMiddleware(validTokens, logger)
+	middleware := NewBearerTokenMiddleware[string, any](validTokens, logger)
 	wrappedHandler := middleware(handler)
 
 	// Test with valid authentication
@@ -278,7 +278,7 @@ func TestNewBearerTokenValidatorMiddleware(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := GetUserID[string](r)
+		userID, ok := GetUserIDFromRequest[string, any](r)
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}
@@ -297,7 +297,7 @@ func TestNewBearerTokenValidatorMiddleware(t *testing.T) {
 	}
 
 	// Apply the NewBearerTokenValidatorMiddleware
-	middleware := NewBearerTokenValidatorMiddleware(validator, logger)
+	middleware := NewBearerTokenValidatorMiddleware[string, any](validator, logger)
 	wrappedHandler := middleware(handler)
 
 	// Test with valid authentication
@@ -322,7 +322,7 @@ func TestNewAPIKeyMiddleware(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := GetUserID[string](r)
+		userID, ok := GetUserIDFromRequest[string, any](r)
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}
@@ -339,7 +339,7 @@ func TestNewAPIKeyMiddleware(t *testing.T) {
 	}
 
 	// Apply the NewAPIKeyMiddleware
-	middleware := NewAPIKeyMiddleware(validKeys, "X-API-Key", "api_key", logger)
+	middleware := NewAPIKeyMiddleware[string, any](validKeys, "X-API-Key", "api_key", logger)
 	wrappedHandler := middleware(handler)
 
 	// Test with valid authentication in header

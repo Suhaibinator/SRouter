@@ -52,7 +52,14 @@ type clientIPKey struct{}
 var ClientIPKey = clientIPKey{}
 
 // ClientIP extracts the client IP from the request context
+// First checks the SRouterContext, then falls back to the legacy context key
 func ClientIP(r *http.Request) string {
+	// First check if we have IP in the SRouterContext
+	if ip, ok := GetClientIPFromRequest[string, any](r); ok {
+		return ip
+	}
+
+	// Fall back to legacy context key for backward compatibility
 	if ip, ok := r.Context().Value(ClientIPKey).(string); ok {
 		return ip
 	}
@@ -60,7 +67,8 @@ func ClientIP(r *http.Request) string {
 }
 
 // ClientIPMiddleware creates a middleware that extracts the client IP from the request
-// and adds it to the request context
+// and adds it to the request context.
+// This is the standard middleware that works with both the legacy context key and the new SRouterContext.
 func ClientIPMiddleware(config *IPConfig) func(http.Handler) http.Handler {
 	if config == nil {
 		config = DefaultIPConfig()
@@ -71,8 +79,32 @@ func ClientIPMiddleware(config *IPConfig) func(http.Handler) http.Handler {
 			// Extract the client IP based on the configured source
 			clientIP := extractClientIP(r, config)
 
-			// Add the client IP to the request context
-			ctx := context.WithValue(r.Context(), ClientIPKey, clientIP)
+			// Add the client IP to both the SRouterContext and the legacy context key
+			// This ensures compatibility with all code paths
+			ctx := WithClientIP[string, any](r.Context(), clientIP)
+			ctx = context.WithValue(ctx, ClientIPKey, clientIP)
+
+			// Call the next handler with the updated request
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// ClientIPMiddlewareGeneric creates a middleware that extracts the client IP from the request
+// and adds it to the SRouterContext with specific type parameters.
+// T is the User ID type (comparable), U is the User object type (any).
+func ClientIPMiddlewareGeneric[T comparable, U any](config *IPConfig) func(http.Handler) http.Handler {
+	if config == nil {
+		config = DefaultIPConfig()
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Extract the client IP based on the configured source
+			clientIP := extractClientIP(r, config)
+
+			// Add the client IP to the SRouterContext with proper type parameters
+			ctx := WithClientIP[T, U](r.Context(), clientIP)
 
 			// Call the next handler with the updated request
 			next.ServeHTTP(w, r.WithContext(ctx))

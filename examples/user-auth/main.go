@@ -25,8 +25,8 @@ type User struct {
 // Protected resource that requires authentication and uses the user object
 func protectedUserHandler(w http.ResponseWriter, r *http.Request) {
 	// Get the user from the context
-	user := middleware.GetUser[User](r)
-	if user == nil {
+	user, ok := middleware.GetUserFromRequest[*User, User](r)
+	if !ok || user == nil {
 		http.Error(w, "User not found in context", http.StatusInternalServerError)
 		return
 	}
@@ -144,7 +144,7 @@ func main() {
 						Methods:   []string{"GET"},
 						AuthLevel: router.AuthRequired,
 						Middlewares: []router.Middleware{
-							middleware.AuthenticationBool(func(r *http.Request) bool {
+							middleware.AuthenticationBool[*User, User](func(r *http.Request) bool {
 								// Simple boolean authentication
 								authHeader := r.Header.Get("Authorization")
 								if authHeader == "" {
@@ -153,7 +153,7 @@ func main() {
 								token := strings.TrimPrefix(authHeader, "Bearer ")
 								_, exists := tokens[token]
 								return exists
-							}),
+							}, "authenticated"),
 						},
 						Handler: protectedHandler,
 					},
@@ -167,7 +167,7 @@ func main() {
 						Methods:   []string{"GET"},
 						AuthLevel: router.AuthRequired,
 						Middlewares: []router.Middleware{
-							middleware.AuthenticationWithUser(customUserAuth),
+							middleware.AuthenticationWithUser[*User, User](customUserAuth),
 						},
 						Handler: protectedUserHandler,
 					},
@@ -176,7 +176,7 @@ func main() {
 						Methods:   []string{"GET"},
 						AuthLevel: router.AuthRequired,
 						Middlewares: []router.Middleware{
-							middleware.NewBearerTokenWithUserMiddleware(bearerTokenUserAuth, logger),
+							middleware.NewBearerTokenWithUserMiddleware[*User, User](bearerTokenUserAuth, logger),
 						},
 						Handler: protectedUserHandler,
 					},

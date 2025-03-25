@@ -194,10 +194,10 @@ func convertUserIDToString[T comparable](userID T) string {
 // extractUser extracts the user ID from the request context using generic type parameters
 func extractUser[T comparable, U any](r *http.Request, config *RateLimitConfig[T, U]) string {
 	// Get the user from the context
-	user := GetUser[U](r)
-	if user == nil {
+	user, userOk := GetUserFromRequest[T, U](r)
+	if !userOk || user == nil {
 		// If no user is found, try to get the user ID directly
-		userID, ok := GetUserID[T](r)
+		userID, ok := GetUserIDFromRequest[T, U](r)
 		if !ok {
 			return ""
 		}

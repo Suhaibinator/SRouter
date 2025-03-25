@@ -42,8 +42,8 @@ func main() {
 	}
 
 	// Create authentication middlewares
-	bearerTokenMiddleware := middleware.NewBearerTokenMiddleware(bearerTokens, logger)
-	apiKeyMiddleware := middleware.NewAPIKeyMiddleware(apiKeys, "X-API-Key", "api_key", logger)
+	bearerTokenMiddleware := middleware.NewBearerTokenMiddleware[int64, any](bearerTokens, logger)
+	apiKeyMiddleware := middleware.NewAPIKeyMiddleware[int64, any](apiKeys, "X-API-Key", "api_key", logger)
 
 	// Create a router configuration
 	routerConfig := router.RouterConfig{

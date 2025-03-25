@@ -11,7 +11,7 @@ func TestAuthenticationGeneric(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := GetUserID[string](r)
+		userID, ok := GetUserIDFromRequest[string, any](r)
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}
@@ -31,7 +31,7 @@ func TestAuthenticationGeneric(t *testing.T) {
 	}
 
 	// Apply the Authentication middleware
-	middleware := Authentication(authFunc)
+	middleware := Authentication[string, any](authFunc)
 	wrappedHandler := middleware(handler)
 
 	// Test with valid authentication
@@ -74,7 +74,7 @@ func TestAuthentication(t *testing.T) {
 	}
 
 	// Apply the AuthenticationBool middleware
-	middleware := AuthenticationBool(authFunc)
+	middleware := AuthenticationBool[string, any](authFunc, "authenticated")
 	wrappedHandler := middleware(handler)
 
 	// Test with valid authentication

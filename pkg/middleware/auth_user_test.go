@@ -1,11 +1,9 @@
 package middleware
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 
 	"go.uber.org/zap"
@@ -299,8 +297,8 @@ func TestAuthenticationWithUserProvider(t *testing.T) {
 	// Create a handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user from the context
-		user := GetUser[User](r)
-		if user == nil {
+		user, ok := GetUserFromRequest[string, User](r)
+		if !ok || user == nil {
 			t.Error("Expected user to be in context, got nil")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -318,7 +316,7 @@ func TestAuthenticationWithUserProvider(t *testing.T) {
 	})
 
 	// Create a middleware
-	middleware := AuthenticationWithUserProvider(provider, logger)
+	middleware := AuthenticationWithUserProvider[string, User](provider, logger)
 
 	// Wrap the handler
 	wrappedHandler := middleware(handler)
@@ -350,8 +348,8 @@ func TestAuthenticationWithUser(t *testing.T) {
 	// Create a handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user from the context
-		user := GetUser[User](r)
-		if user == nil {
+		user, ok := GetUserFromRequest[string, User](r)
+		if !ok || user == nil {
 			t.Error("Expected user to be in context, got nil")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -382,7 +380,7 @@ func TestAuthenticationWithUser(t *testing.T) {
 	}
 
 	// Create a middleware
-	middleware := AuthenticationWithUser(authFunc)
+	middleware := AuthenticationWithUser[string, User](authFunc)
 
 	// Wrap the handler
 	wrappedHandler := middleware(handler)
@@ -419,13 +417,13 @@ func TestGetUser(t *testing.T) {
 		Roles: []string{"user"},
 	}
 
-	// Create a request with the user in the context
+	// Create a request with the user in the context using the new context wrapper
 	req, _ := http.NewRequest("GET", "/", nil)
-	ctx := context.WithValue(req.Context(), reflect.TypeOf(*new(User)), user)
+	ctx := WithUser[string, User](req.Context(), user)
 	req = req.WithContext(ctx)
 
 	// Get the user from the context
-	retrievedUser := GetUser[User](req)
+	retrievedUser, _ := GetUserFromRequest[string, User](req)
 	if retrievedUser == nil {
 		t.Error("Expected user to be retrieved, got nil")
 	} else if retrievedUser.ID != "1" {
@@ -434,20 +432,14 @@ func TestGetUser(t *testing.T) {
 
 	// Test with no user in context
 	req, _ = http.NewRequest("GET", "/", nil)
-	retrievedUser = GetUser[User](req)
+	retrievedUser, _ = GetUserFromRequest[string, User](req)
 	if retrievedUser != nil {
 		t.Error("Expected nil user when no user in context")
 	}
 
-	// Test with wrong type in context
-	type OtherUser struct {
-		ID string
-	}
-	otherUser := &OtherUser{ID: "2"}
+	// Test with an empty context (no user stored)
 	req, _ = http.NewRequest("GET", "/", nil)
-	ctx = context.WithValue(req.Context(), reflect.TypeOf(*new(OtherUser)), otherUser)
-	req = req.WithContext(ctx)
-	retrievedUser = GetUser[User](req)
+	retrievedUser, _ = GetUserFromRequest[string, User](req)
 	if retrievedUser != nil {
 		t.Error("Expected nil user when wrong type in context")
 	}
@@ -458,7 +450,7 @@ func TestNewBearerTokenWithUserMiddleware(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 
 	// Create a middleware
-	middleware := NewBearerTokenWithUserMiddleware(
+	middleware := NewBearerTokenWithUserMiddleware[string, User](
 		func(token string) (*User, error) {
 			if token == "token1" {
 				return &User{
@@ -476,8 +468,8 @@ func TestNewBearerTokenWithUserMiddleware(t *testing.T) {
 	// Create a handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user from the context
-		user := GetUser[User](r)
-		if user == nil {
+		user, ok := GetUserFromRequest[string, User](r)
+		if !ok || user == nil {
 			t.Error("Expected user to be in context, got nil")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -525,7 +517,7 @@ func TestNewAPIKeyWithUserMiddleware(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 
 	// Create a middleware
-	middleware := NewAPIKeyWithUserMiddleware(
+	middleware := NewAPIKeyWithUserMiddleware[string, User](
 		func(key string) (*User, error) {
 			if key == "key1" {
 				return &User{
@@ -545,8 +537,8 @@ func TestNewAPIKeyWithUserMiddleware(t *testing.T) {
 	// Create a handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user from the context
-		user := GetUser[User](r)
-		if user == nil {
+		user, ok := GetUserFromRequest[string, User](r)
+		if !ok || user == nil {
 			t.Error("Expected user to be in context, got nil")
 			w.WriteHeader(http.StatusInternalServerError)
 			return

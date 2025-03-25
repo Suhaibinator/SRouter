@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -169,7 +168,7 @@ func TestRateLimitWithUserStrategy_Coverage(t *testing.T) {
 
 	// Create a test request with user in context
 	req := httptest.NewRequest("GET", "/", nil)
-	ctx := context.WithValue(req.Context(), userIDContextKey[string]{}, "user123")
+	ctx := WithUserID[string, string](req.Context(), "user123")
 	req = req.WithContext(ctx)
 
 	// Test the middleware with a simple case
