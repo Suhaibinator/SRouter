@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
+	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -51,7 +52,7 @@ type TestErrorResponse struct {
 // Test handler that accesses user information from the request context
 func testProfileHandler(req *http.Request, data TestProfileRequest) (TestProfileResponse, error) {
 	// Get the user ID from the request context
-	userID, loggedIn := GetUserID[string, string](req)
+	userID, loggedIn := middleware.GetUserIDFromRequest[string, string](req)
 
 	// Create a response with the user information
 	response := TestProfileResponse{

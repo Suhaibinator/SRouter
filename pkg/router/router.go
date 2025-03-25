@@ -51,14 +51,6 @@ const (
 	ParamsKey contextKey = "params"
 )
 
-// userIDContextKey is a custom type for the user ID context key to avoid collisions
-// It's now generic to support different user ID types
-type userIDContextKey[T comparable] struct{}
-
-// userObjectContextKey is a custom type for the user object context key to avoid collisions
-// It's now generic to support different user object types
-type userObjectContextKey[U any] struct{}
-
 // GenericRouteRegistrar is an interface for registering generic routes
 // It's used to store generic routes with different type parameters in SubRouterConfig
 type GenericRouteRegistrar interface {
@@ -876,6 +868,7 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel AuthLevel
 func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Create a response writer that captures metrics
 	var rw http.ResponseWriter
+	var traceID string
 
 	// Apply metrics and tracing if enabled
 	if r.config.EnableMetrics || r.config.EnableTracing {
@@ -896,8 +889,8 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		defer func() {
 			duration := time.Since(mrw.startTime)
 
-			// Get trace ID from context
-			traceID := middleware.GetTraceID(req)
+			// Get updated trace ID from context
+			traceID = middleware.GetTraceID(req)
 
 			// Log metrics
 			if r.config.EnableMetrics {
@@ -1080,18 +1073,6 @@ func GetParam(r *http.Request, name string) string {
 	return GetParams(r).ByName(name)
 }
 
-// GetUserID retrieves the user ID from the request context.
-// Returns the user ID if it exists in the context, the zero value of T otherwise.
-func GetUserID[T comparable, U any](r *http.Request) (T, bool) {
-	userID, ok := r.Context().Value(userIDContextKey[T]{}).(T)
-	return userID, ok
-}
-
-func GetUser[T comparable, U any](r *http.Request) (U, bool) {
-	user, ok := r.Context().Value(userObjectContextKey[U]{}).(U)
-	return user, ok
-}
-
 // getEffectiveTimeout returns the effective timeout for a route.
 // It considers route-specific, sub-router, and global timeout settings in that order of precedence.
 func (r *Router[T, U]) getEffectiveTimeout(routeTimeout, subRouterTimeout time.Duration) time.Duration {
@@ -1243,11 +1224,13 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 // It uses the middleware.AuthenticationWithUser function with a configurable authentication function.
 func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// Declare traceID variable to be used throughout the function
+		var traceID string
 		// Check for the presence of an Authorization header
 		authHeader := req.Header.Get("Authorization")
 		if authHeader == "" {
-			// Get trace ID from context
-			traceID := middleware.GetTraceID(req)
+			// Get updated trace ID from context
+			traceID = middleware.GetTraceID(req)
 
 			// Create log fields
 			fields := []zap.Field{
@@ -1274,11 +1257,20 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 		// Try to authenticate using the authFunction
 		if user, valid := r.authFunction(req.Context(), token); valid {
 			id := r.getUserIdFromUser(user)
-			// Add the user ID to the request context
-			ctx := context.WithValue(req.Context(), userIDContextKey[T]{}, id)
+			// Add the user ID to the request context using middleware package functions
+			// First get the trace ID so we can preserve it
+			traceID = middleware.GetTraceID(req)
+
+			// Add the user ID to the context
+			ctx := middleware.WithUserID[T, U](req.Context(), id)
+
+			// If there was a trace ID, make sure it's preserved
+			if traceID != "" {
+				ctx = middleware.AddTraceIDToRequest(req.WithContext(ctx), traceID).Context()
+			}
 			req = req.WithContext(ctx)
-			// Get trace ID from context
-			traceID := middleware.GetTraceID(req)
+			// Get updated trace ID from context
+			traceID = middleware.GetTraceID(req)
 
 			// Create log fields
 			fields := []zap.Field{
@@ -1288,7 +1280,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 
 			// Add trace ID if enabled and present
 			if r.config.EnableTraceID && traceID != "" {
-				fields = append(fields, zap.String("trace_id", traceID))
+				fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 			}
 
 			// Log that authentication was successful
@@ -1298,7 +1290,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Get trace ID from context
-		traceID := middleware.GetTraceID(req)
+		traceID = middleware.GetTraceID(req)
 
 		// Create log fields
 		fields := []zap.Field{
@@ -1334,10 +1326,10 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 			// Try to authenticate using the authFunction
 			if user, valid := r.authFunction(req.Context(), token); valid {
 				id := r.getUserIdFromUser(user)
-				// Add the user ID to the request context
-				ctx := context.WithValue(req.Context(), userIDContextKey[T]{}, id)
+				// Add the user ID to the request context using middleware package functions
+				ctx := middleware.WithUserID[T, U](req.Context(), id)
 				if r.config.AddUserObjectToCtx {
-					ctx = context.WithValue(ctx, userObjectContextKey[U]{}, &user)
+					ctx = middleware.WithUser[T, U](ctx, &user)
 				}
 				req = req.WithContext(ctx)
 				// Get trace ID from context
