@@ -9,11 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TraceIDKey is retained for backward compatibility
-type traceIDKey struct{}
-
-var TraceIDKey = traceIDKey{}
-
 // WithTraceID adds a trace ID to the SRouterContext in the provided context.
 // If no SRouterContext exists, one will be created.
 //
@@ -29,8 +24,8 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 	}
 
 	// Store the trace ID in the flags
-	rc.Flags["traceID"] = true
-	rc.Flags["traceID:"+traceID] = true
+	rc.TraceID = traceID
+	rc.TraceIDSet = true
 
 	// Update the context
 	return context.WithValue(ctx, sRouterContextKey{}, rc)
@@ -42,18 +37,15 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 // Returns an empty string if no trace ID is found.
 func GetTraceIDFromContext(ctx context.Context) string {
 	// Try the new way first
-	flags := getAllFlagsFromContext(ctx)
-	for key, value := range flags {
-		if len(key) > 8 && key[:8] == "traceID:" && value {
-			return key[8:]
-		}
+	rc, ok := GetSRouterContext[string, any](ctx)
+	if !ok {
+		return ""
 	}
 
-	// Fallback to the old way for backward compatibility
-	if traceID, ok := ctx.Value(TraceIDKey).(string); ok {
-		return traceID
+	// Check if the trace ID is set in the SRouterContext
+	if rc.TraceIDSet {
+		return rc.TraceID
 	}
-
 	return ""
 }
 
@@ -80,9 +72,6 @@ func TraceMiddleware() common.Middleware {
 
 			// Add the trace ID to the request context using the new wrapper
 			ctx := WithTraceID[string, any](r.Context(), traceID)
-
-			// For backward compatibility, also store it the old way
-			ctx = context.WithValue(ctx, TraceIDKey, traceID)
 
 			// Call the next handler with the updated request
 			next.ServeHTTP(w, r.WithContext(ctx))

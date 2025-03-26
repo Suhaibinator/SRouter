@@ -23,6 +23,9 @@ type SRouterContext[T comparable, U any] struct {
 	UserID T
 	User   *U
 
+	// Trace ID for tracing
+	TraceID string
+
 	// Client IP address
 	ClientIP string
 
@@ -30,6 +33,7 @@ type SRouterContext[T comparable, U any] struct {
 	UserIDSet   bool
 	UserSet     bool
 	ClientIPSet bool
+	TraceIDSet  bool
 
 	// Additional flags
 	Flags map[string]bool
