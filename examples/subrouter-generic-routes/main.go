@@ -77,16 +77,6 @@ func main() {
 		return user
 	}
 
-	// Create a router with string as both the user ID and user type
-	r := router.NewRouter[string, string](router.RouterConfig{
-		Logger:        logger,
-		GlobalTimeout: 5 * time.Second,
-	}, authFunction, userIdFromUserFunction)
-
-	// Create a JSON codec for our generic routes
-	greetingCodec := codec.NewJSONCodec[GreetingRequest, GreetingResponse]()
-	userCodec := codec.NewJSONCodec[UserRequest, UserResponse]()
-
 	// Create a sub-router for API v1
 	apiV1SubRouter := router.SubRouterConfig{
 		PathPrefix: "/api/v1",
@@ -103,28 +93,46 @@ func main() {
 		},
 	}
 
-	// Register a generic route with the sub-router
-	router.RegisterGenericRouteWithSubRouter[GreetingRequest, GreetingResponse, string, string](
-		&apiV1SubRouter,
+	// Create a sub-router for API v2 (no generic routes defined here anymore)
+	apiV2SubRouter := router.SubRouterConfig{
+		PathPrefix: "/api/v2",
+		// Routes can still be defined here if needed
+	}
+
+	// Create a router with string as both the user ID and user type
+	// Register the sub-routers declaratively
+	r := router.NewRouter[string, string](router.RouterConfig{
+		Logger:        logger,
+		GlobalTimeout: 5 * time.Second,
+		SubRouters:    []router.SubRouterConfig{apiV1SubRouter, apiV2SubRouter}, // Register sub-routers
+	}, authFunction, userIdFromUserFunction)
+
+	// Create JSON codecs for our generic routes
+	greetingCodec := codec.NewJSONCodec[GreetingRequest, GreetingResponse]()
+	userCodec := codec.NewJSONCodec[UserRequest, UserResponse]()
+
+	// --- Imperatively register generic routes AFTER router creation ---
+
+	// Register generic route for API v1
+	errV1 := router.RegisterGenericRouteOnSubRouter[GreetingRequest, GreetingResponse, string, string](
+		r,         // The router instance
+		"/api/v1", // The prefix of the target sub-router
 		router.RouteConfig[GreetingRequest, GreetingResponse]{
-			Path:      "/greet",
+			Path:      "/greet", // Path relative to the sub-router prefix
 			Methods:   []string{"POST"},
 			AuthLevel: router.NoAuth,
 			Codec:     greetingCodec,
 			Handler:   greetingHandler,
 		},
 	)
-
-	// Create a sub-router for API v2
-	apiV2SubRouter := router.SubRouterConfig{
-		PathPrefix: "/api/v2",
+	if errV1 != nil {
+		log.Fatalf("Failed to register generic route on /api/v1: %v", errV1)
 	}
 
-	// Create a GenericRouteConfigs to hold multiple generic routes
-	var userRoutes router.GenericRouteConfigs
-
-	// Create a generic route for getting user info
-	userRoute := router.CreateGenericRouteForSubRouter[UserRequest, UserResponse, string, string](
+	// Register generic routes for API v2
+	errV2User := router.RegisterGenericRouteOnSubRouter[UserRequest, UserResponse, string, string](
+		r,
+		"/api/v2",
 		router.RouteConfig[UserRequest, UserResponse]{
 			Path:      "/users",
 			Methods:   []string{"POST"},
@@ -133,12 +141,13 @@ func main() {
 			Handler:   userHandler,
 		},
 	)
+	if errV2User != nil {
+		log.Fatalf("Failed to register generic user route on /api/v2: %v", errV2User)
+	}
 
-	// Add the generic route to the GenericRouteConfigs
-	userRoutes = append(userRoutes, userRoute)
-
-	// Add another generic route for greeting
-	greetingRoute := router.CreateGenericRouteForSubRouter[GreetingRequest, GreetingResponse, string, string](
+	errV2Greet := router.RegisterGenericRouteOnSubRouter[GreetingRequest, GreetingResponse, string, string](
+		r,
+		"/api/v2",
 		router.RouteConfig[GreetingRequest, GreetingResponse]{
 			Path:      "/greet",
 			Methods:   []string{"POST"},
@@ -147,16 +156,9 @@ func main() {
 			Handler:   greetingHandler,
 		},
 	)
-
-	// Add the generic route to the GenericRouteConfigs
-	userRoutes = append(userRoutes, greetingRoute)
-
-	// Set the GenericRoutes field of the sub-router
-	apiV2SubRouter.GenericRoutes = userRoutes
-
-	// Register the sub-routers with the router
-	r.RegisterSubRouter(apiV1SubRouter)
-	r.RegisterSubRouter(apiV2SubRouter)
+	if errV2Greet != nil {
+		log.Fatalf("Failed to register generic greet route on /api/v2: %v", errV2Greet)
+	}
 
 	// Start the server
 	fmt.Println("SubRouter Generic Routes Example Server listening on :8080")

@@ -93,14 +93,23 @@ func main() {
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
 	// Register a generic JSON route
-	router.RegisterGenericRoute[CreateUserReq, CreateUserResp, string](r, router.RouteConfig[CreateUserReq, CreateUserResp]{
-		Path:      "/api/users",
+	// Note: Since this route is under "/api", we use RegisterGenericRouteOnSubRouter
+	userRouteConfig := router.RouteConfig[CreateUserReq, CreateUserResp]{
+		Path:      "/users", // Relative path
 		Methods:   []string{"POST"},
 		AuthLevel: router.AuthRequired,
-		Timeout:   3 * time.Second, // override
+		Timeout:   3 * time.Second, // Route-specific override (will be used by getEffectiveTimeout)
 		Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
 		Handler:   CreateUserHandler,
-	})
+	}
+	err := router.RegisterGenericRouteOnSubRouter[CreateUserReq, CreateUserResp, string, string](
+		r,
+		"/api", // Target sub-router prefix
+		userRouteConfig,
+	)
+	if err != nil {
+		log.Fatalf("Failed to register generic route on /api: %v", err)
+	}
 
 	// Start the server
 	fmt.Println("Server listening on :8080")

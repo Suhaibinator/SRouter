@@ -109,67 +109,14 @@ func main() {
 		return user
 	}
 
-	// Create a router with string as both the user ID and user type
-	r := router.NewRouter[string, string](router.RouterConfig{
-		Logger:        logger,
-		GlobalTimeout: 5 * time.Second,
-	}, authFunction, userIdFromUserFunction)
-
-	// Create a JSON codec for our generic routes
-	greetingCodec := codec.NewJSONCodec[GreetingRequest, GreetingResponse]()
-	userCodec := codec.NewJSONCodec[UserRequest, UserResponse]()
-	profileCodec := codec.NewJSONCodec[ProfileRequest, ProfileResponse]()
-
-	// Create a main API sub-router
-	apiSubRouter := router.SubRouterConfig{
-		PathPrefix: "/api",
-		Routes: []router.RouteConfigBase{
-			{
-				Path:      "/status",
-				Methods:   []string{"GET"},
-				AuthLevel: router.NoAuth,
-				Handler: func(w http.ResponseWriter, r *http.Request) {
-					w.Header().Set("Content-Type", "application/json")
-					w.Write([]byte(`{"status":"ok"}`))
-				},
-			},
-		},
-	}
-
-	// Create a v1 sub-router
-	apiV1SubRouter := router.SubRouterConfig{
-		PathPrefix: "/v1",
-		Routes: []router.RouteConfigBase{
-			{
-				Path:      "/hello",
-				Methods:   []string{"GET"},
-				AuthLevel: router.NoAuth,
-				Handler: func(w http.ResponseWriter, r *http.Request) {
-					w.Header().Set("Content-Type", "application/json")
-					w.Write([]byte(`{"message":"Hello from API v1!"}`))
-				},
-			},
-		},
-	}
-
-	// Register a generic route with the v1 sub-router
-	router.RegisterGenericRouteWithSubRouter[GreetingRequest, GreetingResponse, string, string](
-		&apiV1SubRouter,
-		router.RouteConfig[GreetingRequest, GreetingResponse]{
-			Path:      "/greet",
-			Methods:   []string{"POST"},
-			AuthLevel: router.NoAuth,
-			Codec:     greetingCodec,
-			Handler:   greetingHandler,
-		},
-	)
+	// --- Define Sub-Router Configurations (Declarative Part) ---
 
 	// Create a users sub-router under v1
 	usersV1SubRouter := router.SubRouterConfig{
-		PathPrefix: "/users",
+		PathPrefix: "/users", // Relative to parent (/api/v1)
 		Routes: []router.RouteConfigBase{
 			{
-				Path:      "",
+				Path:      "", // Becomes /api/v1/users
 				Methods:   []string{"GET"},
 				AuthLevel: router.NoAuth,
 				Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -178,29 +125,45 @@ func main() {
 				},
 			},
 		},
+		// Generic routes will be added imperatively later
 	}
 
-	// Register a generic route with the users v1 sub-router
-	router.RegisterGenericRouteWithSubRouter[UserRequest, UserResponse, string, string](
-		&usersV1SubRouter,
-		router.RouteConfig[UserRequest, UserResponse]{
-			Path:      "/info",
-			Methods:   []string{"POST"},
-			AuthLevel: router.NoAuth,
-			Codec:     userCodec,
-			Handler:   userHandler,
+	// Create a v1 sub-router
+	apiV1SubRouter := router.SubRouterConfig{
+		PathPrefix: "/v1", // Relative to parent (/api)
+		Routes: []router.RouteConfigBase{
+			{
+				Path:      "/hello", // Becomes /api/v1/hello
+				Methods:   []string{"GET"},
+				AuthLevel: router.NoAuth,
+				Handler: func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					w.Write([]byte(`{"message":"Hello from API v1!"}`))
+				},
+			},
 		},
-	)
+		SubRouters: []router.SubRouterConfig{usersV1SubRouter}, // Nest usersV1
+		// Generic routes will be added imperatively later
+	}
 
-	// Add the users sub-router to the v1 sub-router
-	router.RegisterSubRouterWithSubRouter(&apiV1SubRouter, usersV1SubRouter)
+	// Create a users sub-router under v2
+	usersV2SubRouter := router.SubRouterConfig{
+		PathPrefix: "/users", // Relative to parent (/api/v2)
+		// Generic routes will be added imperatively later
+	}
+
+	// Create an auth sub-router under v2 for authenticated routes
+	authV2SubRouter := router.SubRouterConfig{
+		PathPrefix: "/auth", // Relative to parent (/api/v2)
+		// Generic routes will be added imperatively later
+	}
 
 	// Create a v2 sub-router
 	apiV2SubRouter := router.SubRouterConfig{
-		PathPrefix: "/v2",
+		PathPrefix: "/v2", // Relative to parent (/api)
 		Routes: []router.RouteConfigBase{
 			{
-				Path:      "/hello",
+				Path:      "/hello", // Becomes /api/v2/hello
 				Methods:   []string{"GET"},
 				AuthLevel: router.NoAuth,
 				Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -209,62 +172,105 @@ func main() {
 				},
 			},
 		},
+		SubRouters: []router.SubRouterConfig{usersV2SubRouter, authV2SubRouter}, // Nest usersV2 and authV2
 	}
 
-	// Create a users sub-router under v2
-	usersV2SubRouter := router.SubRouterConfig{
-		PathPrefix: "/users",
+	// Create a main API sub-router
+	apiSubRouter := router.SubRouterConfig{
+		PathPrefix: "/api", // Root prefix
+		Routes: []router.RouteConfigBase{
+			{
+				Path:      "/status", // Becomes /api/status
+				Methods:   []string{"GET"},
+				AuthLevel: router.NoAuth,
+				Handler: func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					w.Write([]byte(`{"status":"ok"}`))
+				},
+			},
+		},
+		SubRouters: []router.SubRouterConfig{apiV1SubRouter, apiV2SubRouter}, // Nest v1 and v2
 	}
 
-	// Create a GenericRouteConfigs to hold multiple generic routes
-	var userRoutes router.GenericRouteConfigs
+	// --- Create Router and Register Sub-Routers ---
 
-	// Create a generic route for getting user info
-	userRoute := router.CreateGenericRouteForSubRouter[UserRequest, UserResponse, string, string](
+	// Create a router with string as both the user ID and user type
+	r := router.NewRouter[string, string](router.RouterConfig{
+		Logger:        logger,
+		GlobalTimeout: 5 * time.Second,
+		SubRouters:    []router.SubRouterConfig{apiSubRouter}, // Register only the top-level sub-router
+	}, authFunction, userIdFromUserFunction)
+
+	// --- Imperatively Register Generic Routes ---
+
+	// Create JSON codecs for our generic routes
+	greetingCodec := codec.NewJSONCodec[GreetingRequest, GreetingResponse]()
+	userCodec := codec.NewJSONCodec[UserRequest, UserResponse]()
+	profileCodec := codec.NewJSONCodec[ProfileRequest, ProfileResponse]()
+
+	// Register generic route for /api/v1/greet
+	errV1Greet := router.RegisterGenericRouteOnSubRouter[GreetingRequest, GreetingResponse, string, string](
+		r,
+		"/api/v1", // Target prefix
+		router.RouteConfig[GreetingRequest, GreetingResponse]{
+			Path:      "/greet", // Relative path
+			Methods:   []string{"POST"},
+			AuthLevel: router.NoAuth,
+			Codec:     greetingCodec,
+			Handler:   greetingHandler,
+		},
+	)
+	if errV1Greet != nil {
+		log.Fatalf("Failed to register generic route on /api/v1: %v", errV1Greet)
+	}
+
+	// Register generic route for /api/v1/users/info
+	errV1UserInfo := router.RegisterGenericRouteOnSubRouter[UserRequest, UserResponse, string, string](
+		r,
+		"/api/v1/users", // Target prefix (nested)
 		router.RouteConfig[UserRequest, UserResponse]{
-			Path:      "/info",
+			Path:      "/info", // Relative path
 			Methods:   []string{"POST"},
 			AuthLevel: router.NoAuth,
 			Codec:     userCodec,
 			Handler:   userHandler,
 		},
 	)
-
-	// Add the generic route to the GenericRouteConfigs
-	userRoutes = append(userRoutes, userRoute)
-
-	// Set the GenericRoutes field of the users v2 sub-router
-	usersV2SubRouter.GenericRoutes = userRoutes
-
-	// Add the users sub-router to the v2 sub-router
-	router.RegisterSubRouterWithSubRouter(&apiV2SubRouter, usersV2SubRouter)
-
-	// Create an auth sub-router under v2 for authenticated routes
-	authV2SubRouter := router.SubRouterConfig{
-		PathPrefix: "/auth",
+	if errV1UserInfo != nil {
+		log.Fatalf("Failed to register generic route on /api/v1/users: %v", errV1UserInfo)
 	}
 
-	// Register a generic route with the auth v2 sub-router that requires authentication
-	router.RegisterGenericRouteWithSubRouter[ProfileRequest, ProfileResponse, string, string](
-		&authV2SubRouter,
+	// Register generic route for /api/v2/users/info
+	errV2UserInfo := router.RegisterGenericRouteOnSubRouter[UserRequest, UserResponse, string, string](
+		r,
+		"/api/v2/users", // Target prefix (nested)
+		router.RouteConfig[UserRequest, UserResponse]{
+			Path:      "/info", // Relative path
+			Methods:   []string{"POST"},
+			AuthLevel: router.NoAuth,
+			Codec:     userCodec,
+			Handler:   userHandler,
+		},
+	)
+	if errV2UserInfo != nil {
+		log.Fatalf("Failed to register generic route on /api/v2/users: %v", errV2UserInfo)
+	}
+
+	// Register generic route for /api/v2/auth/profile
+	errV2AuthProfile := router.RegisterGenericRouteOnSubRouter[ProfileRequest, ProfileResponse, string, string](
+		r,
+		"/api/v2/auth", // Target prefix (nested)
 		router.RouteConfig[ProfileRequest, ProfileResponse]{
-			Path:      "/profile",
+			Path:      "/profile", // Relative path
 			Methods:   []string{"POST"},
 			AuthLevel: router.AuthRequired, // This route requires authentication
 			Codec:     profileCodec,
 			Handler:   profileHandler,
 		},
 	)
-
-	// Add the auth sub-router to the v2 sub-router
-	router.RegisterSubRouterWithSubRouter(&apiV2SubRouter, authV2SubRouter)
-
-	// Add the v1 and v2 sub-routers to the main API sub-router
-	router.RegisterSubRouterWithSubRouter(&apiSubRouter, apiV1SubRouter)
-	router.RegisterSubRouterWithSubRouter(&apiSubRouter, apiV2SubRouter)
-
-	// Register the main API sub-router with the router
-	r.RegisterSubRouter(apiSubRouter)
+	if errV2AuthProfile != nil {
+		log.Fatalf("Failed to register generic route on /api/v2/auth: %v", errV2AuthProfile)
+	}
 
 	// Start the server
 	fmt.Println("Nested SubRouters Example Server listening on :8080")

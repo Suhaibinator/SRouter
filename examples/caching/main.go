@@ -77,13 +77,13 @@ func main() {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 
-	// Create an in-memory cache
-	cache := NewInMemoryCache()
+	// Create an in-memory cache (Note: Caching functionality seems removed from RouterConfig)
+	// cache := NewInMemoryCache()
 
 	// Create a JSON codec
 	jsonCodec := codec.NewJSONCodec[UserRequest, UserResponse]()
 
-	// Create a router with caching enabled
+	// Create a router (Note: Removed caching fields from config)
 	r := router.NewRouter[int, any](
 		router.RouterConfig{
 			Logger:        logger,
@@ -96,15 +96,15 @@ func main() {
 				EnableQPS:        true,
 				EnableErrors:     true,
 			},
-			CacheGet:       cache.Get,
-			CacheSet:       cache.Set,
-			CacheKeyPrefix: "global", // Global cache key prefix
-			// Add a sub-router with its own cache key prefix
+			// CacheGet:       cache.Get, // Removed
+			// CacheSet:       cache.Set, // Removed
+			// CacheKeyPrefix: "global", // Removed
+			// Add a sub-router
 			SubRouters: []router.SubRouterConfig{
 				{
-					PathPrefix:     "/api/v1",
-					CacheResponse:  true,
-					CacheKeyPrefix: "api-v1", // Sub-router specific cache key prefix
+					PathPrefix: "/api/v1",
+					// CacheResponse:  true, // Removed
+					// CacheKeyPrefix: "api-v1", // Removed
 					Routes: []router.RouteConfigBase{
 						{
 							Path:    "/users/:id",
@@ -149,32 +149,32 @@ func main() {
 		Methods: []string{"POST"},
 		Codec:   jsonCodec,
 		Handler: getUserHandler,
-		// CacheResponse is false by default
-	})
+		// CacheResponse is false by default (and functionality removed)
+	}, time.Duration(0), int64(0), nil) // Added effective settings
 
-	// 2. Route with caching using query parameter
+	// 2. Route with caching using query parameter (Note: Caching functionality removed)
 	router.RegisterGenericRoute(r, router.RouteConfig[UserRequest, UserResponse]{
-		Path:           "/users/query",
-		Methods:        []string{"GET"},
-		Codec:          jsonCodec,
-		Handler:        getUserHandler,
-		SourceType:     router.Base64QueryParameter,
-		SourceKey:      "data",
-		CacheResponse:  true,
-		CacheKeyPrefix: "query", // Route-specific cache key prefix
-	})
+		Path:       "/users/query",
+		Methods:    []string{"GET"},
+		Codec:      jsonCodec,
+		Handler:    getUserHandler,
+		SourceType: router.Base64QueryParameter,
+		SourceKey:  "data",
+		// CacheResponse:  true, // Removed
+		// CacheKeyPrefix: "query", // Removed
+	}, time.Duration(0), int64(0), nil) // Added effective settings
 
-	// 3. Route with caching using path parameter
+	// 3. Route with caching using path parameter (Note: Caching functionality removed)
 	router.RegisterGenericRoute(r, router.RouteConfig[UserRequest, UserResponse]{
-		Path:           "/users/path/:data",
-		Methods:        []string{"GET"},
-		Codec:          jsonCodec,
-		Handler:        getUserHandler,
-		SourceType:     router.Base64PathParameter,
-		SourceKey:      "data",
-		CacheResponse:  true,
-		CacheKeyPrefix: "path", // Route-specific cache key prefix
-	})
+		Path:       "/users/path/:data",
+		Methods:    []string{"GET"},
+		Codec:      jsonCodec,
+		Handler:    getUserHandler,
+		SourceType: router.Base64PathParameter,
+		SourceKey:  "data",
+		// CacheResponse:  true, // Removed
+		// CacheKeyPrefix: "path", // Removed
+	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	// The sub-router is already registered in the RouterConfig
 
@@ -189,22 +189,22 @@ func main() {
 	jsonData, _ := json.Marshal(userReq)
 	base64Data := base64.StdEncoding.EncodeToString(jsonData)
 
-	fmt.Println("\n2. Using query parameter (with caching):")
+	fmt.Println("\n2. Using query parameter (caching removed):")
 	fmt.Printf("   curl \"http://localhost:8080/users/query?data=%s\"\n", base64Data)
 
-	fmt.Println("\n3. Using path parameter (with caching):")
+	fmt.Println("\n3. Using path parameter (caching removed):")
 	fmt.Printf("   curl \"http://localhost:8080/users/path/%s\"\n", base64Data)
 
-	fmt.Println("\n4. Using sub-router with its own cache key prefix:")
+	fmt.Println("\n4. Using sub-router:")
 	fmt.Println("   curl \"http://localhost:8080/api/v1/users/1\"")
 
-	fmt.Println("\nCache key prefixes used in this example:")
-	fmt.Println("- Global prefix: \"global\"")
-	fmt.Println("- Route-specific prefix for query parameter route: \"query\"")
-	fmt.Println("- Route-specific prefix for path parameter route: \"path\"")
-	fmt.Println("- Sub-router prefix: \"api-v1\"")
+	// fmt.Println("\nCache key prefixes used in this example:")
+	// fmt.Println("- Global prefix: \"global\"")
+	// fmt.Println("- Route-specific prefix for query parameter route: \"query\"")
+	// fmt.Println("- Route-specific prefix for path parameter route: \"path\"")
+	// fmt.Println("- Sub-router prefix: \"api-v1\"")
 
-	fmt.Println("\nTry making the same request multiple times to see the caching in action!")
+	// fmt.Println("\nTry making the same request multiple times to see the caching in action!")
 
 	log.Fatal(http.ListenAndServe(":8080", r))
 }
