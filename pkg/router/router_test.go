@@ -996,3 +996,216 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 		})
 	}
 }
+
+// --- New Test for Generic Route Error Paths ---
+
+// TestRegisterGenericRouteErrorPaths covers various error scenarios in RegisterGenericRoute.
+func TestRegisterGenericRouteErrorPaths(t *testing.T) {
+	logger := zap.NewNop()
+	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	// --- Route Definitions for Error Cases ---
+
+	// Unmarshal Path Param Error (Base64)
+	invalidJSONBase64 := base64.StdEncoding.EncodeToString([]byte("{invalid json"))
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/err/unmarshal-path/:data",
+		Methods:    []string{"GET"},
+		SourceType: Base64PathParameter,
+		SourceKey:  "data",
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler: func(req *http.Request, data TestData) (string, error) {
+			t.Error("Handler should not be called on unmarshal error")
+			return "", errors.New("handler should not be called")
+		},
+	}, time.Duration(0), int64(0), nil)
+
+	// Unmarshal Query Param Error (Base64)
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/err/unmarshal-query",
+		Methods:    []string{"GET"},
+		SourceType: Base64QueryParameter,
+		SourceKey:  "qdata",
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler: func(req *http.Request, data TestData) (string, error) {
+			t.Error("Handler should not be called on unmarshal error")
+			return "", errors.New("handler should not be called")
+		},
+	}, time.Duration(0), int64(0), nil)
+
+	// Missing Query Param Error
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/err/missing-query",
+		Methods:    []string{"GET"},
+		SourceType: Base64QueryParameter, // Type doesn't matter much here
+		SourceKey:  "required_param",
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler: func(req *http.Request, data TestData) (string, error) {
+			t.Error("Handler should not be called on missing query param error")
+			return "", errors.New("handler should not be called")
+		},
+	}, time.Duration(0), int64(0), nil)
+
+	// Body Decode Error
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/err/body-decode",
+		Methods:    []string{"POST"},
+		SourceType: Body,
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler: func(req *http.Request, data TestData) (string, error) {
+			t.Error("Handler should not be called on body decode error")
+			return "", errors.New("handler should not be called")
+		},
+	}, time.Duration(0), int64(0), nil)
+
+	// Unsupported SourceType Error
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/err/unsupported-source",
+		Methods:    []string{"GET"},
+		SourceType: 99, // Invalid source type
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler: func(req *http.Request, data TestData) (string, error) {
+			t.Error("Handler should not be called on unsupported source type error")
+			return "", errors.New("handler should not be called")
+		},
+	}, time.Duration(0), int64(0), nil)
+
+	// Handler Error
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/err/handler",
+		Methods:    []string{"POST"},
+		SourceType: Body,
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler: func(req *http.Request, data TestData) (string, error) {
+			return "", errors.New("internal handler error") // Explicitly return error
+		},
+	}, time.Duration(0), int64(0), nil)
+
+	// Response Encode Error
+	type UnencodableResponse struct {
+		Ch chan int `json:"ch"` // Channels cannot be JSON encoded
+	}
+	RegisterGenericRoute(r, RouteConfig[TestData, UnencodableResponse]{
+		Path:       "/err/resp-encode",
+		Methods:    []string{"POST"},
+		SourceType: Body,
+		Codec:      codec.NewJSONCodec[TestData, UnencodableResponse](),
+		Handler: func(req *http.Request, data TestData) (UnencodableResponse, error) {
+			return UnencodableResponse{Ch: make(chan int)}, nil // Return unencodable type
+		},
+	}, time.Duration(0), int64(0), nil)
+
+	// --- Test Server ---
+	server := httptest.NewServer(r)
+	defer server.Close()
+
+	// --- Test Cases ---
+	tests := []struct {
+		name           string
+		method         string
+		path           string
+		body           io.Reader // For POST requests
+		expectedStatus int
+		expectedBody   string // Expected substring in error message
+	}{
+		{
+			name:           "Unmarshal Path Param Error",
+			method:         "GET",
+			path:           fmt.Sprintf("/err/unmarshal-path/%s", invalidJSONBase64),
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Failed to unmarshal decoded path parameter data",
+		},
+		{
+			name:           "Unmarshal Query Param Error",
+			method:         "GET",
+			path:           fmt.Sprintf("/err/unmarshal-query?qdata=%s", invalidJSONBase64),
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Failed to unmarshal decoded query parameter data",
+		},
+		{
+			name:           "Missing Query Param Error",
+			method:         "GET",
+			path:           "/err/missing-query", // Missing required_param
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Missing required query parameter: required_param",
+		},
+		{
+			name:           "Body Decode Error",
+			method:         "POST",
+			path:           "/err/body-decode",
+			body:           strings.NewReader("{invalid json"),
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Failed to decode request body",
+		},
+		{
+			name:           "Unsupported SourceType Error",
+			method:         "GET",
+			path:           "/err/unsupported-source",
+			expectedStatus: http.StatusInternalServerError, // Or maybe Bad Request? Let's check route.go... it uses InternalServerError
+			expectedBody:   "Unsupported source type",
+		},
+		{
+			name:           "Handler Error",
+			method:         "POST",
+			path:           "/err/handler",
+			body:           strings.NewReader(`{"value":"test"}`), // Valid body
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   "Handler error", // Generic message from route.go
+		},
+		{
+			name:           "Response Encode Error",
+			method:         "POST",
+			path:           "/err/resp-encode",
+			body:           strings.NewReader(`{"value":"test"}`), // Valid body
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   "Failed to encode response",
+		},
+	}
+
+	// --- Run Tests ---
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(tc.method, server.URL+tc.path, tc.body)
+			if err != nil {
+				t.Fatalf("Failed to create request: %v", err)
+			}
+			if tc.method == "POST" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("Failed to send request: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tc.expectedStatus {
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				t.Errorf("Expected status code %d, got %d. Body: %s", tc.expectedStatus, resp.StatusCode, string(bodyBytes))
+				return
+			}
+
+			if tc.expectedBody != "" {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				if err != nil {
+					t.Fatalf("Failed to read response body: %v", err)
+				}
+				bodyString := strings.TrimSpace(string(bodyBytes))
+
+				// Extract the "message" field from the JSON error response
+				var errResp struct {
+					Message string `json:"message"`
+				}
+				jsonErr := json.Unmarshal(bodyBytes, &errResp)
+				if jsonErr == nil && errResp.Message != "" {
+					bodyString = errResp.Message // Use the extracted message for comparison
+				}
+				// Fallback to raw body string if JSON parsing fails or message is empty
+
+				if !strings.Contains(bodyString, tc.expectedBody) {
+					t.Errorf("Expected response body to contain %q, got %q", tc.expectedBody, bodyString)
+				}
+			}
+		})
+	}
+}
