@@ -384,9 +384,11 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 				}
 				r.logger.Error("Request timed out", fields...)
 
+				// Ensure writing the error response is also protected by the mutex
 				wMutex.Lock()
-				// http.Error checks if headers were already sent
-				http.Error(w, "Request Timeout", http.StatusRequestTimeout)
+				// Check if headers were already sent before writing error
+				// http.Error handles this check internally, but locking ensures atomicity.
+				http.Error(wrappedW, "Request Timeout", http.StatusRequestTimeout) // Use wrappedW
 				wMutex.Unlock()
 				return
 			}
