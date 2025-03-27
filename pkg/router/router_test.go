@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big" // Needed for Base62 test helper
 	"net/http"
 	"net/http/httptest"
 	"strings" // Add missing import
@@ -14,12 +15,19 @@ import (
 	"testing"
 	"time"
 
+	"encoding/base64" // Needed for Base64 encoding
+
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"            // Needed for TestEffectiveSettings
-	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Use centralized mocks
+	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks"
 	"go.uber.org/zap"
 )
+
+// --- Test Data Struct ---
+type TestData struct {
+	Value string `json:"value"`
+}
 
 // --- Tests from original router_test.go ---
 
@@ -783,5 +791,208 @@ func TestMutexResponseWriterFlush(t *testing.T) {
 	mrw.Flush()
 	if !rr.Flushed {
 		t.Errorf("Expected Flush to be called on the underlying response writer")
+	}
+}
+
+// Helper function to encode bytes to Base62 string using math/big logic,
+// mirroring the DecodeBase62 implementation in pkg/codec/encoding.go
+func encodeBase62ForTest(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	var num big.Int
+	num.SetBytes(data)
+
+	if num.Sign() == 0 {
+		return "0" // Special case for zero
+	}
+
+	base := big.NewInt(62)
+	zero := big.NewInt(0)
+	chars := "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	var result []byte
+
+	// Use a temporary variable for calculations to avoid modifying num directly in the loop condition
+	tempNum := new(big.Int).Set(&num)
+	mod := new(big.Int)
+
+	for tempNum.Cmp(zero) > 0 {
+		tempNum.DivMod(tempNum, base, mod) // tempNum = tempNum / base; mod = tempNum % base
+		result = append(result, chars[mod.Int64()])
+	}
+
+	// Reverse the result
+	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+		result[i], result[j] = result[j], result[i]
+	}
+
+	return string(result)
+}
+
+// --- New Test for Path Parameter Fallback ---
+
+// TestGenericRoutePathParameterFallback tests the fallback logic for path parameters
+// when SourceKey is empty for Base64PathParameter and Base62PathParameter.
+func TestGenericRoutePathParameterFallback(t *testing.T) {
+	logger := zap.NewNop()
+	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	// Define test data
+	testPayload := TestData{Value: "hello world"}
+	jsonData, err := json.Marshal(testPayload)
+	if err != nil {
+		t.Fatalf("Failed to marshal test data: %v", err)
+	}
+
+	// Base64 encode
+	encodedBase64 := base64.URLEncoding.EncodeToString(jsonData)
+
+	// Base62 encode using the test helper that mirrors the decoder logic
+	encodedBase62 := encodeBase62ForTest(jsonData)
+
+	// Handler function to verify decoded data
+	verifyHandler := func(expectedValue string) func(req *http.Request, data TestData) (string, error) {
+		return func(req *http.Request, data TestData) (string, error) {
+			if data.Value != expectedValue {
+				return "", fmt.Errorf("expected value %q, got %q", expectedValue, data.Value)
+			}
+			// Return simple "OK" string, which will be JSON encoded by the codec
+			return "OK", nil
+		}
+	}
+
+	// Register Base64 route with empty SourceKey
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/base64/:dataParam", // Path parameter name is 'dataParam'
+		Methods:    []string{"GET"},
+		SourceType: Base64PathParameter,
+		SourceKey:  "",                                     // Empty SourceKey, should use 'dataParam'
+		Codec:      codec.NewJSONCodec[TestData, string](), // Use JSON codec for request and response
+		Handler:    verifyHandler(testPayload.Value),
+	}, time.Duration(0), int64(0), nil)
+
+	// Register Base62 route with empty SourceKey
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/base62/:valueParam", // Path parameter name is 'valueParam'
+		Methods:    []string{"GET"},
+		SourceType: Base62PathParameter,
+		SourceKey:  "",                                     // Empty SourceKey, should use 'valueParam'
+		Codec:      codec.NewJSONCodec[TestData, string](), // Use JSON codec for request and response
+		Handler:    verifyHandler(testPayload.Value),
+	}, time.Duration(0), int64(0), nil)
+
+	// Register routes to test "no path parameters found" error
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/no-params-base64", // No path parameters
+		Methods:    []string{"GET"},
+		SourceType: Base64PathParameter,
+		SourceKey:  "", // Empty SourceKey
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler:    verifyHandler(testPayload.Value), // Handler shouldn't be reached
+	}, time.Duration(0), int64(0), nil)
+
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/no-params-base62", // No path parameters
+		Methods:    []string{"GET"},
+		SourceType: Base62PathParameter,
+		SourceKey:  "", // Empty SourceKey
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler:    verifyHandler(testPayload.Value), // Handler shouldn't be reached
+	}, time.Duration(0), int64(0), nil)
+
+	// Create test server
+	server := httptest.NewServer(r)
+	defer server.Close()
+
+	// --- Test Cases ---
+	tests := []struct {
+		name           string
+		path           string
+		expectedStatus int
+		expectedBody   string // Expected body content if status is OK or specific error message part
+	}{
+		{
+			name:           "Base64 Fallback OK",
+			path:           fmt.Sprintf("/base64/%s", encodedBase64),
+			expectedStatus: http.StatusOK,
+			expectedBody:   `"OK"`, // JSON encoded string "OK"
+		},
+		{
+			name:           "Base62 Fallback OK",
+			path:           fmt.Sprintf("/base62/%s", encodedBase62),
+			expectedStatus: http.StatusOK,
+			expectedBody:   `"OK"`, // JSON encoded string "OK"
+		},
+		{
+			name:           "Base64 No Params Error",
+			path:           "/no-params-base64",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "No path parameters found", // Check for specific error message part
+		},
+		{
+			name:           "Base62 No Params Error",
+			path:           "/no-params-base62",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "No path parameters found", // Check for specific error message part
+		},
+		// Add edge cases if necessary (e.g., multiple path params, invalid encoding)
+		{
+			name:           "Base64 Invalid Encoding",
+			path:           "/base64/invalid-base64-$$",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Failed to decode base64 path parameter",
+		},
+		{
+			name:           "Base62 Invalid Encoding",
+			path:           "/base62/invalid-base62-$$", // Assuming '$$' is invalid for base58/62
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Failed to decode base62 path parameter", // Message from route.go
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := http.Get(server.URL + tc.path)
+			if err != nil {
+				t.Fatalf("Failed to send request: %v", err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tc.expectedStatus {
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				t.Errorf("Expected status code %d, got %d. Body: %s", tc.expectedStatus, resp.StatusCode, string(bodyBytes))
+				return // Stop further checks if status is wrong
+			}
+
+			if tc.expectedBody != "" {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				if err != nil {
+					t.Fatalf("Failed to read response body: %v", err)
+				}
+				bodyString := strings.TrimSpace(string(bodyBytes))
+
+				// For error messages, check if the body contains the expected text
+				if tc.expectedStatus >= 400 {
+					// Extract the "message" field from the JSON error response if possible
+					var errResp struct {
+						Message string `json:"message"`
+					}
+					jsonErr := json.Unmarshal(bodyBytes, &errResp)
+					if jsonErr == nil && errResp.Message != "" {
+						bodyString = errResp.Message // Use the extracted message for comparison
+					}
+					// Fallback to raw body string if JSON parsing fails or message is empty
+
+					if !strings.Contains(bodyString, tc.expectedBody) {
+						t.Errorf("Expected response body to contain %q, got %q", tc.expectedBody, bodyString)
+					}
+				} else { // For success messages, check for exact match
+					if bodyString != tc.expectedBody {
+						t.Errorf("Expected response body %q, got %q", tc.expectedBody, bodyString)
+					}
+				}
+			}
+		})
 	}
 }
