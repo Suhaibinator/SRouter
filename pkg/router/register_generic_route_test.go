@@ -3,7 +3,6 @@ package router
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	"time" // Added for zero value
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Import the new mocks package
 	"go.uber.org/zap"
 )
@@ -108,47 +106,6 @@ func testGenericHandler[T any, U any](r *http.Request, data T) (U, error) {
 	return resp, nil
 }
 
-// testGenericHandlerWithError is a helper function for testing generic routes that returns an error
-func testGenericHandlerWithError[T any, U any](r *http.Request, data T) (U, error) {
-	var resp U
-	return resp, errors.New("handler error")
-}
-
-// Test handler that accesses user information from the request context (for subrouter tests)
-func testProfileHandler(req *http.Request, data TestProfileRequest) (TestProfileResponse, error) {
-	// Get the user ID from the request context
-	userID, loggedIn := middleware.GetUserIDFromRequest[string, string](req)
-
-	// Create a response with the user information
-	response := TestProfileResponse{
-		LoggedIn: loggedIn,
-	}
-
-	if loggedIn {
-		response.UserID = userID
-		// Check if the user is an admin
-		response.IsAdmin = userID == "admin"
-	}
-
-	return response, nil
-}
-
-// Test handler for query parameters (for subrouter tests)
-func testQueryHandler(req *http.Request, data TestQueryRequest) (TestQueryResponse, error) {
-	// Simply echo back the query parameters
-	return TestQueryResponse(data), nil
-}
-
-// Test handler for error handling (for subrouter tests)
-func testErrorHandler(req *http.Request, data TestErrorRequest) (TestErrorResponse, error) {
-	if data.ShouldError {
-		return TestErrorResponse{}, NewHTTPError(http.StatusBadRequest, "Error requested by client")
-	}
-	return TestErrorResponse{
-		Message: "Success",
-	}, nil
-}
-
 // SourceTestHandler is a simple handler for testing source types
 func SourceTestHandler(r *http.Request, req SourceTestRequest) (SourceTestResponse, error) {
 	return SourceTestResponse{
@@ -156,29 +113,6 @@ func SourceTestHandler(r *http.Request, req SourceTestRequest) (SourceTestRespon
 		ID:      req.ID,
 		Name:    req.Name,
 	}, nil
-}
-
-// setupTestRouter creates a router for testing source types
-func setupTestRouter() *Router[string, string] {
-	logger := zap.NewNop() // Use No-op logger for tests unless specific logging is needed
-
-	// Create a router configuration
-	routerConfig := RouterConfig{
-		Logger: logger,
-	}
-
-	// Define the auth function
-	authFunction := func(ctx context.Context, token string) (string, bool) {
-		return token, true
-	}
-
-	// Define the function to get the user ID from a string
-	userIdFromUserFunction := func(user string) string {
-		return user
-	}
-
-	// Create a router
-	return NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 }
 
 // --- Tests ---

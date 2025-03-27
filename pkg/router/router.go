@@ -384,11 +384,20 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 				}
 				r.logger.Error("Request timed out", fields...)
 
-				// Ensure writing the error response is also protected by the mutex
+				// Manually write the error response using the mutex-protected wrappedW methods
+				// This avoids potential races within http.Error's header manipulation.
 				wMutex.Lock()
-				// Check if headers were already sent before writing error
-				// http.Error handles this check internally, but locking ensures atomicity.
-				http.Error(wrappedW, "Request Timeout", http.StatusRequestTimeout) // Use wrappedW
+				// Check if headers were already sent (best effort, not foolproof with standard ResponseWriter)
+				// We assume if WriteHeader hasn't been called via wrappedW, it's safe.
+				// The mutex ensures atomicity of the check-and-write sequence below.
+				// Note: A more complex wrapper could track if WriteHeader was called.
+				if _, ok := wrappedW.Header()["Content-Type"]; !ok { // Simple check
+					wrappedW.Header().Set("Content-Type", "text/plain; charset=utf-8")
+					wrappedW.WriteHeader(http.StatusRequestTimeout)
+					fmt.Fprintln(wrappedW, "Request Timeout") // Use fmt.Fprintln or similar
+				}
+				// If headers were already sent, we can't change status code,
+				// and writing might fail or be ignored by the client.
 				wMutex.Unlock()
 				return
 			}
