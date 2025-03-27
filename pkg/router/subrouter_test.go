@@ -176,6 +176,35 @@ func TestRegisterSubRouterWithCachingErrorCoverage(t *testing.T) { // Renamed to
 
 // --- Original tests from subrouter_test.go ---
 
+// TestExportedRegisterSubRouter tests the exported RegisterSubRouter wrapper function
+func TestExportedRegisterSubRouter(t *testing.T) {
+	logger := zap.NewNop()
+	r := NewRouter[string, string](RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	subRouterCfg := SubRouterConfig{
+		PathPrefix: "/export",
+		Routes: []RouteConfigBase{
+			{
+				Path:    "/route",
+				Methods: []string{"GET"},
+				Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) },
+			},
+		},
+	}
+
+	// Use the exported function
+	r.RegisterSubRouter(subRouterCfg)
+
+	// Test the route
+	req := httptest.NewRequest("GET", "/export/route", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status OK (200) for exported RegisterSubRouter route, got %d", rr.Code)
+	}
+}
+
 // TestRegisterSubRouter tests the registerSubRouter function with various configurations
 func TestRegisterSubRouter(t *testing.T) {
 	// Create a logger

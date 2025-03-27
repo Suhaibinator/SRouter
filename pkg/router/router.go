@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic" // Import atomic package
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
@@ -73,6 +74,7 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 		rateLimiter:       rateLimiter,
 		metricsWriterPool: sync.Pool{
 			New: func() interface{} {
+				// metricsResponseWriter might still be needed for metrics, keep for now
 				return &metricsResponseWriter[T, U]{}
 			},
 		},
@@ -173,86 +175,35 @@ func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler) httproute
 // It applies authentication, timeout, body size limits, rate limiting, and other middleware
 // to create a complete request processing pipeline.
 func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel AuthLevel, timeout time.Duration, maxBodySize int64, rateLimit *middleware.RateLimitConfig[T, U], middlewares []Middleware) http.Handler {
-	// Create a handler that applies all the router's functionality
+	// Create a base handler that only handles shutdown check and body size limit directly
+	// Timeout is now handled by timeoutMiddleware setting the context.
 	h := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		// First add to the wait group before checking shutdown status
+		// Shutdown Check
 		r.wg.Add(1)
-
-		// Then check if the router is shutting down
+		defer r.wg.Done()
 		r.shutdownMu.RLock()
 		isShutdown := r.shutdown
 		r.shutdownMu.RUnlock()
-
 		if isShutdown {
-			// If shutting down, decrement the wait group and return error
-			r.wg.Done()
 			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 			return
 		}
-
-		// Process the request and ensure wg.Done() is called when finished
-		defer r.wg.Done()
 
 		// Apply body size limit
 		if maxBodySize > 0 {
 			req.Body = http.MaxBytesReader(w, req.Body, maxBodySize)
 		}
 
-		// Apply timeout
-		if timeout > 0 {
-			ctx, cancel := context.WithTimeout(req.Context(), timeout)
-			defer cancel()
-			req = req.WithContext(ctx)
-
-			// Create a mutex to protect access to the response writer
-			var wMutex sync.Mutex
-
-			// Create a wrapped response writer that uses the mutex
-			wrappedW := &mutexResponseWriter{
-				ResponseWriter: w,
-				mu:             &wMutex,
-			}
-
-			// Use a channel to signal when the handler is done
-			done := make(chan struct{})
-			go func() {
-				handler(wrappedW, req)
-				close(done)
-			}()
-
-			select {
-			case <-done:
-				// Handler finished normally
-				return
-			case <-ctx.Done():
-				// Timeout occurred
-				r.logger.Error("Request timed out",
-					zap.String("method", req.Method),
-					zap.String("path", req.URL.Path),
-					zap.Duration("timeout", timeout),
-					zap.String("client_ip", req.RemoteAddr),
-				)
-
-				// Lock the mutex before writing to the response
-				wMutex.Lock()
-				http.Error(w, "Request Timeout", http.StatusRequestTimeout)
-				wMutex.Unlock()
-				return
-			}
-		} else {
-			// No timeout, just call the handler
-			handler(w, req)
-		}
-	})) // End of the base http.HandlerFunc
+		// Call the actual handler (timeout context is applied by middleware)
+		handler(w, req)
+	}))
 
 	// Build the middleware chain
 	chain := common.NewMiddlewareChain()
 
 	// Append middleware in order of execution (outermost first)
-	// Note: Assuming Append adds to the end of the chain, meaning it runs *earlier* in the request flow.
-	// If Append adds to the start (runs later), reverse the order.
 
-	// 1. Recovery (Innermost, runs last before handler panic, but added first to chain.Then)
+	// 1. Recovery (Innermost before handler)
 	chain = chain.Append(r.recoveryMiddleware)
 
 	// 2. Authentication (Runs early)
@@ -265,74 +216,38 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel AuthLevel
 
 	// 3. Rate Limiting
 	if rateLimit != nil {
-		// Assuming RateLimit returns a Middleware
 		chain = chain.Append(middleware.RateLimit(rateLimit, r.rateLimiter, r.logger))
 	}
 
 	// 4. Route-Specific Middlewares
 	chain = chain.Append(middlewares...)
 
-	// 5. Global Middlewares
-	chain = chain.Append(r.middlewares...)
+	// 5. Global Middlewares (defined in RouterConfig)
+	chain = chain.Append(r.middlewares...) // Note: This now includes ClientIPMiddleware added in NewRouter
 
-	// 6. Timeout Handling
+	// 6. Timeout Handling (Sets context deadline)
 	if timeout > 0 {
-		chain = chain.Append(r.timeoutMiddleware(timeout)) // Use router method
+		chain = chain.Append(r.timeoutMiddleware(timeout))
 	}
 
-	// 7. Body Size Limit
-	if maxBodySize > 0 {
-		chain = chain.Append(bodyLimitMiddleware(maxBodySize)) // Use standalone function
-	}
+	// 7. Body Size Limit (Applied within the base handler 'h' now)
+	// No separate middleware needed here anymore.
 
-	// 8. Shutdown Handling (Runs very early, just after recovery)
-	chain = chain.Append(r.shutdownMiddleware()) // Use router method
+	// 8. Shutdown Handling (Applied within the base handler 'h' now)
+	// No separate middleware needed here anymore.
 
-	// Apply the chain to the original handler 'h'
+	// Apply the chain to the base handler 'h'
 	return chain.Then(h)
 }
 
-// shutdownMiddleware creates a middleware that handles graceful shutdown checks.
-func (r *Router[T, U]) shutdownMiddleware() Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			r.wg.Add(1)
-			defer r.wg.Done()
-
-			r.shutdownMu.RLock()
-			isShutdown := r.shutdown
-			r.shutdownMu.RUnlock()
-
-			if isShutdown {
-				http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			next.ServeHTTP(w, req)
-		})
-	}
-}
-
-// bodyLimitMiddleware creates a middleware that applies request body size limits.
-func bodyLimitMiddleware(maxBodySize int64) Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			// Apply body size limit if configured
-			// Note: This only sets the limit. Errors typically occur on Read within the handler/codec.
-			if maxBodySize > 0 {
-				req.Body = http.MaxBytesReader(w, req.Body, maxBodySize)
-			}
-			next.ServeHTTP(w, req)
-		})
-	}
-}
-
 // timeoutMiddleware creates a middleware that handles request timeouts.
+// It sets a context deadline and attempts to write a timeout error if the handler exceeds it,
+// but only if the handler hasn't already started writing the response.
 func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			// No timeout needed if duration is zero or negative
 			if timeout <= 0 {
-				next.ServeHTTP(w, req)
+				next.ServeHTTP(w, req) // No timeout needed
 				return
 			}
 
@@ -344,6 +259,7 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 			wrappedW := &mutexResponseWriter{
 				ResponseWriter: w,
 				mu:             &wMutex,
+				// wroteHeader initialized to false
 			}
 
 			done := make(chan struct{})
@@ -371,34 +287,30 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 				}
 				return
 			case <-ctx.Done():
-				// Timeout occurred
-				traceID := middleware.GetTraceID(req) // Use middleware package function
+				// Timeout occurred. Log it.
+				traceID := middleware.GetTraceID(req)
 				fields := []zap.Field{
 					zap.String("method", req.Method),
 					zap.String("path", req.URL.Path),
 					zap.Duration("timeout", timeout),
-					zap.String("client_ip", req.RemoteAddr), // Consider using IP from IP middleware if available
+					zap.String("client_ip", req.RemoteAddr),
 				}
 				if r.config.EnableTraceID && traceID != "" {
 					fields = append(fields, zap.String("trace_id", traceID))
 				}
 				r.logger.Error("Request timed out", fields...)
 
-				// Manually write the error response using the mutex-protected wrappedW methods
-				// This avoids potential races within http.Error's header manipulation.
-				wMutex.Lock()
-				// Check if headers were already sent (best effort, not foolproof with standard ResponseWriter)
-				// We assume if WriteHeader hasn't been called via wrappedW, it's safe.
-				// The mutex ensures atomicity of the check-and-write sequence below.
-				// Note: A more complex wrapper could track if WriteHeader was called.
-				if _, ok := wrappedW.Header()["Content-Type"]; !ok { // Simple check
-					wrappedW.Header().Set("Content-Type", "text/plain; charset=utf-8")
-					wrappedW.WriteHeader(http.StatusRequestTimeout)
-					fmt.Fprintln(wrappedW, "Request Timeout") // Use fmt.Fprintln or similar
+				// Acquire lock to safely check and potentially write timeout response.
+				wrappedW.mu.Lock()
+				// Check if handler already started writing. Use Swap for atomic check-and-set.
+				if !wrappedW.wroteHeader.Swap(true) {
+					// Handler hasn't written yet, we can write the timeout error.
+					wrappedW.ResponseWriter.Header().Set("Content-Type", "text/plain; charset=utf-8")
+					wrappedW.ResponseWriter.WriteHeader(http.StatusRequestTimeout)
+					fmt.Fprintln(wrappedW.ResponseWriter, "Request Timeout")
 				}
-				// If headers were already sent, we can't change status code,
-				// and writing might fail or be ignored by the client.
-				wMutex.Unlock()
+				// If wroteHeader was already true, handler won the race, do nothing here.
+				wrappedW.mu.Unlock()
 				return
 			}
 		})
@@ -459,12 +371,7 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 	// Prefix the path
 	finalRouteConfig.Path = pathPrefix + route.Path
 
-	// Calculate effective settings (these will be used inside RegisterGenericRoute's call to wrapHandler)
-	// We need to pass these calculated values *into* RegisterGenericRoute or modify how wrapHandler gets them.
-	// Let's modify RegisterGenericRoute slightly to accept these.
-
 	// Combine middleware: global + sub-router + route-specific
-	// Note: The order depends on how common.MiddlewareChain works. Assuming Append runs things earlier.
 	allMiddlewares := make([]common.Middleware, 0, len(r.middlewares)+len(subRouterMiddlewares)+len(route.Middlewares))
 	allMiddlewares = append(allMiddlewares, r.middlewares...)        // Global first
 	allMiddlewares = append(allMiddlewares, subRouterMiddlewares...) // Then sub-router
@@ -472,14 +379,11 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 	finalRouteConfig.Middlewares = allMiddlewares                    // Overwrite middlewares in the config passed down
 
 	// Get effective timeout, max body size, rate limit considering overrides
-	// These need to be passed to wrapHandler eventually.
-	// Let's adjust RegisterGenericRoute to accept these calculated values.
 	effectiveTimeout := r.getEffectiveTimeout(route.Timeout, subRouterTimeout)
 	effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, subRouterMaxBodySize)
 	effectiveRateLimit := r.getEffectiveRateLimit(route.RateLimit, subRouterRateLimit) // This returns *RateLimitConfig[UserID, User]
 
 	// Call the underlying generic registration function with the modified config
-	// We need to modify RegisterGenericRoute to accept the calculated effective values.
 	RegisterGenericRoute[Req, Resp, UserID, User](r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
 
 	return nil
@@ -736,6 +640,7 @@ func (r *Router[T, U]) getEffectiveRateLimit(routeRateLimit, subRouterRateLimit 
 
 // handleError handles an error by logging it and returning an appropriate HTTP response.
 // It checks if the error is a specific HTTPError and uses its status code and message if available.
+// It also checks for context deadline exceeded errors.
 func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err error, statusCode int, message string) {
 	// Get trace ID from context
 	traceID := middleware.GetTraceID(req)
@@ -752,21 +657,31 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 		fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 	}
 
-	// Log the error
-	r.logger.Error(message, fields...)
-
-	// Check if the error is a specific HTTP error
+	// Check for specific error types
 	var httpErr *HTTPError
-	if errors.As(err, &httpErr) {
+	if errors.Is(err, context.DeadlineExceeded) {
+		// Handle timeout specifically
+		statusCode = http.StatusRequestTimeout // Or http.StatusGatewayTimeout
+		message = "Request Timeout"
+		// Log specifically as timeout
+		r.logger.Error("Request timed out (detected in handler)", fields...)
+	} else if errors.As(err, &httpErr) {
+		// Handle custom HTTPError
 		statusCode = httpErr.StatusCode
 		message = httpErr.Message
+		r.logger.Error(message, fields...) // Log with the custom message
 	} else if err != nil && err.Error() == "http: request body too large" {
 		// Specifically handle MaxBytesReader error
 		statusCode = http.StatusRequestEntityTooLarge
 		message = "Request Entity Too Large"
+		r.logger.Warn(message, fields...) // Log as Warn for client error
+	} else {
+		// Log generic internal server error
+		r.logger.Error(message, fields...)
 	}
 
-	// Return the error response
+	// Return the error response using http.Error, which handles checking
+	// if headers have already been written.
 	http.Error(w, message, statusCode)
 }
 
@@ -821,7 +736,14 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 				r.logger.Error("Panic recovered", fields...)
 
 				// Return a 500 Internal Server Error
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				// Avoid double writing headers if panic happens after write started
+				if _, ok := w.(interface{ Status() int }); !ok {
+					// If we can't check status, assume not written yet
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				} else if w.(interface{ Status() int }).Status() == 0 {
+					// Or if status is known to be unwritten
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				}
 			}
 		}()
 
@@ -1030,23 +952,35 @@ func (rw *responseWriter) Flush() {
 	}
 }
 
-// mutexResponseWriter is a wrapper around http.ResponseWriter that uses a mutex to protect access.
+// mutexResponseWriter is a wrapper around http.ResponseWriter that uses a mutex to protect access
+// and tracks if headers/body have been written.
 type mutexResponseWriter struct {
 	http.ResponseWriter
-	mu *sync.Mutex
+	mu          *sync.Mutex
+	wroteHeader atomic.Bool // Tracks if WriteHeader or Write has been called
 }
 
-// WriteHeader acquires the mutex and calls the underlying ResponseWriter.WriteHeader.
+// Header returns the underlying Header map. It does not acquire the mutex itself,
+// relying on the caller or subsequent WriteHeader/Write calls to handle synchronization.
+func (rw *mutexResponseWriter) Header() http.Header {
+	return rw.ResponseWriter.Header()
+}
+
+// WriteHeader acquires the mutex, marks headers as written, and calls the underlying ResponseWriter.WriteHeader.
 func (rw *mutexResponseWriter) WriteHeader(statusCode int) {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
-	rw.ResponseWriter.WriteHeader(statusCode)
+	if !rw.wroteHeader.Swap(true) { // Atomically set flag and check previous value
+		rw.ResponseWriter.WriteHeader(statusCode)
+	}
+	// If header was already written, do nothing (consistent with http.ResponseWriter behavior)
 }
 
-// Write acquires the mutex and calls the underlying ResponseWriter.Write.
+// Write acquires the mutex, marks headers/body as written, and calls the underlying ResponseWriter.Write.
 func (rw *mutexResponseWriter) Write(b []byte) (int, error) {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
+	rw.wroteHeader.Store(true) // Mark as written (headers might be implicitly written here)
 	return rw.ResponseWriter.Write(b)
 }
 
