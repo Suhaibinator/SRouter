@@ -657,6 +657,122 @@ func TestShutdownWithCancel(t *testing.T) {
 	}
 }
 
+// --- Tests for Refactored Generic SubRouter Registration ---
+
+// TestFindSubRouterConfig tests the helper function for finding sub-router configs
+func TestFindSubRouterConfig(t *testing.T) {
+	nestedSR := SubRouterConfig{PathPrefix: "/api/v1/users"}
+	v1SR := SubRouterConfig{PathPrefix: "/api/v1", SubRouters: []SubRouterConfig{nestedSR}}
+	v2SR := SubRouterConfig{PathPrefix: "/api/v2"}
+	subRouters := []SubRouterConfig{v1SR, v2SR}
+
+	// Test finding top-level
+	foundSR, found := findSubRouterConfig(subRouters, "/api/v1")
+	if !found {
+		t.Errorf("Expected to find sub-router with prefix /api/v1")
+	}
+	if foundSR == nil || foundSR.PathPrefix != "/api/v1" {
+		t.Errorf("Found incorrect sub-router or nil for /api/v1")
+	}
+
+	// Test finding nested
+	foundSR, found = findSubRouterConfig(subRouters, "/api/v1/users")
+	if !found {
+		t.Errorf("Expected to find nested sub-router with prefix /api/v1/users")
+	}
+	if foundSR == nil || foundSR.PathPrefix != "/api/v1/users" {
+		t.Errorf("Found incorrect sub-router or nil for /api/v1/users")
+	}
+
+	// Test finding non-existent
+	_, found = findSubRouterConfig(subRouters, "/api/v3")
+	if found {
+		t.Errorf("Did not expect to find sub-router with prefix /api/v3")
+	}
+
+	// Test finding non-existent nested
+	_, found = findSubRouterConfig(subRouters, "/api/v1/posts")
+	if found {
+		t.Errorf("Did not expect to find sub-router with prefix /api/v1/posts")
+	}
+}
+
+// TestRegisterGenericRouteOnSubRouter tests the functional registration method
+func TestRegisterGenericRouteOnSubRouter(t *testing.T) {
+	logger := zap.NewNop()
+	authFunc := func(ctx context.Context, token string) (string, bool) { return "user", true }
+	userIDFunc := func(user string) string { return user }
+
+	// Define sub-routers first
+	usersV1SR := SubRouterConfig{PathPrefix: "/api/v1/users"}
+	apiV1SR := SubRouterConfig{PathPrefix: "/api/v1", SubRouters: []SubRouterConfig{usersV1SR}}
+
+	// Create router with sub-router structure
+	r := NewRouter[string, string](RouterConfig{
+		Logger:     logger,
+		SubRouters: []SubRouterConfig{apiV1SR},
+	}, authFunc, userIDFunc)
+
+	// Define generic route config
+	routeCfg := RouteConfig[TestRequest, TestResponse]{
+		Path:    "/info", // Relative path
+		Methods: []string{"POST"},
+		Codec:   codec.NewJSONCodec[TestRequest, TestResponse](),
+		Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
+			return TestResponse{Greeting: "Info for " + data.Name, Age: data.Age}, nil
+		},
+	}
+
+	// Register the route on the nested sub-router
+	err := RegisterGenericRouteOnSubRouter(r, "/api/v1/users", routeCfg)
+	if err != nil {
+		t.Fatalf("RegisterGenericRouteOnSubRouter failed: %v", err)
+	}
+
+	// Test the registered route
+	reqBody := `{"name":"Test","age":42}`
+	req := httptest.NewRequest("POST", "/api/v1/users/info", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status OK (200), got %d", rr.Code)
+	}
+	var resp TestResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+	expectedGreeting := "Info for Test"
+	if resp.Greeting != expectedGreeting {
+		t.Errorf("Expected greeting %q, got %q", expectedGreeting, resp.Greeting)
+	}
+	if resp.Age != 42 {
+		t.Errorf("Expected age %d, got %d", 42, resp.Age)
+	}
+
+	// Test registering on non-existent prefix
+	err = RegisterGenericRouteOnSubRouter(r, "/api/v2", routeCfg)
+	if err == nil {
+		t.Errorf("Expected an error when registering on non-existent prefix, but got nil")
+	}
+}
+
+// TestRegisterSubRouterWithSubRouter tests the helper for nesting configs
+func TestRegisterSubRouterWithSubRouterCoverage(t *testing.T) { // Renamed
+	parent := SubRouterConfig{PathPrefix: "/parent"}
+	child := SubRouterConfig{PathPrefix: "/child"}
+
+	RegisterSubRouterWithSubRouter(&parent, child)
+
+	if len(parent.SubRouters) != 1 {
+		t.Fatalf("Expected 1 sub-router in parent, got %d", len(parent.SubRouters))
+	}
+	if parent.SubRouters[0].PathPrefix != "/child" {
+		t.Errorf("Expected child prefix to be '/child', got %q", parent.SubRouters[0].PathPrefix)
+	}
+}
+
 // --- Test from deleted auth_test.go ---
 
 // TestMutexResponseWriterFlush tests the Flush method of mutexResponseWriter
