@@ -1095,6 +1095,58 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 		},
 	}, time.Duration(0), int64(0), nil)
 
+	// Base64 Query Decode Error
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/err/base64-query-decode",
+		Methods:    []string{"GET"},
+		SourceType: Base64QueryParameter,
+		SourceKey:  "b64data",
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler: func(req *http.Request, data TestData) (string, error) {
+			t.Error("Handler should not be called on base64 decode error")
+			return "", errors.New("handler should not be called")
+		},
+	}, time.Duration(0), int64(0), nil)
+
+	// Base62 Query Decode Error
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/err/base62-query-decode",
+		Methods:    []string{"GET"},
+		SourceType: Base62QueryParameter,
+		SourceKey:  "b62data",
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler: func(req *http.Request, data TestData) (string, error) {
+			t.Error("Handler should not be called on base62 decode error")
+			return "", errors.New("handler should not be called")
+		},
+	}, time.Duration(0), int64(0), nil)
+
+	// Base64 Path Decode Error (already covered in TestGenericRoutePathParameterFallback, but good to have here too)
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/err/base64-path-decode/:data",
+		Methods:    []string{"GET"},
+		SourceType: Base64PathParameter,
+		SourceKey:  "data",
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler: func(req *http.Request, data TestData) (string, error) {
+			t.Error("Handler should not be called on base64 decode error")
+			return "", errors.New("handler should not be called")
+		},
+	}, time.Duration(0), int64(0), nil)
+
+	// Base62 Path Decode Error (already covered in TestGenericRoutePathParameterFallback, but good to have here too)
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/err/base62-path-decode/:data",
+		Methods:    []string{"GET"},
+		SourceType: Base62PathParameter,
+		SourceKey:  "data",
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler: func(req *http.Request, data TestData) (string, error) {
+			t.Error("Handler should not be called on base62 decode error")
+			return "", errors.New("handler should not be called")
+		},
+	}, time.Duration(0), int64(0), nil)
+
 	// --- Test Server ---
 	server := httptest.NewServer(r)
 	defer server.Close()
@@ -1159,6 +1211,34 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			body:           strings.NewReader(`{"value":"test"}`), // Valid body
 			expectedStatus: http.StatusInternalServerError,
 			expectedBody:   "Failed to encode response",
+		},
+		{
+			name:           "Base64 Query Decode Error",
+			method:         "GET",
+			path:           "/err/base64-query-decode?b64data=invalid-$$",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Failed to decode base64 query parameter",
+		},
+		{
+			name:           "Base62 Query Decode Error",
+			method:         "GET",
+			path:           "/err/base62-query-decode?b62data=invalid-$$",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Failed to decode base62 query parameter",
+		},
+		{
+			name:           "Base64 Path Decode Error",
+			method:         "GET",
+			path:           "/err/base64-path-decode/invalid-$$",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Failed to decode base64 path parameter",
+		},
+		{
+			name:           "Base62 Path Decode Error",
+			method:         "GET",
+			path:           "/err/base62-path-decode/invalid-$$",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   "Failed to decode base62 path parameter",
 		},
 	}
 
