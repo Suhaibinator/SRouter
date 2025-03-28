@@ -378,15 +378,3 @@ func BenchmarkMemoryUsage(b *testing.B) {
 	// b.Logf("Final Sys = %v MiB", bToMb(mEnd.Sys))
 	// b.Logf("GC Runs = %v", mEnd.NumGC - mStart.NumGC)
 }
-
-// bToMb converts bytes to megabytes
-func bToMb(b uint64) uint64 {
-	return b / 1024 / 1024
-}
-
-// BenchmarkConcurrentRequests is removed as RunParallel is added to specific benchmarks.
-/*
-func BenchmarkConcurrentRequests(b *testing.B) {
-	... // Original content removed
-}
-*/
