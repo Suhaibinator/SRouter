@@ -66,7 +66,7 @@ func main() {
 					{
 						Path:      "/health",
 						Methods:   []string{"GET"},
-						AuthLevel: router.NoAuth,
+						AuthLevel: router.Ptr(router.NoAuth), // Changed
 						Handler:   HealthCheckHandler,
 					},
 				},
@@ -97,8 +97,8 @@ func main() {
 	userRouteConfig := router.RouteConfig[CreateUserReq, CreateUserResp]{
 		Path:      "/users", // Relative path
 		Methods:   []string{"POST"},
-		AuthLevel: router.AuthRequired,
-		Timeout:   3 * time.Second, // Route-specific override (will be used by getEffectiveTimeout)
+		AuthLevel: router.Ptr(router.AuthRequired), // Changed
+		Timeout:   3 * time.Second,                 // Route-specific override (will be used by getEffectiveTimeout)
 		Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
 		Handler:   CreateUserHandler,
 	}

@@ -123,13 +123,13 @@ func main() {
 					{
 						Path:      "/no-auth",
 						Methods:   []string{"GET"},
-						AuthLevel: router.NoAuth,
+						AuthLevel: router.Ptr(router.NoAuth), // Changed
 						Handler:   noAuthHandler,
 					},
 					{
 						Path:      "/optional-auth",
 						Methods:   []string{"GET"},
-						AuthLevel: router.AuthOptional,
+						AuthLevel: router.Ptr(router.AuthOptional), // Changed
 						Middlewares: []router.Middleware{
 							middleware.AuthenticationWithUser[*User, User](customUserAuth),
 						},
@@ -138,7 +138,7 @@ func main() {
 					{
 						Path:      "/required-auth",
 						Methods:   []string{"GET"},
-						AuthLevel: router.AuthRequired,
+						AuthLevel: router.Ptr(router.AuthRequired), // Changed
 						Middlewares: []router.Middleware{
 							middleware.AuthenticationWithUser[*User, User](customUserAuth),
 						},

@@ -174,7 +174,7 @@ func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler) httproute
 // wrapHandler wraps a handler with all the necessary middleware.
 // It applies authentication, timeout, body size limits, rate limiting, and other middleware
 // to create a complete request processing pipeline.
-func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel AuthLevel, timeout time.Duration, maxBodySize int64, rateLimit *middleware.RateLimitConfig[T, U], middlewares []Middleware) http.Handler {
+func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLevel, timeout time.Duration, maxBodySize int64, rateLimit *middleware.RateLimitConfig[T, U], middlewares []Middleware) http.Handler {
 	// Create a base handler that only handles shutdown check and body size limit directly
 	// Timeout is now handled by timeoutMiddleware setting the context.
 	h := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -207,11 +207,13 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel AuthLevel
 	chain = chain.Append(r.recoveryMiddleware)
 
 	// 2. Authentication (Runs early)
-	switch authLevel {
-	case AuthRequired:
-		chain = chain.Append(r.authRequiredMiddleware)
-	case AuthOptional:
-		chain = chain.Append(r.authOptionalMiddleware)
+	if authLevel != nil {
+		switch *authLevel {
+		case AuthRequired:
+			chain = chain.Append(r.authRequiredMiddleware)
+		case AuthOptional:
+			chain = chain.Append(r.authOptionalMiddleware)
+		}
 	}
 
 	// 3. Rate Limiting

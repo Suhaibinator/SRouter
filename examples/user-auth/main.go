@@ -131,7 +131,7 @@ func main() {
 					{
 						Path:      "/resource",
 						Methods:   []string{"GET"},
-						AuthLevel: router.NoAuth,
+						AuthLevel: router.Ptr(router.NoAuth), // Changed
 						Handler:   publicHandler,
 					},
 				},
@@ -142,7 +142,7 @@ func main() {
 					{
 						Path:      "/resource",
 						Methods:   []string{"GET"},
-						AuthLevel: router.AuthRequired,
+						AuthLevel: router.Ptr(router.AuthRequired), // Changed
 						Middlewares: []router.Middleware{
 							middleware.AuthenticationBool[*User, User](func(r *http.Request) bool {
 								// Simple boolean authentication
@@ -165,7 +165,7 @@ func main() {
 					{
 						Path:      "/custom",
 						Methods:   []string{"GET"},
-						AuthLevel: router.AuthRequired,
+						AuthLevel: router.Ptr(router.AuthRequired), // Changed
 						Middlewares: []router.Middleware{
 							middleware.AuthenticationWithUser[*User, User](customUserAuth),
 						},
@@ -174,7 +174,7 @@ func main() {
 					{
 						Path:      "/bearer",
 						Methods:   []string{"GET"},
-						AuthLevel: router.AuthRequired,
+						AuthLevel: router.Ptr(router.AuthRequired), // Changed
 						Middlewares: []router.Middleware{
 							middleware.NewBearerTokenWithUserMiddleware[*User, User](bearerTokenUserAuth, logger),
 						},
