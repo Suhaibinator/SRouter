@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"encoding/base64" // Needed for Base64 encoding
+	"encoding/base64"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
@@ -1489,4 +1489,179 @@ func TestRegisterSubRouter_UnsupportedRouteType(t *testing.T) {
 		assert.Equal(t, expectedContext["pathPrefix"], actualContext["pathPrefix"], "Expected pathPrefix field to match")
 		assert.Equal(t, expectedContext["type"], actualContext["type"], "Expected type field to match")
 	}
+}
+
+// --- Phase 2: Concurrency Testing ---
+
+// TestConcurrentRequests simulates multiple clients hitting various endpoints concurrently.
+func TestConcurrentRequests(t *testing.T) {
+	t.Parallel() // Allow this test to run in parallel with others
+
+	logger := zap.NewNop() // Use Nop logger for less noise during concurrent test
+	authFunc := func(ctx context.Context, token string) (string, bool) { return "user", true }
+	userIDFunc := func(user string) string { return user }
+
+	// Middleware for testing
+	addHeaderMiddleware := func(name, value string) common.Middleware {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Add(name, value)
+				next.ServeHTTP(w, r)
+			})
+		}
+	}
+
+	// Router setup with a mix of routes
+	r := NewRouter[string, string](RouterConfig{
+		Logger: logger,
+		Middlewares: []common.Middleware{
+			addHeaderMiddleware("X-Global-Test", "true"),
+		},
+	}, authFunc, userIDFunc)
+
+	// 1. Simple GET route
+	r.RegisterRoute(RouteConfigBase{
+		Path:    "/simple",
+		Methods: []string{http.MethodGet},
+		Handler: func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("Simple OK"))
+		},
+	})
+
+	// 2. GET route with params
+	r.RegisterRoute(RouteConfigBase{
+		Path:    "/params/:id",
+		Methods: []string{http.MethodGet},
+		Handler: func(w http.ResponseWriter, r *http.Request) {
+			id := GetParam(r, "id")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("Param OK: " + id))
+		},
+	})
+
+	// 3. Generic POST route
+	type ConcurrentReq struct{ Data string }
+	type ConcurrentResp struct{ Res string }
+	RegisterGenericRoute(r, RouteConfig[ConcurrentReq, ConcurrentResp]{
+		Path:    "/generic",
+		Methods: []string{http.MethodPost},
+		Codec:   codec.NewJSONCodec[ConcurrentReq, ConcurrentResp](),
+		Handler: func(req *http.Request, data ConcurrentReq) (ConcurrentResp, error) {
+			return ConcurrentResp{Res: "Generic OK: " + data.Data}, nil
+		},
+	}, time.Duration(0), int64(0), nil)
+
+	// 4. Route with middleware
+	r.RegisterRoute(RouteConfigBase{
+		Path:    "/middleware",
+		Methods: []string{http.MethodGet},
+		Middlewares: []common.Middleware{
+			addHeaderMiddleware("X-Route-Test", "true"),
+		},
+		Handler: func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("Middleware OK"))
+		},
+	})
+
+	// Create test server
+	server := httptest.NewServer(r)
+	defer server.Close()
+
+	// Concurrency parameters
+	numGoroutines := 50
+	requestsPerGoroutine := 20
+	paths := []string{
+		"/simple",
+		"/params/1", "/params/2", "/params/3", // Mix params
+		"/middleware",
+		// POST requests need special handling
+	}
+	postPath := "/generic"
+	postBodyTemplate := `{"data":"req-%d-%d"}` // Goroutine index, request index
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex    // Mutex to protect errors slice
+	errors := []string{} // Slice to collect errors from goroutines
+
+	wg.Add(numGoroutines)
+
+	client := &http.Client{
+		Timeout: 5 * time.Second, // Reasonable timeout for local requests
+	}
+
+	// Launch goroutines
+	for i := 0; i < numGoroutines; i++ {
+		go func(goroutineIndex int) {
+			defer wg.Done()
+			for j := 0; j < requestsPerGoroutine; j++ {
+				var req *http.Request
+				var err error
+				targetURL := ""
+
+				// Alternate between GET and POST requests
+				if j%2 == 0 { // GET requests
+					pathIndex := (goroutineIndex*requestsPerGoroutine + j) % len(paths)
+					targetURL = server.URL + paths[pathIndex]
+					req, err = http.NewRequest(http.MethodGet, targetURL, nil)
+					if err != nil {
+						// Collect error instead of calling t.Fatalf
+						mu.Lock()
+						errors = append(errors, fmt.Sprintf("Goroutine %d: Failed to create GET request %d: %v", goroutineIndex, j, err))
+						mu.Unlock()
+						return // Stop this goroutine if request creation fails
+					}
+				} else { // POST requests
+					targetURL = server.URL + postPath
+					body := fmt.Sprintf(postBodyTemplate, goroutineIndex, j)
+					req, err = http.NewRequest(http.MethodPost, targetURL, strings.NewReader(body))
+					if err != nil {
+						// Collect error instead of calling t.Fatalf
+						mu.Lock()
+						errors = append(errors, fmt.Sprintf("Goroutine %d: Failed to create POST request %d: %v", goroutineIndex, j, err))
+						mu.Unlock()
+						return // Stop this goroutine if request creation fails
+					}
+					req.Header.Set("Content-Type", "application/json")
+				}
+
+				resp, err := client.Do(req)
+				if err != nil {
+					// Collect error instead of calling t.Logf
+					mu.Lock()
+					errors = append(errors, fmt.Sprintf("Goroutine %d: Request %d to %s failed: %v", goroutineIndex, j, targetURL, err))
+					mu.Unlock()
+					continue // Continue to next request
+				}
+
+				// Check for unexpected status codes (primarily non-2xx)
+				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+					bodyBytes, _ := io.ReadAll(resp.Body)
+					// Collect error instead of calling t.Errorf
+					mu.Lock()
+					errors = append(errors, fmt.Sprintf("Goroutine %d: Request %d to %s got unexpected status %d. Body: %s",
+						goroutineIndex, j, targetURL, resp.StatusCode, string(bodyBytes)))
+					mu.Unlock()
+				}
+
+				// Ensure body is read and closed to reuse connection
+				_, _ = io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+			}
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	wg.Wait()
+
+	// Report collected errors in the main test goroutine
+	mu.Lock() // Lock while reading the errors slice
+	if len(errors) > 0 {
+		for _, errMsg := range errors {
+			t.Error(errMsg)
+		}
+		t.FailNow() // Fail the test explicitly if errors were collected
+	}
+	mu.Unlock()
 }

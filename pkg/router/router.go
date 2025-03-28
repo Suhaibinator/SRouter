@@ -331,6 +331,7 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 				// Check if handler already started writing. Use Swap for atomic check-and-set.
 				if !wrappedW.wroteHeader.Swap(true) {
 					// Handler hasn't written yet, we can write the timeout error.
+					// Hold the lock while writing headers and body for timeout.
 					wrappedW.ResponseWriter.Header().Set("Content-Type", "text/plain; charset=utf-8")
 					wrappedW.ResponseWriter.WriteHeader(http.StatusRequestTimeout)
 					fmt.Fprintln(wrappedW.ResponseWriter, "Request Timeout")
@@ -986,9 +987,10 @@ type mutexResponseWriter struct {
 	wroteHeader atomic.Bool // Tracks if WriteHeader or Write has been called
 }
 
-// Header returns the underlying Header map. It does not acquire the mutex itself,
-// relying on the caller or subsequent WriteHeader/Write calls to handle synchronization.
+// Header acquires the mutex and returns the underlying Header map.
 func (rw *mutexResponseWriter) Header() http.Header {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
 	return rw.ResponseWriter.Header()
 }
 
