@@ -48,6 +48,24 @@ func GetUserHandler(r *http.Request, req GetUserRequest) (GetUserResponse, error
 		// If no ID in the request, try to get it from the path parameter
 		id = router.GetParam(r, "id")
 	}
+	// If still no ID, try the 'data' path parameter (for Base64PathParameter case)
+	if id == "" {
+		id = router.GetParam(r, "data") // Check 'data' param specifically
+		// If 'data' param was used, it might contain the JSON payload, decode it
+		if id != "" {
+			decodedBytes, err := base64.StdEncoding.DecodeString(id)
+			if err == nil {
+				var tempReq GetUserRequest
+				if json.Unmarshal(decodedBytes, &tempReq) == nil {
+					id = tempReq.ID // Extract ID from decoded payload
+				} else {
+					id = "" // Reset if unmarshal failed
+				}
+			} else {
+				id = "" // Reset if base64 decode failed
+			}
+		}
+	}
 
 	if id == "" {
 		return GetUserResponse{}, router.NewHTTPError(http.StatusBadRequest, "User ID is required")
@@ -102,50 +120,52 @@ func main() {
 
 	// Register routes demonstrating different source types
 
-	// 1. Standard body-based route (default)
-	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
-		Path:    "/users/body/:id",
+	// 1. Standard body-based route (default) - GET doesn't typically have a body,
+	//    so this route relies on the path parameter :id being extracted in the handler.
+	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
+		Path:    "/users/body/:id", // Path param :id used by handler
 		Methods: []string{"GET"},
-		Codec:   codec.NewJSONCodec[GetUserRequest, GetUserResponse](),
+		Codec:   codec.NewJSONCodec[GetUserRequest, GetUserResponse](), // Codec might not be used for GET
 		Handler: GetUserHandler,
-		// SourceType defaults to Body
-	})
+		// SourceType defaults to Body, but GET requests usually don't send a body.
+		// The handler is adapted to check path params.
+	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	// 2. Base64 query parameter route
-	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
-		Path:       "/users/query/:id",
+	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
+		Path:       "/users/query", // No path param needed here as data comes from query
 		Methods:    []string{"GET"},
 		Codec:      codec.NewJSONCodec[GetUserRequest, GetUserResponse](),
 		Handler:    GetUserHandler,
 		SourceType: router.Base64QueryParameter,
 		SourceKey:  "data", // Will look for ?data=base64encodedstring
-	})
+	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	// 3. Base64 path parameter route
-	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
-		Path:       "/users/path/:data",
+	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
+		Path:       "/users/path/:data", // Path param :data contains the base64 payload
 		Methods:    []string{"GET"},
 		Codec:      codec.NewJSONCodec[GetUserRequest, GetUserResponse](),
 		Handler:    GetUserHandler,
 		SourceType: router.Base64PathParameter,
 		SourceKey:  "data", // Will use the :data path parameter
-	})
+	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	// Start the server
 	fmt.Println("Source Types Example Server listening on :8080")
 	fmt.Println("Available endpoints:")
-	fmt.Println("  - GET /users/body/:id (standard body-based route)")
-	fmt.Println("  - GET /users/query/:id?data=base64encodedstring (base64 query parameter route)")
+	fmt.Println("  - GET /users/body/:id (standard route, uses path param in handler)")
+	fmt.Println("  - GET /users/query?data=base64encodedstring (base64 query parameter route)")
 	fmt.Println("  - GET /users/path/:data (base64 path parameter route)")
 	fmt.Println("\nExample curl commands:")
 
-	// Create a sample request
+	// Create a sample request payload { "id": "1" }
 	sampleReq := GetUserRequest{ID: "1"}
 	jsonBytes, _ := json.Marshal(sampleReq)
 	base64Str := base64.StdEncoding.EncodeToString(jsonBytes)
 
 	fmt.Println("  curl -X GET http://localhost:8080/users/body/1")
-	fmt.Printf("  curl -X GET \"http://localhost:8080/users/query/1?data=%s\"\n", base64Str)
+	fmt.Printf("  curl -X GET \"http://localhost:8080/users/query?data=%s\"\n", base64Str)
 	fmt.Printf("  curl -X GET http://localhost:8080/users/path/%s\n", base64Str)
 
 	log.Fatal(http.ListenAndServe(":8080", r))

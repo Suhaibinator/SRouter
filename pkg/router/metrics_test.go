@@ -6,9 +6,53 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Use centralized mocks
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
+
+// TestMetricsConfig tests that the metrics middleware is correctly added
+// (from advanced_features_test.go)
+func TestMetricsConfig(t *testing.T) {
+	// Create a mock registry
+	registry := &mocks.MockMetricsRegistry{}
+
+	// Create a mock exporter
+	exporter := &mocks.MockMetricsExporter{}
+
+	// Create a router with metrics config and string as both the user ID and user type
+	r := NewRouter(RouterConfig{
+		EnableMetrics: true,
+		MetricsConfig: &MetricsConfig{
+			Collector:        registry,
+			Exporter:         exporter,
+			Namespace:        "test",
+			Subsystem:        "router",
+			EnableLatency:    true,
+			EnableThroughput: true,
+			EnableQPS:        true,
+			EnableErrors:     true,
+		},
+	},
+		// Mock auth function that always returns invalid
+		mocks.MockAuthFunction,
+		// Mock user ID function that returns the string itself
+		mocks.MockUserIDFromUser)
+
+	// Register a route
+	r.RegisterRoute(RouteConfigBase{
+		Path:    "/test",
+		Methods: []string{"GET"},
+		Handler: func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+	})
+
+	// Verify the router was created successfully with metrics config
+	if r == nil {
+		t.Errorf("Expected router to be created with metrics config")
+	}
+}
 
 // TestMetrics tests that metrics are collected correctly
 func TestMetrics(t *testing.T) {
@@ -101,32 +145,38 @@ func TestMetrics(t *testing.T) {
 	}
 }
 
+// TestMetricsResponseWriterFlush tests the Flush method of metricsResponseWriter
+// (from advanced_features_test.go)
+func TestMetricsResponseWriterFlush(t *testing.T) {
+	// Create a test response recorder that implements http.Flusher
+	rr := mocks.NewFlusherRecorder() // Use mock FlusherRecorder
+
+	// Create a metrics response writer with string as both the user ID and user type
+	mrw := &metricsResponseWriter[string, string]{
+		ResponseWriter: rr,
+		statusCode:     http.StatusOK,
+	}
+
+	// Call Flush
+	mrw.Flush()
+
+	// Check that the underlying response writer's Flush method was called
+	if !rr.Flushed { // Check the Flushed field on the mock
+		t.Errorf("Expected Flush to be called on the underlying response writer")
+	}
+}
+
 // TestTracing tests that tracing information is collected correctly
 func TestTracing(t *testing.T) {
 	// Create an observed zap logger to capture logs at Debug level
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
-	// Define the auth function that takes a token and returns a string and a boolean
-	authFunction := func(ctx context.Context, token string) (string, bool) {
-		// This is a simple example, so we'll just validate that the token is not empty
-		if token != "" {
-			return token, true
-		}
-		return "", false
-	}
-
-	// Define the function to get the user ID from a string
-	userIdFromUserFunction := func(user string) string {
-		// In this example, we're using the string itself as the ID
-		return user
-	}
-
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger:        logger,
 		EnableTracing: true,
-	}, authFunction, userIdFromUserFunction)
+	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser) // Use mock functions
 
 	// Register a route
 	r.RegisterRoute(RouteConfigBase{

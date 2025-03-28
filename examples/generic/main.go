@@ -35,7 +35,7 @@ type CreateUserResponse struct {
 
 // GetUserRequest is the request body for getting a user
 type GetUserRequest struct {
-	ID string `json:"id"`
+	ID string `json:"id"` // This might not be used if ID comes from path
 }
 
 // GetUserResponse is the response body for getting a user
@@ -47,7 +47,7 @@ type GetUserResponse struct {
 
 // UpdateUserRequest is the request body for updating a user
 type UpdateUserRequest struct {
-	ID    string `json:"id"`
+	// ID comes from path param
 	Name  string `json:"name"`
 	Email string `json:"email"`
 }
@@ -61,7 +61,7 @@ type UpdateUserResponse struct {
 
 // DeleteUserRequest is the request body for deleting a user
 type DeleteUserRequest struct {
-	ID string `json:"id"`
+	// ID comes from path param
 }
 
 // DeleteUserResponse is the response body for deleting a user
@@ -72,8 +72,8 @@ type DeleteUserResponse struct {
 
 // ListUsersRequest is the request body for listing users
 type ListUsersRequest struct {
-	Limit  int `json:"limit"`
-	Offset int `json:"offset"`
+	Limit  int `json:"limit"`  // Assuming these come from query params or a default
+	Offset int `json:"offset"` // Assuming these come from query params or a default
 }
 
 // ListUsersResponse is the response body for listing users
@@ -191,7 +191,7 @@ func DeleteUserHandler(r *http.Request, req DeleteUserRequest) (DeleteUserRespon
 
 // ListUsersHandler handles listing users
 func ListUsersHandler(r *http.Request, req ListUsersRequest) (ListUsersResponse, error) {
-	// Default limit and offset
+	// Default limit and offset (In a real app, parse from query params: r.URL.Query())
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 10
@@ -281,47 +281,47 @@ func main() {
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
 	// Register generic routes
-	router.RegisterGenericRoute[CreateUserRequest, CreateUserResponse, string](r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+	router.RegisterGenericRoute[CreateUserRequest, CreateUserResponse, string, string](r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:    "/users",
 		Methods: []string{"POST"},
 		Codec:   codec.NewJSONCodec[CreateUserRequest, CreateUserResponse](),
 		Handler: CreateUserHandler,
-	})
+	}, time.Duration(0), int64(0), nil) // Added effective settings
 
-	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
+	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
 		Path:    "/users/:id",
 		Methods: []string{"GET"},
-		Codec:   codec.NewJSONCodec[GetUserRequest, GetUserResponse](),
+		Codec:   codec.NewJSONCodec[GetUserRequest, GetUserResponse](), // Codec might not be used if ID is only from path
 		Handler: GetUserHandler,
-	})
+	}, time.Duration(0), int64(0), nil) // Added effective settings
 
-	router.RegisterGenericRoute[UpdateUserRequest, UpdateUserResponse, string](r, router.RouteConfig[UpdateUserRequest, UpdateUserResponse]{
+	router.RegisterGenericRoute[UpdateUserRequest, UpdateUserResponse, string, string](r, router.RouteConfig[UpdateUserRequest, UpdateUserResponse]{
 		Path:    "/users/:id",
 		Methods: []string{"PUT"},
 		Codec:   codec.NewJSONCodec[UpdateUserRequest, UpdateUserResponse](),
 		Handler: UpdateUserHandler,
-	})
+	}, time.Duration(0), int64(0), nil) // Added effective settings
 
-	router.RegisterGenericRoute[DeleteUserRequest, DeleteUserResponse, string](r, router.RouteConfig[DeleteUserRequest, DeleteUserResponse]{
+	router.RegisterGenericRoute[DeleteUserRequest, DeleteUserResponse, string, string](r, router.RouteConfig[DeleteUserRequest, DeleteUserResponse]{
 		Path:    "/users/:id",
 		Methods: []string{"DELETE"},
-		Codec:   codec.NewJSONCodec[DeleteUserRequest, DeleteUserResponse](),
+		Codec:   codec.NewJSONCodec[DeleteUserRequest, DeleteUserResponse](), // Codec might not be used
 		Handler: DeleteUserHandler,
-	})
+	}, time.Duration(0), int64(0), nil) // Added effective settings
 
-	router.RegisterGenericRoute[ListUsersRequest, ListUsersResponse, string](r, router.RouteConfig[ListUsersRequest, ListUsersResponse]{
+	router.RegisterGenericRoute[ListUsersRequest, ListUsersResponse, string, string](r, router.RouteConfig[ListUsersRequest, ListUsersResponse]{
 		Path:    "/users",
 		Methods: []string{"GET"},
-		Codec:   codec.NewJSONCodec[ListUsersRequest, ListUsersResponse](),
+		Codec:   codec.NewJSONCodec[ListUsersRequest, ListUsersResponse](), // Codec might not be used if params are from query
 		Handler: ListUsersHandler,
-	})
+	}, time.Duration(0), int64(0), nil) // Added effective settings
 
-	router.RegisterGenericRoute[EmptyRequest, ErrorResponse, string](r, router.RouteConfig[EmptyRequest, ErrorResponse]{
+	router.RegisterGenericRoute[EmptyRequest, ErrorResponse, string, string](r, router.RouteConfig[EmptyRequest, ErrorResponse]{
 		Path:    "/error",
 		Methods: []string{"GET"},
 		Codec:   codec.NewJSONCodec[EmptyRequest, ErrorResponse](),
 		Handler: ErrorHandler,
-	})
+	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	// Start the server
 	fmt.Println("Generic Routes Example Server listening on :8080")

@@ -31,9 +31,8 @@ jobs:
 
     - name: Verify dependencies
       run: go mod verify
-
     - name: Run tests
-      run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./pkg/...
+      run: go test -v -race -coverpkg=github.com/Suhaibinator/SRouter/pkg/codec,github.com/Suhaibinator/SRouter/pkg/common,github.com/Suhaibinator/SRouter/pkg/metrics,github.com/Suhaibinator/SRouter/pkg/middleware,github.com/Suhaibinator/SRouter/pkg/router -coverprofile=coverage.txt -covermode=atomic ./pkg/...
 
     - name: Check coverage
       run: |

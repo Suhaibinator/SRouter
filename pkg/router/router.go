@@ -4,17 +4,14 @@ package router
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic" // Import atomic package
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/metrics"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
@@ -36,88 +33,6 @@ type Router[T comparable, U any] struct {
 	shutdown          bool
 	shutdownMu        sync.RWMutex
 	metricsWriterPool sync.Pool // Pool for reusing metricsResponseWriter objects
-	cacheHitCounter   metrics.Counter
-	cacheMissCounter  metrics.Counter
-	cacheHitRatio     metrics.Gauge
-}
-
-// contextKey is a type for context keys.
-// It's used to store and retrieve values from request contexts.
-type contextKey string
-
-const (
-	// ParamsKey is the key used to store httprouter.Params in the request context.
-	// This allows route parameters to be accessed from handlers and middleware.
-	ParamsKey contextKey = "params"
-)
-
-// GenericRouteRegistrar is an interface for registering generic routes
-// It's used to store generic routes with different type parameters in SubRouterConfig
-type GenericRouteRegistrar interface {
-	RegisterWith(router interface{}, pathPrefix string) error
-}
-
-// GenericRouteConfig is a wrapper for RouteConfig that implements GenericRouteRegistrar
-// It allows storing generic routes with different type parameters in SubRouterConfig
-type GenericRouteConfig[Req any, Resp any, UserID comparable, User any] struct {
-	Config RouteConfig[Req, Resp]
-}
-
-// RegisterWith registers the generic route with the router
-// It implements the GenericRouteRegistrar interface
-func (g GenericRouteConfig[Req, Resp, UserID, User]) RegisterWith(router interface{}, pathPrefix string) error {
-	r, ok := router.(*Router[UserID, User])
-	if !ok {
-		return fmt.Errorf("router is not of type *Router[%T, %T]", *new(UserID), *new(User))
-	}
-
-	// Create a copy of the config with the path prefixed
-	config := g.Config
-	config.Path = pathPrefix + config.Path
-
-	// Register the generic route with the router
-	RegisterGenericRoute[Req, Resp, UserID, User](r, config)
-	return nil
-}
-
-// GenericRouteConfigs is a slice of GenericRouteRegistrar
-// It's used to store multiple generic routes in SubRouterConfig
-type GenericRouteConfigs []GenericRouteRegistrar
-
-// CreateGenericRouteForSubRouter creates a GenericRouteConfig that can be added to a SubRouterConfig's GenericRoutes field
-// This is a helper function to make it easier to register generic routes with SubRouters
-func CreateGenericRouteForSubRouter[Req any, Resp any, UserID comparable, User any](route RouteConfig[Req, Resp]) GenericRouteConfig[Req, Resp, UserID, User] {
-	return GenericRouteConfig[Req, Resp, UserID, User]{
-		Config: route,
-	}
-}
-
-// RegisterGenericRouteWithSubRouter registers a generic route with a SubRouter
-// This is a helper function that creates a GenericRouteConfig and adds it to the SubRouter's GenericRoutes field
-func RegisterGenericRouteWithSubRouter[Req any, Resp any, UserID comparable, User any](sr *SubRouterConfig, route RouteConfig[Req, Resp]) {
-	genericRoute := CreateGenericRouteForSubRouter[Req, Resp, UserID, User](route)
-
-	// If GenericRoutes is nil, initialize it as a GenericRouteConfigs
-	if sr.GenericRoutes == nil {
-		sr.GenericRoutes = GenericRouteConfigs{genericRoute}
-		return
-	}
-
-	// If GenericRoutes is already a GenericRouteConfigs, append to it
-	if routes, ok := sr.GenericRoutes.(GenericRouteConfigs); ok {
-		sr.GenericRoutes = append(routes, genericRoute)
-		return
-	}
-
-	// If GenericRoutes is a single GenericRouteRegistrar, convert to GenericRouteConfigs and append
-	if route, ok := sr.GenericRoutes.(GenericRouteRegistrar); ok {
-		sr.GenericRoutes = GenericRouteConfigs{route, genericRoute}
-		return
-	}
-
-	// If GenericRoutes is something else, log a warning and replace it
-	// This shouldn't happen in normal usage, but we handle it just in case
-	sr.GenericRoutes = GenericRouteConfigs{genericRoute}
 }
 
 // RegisterSubRouterWithSubRouter registers a nested SubRouter with a parent SubRouter
@@ -159,16 +74,13 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 		rateLimiter:       rateLimiter,
 		metricsWriterPool: sync.Pool{
 			New: func() interface{} {
+				// metricsResponseWriter might still be needed for metrics, keep for now
 				return &metricsResponseWriter[T, U]{}
 			},
 		},
 	}
 
 	// Add IP middleware as the first middleware (before any other middleware)
-	// This ensures that the client IP is available in the request context for all other middleware,
-	// which is especially important for rate limiting by IP address. If IP middleware is not added
-	// or is added after rate limiting middleware, rate limiting by IP will fall back to extracting
-	// the IP from headers or RemoteAddr, which may not be as reliable.
 	ipConfig := config.IPConfig
 	if ipConfig == nil {
 		ipConfig = middleware.DefaultIPConfig()
@@ -197,25 +109,6 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 				metricsMiddleware = func(next http.Handler) http.Handler {
 					return metricsMiddlewareImpl.Handler("", next)
 				}
-
-				// Initialize cache metrics
-				r.cacheHitCounter = registry.NewCounter().
-					Name("cache_hits_total").
-					Description("Total number of cache hits").
-					Tag("service", config.MetricsConfig.Namespace).
-					Build()
-
-				r.cacheMissCounter = registry.NewCounter().
-					Name("cache_misses_total").
-					Description("Total number of cache misses").
-					Tag("service", config.MetricsConfig.Namespace).
-					Build()
-
-				r.cacheHitRatio = registry.NewGauge().
-					Name("cache_hit_ratio").
-					Description("Ratio of cache hits to total cache lookups").
-					Tag("service", config.MetricsConfig.Namespace).
-					Build()
 			}
 		}
 
@@ -248,143 +141,9 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 		// Create a handler with all middlewares applied
 		handler := r.wrapHandler(route.Handler, route.AuthLevel, timeout, maxBodySize, rateLimit, append(sr.Middlewares, route.Middlewares...))
 
-		// If caching is enabled for the sub-router, wrap the handler with a caching handler
-		if sr.CacheResponse && r.config.CacheGet != nil && r.config.CacheSet != nil {
-			// Get the effective cache key prefix
-			cacheKeyPrefix := r.getEffectiveCacheKeyPrefix("", sr.CacheKeyPrefix)
-
-			// Create a caching handler
-			originalHandler := handler
-			handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				// Only cache GET requests
-				if req.Method != "GET" {
-					originalHandler.ServeHTTP(w, req)
-					return
-				}
-
-				// Create a cache key from the request path and query
-				cacheKey := req.URL.Path
-				if req.URL.RawQuery != "" {
-					cacheKey += "?" + req.URL.RawQuery
-				}
-
-				// Add the prefix if available
-				if cacheKeyPrefix != "" {
-					cacheKey = cacheKeyPrefix + ":" + cacheKey
-				}
-
-				// Try to get from cache
-				if cachedResponse, found := r.config.CacheGet(cacheKey); found {
-					// Log and record metrics for cache hit
-					r.logger.Debug("Cache hit", zap.String("cache_key", cacheKey))
-					if r.cacheHitCounter != nil {
-						r.cacheHitCounter.Inc()
-
-						// Update cache hit ratio
-						if r.cacheHitRatio != nil {
-							hits := r.cacheHitCounter.Value()
-							misses := r.cacheMissCounter.Value()
-							total := hits + misses
-							if total > 0 {
-								r.cacheHitRatio.Set(hits / total)
-							}
-						}
-					}
-
-					// Write the cached response
-					_, _ = w.Write(cachedResponse)
-					return
-				}
-
-				// Log and record metrics for cache miss
-				r.logger.Debug("Cache miss", zap.String("cache_key", cacheKey))
-				if r.cacheMissCounter != nil {
-					r.cacheMissCounter.Inc()
-
-					// Update cache hit ratio
-					if r.cacheHitRatio != nil {
-						hits := r.cacheHitCounter.Value()
-						misses := r.cacheMissCounter.Value()
-						total := hits + misses
-						if total > 0 {
-							r.cacheHitRatio.Set(hits / total)
-						}
-					}
-				}
-
-				// Create a recorder to capture the response
-				recorder := httptest.NewRecorder()
-
-				// Call the original handler with the recorder
-				originalHandler.ServeHTTP(recorder, req)
-
-				// Get the response from the recorder
-				result := recorder.Result()
-				defer result.Body.Close()
-
-				// Read the response body
-				responseBody, err := io.ReadAll(result.Body)
-				if err != nil {
-					r.handleError(w, req, err, http.StatusInternalServerError, "Failed to read response body")
-					return
-				}
-
-				// Cache the response
-				cacheErr := r.config.CacheSet(cacheKey, responseBody)
-				if cacheErr != nil {
-					// Log the error but don't fail the request
-					r.logger.Warn("Failed to cache response",
-						zap.String("cache_key", cacheKey),
-						zap.Error(cacheErr))
-				} else {
-					r.logger.Debug("Response cached", zap.String("cache_key", cacheKey))
-				}
-
-				// Copy the headers from the recorder to the response writer
-				for k, v := range recorder.Header() {
-					w.Header()[k] = v
-				}
-
-				// Write the status code
-				w.WriteHeader(recorder.Code)
-
-				// Write the response body
-				_, _ = w.Write(responseBody)
-			})
-		}
-
 		// Register the route with httprouter
 		for _, method := range route.Methods {
 			r.router.Handle(method, fullPath, r.convertToHTTPRouterHandle(handler))
-		}
-	}
-
-	// Register generic routes if any
-	if sr.GenericRoutes != nil {
-		// Try to cast to GenericRouteConfigs
-		if routes, ok := sr.GenericRoutes.(GenericRouteConfigs); ok {
-			for _, route := range routes {
-				err := route.RegisterWith(r, sr.PathPrefix)
-				if err != nil {
-					r.logger.Error("Failed to register generic route",
-						zap.Error(err),
-						zap.String("path_prefix", sr.PathPrefix))
-				}
-			}
-		} else {
-			// Try to cast to a single GenericRouteRegistrar
-			if route, ok := sr.GenericRoutes.(GenericRouteRegistrar); ok {
-				err := route.RegisterWith(r, sr.PathPrefix)
-				if err != nil {
-					r.logger.Error("Failed to register generic route",
-						zap.Error(err),
-						zap.String("path_prefix", sr.PathPrefix))
-				}
-			} else {
-				r.logger.Error("Invalid GenericRoutes type",
-					zap.String("path_prefix", sr.PathPrefix),
-					zap.String("type", fmt.Sprintf("%T", sr.GenericRoutes)))
-			}
 		}
 	}
 
@@ -396,351 +155,6 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 
 		// Register the nested sub-router
 		r.registerSubRouter(nestedSRWithPrefix)
-	}
-}
-
-// getEffectiveCacheKeyPrefix returns the effective cache key prefix for a route.
-// It considers route-specific, sub-router, and global cache key prefix settings in that order of precedence.
-func (r *Router[T, U]) getEffectiveCacheKeyPrefix(routePrefix, subRouterPrefix string) string {
-	if routePrefix != "" {
-		return routePrefix
-	}
-	if subRouterPrefix != "" {
-		return subRouterPrefix
-	}
-	return r.config.CacheKeyPrefix
-}
-
-// RegisterSubRouter registers a sub-router with the router.
-// It applies the sub-router's path prefix to all routes and registers them with the router.
-// This is an exported wrapper for the unexported registerSubRouter method.
-func (r *Router[T, U]) RegisterSubRouter(sr SubRouterConfig) {
-	r.registerSubRouter(sr)
-}
-
-// RegisterRoute registers a route with the router.
-// It creates a handler with all middlewares applied and registers it with the underlying httprouter.
-// For generic routes with type parameters, use RegisterGenericRoute function instead.
-func (r *Router[T, U]) RegisterRoute(route RouteConfigBase) {
-	// Get effective timeout, max body size, and rate limit for this route
-	timeout := r.getEffectiveTimeout(route.Timeout, 0)
-	maxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, 0)
-	rateLimit := r.getEffectiveRateLimit(route.RateLimit, nil)
-
-	// Create a handler with all middlewares applied
-	handler := r.wrapHandler(route.Handler, route.AuthLevel, timeout, maxBodySize, rateLimit, route.Middlewares)
-
-	// Register the route with httprouter
-	for _, method := range route.Methods {
-		r.router.Handle(method, route.Path, r.convertToHTTPRouterHandle(handler))
-	}
-}
-
-// RegisterGenericRoute registers a route with generic request and response types.
-// This is a standalone function rather than a method because Go methods cannot have type parameters.
-// It creates a handler that uses the codec to decode the request and encode the response,
-// applies middleware, and registers the route with the router.
-func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](r *Router[UserID, User], route RouteConfig[Req, Resp]) {
-	// Get effective timeout, max body size, and rate limit for this route
-	timeout := r.getEffectiveTimeout(route.Timeout, 0)
-	maxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, 0)
-	rateLimit := r.getEffectiveRateLimit(route.RateLimit, nil)
-
-	// Create a handler that uses the codec to decode the request and encode the response
-	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		var data Req
-		var err error
-		var encodedData string
-		var cacheKey string
-		var canCache bool
-
-		// Check if caching is enabled for this route
-		if route.CacheResponse && r.config.CacheGet != nil && r.config.CacheSet != nil {
-			// Caching is only supported for query and path parameter source types
-			canCache = route.SourceType == Base64QueryParameter ||
-				route.SourceType == Base62QueryParameter ||
-				route.SourceType == Base64PathParameter ||
-				route.SourceType == Base62PathParameter
-		}
-
-		// Try to get from cache if caching is enabled
-		if canCache {
-			// Get the encoded value based on source type
-			switch route.SourceType {
-			case Base64QueryParameter, Base62QueryParameter:
-				encodedData = req.URL.Query().Get(route.SourceKey)
-			case Base64PathParameter, Base62PathParameter:
-				paramName := route.SourceKey
-				if paramName == "" {
-					// If no specific parameter name is provided, use the first path parameter
-					params := GetParams(req)
-					if len(params) > 0 {
-						encodedData = params[0].Value
-					}
-				} else {
-					encodedData = GetParam(req, paramName)
-				}
-			}
-
-			// Use the encoded value as the cache key with prefix
-			if encodedData != "" {
-				// Apply cache key prefix if available
-				prefix := r.getEffectiveCacheKeyPrefix(route.CacheKeyPrefix, "")
-
-				if prefix != "" {
-					cacheKey = prefix + ":" + encodedData
-				} else {
-					cacheKey = encodedData
-				}
-
-				// Try to get from cache
-				if cachedResponse, found := r.config.CacheGet(cacheKey); found {
-					// Log and record metrics for cache hit
-					r.logger.Debug("Cache hit", zap.String("cache_key", cacheKey))
-					if r.cacheHitCounter != nil {
-						r.cacheHitCounter.Inc()
-
-						// Update cache hit ratio
-						if r.cacheHitRatio != nil {
-							hits := r.cacheHitCounter.Value()
-							misses := r.cacheMissCounter.Value()
-							total := hits + misses
-							if total > 0 {
-								r.cacheHitRatio.Set(hits / total)
-							}
-						}
-					}
-
-					// Write the cached response
-					_, _ = w.Write(cachedResponse)
-					return
-				}
-
-				// Log and record metrics for cache miss
-				r.logger.Debug("Cache miss", zap.String("cache_key", cacheKey))
-				if r.cacheMissCounter != nil {
-					r.cacheMissCounter.Inc()
-
-					// Update cache hit ratio
-					if r.cacheHitRatio != nil {
-						hits := r.cacheHitCounter.Value()
-						misses := r.cacheMissCounter.Value()
-						total := hits + misses
-						if total > 0 {
-							r.cacheHitRatio.Set(hits / total)
-						}
-					}
-				}
-			}
-		}
-
-		// Get data based on source type
-		switch route.SourceType {
-		case Body: // Default is Body (0)
-			// Use the codec's Decode method directly for body data
-			data, err = route.Codec.Decode(req)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest, "Failed to decode request body")
-				return
-			}
-
-		case Base64QueryParameter:
-			// Get from query parameter and decode base64
-			encodedData := req.URL.Query().Get(route.SourceKey)
-			if encodedData == "" {
-				r.handleError(w, req, errors.New("missing query parameter"),
-					http.StatusBadRequest, "Missing required query parameter: "+route.SourceKey)
-				return
-			}
-
-			// Decode from base64
-			decodedData, err := codec.DecodeBase64(encodedData)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
-					"Failed to decode base64 query parameter: "+route.SourceKey)
-				return
-			}
-
-			// Unmarshal the decoded data
-			var reqData Req
-			err = json.Unmarshal(decodedData, &reqData)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
-					"Failed to unmarshal decoded query parameter data")
-				return
-			}
-			data = reqData
-
-		case Base62QueryParameter:
-			// Get from query parameter and decode base62
-			encodedData := req.URL.Query().Get(route.SourceKey)
-			if encodedData == "" {
-				r.handleError(w, req, errors.New("missing query parameter"),
-					http.StatusBadRequest, "Missing required query parameter: "+route.SourceKey)
-				return
-			}
-
-			// Decode from base62
-			decodedData, err := codec.DecodeBase62(encodedData)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
-					"Failed to decode base62 query parameter: "+route.SourceKey)
-				return
-			}
-
-			// Unmarshal the decoded data
-			var reqData Req
-			err = json.Unmarshal(decodedData, &reqData)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
-					"Failed to unmarshal decoded query parameter data")
-				return
-			}
-			data = reqData
-
-		case Base64PathParameter:
-			// Get from path parameter and decode base64
-			paramName := route.SourceKey
-			if paramName == "" {
-				// If no specific parameter name is provided, use the first path parameter
-				params := GetParams(req)
-				if len(params) == 0 {
-					r.handleError(w, req, errors.New("no path parameters found"),
-						http.StatusBadRequest, "No path parameters found")
-					return
-				}
-				paramName = params[0].Key
-			}
-
-			encodedData := GetParam(req, paramName)
-			if encodedData == "" {
-				r.handleError(w, req, errors.New("missing path parameter"),
-					http.StatusBadRequest, "Missing required path parameter: "+paramName)
-				return
-			}
-
-			// Decode from base64
-			decodedData, err := codec.DecodeBase64(encodedData)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
-					"Failed to decode base64 path parameter: "+paramName)
-				return
-			}
-
-			// Unmarshal the decoded data
-			var reqData Req
-			err = json.Unmarshal(decodedData, &reqData)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
-					"Failed to unmarshal decoded path parameter data")
-				return
-			}
-			data = reqData
-
-		case Base62PathParameter:
-			// Get from path parameter and decode base62
-			paramName := route.SourceKey
-			if paramName == "" {
-				// If no specific parameter name is provided, use the first path parameter
-				params := GetParams(req)
-				if len(params) == 0 {
-					r.handleError(w, req, errors.New("no path parameters found"),
-						http.StatusBadRequest, "No path parameters found")
-					return
-				}
-				paramName = params[0].Key
-			}
-
-			encodedData := GetParam(req, paramName)
-			if encodedData == "" {
-				r.handleError(w, req, errors.New("missing path parameter"),
-					http.StatusBadRequest, "Missing required path parameter: "+paramName)
-				return
-			}
-
-			// Decode from base62
-			decodedData, err := codec.DecodeBase62(encodedData)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
-					"Failed to decode base62 path parameter: "+paramName)
-				return
-			}
-
-			// Unmarshal the decoded data
-			var reqData Req
-			err = json.Unmarshal(decodedData, &reqData)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
-					"Failed to unmarshal decoded path parameter data")
-				return
-			}
-			data = reqData
-
-		default:
-			r.handleError(w, req, errors.New("unsupported source type"),
-				http.StatusInternalServerError, "Unsupported source type")
-			return
-		}
-
-		// Call the handler
-		resp, err := route.Handler(req, data)
-		if err != nil {
-			r.handleError(w, req, err, http.StatusInternalServerError, "Handler error")
-			return
-		}
-
-		// If caching is enabled and we have a cache key, we need to capture the response
-		if canCache && cacheKey != "" && r.config.CacheSet != nil {
-			// Create a recorder to capture the response
-			recorder := httptest.NewRecorder()
-
-			// Encode the response to the recorder
-			err = route.Codec.Encode(recorder, resp)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusInternalServerError, "Failed to encode response")
-				return
-			}
-
-			// Get the response from the recorder
-			result := recorder.Result()
-			defer result.Body.Close()
-
-			// Read the response body
-			responseBody, err := io.ReadAll(result.Body)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusInternalServerError, "Failed to read response body")
-				return
-			}
-
-			// Cache the response
-			cacheErr := r.config.CacheSet(cacheKey, responseBody)
-			if cacheErr != nil {
-				// Log the error but don't fail the request
-				r.logger.Warn("Failed to cache response",
-					zap.String("cache_key", cacheKey),
-					zap.Error(cacheErr))
-			} else {
-				r.logger.Debug("Response cached", zap.String("cache_key", cacheKey))
-			}
-
-			// Write the response to the original response writer
-			_, _ = w.Write(responseBody)
-		} else {
-			// Encode the response directly to the response writer
-			err = route.Codec.Encode(w, resp)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusInternalServerError, "Failed to encode response")
-				return
-			}
-		}
-	})
-
-	// Create a handler with all middlewares applied
-	wrappedHandler := r.wrapHandler(handler, route.AuthLevel, timeout, maxBodySize, rateLimit, route.Middlewares)
-
-	// Register the route with httprouter
-	for _, method := range route.Methods {
-		r.router.Handle(method, route.Path, r.convertToHTTPRouterHandle(wrappedHandler))
 	}
 }
 
@@ -761,96 +175,38 @@ func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler) httproute
 // It applies authentication, timeout, body size limits, rate limiting, and other middleware
 // to create a complete request processing pipeline.
 func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel AuthLevel, timeout time.Duration, maxBodySize int64, rateLimit *middleware.RateLimitConfig[T, U], middlewares []Middleware) http.Handler {
-	// Create a handler that applies all the router's functionality
+	// Create a base handler that only handles shutdown check and body size limit directly
+	// Timeout is now handled by timeoutMiddleware setting the context.
 	h := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		// First add to the wait group before checking shutdown status
+		// Shutdown Check
 		r.wg.Add(1)
-
-		// Then check if the router is shutting down
+		defer r.wg.Done()
 		r.shutdownMu.RLock()
 		isShutdown := r.shutdown
 		r.shutdownMu.RUnlock()
-
 		if isShutdown {
-			// If shutting down, decrement the wait group and return error
-			r.wg.Done()
 			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 			return
 		}
-
-		// Process the request and ensure wg.Done() is called when finished
-		defer r.wg.Done()
 
 		// Apply body size limit
 		if maxBodySize > 0 {
 			req.Body = http.MaxBytesReader(w, req.Body, maxBodySize)
 		}
 
-		// Apply timeout
-		if timeout > 0 {
-			ctx, cancel := context.WithTimeout(req.Context(), timeout)
-			defer cancel()
-			req = req.WithContext(ctx)
-
-			// Create a mutex to protect access to the response writer
-			var wMutex sync.Mutex
-
-			// Create a wrapped response writer that uses the mutex
-			wrappedW := &mutexResponseWriter{
-				ResponseWriter: w,
-				mu:             &wMutex,
-			}
-
-			// Use a channel to signal when the handler is done
-			done := make(chan struct{})
-			go func() {
-				handler(wrappedW, req)
-				close(done)
-			}()
-
-			select {
-			case <-done:
-				// Handler finished normally
-				return
-			case <-ctx.Done():
-				// Timeout occurred
-				r.logger.Error("Request timed out",
-					zap.String("method", req.Method),
-					zap.String("path", req.URL.Path),
-					zap.Duration("timeout", timeout),
-					zap.String("client_ip", req.RemoteAddr),
-				)
-
-				// Lock the mutex before writing to the response
-				wMutex.Lock()
-				http.Error(w, "Request Timeout", http.StatusRequestTimeout)
-				wMutex.Unlock()
-				return
-			}
-		} else {
-			// No timeout, just call the handler
-			handler(w, req)
-		}
+		// Call the actual handler (timeout context is applied by middleware)
+		handler(w, req)
 	}))
 
 	// Build the middleware chain
 	chain := common.NewMiddlewareChain()
 
-	// Add recovery middleware (always first in the chain)
-	chain = chain.Prepend(r.recoveryMiddleware)
+	// Append middleware in order of execution (outermost first)
 
-	// Add global middlewares
-	chain = chain.Append(r.middlewares...)
+	// 1. Recovery (Innermost before handler)
+	chain = chain.Append(r.recoveryMiddleware)
 
-	// Add route-specific middlewares
-	chain = chain.Append(middlewares...)
-
-	// Add rate limiting middleware if configured
-	if rateLimit != nil {
-		chain = chain.Append(middleware.RateLimit(rateLimit, r.rateLimiter, r.logger))
-	}
-
-	// Add authentication middleware based on the auth level
+	// 2. Authentication (Runs early)
 	switch authLevel {
 	case AuthRequired:
 		chain = chain.Append(r.authRequiredMiddleware)
@@ -858,8 +214,179 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel AuthLevel
 		chain = chain.Append(r.authOptionalMiddleware)
 	}
 
-	// Apply the middleware chain to the handler
+	// 3. Rate Limiting
+	if rateLimit != nil {
+		chain = chain.Append(middleware.RateLimit(rateLimit, r.rateLimiter, r.logger))
+	}
+
+	// 4. Route-Specific Middlewares
+	chain = chain.Append(middlewares...)
+
+	// 5. Global Middlewares (defined in RouterConfig)
+	chain = chain.Append(r.middlewares...) // Note: This now includes ClientIPMiddleware added in NewRouter
+
+	// 6. Timeout Handling (Sets context deadline)
+	if timeout > 0 {
+		chain = chain.Append(r.timeoutMiddleware(timeout))
+	}
+
+	// 7. Body Size Limit (Applied within the base handler 'h' now)
+	// No separate middleware needed here anymore.
+
+	// 8. Shutdown Handling (Applied within the base handler 'h' now)
+	// No separate middleware needed here anymore.
+
+	// Apply the chain to the base handler 'h'
 	return chain.Then(h)
+}
+
+// timeoutMiddleware creates a middleware that handles request timeouts.
+// It sets a context deadline and attempts to write a timeout error if the handler exceeds it,
+// but only if the handler hasn't already started writing the response.
+func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if timeout <= 0 {
+				next.ServeHTTP(w, req) // No timeout needed
+				return
+			}
+
+			ctx, cancel := context.WithTimeout(req.Context(), timeout)
+			defer cancel()
+			req = req.WithContext(ctx)
+
+			var wMutex sync.Mutex
+			wrappedW := &mutexResponseWriter{
+				ResponseWriter: w,
+				mu:             &wMutex,
+				// wroteHeader initialized to false
+			}
+
+			done := make(chan struct{})
+			panicChan := make(chan interface{}, 1) // Channel to capture panic
+
+			go func() {
+				defer func() {
+					if p := recover(); p != nil {
+						panicChan <- p // Send panic to the channel
+					}
+					close(done) // Signal completion (normal or panic)
+				}()
+				next.ServeHTTP(wrappedW, req)
+			}()
+
+			select {
+			case <-done:
+				// Handler finished (normally or panicked). Check panicChan.
+				select {
+				case p := <-panicChan:
+					// Re-panic so the recoveryMiddleware can handle it
+					panic(p)
+				default:
+					// No panic, normal completion
+				}
+				return
+			case <-ctx.Done():
+				// Timeout occurred. Log it.
+				traceID := middleware.GetTraceID(req)
+				fields := []zap.Field{
+					zap.String("method", req.Method),
+					zap.String("path", req.URL.Path),
+					zap.Duration("timeout", timeout),
+					zap.String("client_ip", req.RemoteAddr),
+				}
+				if r.config.EnableTraceID && traceID != "" {
+					fields = append(fields, zap.String("trace_id", traceID))
+				}
+				r.logger.Error("Request timed out", fields...)
+
+				// Acquire lock to safely check and potentially write timeout response.
+				wrappedW.mu.Lock()
+				// Check if handler already started writing. Use Swap for atomic check-and-set.
+				if !wrappedW.wroteHeader.Swap(true) {
+					// Handler hasn't written yet, we can write the timeout error.
+					wrappedW.ResponseWriter.Header().Set("Content-Type", "text/plain; charset=utf-8")
+					wrappedW.ResponseWriter.WriteHeader(http.StatusRequestTimeout)
+					fmt.Fprintln(wrappedW.ResponseWriter, "Request Timeout")
+				}
+				// If wroteHeader was already true, handler won the race, do nothing here.
+				wrappedW.mu.Unlock()
+				return
+			}
+		})
+	}
+}
+
+// findSubRouterConfig recursively searches for a SubRouterConfig matching the target prefix.
+// Note: This performs an exact match on the prefix. More complex matching might be needed
+// if overlapping prefixes or inheritance are desired.
+func findSubRouterConfig(subRouters []SubRouterConfig, targetPrefix string) (*SubRouterConfig, bool) {
+	for i := range subRouters {
+		sr := &subRouters[i] // Use pointer for direct access
+		if sr.PathPrefix == targetPrefix {
+			return sr, true
+		}
+		// Check nested sub-routers recursively
+		if foundSR, found := findSubRouterConfig(sr.SubRouters, targetPrefix); found {
+			return foundSR, true
+		}
+	}
+	return nil, false
+}
+
+// RegisterGenericRouteOnSubRouter registers a generic route intended to be part of a sub-router.
+// It finds the SubRouterConfig matching the provided pathPrefix, applies relevant overrides
+// and middleware, prefixes the route's path, and then registers it using RegisterGenericRoute.
+// This function should be called *after* NewRouter has been called.
+func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User any](
+	r *Router[UserID, User],
+	pathPrefix string,
+	route RouteConfig[Req, Resp],
+) error {
+	// Find the sub-router config matching the prefix
+	sr, found := findSubRouterConfig(r.config.SubRouters, pathPrefix)
+	if !found {
+		// Option 1: Return an error if prefix doesn't match any configured sub-router
+		return fmt.Errorf("no sub-router found with prefix: %s", pathPrefix)
+		// Option 2: Log a warning and proceed with global defaults (less strict)
+		// r.logger.Warn("No sub-router found with prefix, registering route with global defaults", zap.String("prefix", pathPrefix))
+		// sr = nil // Ensure sr is nil if not found
+	}
+
+	// Determine effective settings using sub-router overrides if found
+	var subRouterTimeout time.Duration
+	var subRouterMaxBodySize int64
+	var subRouterRateLimit *middleware.RateLimitConfig[any, any]
+	var subRouterMiddlewares []common.Middleware
+	if sr != nil {
+		subRouterTimeout = sr.TimeoutOverride
+		subRouterMaxBodySize = sr.MaxBodySizeOverride
+		subRouterRateLimit = sr.RateLimitOverride
+		subRouterMiddlewares = sr.Middlewares
+	}
+
+	// Create a new route config instance to avoid modifying the original
+	finalRouteConfig := route
+
+	// Prefix the path
+	finalRouteConfig.Path = pathPrefix + route.Path
+
+	// Combine middleware: global + sub-router + route-specific
+	allMiddlewares := make([]common.Middleware, 0, len(r.middlewares)+len(subRouterMiddlewares)+len(route.Middlewares))
+	allMiddlewares = append(allMiddlewares, r.middlewares...)        // Global first
+	allMiddlewares = append(allMiddlewares, subRouterMiddlewares...) // Then sub-router
+	allMiddlewares = append(allMiddlewares, route.Middlewares...)    // Then route-specific
+	finalRouteConfig.Middlewares = allMiddlewares                    // Overwrite middlewares in the config passed down
+
+	// Get effective timeout, max body size, rate limit considering overrides
+	effectiveTimeout := r.getEffectiveTimeout(route.Timeout, subRouterTimeout)
+	effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, subRouterMaxBodySize)
+	effectiveRateLimit := r.getEffectiveRateLimit(route.RateLimit, subRouterRateLimit) // This returns *RateLimitConfig[UserID, User]
+
+	// Call the underlying generic registration function with the modified config
+	RegisterGenericRoute[Req, Resp, UserID, User](r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
+
+	return nil
 }
 
 // ServeHTTP implements the http.Handler interface.
@@ -1013,14 +540,12 @@ type metricsResponseWriter[T comparable, U any] struct {
 }
 
 // WriteHeader captures the status code and calls the underlying ResponseWriter.WriteHeader.
-// This allows the router to track the HTTP status code for metrics and logging.
 func (rw *metricsResponseWriter[T, U]) WriteHeader(statusCode int) {
 	rw.statusCode = statusCode
 	rw.ResponseWriter.WriteHeader(statusCode)
 }
 
 // Write captures the number of bytes written and calls the underlying ResponseWriter.Write.
-// This allows the router to track the response size for metrics and logging.
 func (rw *metricsResponseWriter[T, U]) Write(b []byte) (int, error) {
 	n, err := rw.ResponseWriter.Write(b)
 	rw.bytesWritten += int64(n)
@@ -1028,7 +553,6 @@ func (rw *metricsResponseWriter[T, U]) Write(b []byte) (int, error) {
 }
 
 // Flush calls the underlying ResponseWriter.Flush if it implements http.Flusher.
-// This allows streaming responses to be flushed to the client immediately.
 func (rw *metricsResponseWriter[T, U]) Flush() {
 	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
@@ -1037,7 +561,6 @@ func (rw *metricsResponseWriter[T, U]) Flush() {
 
 // Shutdown gracefully shuts down the router.
 // It stops accepting new requests and waits for existing requests to complete.
-// If the context is canceled before all requests complete, it returns the context's error.
 func (r *Router[T, U]) Shutdown(ctx context.Context) error {
 	// Mark the router as shutting down
 	r.shutdownMu.Lock()
@@ -1058,19 +581,6 @@ func (r *Router[T, U]) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-}
-
-// GetParams retrieves the httprouter.Params from the request context.
-// This allows handlers to access route parameters extracted from the URL.
-func GetParams(r *http.Request) httprouter.Params {
-	params, _ := r.Context().Value(ParamsKey).(httprouter.Params)
-	return params
-}
-
-// GetParam retrieves a specific parameter from the request context.
-// It's a convenience function that combines GetParams and ByName.
-func GetParam(r *http.Request, name string) string {
-	return GetParams(r).ByName(name)
 }
 
 // getEffectiveTimeout returns the effective timeout for a route.
@@ -1130,6 +640,7 @@ func (r *Router[T, U]) getEffectiveRateLimit(routeRateLimit, subRouterRateLimit 
 
 // handleError handles an error by logging it and returning an appropriate HTTP response.
 // It checks if the error is a specific HTTPError and uses its status code and message if available.
+// It also checks for context deadline exceeded errors.
 func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err error, statusCode int, message string) {
 	// Get trace ID from context
 	traceID := middleware.GetTraceID(req)
@@ -1146,17 +657,31 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 		fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 	}
 
-	// Log the error
-	r.logger.Error(message, fields...)
-
-	// Check if the error is a specific HTTP error
+	// Check for specific error types
 	var httpErr *HTTPError
-	if errors.As(err, &httpErr) {
+	if errors.Is(err, context.DeadlineExceeded) {
+		// Handle timeout specifically
+		statusCode = http.StatusRequestTimeout // Or http.StatusGatewayTimeout
+		message = "Request Timeout"
+		// Log specifically as timeout
+		r.logger.Error("Request timed out (detected in handler)", fields...)
+	} else if errors.As(err, &httpErr) {
+		// Handle custom HTTPError
 		statusCode = httpErr.StatusCode
 		message = httpErr.Message
+		r.logger.Error(message, fields...) // Log with the custom message
+	} else if err != nil && err.Error() == "http: request body too large" {
+		// Specifically handle MaxBytesReader error
+		statusCode = http.StatusRequestEntityTooLarge
+		message = "Request Entity Too Large"
+		r.logger.Warn(message, fields...) // Log as Warn for client error
+	} else {
+		// Log generic internal server error
+		r.logger.Error(message, fields...)
 	}
 
-	// Return the error response
+	// Return the error response using http.Error, which handles checking
+	// if headers have already been written.
 	http.Error(w, message, statusCode)
 }
 
@@ -1211,7 +736,14 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 				r.logger.Error("Panic recovered", fields...)
 
 				// Return a 500 Internal Server Error
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				// Avoid double writing headers if panic happens after write started
+				if _, ok := w.(interface{ Status() int }); !ok {
+					// If we can't check status, assume not written yet
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				} else if w.(interface{ Status() int }).Status() == 0 {
+					// Or if status is known to be unwritten
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				}
 			}
 		}()
 
@@ -1403,51 +935,56 @@ type responseWriter struct {
 }
 
 // WriteHeader captures the status code and calls the underlying ResponseWriter.WriteHeader.
-// This allows middleware to inspect the status code after the handler has completed.
 func (rw *responseWriter) WriteHeader(statusCode int) {
 	rw.statusCode = statusCode
 	rw.ResponseWriter.WriteHeader(statusCode)
 }
 
 // Write calls the underlying ResponseWriter.Write.
-// It passes through the write operation to the wrapped ResponseWriter.
 func (rw *responseWriter) Write(b []byte) (int, error) {
 	return rw.ResponseWriter.Write(b)
 }
 
 // Flush calls the underlying ResponseWriter.Flush if it implements http.Flusher.
-// This allows streaming responses to be flushed to the client immediately.
 func (rw *responseWriter) Flush() {
 	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
 }
 
-// mutexResponseWriter is a wrapper around http.ResponseWriter that uses a mutex to protect access.
-// This ensures thread-safety when writing to the response from multiple goroutines.
+// mutexResponseWriter is a wrapper around http.ResponseWriter that uses a mutex to protect access
+// and tracks if headers/body have been written.
 type mutexResponseWriter struct {
 	http.ResponseWriter
-	mu *sync.Mutex
+	mu          *sync.Mutex
+	wroteHeader atomic.Bool // Tracks if WriteHeader or Write has been called
 }
 
-// WriteHeader acquires the mutex and calls the underlying ResponseWriter.WriteHeader.
-// This ensures thread-safety when setting the status code from multiple goroutines.
+// Header returns the underlying Header map. It does not acquire the mutex itself,
+// relying on the caller or subsequent WriteHeader/Write calls to handle synchronization.
+func (rw *mutexResponseWriter) Header() http.Header {
+	return rw.ResponseWriter.Header()
+}
+
+// WriteHeader acquires the mutex, marks headers as written, and calls the underlying ResponseWriter.WriteHeader.
 func (rw *mutexResponseWriter) WriteHeader(statusCode int) {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
-	rw.ResponseWriter.WriteHeader(statusCode)
+	if !rw.wroteHeader.Swap(true) { // Atomically set flag and check previous value
+		rw.ResponseWriter.WriteHeader(statusCode)
+	}
+	// If header was already written, do nothing (consistent with http.ResponseWriter behavior)
 }
 
-// Write acquires the mutex and calls the underlying ResponseWriter.Write.
-// This ensures thread-safety when writing the response body from multiple goroutines.
+// Write acquires the mutex, marks headers/body as written, and calls the underlying ResponseWriter.Write.
 func (rw *mutexResponseWriter) Write(b []byte) (int, error) {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
+	rw.wroteHeader.Store(true) // Mark as written (headers might be implicitly written here)
 	return rw.ResponseWriter.Write(b)
 }
 
 // Flush acquires the mutex and calls the underlying ResponseWriter.Flush if it implements http.Flusher.
-// This ensures thread-safety when flushing the response from multiple goroutines.
 func (rw *mutexResponseWriter) Flush() {
 	rw.mu.Lock()
 	defer rw.mu.Unlock()

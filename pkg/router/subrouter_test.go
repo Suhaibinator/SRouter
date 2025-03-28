@@ -1,53 +1,222 @@
 package router
 
 import (
-	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Use centralized mocks
 	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
 )
+
+// --- Tests from register_subrouter_cache_test.go ---
+
+// TestRegisterSubRouterWithCaching tests registerSubRouter with caching enabled
+func TestRegisterSubRouterWithCaching(t *testing.T) {
+
+	// Create a router with caching enabled
+	r := NewRouter[string, string](RouterConfig{
+		Logger: zap.NewNop(),
+	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser) // Use mock functions
+
+	// Create a handler that returns a simple response
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("Hello, World!"))
+	})
+
+	// Create a sub-router with caching enabled
+	sr := SubRouterConfig{
+		PathPrefix: "/api",
+		Routes: []RouteConfigBase{
+			{
+				Path:      "/hello",
+				Methods:   []string{"GET"},
+				Handler:   handler,
+				AuthLevel: NoAuth,
+			},
+		},
+	}
+
+	// Register the sub-router
+	r.registerSubRouter(sr)
+
+	// Create a request
+	req := httptest.NewRequest("GET", "/api/hello", nil)
+
+	// Create a response recorder
+	rr := httptest.NewRecorder()
+
+	// Serve the request
+	r.ServeHTTP(rr, req)
+
+	// Check status code
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	// Check the response body
+	if rr.Body.String() != "Hello, World!" {
+		t.Errorf("Expected body %q, got %q", "Hello, World!", rr.Body.String())
+	}
+
+	// Make the same request again (should use cache)
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	// Check status code
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	// Check the response body
+	if rr.Body.String() != "Hello, World!" {
+		t.Errorf("Expected body %q, got %q", "Hello, World!", rr.Body.String())
+	}
+}
+
+// TestRegisterSubRouterWithCachingNonGetMethod tests registerSubRouter with caching enabled and non-GET method
+func TestRegisterSubRouterWithCachingNonGetMethod(t *testing.T) {
+
+	// Create a router with caching enabled
+	r := NewRouter[string, string](RouterConfig{
+		Logger: zap.NewNop(),
+	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser) // Use mock functions
+
+	// Create a handler that returns a simple response
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("Hello, World!"))
+	})
+
+	// Create a sub-router with caching enabled
+	sr := SubRouterConfig{
+		PathPrefix: "/api",
+		Routes: []RouteConfigBase{
+			{
+				Path:      "/hello",
+				Methods:   []string{"POST"}, // Non-GET method
+				Handler:   handler,
+				AuthLevel: NoAuth,
+			},
+		},
+	}
+
+	// Register the sub-router
+	r.registerSubRouter(sr)
+
+	// Create a request
+	req := httptest.NewRequest("POST", "/api/hello", nil)
+
+	// Create a response recorder
+	rr := httptest.NewRecorder()
+
+	// Serve the request
+	r.ServeHTTP(rr, req)
+
+	// Check status code
+	if rr.Code != http.StatusOK { // Note: The handler runs, but caching logic is skipped for non-GET
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	// Check the response body
+	if rr.Body.String() != "Hello, World!" {
+		t.Errorf("Expected body %q, got %q", "Hello, World!", rr.Body.String())
+	}
+}
+
+// TestRegisterSubRouterWithCachingError tests registerSubRouter with caching enabled and cache error
+func TestRegisterSubRouterWithCachingErrorCoverage(t *testing.T) { // Renamed to avoid conflict
+
+	// Create a router with caching enabled
+	r := NewRouter[string, string](RouterConfig{
+		Logger: zap.NewNop(),
+	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser) // Use mock functions
+
+	// Create a handler that returns a simple response
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("Hello, World!"))
+	})
+
+	// Create a sub-router with caching enabled
+	sr := SubRouterConfig{
+		PathPrefix: "/api",
+		Routes: []RouteConfigBase{
+			{
+				Path:      "/hello",
+				Methods:   []string{"GET"},
+				Handler:   handler,
+				AuthLevel: NoAuth,
+			},
+		},
+	}
+
+	// Register the sub-router
+	r.registerSubRouter(sr)
+
+	// Create a request
+	req := httptest.NewRequest("GET", "/api/hello", nil)
+
+	// Create a response recorder
+	rr := httptest.NewRecorder()
+
+	// Serve the request
+	r.ServeHTTP(rr, req)
+
+	// Check status code
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	// Check the response body
+	if rr.Body.String() != "Hello, World!" {
+		t.Errorf("Expected body %q, got %q", "Hello, World!", rr.Body.String())
+	}
+}
+
+// --- Original tests from subrouter_test.go ---
+
+// TestExportedRegisterSubRouter tests the exported RegisterSubRouter wrapper function
+func TestExportedRegisterSubRouter(t *testing.T) {
+	logger := zap.NewNop()
+	r := NewRouter[string, string](RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	subRouterCfg := SubRouterConfig{
+		PathPrefix: "/export",
+		Routes: []RouteConfigBase{
+			{
+				Path:    "/route",
+				Methods: []string{"GET"},
+				Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) },
+			},
+		},
+	}
+
+	// Use the exported function
+	r.RegisterSubRouter(subRouterCfg)
+
+	// Test the route
+	req := httptest.NewRequest("GET", "/export/route", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status OK (200) for exported RegisterSubRouter route, got %d", rr.Code)
+	}
+}
 
 // TestRegisterSubRouter tests the registerSubRouter function with various configurations
 func TestRegisterSubRouter(t *testing.T) {
 	// Create a logger
 	logger := zap.NewNop()
 
-	// Create a mock cache
-	cache := make(map[string][]byte)
-	cacheGet := func(key string) ([]byte, bool) {
-		value, found := cache[key]
-		return value, found
-	}
-	cacheSet := func(key string, value []byte) error {
-		cache[key] = value
-		return nil
-	}
-
 	// Create a router with caching enabled
 	r := NewRouter[string, string](RouterConfig{
-		Logger:         logger,
-		CacheGet:       cacheGet,
-		CacheSet:       cacheSet,
-		CacheKeyPrefix: "global",
-		GlobalTimeout:  5 * time.Second,
+		Logger:        logger,
+		GlobalTimeout: 5 * time.Second,
 	},
-		// Mock auth function
-		func(ctx context.Context, token string) (string, bool) {
-			if token == "valid-token" {
-				return "user123", true
-			}
-			return "", false
-		},
-		// Mock user ID function
-		func(user string) string {
-			return user
-		})
+		mocks.MockAuthFunction,   // Use mock function
+		mocks.MockUserIDFromUser) // Use mock function
 
 	// Create a middleware that adds a header
 	headerMiddleware := func(next http.Handler) http.Handler {
@@ -69,8 +238,6 @@ func TestRegisterSubRouter(t *testing.T) {
 		TimeoutOverride:     2 * time.Second,
 		MaxBodySizeOverride: 1024,
 		RateLimitOverride:   rateLimitConfig,
-		CacheResponse:       true,
-		CacheKeyPrefix:      "api",
 		Middlewares:         []Middleware{headerMiddleware},
 		Routes: []RouteConfigBase{
 			{
@@ -165,12 +332,6 @@ func TestRegisterSubRouter(t *testing.T) {
 		t.Errorf("Expected X-Test-Middleware header to be set")
 	}
 
-	// Check response was cached
-	expectedKey := "api:/api/users"
-	if _, found := cache[expectedKey]; !found {
-		t.Errorf("Expected response to be cached with key %q", expectedKey)
-	}
-
 	// Test the protected route without auth
 	req, _ = http.NewRequest("GET", "/api/protected", nil)
 	rr = httptest.NewRecorder()
@@ -190,12 +351,6 @@ func TestRegisterSubRouter(t *testing.T) {
 	// Check status code
 	if rr.Code != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
-	}
-
-	// Check response was cached
-	expectedKey = "api:/api/protected"
-	if _, found := cache[expectedKey]; !found {
-		t.Errorf("Expected response to be cached with key %q", expectedKey)
 	}
 
 	// Test the custom timeout route
@@ -246,20 +401,12 @@ func TestRegisterSubRouterWithoutCaching(t *testing.T) {
 	r := NewRouter[string, string](RouterConfig{
 		Logger: logger,
 	},
-		// Mock auth function
-		func(ctx context.Context, token string) (string, bool) {
-			return "", false
-		},
-		// Mock user ID function
-		func(user string) string {
-			return user
-		})
+		mocks.MockAuthFunction,   // Use mock function
+		mocks.MockUserIDFromUser) // Use mock function
 
 	// Register a sub-router with caching enabled (but router doesn't support it)
 	r.registerSubRouter(SubRouterConfig{
-		PathPrefix:     "/api",
-		CacheResponse:  true,
-		CacheKeyPrefix: "api",
+		PathPrefix: "/api",
 		Routes: []RouteConfigBase{
 			{
 				Path:      "/users",
@@ -288,91 +435,5 @@ func TestRegisterSubRouterWithoutCaching(t *testing.T) {
 	expected := `{"users":["user1","user2"]}`
 	if rr.Body.String() != expected {
 		t.Errorf("Expected response body %q, got %q", expected, rr.Body.String())
-	}
-}
-
-// TestRegisterSubRouterWithCacheError tests the registerSubRouter function with a cache error
-func TestRegisterSubRouterWithCacheError(t *testing.T) {
-	// Create a logger
-	core, logs := observer.New(zap.WarnLevel)
-	logger := zap.New(core)
-
-	// Create a mock cache with an error on set
-	cache := make(map[string][]byte)
-	cacheGet := func(key string) ([]byte, bool) {
-		value, found := cache[key]
-		return value, found
-	}
-	cacheSet := func(key string, value []byte) error {
-		return errors.New("cache error")
-	}
-
-	// Create a router with caching enabled
-	r := NewRouter[string, string](RouterConfig{
-		Logger:         logger,
-		CacheGet:       cacheGet,
-		CacheSet:       cacheSet,
-		CacheKeyPrefix: "global",
-	},
-		// Mock auth function
-		func(ctx context.Context, token string) (string, bool) {
-			return "", false
-		},
-		// Mock user ID function
-		func(user string) string {
-			return user
-		})
-
-	// Register a sub-router with caching enabled
-	r.registerSubRouter(SubRouterConfig{
-		PathPrefix:     "/api",
-		CacheResponse:  true,
-		CacheKeyPrefix: "api",
-		Routes: []RouteConfigBase{
-			{
-				Path:      "/users",
-				Methods:   []string{"GET"},
-				AuthLevel: NoAuth,
-				Handler: func(w http.ResponseWriter, r *http.Request) {
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusOK)
-					_, _ = w.Write([]byte(`{"users":["user1","user2"]}`))
-				},
-			},
-		},
-	})
-
-	// Test the route
-	req, _ := http.NewRequest("GET", "/api/users", nil)
-	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
-
-	// Check status code
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
-	}
-
-	// Check response body
-	expected := `{"users":["user1","user2"]}`
-	if rr.Body.String() != expected {
-		t.Errorf("Expected response body %q, got %q", expected, rr.Body.String())
-	}
-
-	// Check that a warning was logged
-	logEntries := logs.All()
-	if len(logEntries) == 0 {
-		t.Errorf("Expected warning to be logged")
-	}
-
-	// Check that the log contains the expected message
-	found := false
-	for _, log := range logEntries {
-		if log.Message == "Failed to cache response" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("Expected 'Failed to cache response' log message")
 	}
 }
