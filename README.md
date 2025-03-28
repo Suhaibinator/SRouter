@@ -24,6 +24,7 @@ SRouter is a high-performance HTTP router for Go that wraps [julienschmidt/httpr
 - **Trace ID Logging**: Automatically generate and include a unique trace ID for each request in all log entries
 - **Flexible Request Data Sources**: Support for retrieving request data from various sources including request body, query parameters, and path parameters with automatic decoding
 - **Nested SubRouters**: Create hierarchical routing structures.
+- **Declarative Generic Routes**: Define generic routes directly within `SubRouterConfig` for improved clarity.
 
 ## Installation
 
@@ -118,7 +119,7 @@ func main() {
 
 ### Using Sub-Routers
 
-Sub-routers allow you to group routes with a common path prefix and apply shared configuration.
+Sub-routers allow you to group routes with a common path prefix and apply shared configuration. You can define both standard (`RouteConfigBase`) and generic routes declaratively within the `Routes` field, which now accepts `[]any`.
 
 ```go
 // Define sub-router configurations
@@ -126,24 +127,36 @@ apiV1SubRouter := router.SubRouterConfig{
 	PathPrefix:          "/api/v1",
 	TimeoutOverride:     3 * time.Second,
 	MaxBodySizeOverride: 2 << 20, // 2 MB
-	Routes: []router.RouteConfigBase{
-		{
+	Routes: []any{ // Use []any to hold different route types
+		// Standard route
+		router.RouteConfigBase{
 			Path:    "/users", // Becomes /api/v1/users
 			Methods: []string{"GET"},
 			Handler: ListUsersHandler,
 		},
-		{
+		router.RouteConfigBase{
 			Path:    "/users/:id", // Becomes /api/v1/users/:id
 			Methods: []string{"GET"},
 			Handler: GetUserHandler,
 		},
+		// Declarative generic route using the helper
+		router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, string, string](
+			router.RouteConfig[CreateUserReq, CreateUserResp]{
+				Path:      "/users", // Path relative to the sub-router prefix (/api/v1/users)
+				Methods:   []string{"POST"},
+				AuthLevel: router.Ptr(router.AuthRequired),
+				Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
+				Handler:   CreateUserHandler,
+				// Middlewares, Timeout, MaxBodySize, RateLimit can be set here too
+			},
+		),
 	},
 }
 
 apiV2SubRouter := router.SubRouterConfig{
 	PathPrefix: "/api/v2",
-	Routes: []router.RouteConfigBase{
-		{
+	Routes: []any{ // Use []any
+		router.RouteConfigBase{
 			Path:    "/users", // Becomes /api/v2/users
 			Methods: []string{"GET"},
 			Handler: ListUsersV2Handler,
@@ -161,80 +174,48 @@ routerConfig := router.RouterConfig{
 
 r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
-// Generic routes for sub-routers are registered *after* the router is created (see below)
+// Generic routes are now defined declaratively within SubRouterConfig.Routes
 ```
-
-#### Registering Generic Routes with SubRouters (Functional Approach)
-
-Generic routes associated with sub-routers are registered *imperatively* after the main router has been created, using the `RegisterGenericRouteOnSubRouter` function. This provides better type safety compared to the previous declarative approach.
-
-```go
-// Assume 'r' is the router created with NewRouter, and sub-router configs were defined.
-// Assume 'CreateUserReq', 'CreateUserResp', 'CreateUserHandler', 'codec' are defined.
-
-// Register a generic route on the "/api/v1" sub-router
-err := router.RegisterGenericRouteOnSubRouter[CreateUserReq, CreateUserResp, string, string](
-	r,         // The router instance
-	"/api/v1", // The *exact* PathPrefix of the target SubRouterConfig
-	router.RouteConfig[CreateUserReq, CreateUserResp]{
-		Path:      "/users", // Path relative to the sub-router prefix (/api/v1/users)
-		Methods:   []string{"POST"},
-		AuthLevel: router.AuthRequired,
-		Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
-		Handler:   CreateUserHandler,
-		// Middlewares, Timeout, MaxBodySize, RateLimit can be set here too
-	},
-)
-if err != nil {
-	log.Fatalf("Failed to register generic route on /api/v1: %v", err)
-}
-
-// Register another generic route on a nested sub-router "/api/v1/admin"
-// (Assuming a SubRouterConfig with PathPrefix="/admin" was nested under "/api/v1")
-errAdmin := router.RegisterGenericRouteOnSubRouter[AdminReq, AdminResp, string, string](
-	r,
-	"/api/v1/admin", // The *exact* combined PathPrefix of the target nested SubRouterConfig
-	router.RouteConfig[AdminReq, AdminResp]{
-		Path:      "/tasks", // Becomes /api/v1/admin/tasks
-		Methods:   []string{"POST"},
-		AuthLevel: router.AuthRequired,
-		Codec:     codec.NewJSONCodec[AdminReq, AdminResp](),
-		Handler:   AdminTaskHandler,
-	},
-)
-if errAdmin != nil {
-	log.Fatalf("Failed to register generic route on /api/v1/admin: %v", errAdmin)
-}
-```
-
-**Key Points:**
-
--   Call `RegisterGenericRouteOnSubRouter` *after* `NewRouter`.
--   The `pathPrefix` argument must exactly match the `PathPrefix` defined in the `SubRouterConfig` (including any parent prefixes for nested sub-routers).
--   The `Path` field within `RouteConfig` is relative to the provided `pathPrefix`.
--   Middleware, timeouts, body size limits, and rate limits are applied hierarchically (Route > SubRouter > Global), considering the configuration of the matched sub-router.
 
 #### Nested SubRouters
 
-You can nest `SubRouterConfig` structs within each other to create a hierarchical routing structure. The `RegisterGenericRouteOnSubRouter` function requires the full, combined path prefix to target a nested sub-router.
+You can nest `SubRouterConfig` structs within each other to create a hierarchical routing structure. Path prefixes are combined, and configuration overrides cascade down the hierarchy.
 
 ```go
 // Define nested structure
-usersV1SubRouter := router.SubRouterConfig{ PathPrefix: "/users", ... }
-apiV1SubRouter := router.SubRouterConfig{ PathPrefix: "/v1", SubRouters: []router.SubRouterConfig{usersV1SubRouter}, ... }
-apiSubRouter := router.SubRouterConfig{ PathPrefix: "/api", SubRouters: []router.SubRouterConfig{apiV1SubRouter}, ... }
+usersV1SubRouter := router.SubRouterConfig{
+	PathPrefix: "/users", // Relative to /api/v1
+	Routes: []any{
+		router.RouteConfigBase{ Path: "/:id", Methods: []string{"GET"}, Handler: GetUserHandler },
+		router.NewGenericRouteDefinition[UserReq, UserResp, string, string](
+			router.RouteConfig[UserReq, UserResp]{ Path: "/info", Methods: []string{"POST"}, Codec: userCodec, Handler: UserInfoHandler },
+		),
+	},
+}
+apiV1SubRouter := router.SubRouterConfig{
+	PathPrefix: "/v1", // Relative to /api
+	SubRouters: []router.SubRouterConfig{usersV1SubRouter},
+	Routes: []any{
+		router.RouteConfigBase{ Path: "/status", Methods: []string{"GET"}, Handler: V1StatusHandler },
+	},
+}
+apiSubRouter := router.SubRouterConfig{
+	PathPrefix: "/api", // Root prefix for this group
+	SubRouters: []router.SubRouterConfig{apiV1SubRouter},
+	Routes: []any{
+		router.RouteConfigBase{ Path: "/health", Methods: []string{"GET"}, Handler: HealthHandler },
+	},
+}
 
 // Register top-level sub-router during NewRouter
 routerConfig := router.RouterConfig{ SubRouters: []router.SubRouterConfig{apiSubRouter}, ... }
 r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
-// Register generic route on nested sub-router
-err := router.RegisterGenericRouteOnSubRouter[UserReq, UserResp, string, string](
-	r,
-	"/api/v1/users", // Full prefix needed here
-	router.RouteConfig[UserReq, UserResp]{ Path: "/info", ... }, // Relative path
-)
-// ... handle error
+// Routes are now registered:
+// GET /api/health
+// GET /api/v1/status
+// GET /api/v1/users/:id
+// POST /api/v1/users/info
 ```
 
 ### Using Generic Routes
@@ -1053,8 +1034,8 @@ SRouter includes several examples to help you get started:
 - **examples/rate-limiting**: An example of using rate limiting with SRouter
 - **examples/source-types**: An example of using different source types for request data
 - **examples/subrouters**: An example of using sub-routers with SRouter
-- **examples/subrouter-generic-routes**: An example of using generic routes with sub-routers (functional registration)
-- **examples/nested-subrouters**: An example of nesting sub-routers for hierarchical routing (functional registration)
+- **examples/subrouter-generic-routes**: An example of using generic routes with sub-routers (declarative registration)
+- **examples/nested-subrouters**: An example of nesting sub-routers for hierarchical routing (declarative registration)
 - **examples/trace-logging**: An example of using trace ID logging with SRouter
 - **examples/caching**: An example of implementing response caching using middleware (Note: Built-in config removed)
 
@@ -1126,10 +1107,10 @@ type SubRouterConfig struct {
  TimeoutOverride     time.Duration                         // Override global timeout for all routes in this sub-router
  MaxBodySizeOverride int64                                 // Override global max body size for all routes in this sub-router
  RateLimitOverride   *middleware.RateLimitConfig[any, any] // Override global rate limit for all routes in this sub-router
- Routes              []RouteConfigBase                     // Regular routes in this sub-router
+ Routes              []any                                 // Routes (RouteConfigBase or GenericRouteRegistrationFunc)
  Middlewares         []common.Middleware                   // Middlewares applied to all routes in this sub-router
  SubRouters          []SubRouterConfig                     // Nested sub-routers
- // GenericRoutes removed - use RegisterGenericRouteOnSubRouter instead
+ AuthLevel           *AuthLevel                            // Default auth level for routes in this sub-router
  // CacheResponse, CacheKeyPrefix removed - implement caching via middleware if needed
 }
 ```
@@ -1140,7 +1121,7 @@ type SubRouterConfig struct {
 type RouteConfigBase struct {
  Path        string                                // Route path (will be prefixed with sub-router path prefix if applicable)
  Methods     []string                              // HTTP methods this route handles
- AuthLevel   AuthLevel                             // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired)
+ AuthLevel   *AuthLevel                            // Authentication level (nil uses sub-router default)
  Timeout     time.Duration                         // Override timeout for this specific route
  MaxBodySize int64                                 // Override max body size for this specific route
  RateLimit   *middleware.RateLimitConfig[any, any] // Rate limit for this specific route
@@ -1155,7 +1136,7 @@ type RouteConfigBase struct {
 type RouteConfig[T any, U any] struct {
  Path        string                                // Route path (will be prefixed with sub-router path prefix if applicable)
  Methods     []string                              // HTTP methods this route handles
- AuthLevel   AuthLevel                             // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired)
+ AuthLevel   *AuthLevel                            // Authentication level (nil uses sub-router default)
  Timeout     time.Duration                         // Override timeout for this specific route
  MaxBodySize int64                                 // Override max body size for this specific route
  RateLimit   *middleware.RateLimitConfig[any, any] // Rate limit for this specific route
