@@ -84,7 +84,7 @@ func main() {
 			{
 				Path:      "/hello",
 				Methods:   []string{"GET"},
-				AuthLevel: router.NoAuth,
+				AuthLevel: router.Ptr(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(`{"message":"Hello from API v1!"}`))
@@ -120,7 +120,7 @@ func main() {
 		router.RouteConfig[GreetingRequest, GreetingResponse]{
 			Path:      "/greet", // Path relative to the sub-router prefix
 			Methods:   []string{"POST"},
-			AuthLevel: router.NoAuth,
+			AuthLevel: router.Ptr(router.NoAuth), // Changed
 			Codec:     greetingCodec,
 			Handler:   greetingHandler,
 		},
@@ -136,7 +136,7 @@ func main() {
 		router.RouteConfig[UserRequest, UserResponse]{
 			Path:      "/users",
 			Methods:   []string{"POST"},
-			AuthLevel: router.NoAuth,
+			AuthLevel: router.Ptr(router.NoAuth), // Changed
 			Codec:     userCodec,
 			Handler:   userHandler,
 		},
@@ -151,7 +151,7 @@ func main() {
 		router.RouteConfig[GreetingRequest, GreetingResponse]{
 			Path:      "/greet",
 			Methods:   []string{"POST"},
-			AuthLevel: router.NoAuth,
+			AuthLevel: router.Ptr(router.NoAuth), // Changed
 			Codec:     greetingCodec,
 			Handler:   greetingHandler,
 		},

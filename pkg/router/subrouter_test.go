@@ -34,7 +34,7 @@ func TestRegisterSubRouterWithCaching(t *testing.T) {
 				Path:      "/hello",
 				Methods:   []string{"GET"},
 				Handler:   handler,
-				AuthLevel: NoAuth,
+				AuthLevel: Ptr(NoAuth), // Changed
 			},
 		},
 	}
@@ -97,7 +97,7 @@ func TestRegisterSubRouterWithCachingNonGetMethod(t *testing.T) {
 				Path:      "/hello",
 				Methods:   []string{"POST"}, // Non-GET method
 				Handler:   handler,
-				AuthLevel: NoAuth,
+				AuthLevel: Ptr(NoAuth), // Changed
 			},
 		},
 	}
@@ -146,7 +146,7 @@ func TestRegisterSubRouterWithCachingErrorCoverage(t *testing.T) { // Renamed to
 				Path:      "/hello",
 				Methods:   []string{"GET"},
 				Handler:   handler,
-				AuthLevel: NoAuth,
+				AuthLevel: Ptr(NoAuth), // Changed
 			},
 		},
 	}
@@ -188,6 +188,7 @@ func TestExportedRegisterSubRouter(t *testing.T) {
 				Path:    "/route",
 				Methods: []string{"GET"},
 				Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) },
+				// AuthLevel is nil (omitted), will default to NoAuth effectively
 			},
 		},
 	}
@@ -243,7 +244,7 @@ func TestRegisterSubRouter(t *testing.T) {
 			{
 				Path:      "/users",
 				Methods:   []string{"GET"},
-				AuthLevel: NoAuth,
+				AuthLevel: Ptr(NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
@@ -253,7 +254,7 @@ func TestRegisterSubRouter(t *testing.T) {
 			{
 				Path:      "/protected",
 				Methods:   []string{"GET"},
-				AuthLevel: AuthRequired,
+				AuthLevel: Ptr(AuthRequired), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
@@ -263,7 +264,7 @@ func TestRegisterSubRouter(t *testing.T) {
 			{
 				Path:      "/custom-timeout",
 				Methods:   []string{"GET"},
-				AuthLevel: NoAuth,
+				AuthLevel: Ptr(NoAuth),     // Changed
 				Timeout:   1 * time.Second, // Override sub-router timeout
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
@@ -274,8 +275,8 @@ func TestRegisterSubRouter(t *testing.T) {
 			{
 				Path:        "/custom-body-size",
 				Methods:     []string{"POST"},
-				AuthLevel:   NoAuth,
-				MaxBodySize: 512, // Override sub-router max body size
+				AuthLevel:   Ptr(NoAuth), // Changed
+				MaxBodySize: 512,         // Override sub-router max body size
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
@@ -285,7 +286,7 @@ func TestRegisterSubRouter(t *testing.T) {
 			{
 				Path:      "/custom-rate-limit",
 				Methods:   []string{"GET"},
-				AuthLevel: NoAuth,
+				AuthLevel: Ptr(NoAuth), // Changed
 				RateLimit: &middleware.RateLimitConfig[any, any]{
 					Limit:  5,
 					Window: 30 * time.Second,
@@ -299,7 +300,7 @@ func TestRegisterSubRouter(t *testing.T) {
 			{
 				Path:      "/custom-middleware",
 				Methods:   []string{"GET"},
-				AuthLevel: NoAuth,
+				AuthLevel: Ptr(NoAuth), // Changed
 				Middlewares: []Middleware{
 					func(next http.Handler) http.Handler {
 						return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -411,7 +412,7 @@ func TestRegisterSubRouterWithoutCaching(t *testing.T) {
 			{
 				Path:      "/users",
 				Methods:   []string{"GET"},
-				AuthLevel: NoAuth,
+				AuthLevel: Ptr(NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)

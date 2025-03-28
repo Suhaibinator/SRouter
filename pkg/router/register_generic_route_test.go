@@ -129,6 +129,7 @@ func TestRegisterGenericRouteWithBody(t *testing.T) {
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	reqBody := RequestType{ID: "123", Name: "John"}
@@ -163,6 +164,7 @@ func TestRegisterGenericRouteWithUnsupportedSourceType(t *testing.T) {
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: SourceType(999), // Unsupported source type
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -188,7 +190,7 @@ func TestRegisterGenericRouteWithAuthRequired(t *testing.T) {
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
-		AuthLevel:  AuthRequired,
+		AuthLevel:  Ptr(AuthRequired), // Changed
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	reqBody := RequestType{ID: "123", Name: "John"}
@@ -226,7 +228,7 @@ func TestRegisterGenericRouteWithAuthOptional(t *testing.T) {
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
-		AuthLevel:  AuthOptional,
+		AuthLevel:  Ptr(AuthOptional), // Changed
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	// With valid token
@@ -281,6 +283,7 @@ func TestRegisterGenericRouteWithBase62QueryParameter(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base62QueryParameter,
 		SourceKey:  "data",
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	// Base62 encoded {"id":"123","name":"John"}
@@ -315,6 +318,7 @@ func TestRegisterGenericRouteWithBase62PathParameter(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base62PathParameter,
 		SourceKey:  "data",
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	// Base62 encoded {"id":"123","name":"John"}
@@ -349,6 +353,7 @@ func TestRegisterGenericRouteWithBase62QueryParameterMissing(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base62QueryParameter,
 		SourceKey:  "data",
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -373,6 +378,7 @@ func TestRegisterGenericRouteWithBase62QueryParameterInvalid(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base62QueryParameter,
 		SourceKey:  "data",
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	req := httptest.NewRequest("GET", "/test?data=invalid!@#$", nil)
@@ -397,6 +403,7 @@ func TestRegisterGenericRouteWithBase62PathParameterMissing(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base62PathParameter,
 		SourceKey:  "nonexistent",
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	req := httptest.NewRequest("GET", "/test/somevalue", nil)
@@ -421,6 +428,7 @@ func TestRegisterGenericRouteWithBase62PathParameterInvalid(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base62PathParameter,
 		SourceKey:  "data",
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	req := httptest.NewRequest("GET", "/test/invalid!@#$", nil)
@@ -447,6 +455,7 @@ func TestRegisterGenericRouteWithEncodeError(t *testing.T) {
 				Channel: make(chan int),
 			}, nil
 		},
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	req, _ := http.NewRequest("POST", "/greet-encode-error", strings.NewReader(`{"name":"John","age":30}`))
@@ -479,6 +488,7 @@ func TestRegisterGenericRouteWithMiddleware(t *testing.T) {
 		Handler:     testGenericHandler[RequestType, ResponseType],
 		SourceType:  Body,
 		Middlewares: []Middleware{middleware},
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	reqBody := RequestType{ID: "123", Name: "John"}
@@ -531,6 +541,7 @@ func TestRegisterGenericRouteWithMaxBodySize(t *testing.T) {
 		Handler:     testGenericHandler[RequestType, ResponseType],
 		SourceType:  Body,
 		MaxBodySize: maxBodySize,
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), maxBodySize, nil) // Use maxBodySize here, timeout 0, rate limit nil
 
 	// Request with small body (should succeed)
@@ -578,6 +589,7 @@ func TestRegisterGenericRouteWithQueryParameter(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base64QueryParameter,
 		SourceKey:  "data",
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	base64Data := "eyJpZCI6IjEyMyIsIm5hbWUiOiJKb2huIn0=" // Base64 encoded {"id":"123","name":"John"}
@@ -611,6 +623,7 @@ func TestRegisterGenericRouteWithPathParameter(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base64PathParameter,
 		SourceKey:  "data",
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	base64Data := "eyJpZCI6IjEyMyIsIm5hbWUiOiJKb2huIn0=" // Base64 encoded {"id":"123","name":"John"}
@@ -644,6 +657,7 @@ func TestRegisterGenericRouteWithBase64QueryParameterAgain(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base64QueryParameter,
 		SourceKey:  "data",
+		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	base64Data := "eyJpZCI6IjEyMyIsIm5hbWUiOiJKb2huIn0=" // Base64 encoded {"id":"123","name":"John"}

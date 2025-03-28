@@ -118,7 +118,7 @@ func main() {
 			{
 				Path:      "", // Becomes /api/v1/users
 				Methods:   []string{"GET"},
-				AuthLevel: router.NoAuth,
+				AuthLevel: router.Ptr(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(`{"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"},{"id":3,"name":"Charlie"}]}`))
@@ -135,7 +135,7 @@ func main() {
 			{
 				Path:      "/hello", // Becomes /api/v1/hello
 				Methods:   []string{"GET"},
-				AuthLevel: router.NoAuth,
+				AuthLevel: router.Ptr(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(`{"message":"Hello from API v1!"}`))
@@ -165,7 +165,7 @@ func main() {
 			{
 				Path:      "/hello", // Becomes /api/v2/hello
 				Methods:   []string{"GET"},
-				AuthLevel: router.NoAuth,
+				AuthLevel: router.Ptr(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(`{"message":"Hello from API v2!"}`))
@@ -182,7 +182,7 @@ func main() {
 			{
 				Path:      "/status", // Becomes /api/status
 				Methods:   []string{"GET"},
-				AuthLevel: router.NoAuth,
+				AuthLevel: router.Ptr(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(`{"status":"ok"}`))
@@ -215,7 +215,7 @@ func main() {
 		router.RouteConfig[GreetingRequest, GreetingResponse]{
 			Path:      "/greet", // Relative path
 			Methods:   []string{"POST"},
-			AuthLevel: router.NoAuth,
+			AuthLevel: router.Ptr(router.NoAuth), // Changed
 			Codec:     greetingCodec,
 			Handler:   greetingHandler,
 		},
@@ -231,7 +231,7 @@ func main() {
 		router.RouteConfig[UserRequest, UserResponse]{
 			Path:      "/info", // Relative path
 			Methods:   []string{"POST"},
-			AuthLevel: router.NoAuth,
+			AuthLevel: router.Ptr(router.NoAuth), // Changed
 			Codec:     userCodec,
 			Handler:   userHandler,
 		},
@@ -247,7 +247,7 @@ func main() {
 		router.RouteConfig[UserRequest, UserResponse]{
 			Path:      "/info", // Relative path
 			Methods:   []string{"POST"},
-			AuthLevel: router.NoAuth,
+			AuthLevel: router.Ptr(router.NoAuth), // Changed
 			Codec:     userCodec,
 			Handler:   userHandler,
 		},
@@ -263,7 +263,7 @@ func main() {
 		router.RouteConfig[ProfileRequest, ProfileResponse]{
 			Path:      "/profile", // Relative path
 			Methods:   []string{"POST"},
-			AuthLevel: router.AuthRequired, // This route requires authentication
+			AuthLevel: router.Ptr(router.AuthRequired), // Changed - This route requires authentication
 			Codec:     profileCodec,
 			Handler:   profileHandler,
 		},

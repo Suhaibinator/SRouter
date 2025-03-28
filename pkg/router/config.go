@@ -127,6 +127,7 @@ type SubRouterConfig struct {
 	// SubRouters is a slice of nested sub-routers
 	// This allows for creating a hierarchy of sub-routers
 	SubRouters []SubRouterConfig // Nested sub-routers
+	AuthLevel  *AuthLevel        // Default authentication level for all routes in this sub-router (overridden by route-specific AuthLevel)
 	// Note: Generic routes are now registered imperatively using router.RegisterGenericRouteOnSubRouter
 }
 
@@ -135,7 +136,7 @@ type SubRouterConfig struct {
 type RouteConfigBase struct {
 	Path        string                                // Route path (will be prefixed with sub-router path prefix if applicable)
 	Methods     []string                              // HTTP methods this route handles
-	AuthLevel   AuthLevel                             // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired)
+	AuthLevel   *AuthLevel                            // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired). If nil, inherits from sub-router or defaults to NoAuth.
 	Timeout     time.Duration                         // Override timeout for this specific route
 	MaxBodySize int64                                 // Override max body size for this specific route
 	RateLimit   *middleware.RateLimitConfig[any, any] // Rate limit for this specific route
@@ -149,7 +150,7 @@ type RouteConfigBase struct {
 type RouteConfig[T any, U any] struct {
 	Path        string                                // Route path (will be prefixed with sub-router path prefix if applicable)
 	Methods     []string                              // HTTP methods this route handles
-	AuthLevel   AuthLevel                             // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired)
+	AuthLevel   *AuthLevel                            // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired). If nil, inherits from sub-router or defaults to NoAuth.
 	Timeout     time.Duration                         // Override timeout for this specific route
 	MaxBodySize int64                                 // Override max body size for this specific route
 	RateLimit   *middleware.RateLimitConfig[any, any] // Rate limit for this specific route
@@ -188,4 +189,10 @@ type Codec[T any, U any] interface {
 	// sets appropriate headers (e.g., Content-Type). If the serialization fails, it returns an error.
 	// The type U represents the response data type.
 	Encode(w http.ResponseWriter, resp U) error
+}
+
+// Ptr returns a pointer to the given AuthLevel value.
+// Useful for setting AuthLevel fields in configurations.
+func Ptr(level AuthLevel) *AuthLevel {
+	return &level
 }
