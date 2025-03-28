@@ -1289,3 +1289,150 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 		})
 	}
 }
+
+// TestNewGenericRouteDefinition tests the helper function for creating declarative generic route definitions.
+func TestNewGenericRouteDefinition(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Define types and handler
+	type DefReq struct{ Val string }
+	type DefResp struct{ Res string }
+	defHandler := func(r *http.Request, data DefReq) (DefResp, error) {
+		// Check if middleware was applied
+		if r.Header.Get("X-Sub-Mw") != "sub" || r.Header.Get("X-Route-Mw") != "route" {
+			return DefResp{}, errors.New("middleware not applied correctly")
+		}
+		return DefResp{Res: "Processed: " + data.Val}, nil
+	}
+	defCodec := codec.NewJSONCodec[DefReq, DefResp]()
+
+	// Define route config
+	routeCfg := RouteConfig[DefReq, DefResp]{
+		Path:    "/data",
+		Methods: []string{"POST"},
+		Codec:   defCodec,
+		Handler: defHandler,
+		Middlewares: []Middleware{
+			func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					r.Header.Set("X-Route-Mw", "route") // Use Header().Set for request modification
+					next.ServeHTTP(w, r)
+				})
+			},
+		},
+		Timeout: 500 * time.Millisecond, // Specific timeout
+	}
+
+	// Create the registration function using the helper
+	regFunc := NewGenericRouteDefinition[DefReq, DefResp, string, string](routeCfg)
+
+	// Define sub-router config with overrides and middleware
+	subRouterCfg := SubRouterConfig{
+		PathPrefix:      "/sub",
+		TimeoutOverride: 1 * time.Second, // Different from route timeout
+		Middlewares: []Middleware{
+			func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					r.Header.Set("X-Sub-Mw", "sub") // Use Header().Set for request modification
+					next.ServeHTTP(w, r)
+				})
+			},
+		},
+		Routes: []any{regFunc}, // Add the registration function here
+	}
+
+	// Create router with the sub-router
+	r := NewRouter[string, string](RouterConfig{
+		Logger:     logger,
+		SubRouters: []SubRouterConfig{subRouterCfg},
+	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	// Test the registered route
+	server := httptest.NewServer(r)
+	defer server.Close()
+
+	reqBody := `{"Val":"test-value"}`
+	req, _ := http.NewRequest("POST", server.URL+"/sub/data", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 2 * time.Second, // Client timeout > route timeout
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Check status
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		t.Fatalf("Expected status OK (200), got %d. Body: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Check response body
+	var respBody DefResp
+	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
+		t.Fatalf("Failed to decode response body: %v", err)
+	}
+	expectedResp := "Processed: test-value"
+	if respBody.Res != expectedResp {
+		t.Errorf("Expected response %q, got %q", expectedResp, respBody.Res)
+	}
+
+	// --- Test Timeout Override ---
+	// Define a slow handler
+	slowHandler := func(r *http.Request, data DefReq) (DefResp, error) {
+		time.Sleep(750 * time.Millisecond) // Longer than route timeout (500ms), shorter than sub-router (1s)
+		return DefResp{Res: "Slow"}, nil
+	}
+	slowRouteCfg := RouteConfig[DefReq, DefResp]{
+		Path:    "/slow",
+		Methods: []string{"POST"},
+		Codec:   defCodec,
+		Handler: slowHandler,
+		Timeout: 500 * time.Millisecond, // Route timeout
+	}
+	slowRegFunc := NewGenericRouteDefinition[DefReq, DefResp, string, string](slowRouteCfg)
+
+	// Create new router with this route
+	slowSubRouterCfg := SubRouterConfig{
+		PathPrefix:      "/sub-slow",
+		TimeoutOverride: 1 * time.Second, // Sub-router timeout
+		Routes:          []any{slowRegFunc},
+	}
+	slowRouter := NewRouter[string, string](RouterConfig{
+		Logger:     logger,
+		SubRouters: []SubRouterConfig{slowSubRouterCfg},
+	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	slowServer := httptest.NewServer(slowRouter)
+	defer slowServer.Close()
+
+	slowReq, _ := http.NewRequest("POST", slowServer.URL+"/sub-slow/slow", strings.NewReader(`{"Val":"slow"}`))
+	slowReq.Header.Set("Content-Type", "application/json")
+
+	slowResp, err := client.Do(slowReq) // Use client with timeout
+	if err != nil {
+		// Check if the error is a timeout error
+		if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "Timeout exceeded") {
+			t.Fatalf("Expected timeout error, but got: %v", err)
+		}
+		// If it's a timeout error, the test passes for this part.
+		// However, the server might still send a 504. Let's check the response if available.
+		if slowResp != nil {
+			defer slowResp.Body.Close()
+			if slowResp.StatusCode != http.StatusRequestTimeout { // Check for 504 Gateway Timeout
+				bodyBytes, _ := io.ReadAll(slowResp.Body)
+				t.Errorf("Expected status %d after timeout, got %d. Body: %s", http.StatusRequestTimeout, slowResp.StatusCode, string(bodyBytes))
+			}
+		}
+	} else {
+		// If no error, check the status code directly
+		defer slowResp.Body.Close()
+		if slowResp.StatusCode != http.StatusRequestTimeout {
+			bodyBytes, _ := io.ReadAll(slowResp.Body)
+			t.Errorf("Expected status %d due to route timeout, got %d. Body: %s", http.StatusRequestTimeout, slowResp.StatusCode, string(bodyBytes))
+		}
+	}
+}
