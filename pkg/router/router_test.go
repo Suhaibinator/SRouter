@@ -21,7 +21,10 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks"
+	"github.com/stretchr/testify/assert" // Using testify for assertions
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"          // Import zapcore
+	"go.uber.org/zap/zaptest/observer" // Import observer
 )
 
 // --- Test Data Struct ---
@@ -1434,5 +1437,56 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 			bodyBytes, _ := io.ReadAll(slowResp.Body)
 			t.Errorf("Expected status %d due to route timeout, got %d. Body: %s", http.StatusRequestTimeout, slowResp.StatusCode, string(bodyBytes))
 		}
+	}
+}
+
+// TestRegisterSubRouter_UnsupportedRouteType tests the default case in registerSubRouter's switch statement.
+func TestRegisterSubRouter_UnsupportedRouteType(t *testing.T) {
+	// Create an observer logger
+	observedZapCore, observedLogs := observer.New(zapcore.WarnLevel)
+	observedLogger := zap.New(observedZapCore)
+
+	// Define sub-router config with an invalid route type (int)
+	subRouterCfg := SubRouterConfig{
+		PathPrefix: "/invalid",
+		Routes:     []any{123}, // Add an integer, which is an unsupported type
+	}
+
+	// Create router config
+	routerConfig := RouterConfig{
+		Logger:     observedLogger,
+		SubRouters: []SubRouterConfig{subRouterCfg},
+	}
+
+	// Create the router (this will trigger registerSubRouter)
+	_ = NewRouter[string, string](routerConfig, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	// Assert that a warning was logged
+	assert.Equal(t, 1, observedLogs.Len(), "Expected exactly one log entry")
+	if observedLogs.Len() > 0 {
+		logEntry := observedLogs.AllUntimed()[0]
+		assert.Equal(t, zapcore.WarnLevel, logEntry.Level, "Expected log level to be Warn")
+		assert.Equal(t, "Unsupported type found in SubRouterConfig.Routes", logEntry.Message, "Expected specific warning message")
+
+		// Check context fields
+		expectedContext := map[string]interface{}{
+			"pathPrefix": "/invalid",
+			"type":       "int", // The type of the invalid item
+		}
+		// Convert zapcore.Field to map for easier comparison
+		actualContext := make(map[string]interface{})
+		for _, field := range logEntry.Context {
+			switch field.Type {
+			case zapcore.StringType:
+				actualContext[field.Key] = field.String
+			case zapcore.Int64Type: // Handle other types if necessary
+				actualContext[field.Key] = field.Integer
+			default:
+				actualContext[field.Key] = field.Interface // Use Interface for Any type
+			}
+		}
+
+		assert.Equal(t, expectedContext["pathPrefix"], actualContext["pathPrefix"], "Expected pathPrefix field to match")
+		assert.Equal(t, expectedContext["type"], actualContext["type"], "Expected type field to match")
 	}
 }
