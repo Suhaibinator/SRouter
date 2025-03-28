@@ -119,14 +119,14 @@ func main() {
 		SubRouters: []router.SubRouterConfig{
 			{
 				PathPrefix: "/auth-levels",
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:      "/no-auth",
 						Methods:   []string{"GET"},
 						AuthLevel: router.Ptr(router.NoAuth), // Changed
 						Handler:   noAuthHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:      "/optional-auth",
 						Methods:   []string{"GET"},
 						AuthLevel: router.Ptr(router.AuthOptional), // Changed
@@ -135,7 +135,7 @@ func main() {
 						},
 						Handler: optionalAuthHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:      "/required-auth",
 						Methods:   []string{"GET"},
 						AuthLevel: router.Ptr(router.AuthRequired), // Changed

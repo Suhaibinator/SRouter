@@ -115,6 +115,11 @@ type RouterConfig struct {
 	AddUserObjectToCtx bool                                  // Add user object to context
 }
 
+// GenericRouteRegistrationFunc defines the function signature for registering a generic route declaratively.
+// This function is stored in SubRouterConfig.Routes and called during router initialization.
+// It captures the specific generic types and calls the appropriate registration logic.
+type GenericRouteRegistrationFunc[T comparable, U any] func(r *Router[T, U], sr SubRouterConfig)
+
 // SubRouterConfig defines configuration for a group of routes with a common path prefix.
 // This allows for organizing routes into logical groups and applying shared configuration.
 type SubRouterConfig struct {
@@ -122,13 +127,12 @@ type SubRouterConfig struct {
 	TimeoutOverride     time.Duration                         // Override global timeout for all routes in this sub-router
 	MaxBodySizeOverride int64                                 // Override global max body size for all routes in this sub-router
 	RateLimitOverride   *middleware.RateLimitConfig[any, any] // Override global rate limit for all routes in this sub-router
-	Routes              []RouteConfigBase                     // Routes in this sub-router
+	Routes              []any                                 // Routes in this sub-router. Can contain RouteConfigBase or GenericRouteRegistrationFunc.
 	Middlewares         []common.Middleware                   // Middlewares applied to all routes in this sub-router
 	// SubRouters is a slice of nested sub-routers
 	// This allows for creating a hierarchy of sub-routers
 	SubRouters []SubRouterConfig // Nested sub-routers
 	AuthLevel  *AuthLevel        // Default authentication level for all routes in this sub-router (overridden by route-specific AuthLevel)
-	// Note: Generic routes are now registered imperatively using router.RegisterGenericRouteOnSubRouter
 }
 
 // RouteConfigBase defines the base configuration for a route without generics.

@@ -53,8 +53,8 @@ func main() {
 		SubRouters: []router.SubRouterConfig{
 			{
 				PathPrefix: "/public",
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:    "/resource",
 						Methods: []string{"GET"},
 						Handler: publicHandler,
@@ -63,8 +63,8 @@ func main() {
 			},
 			{
 				PathPrefix: "/bearer-auth",
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:        "/resource",
 						Methods:     []string{"GET"},
 						Middlewares: []router.Middleware{bearerTokenMiddleware},
@@ -74,8 +74,8 @@ func main() {
 			},
 			{
 				PathPrefix: "/api-key-auth",
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:        "/resource",
 						Methods:     []string{"GET"},
 						Middlewares: []router.Middleware{apiKeyMiddleware},
@@ -85,8 +85,8 @@ func main() {
 			},
 			{
 				PathPrefix: "/require-auth",
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:      "/resource",
 						Methods:   []string{"GET"},
 						AuthLevel: router.Ptr(router.AuthRequired), // Uses the default auth middleware

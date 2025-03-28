@@ -148,23 +148,23 @@ func main() {
 				Middlewares: []common.Middleware{
 					VersionMiddleware("1.0"),
 				},
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:    "/users",
 						Methods: []string{"GET"},
 						Handler: v1GetUsersHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/users/:id",
 						Methods: []string{"GET"},
 						Handler: v1GetUserHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/users",
 						Methods: []string{"POST"},
 						Handler: v1CreateUserHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/slow",
 						Methods: []string{"GET"},
 						Handler: slowHandler,
@@ -178,23 +178,23 @@ func main() {
 				Middlewares: []common.Middleware{
 					VersionMiddleware("2.0"),
 				},
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:    "/users",
 						Methods: []string{"GET"},
 						Handler: v2GetUsersHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/users/:id",
 						Methods: []string{"GET"},
 						Handler: v2GetUserHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/users",
 						Methods: []string{"POST"},
 						Handler: v2CreateUserHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/slow",
 						Methods: []string{"GET"},
 						Handler: slowHandler,
@@ -209,23 +209,23 @@ func main() {
 				Middlewares: []common.Middleware{
 					AdminAuthMiddleware(),
 				},
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:    "/dashboard",
 						Methods: []string{"GET"},
 						Handler: adminDashboardHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/users",
 						Methods: []string{"GET"},
 						Handler: adminUsersHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/settings",
 						Methods: []string{"GET"},
 						Handler: adminSettingsHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/large",
 						Methods: []string{"GET"},
 						Handler: largeResponseHandler,
@@ -235,18 +235,18 @@ func main() {
 			// Public sub-router
 			{
 				PathPrefix: "/",
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:    "/",
 						Methods: []string{"GET"},
 						Handler: homeHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/about",
 						Methods: []string{"GET"},
 						Handler: aboutHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/contact",
 						Methods: []string{"GET"},
 						Handler: contactHandler,

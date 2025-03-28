@@ -21,7 +21,10 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks"
+	"github.com/stretchr/testify/assert" // Using testify for assertions
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"          // Import zapcore
+	"go.uber.org/zap/zaptest/observer" // Import observer
 )
 
 // --- Test Data Struct ---
@@ -34,7 +37,7 @@ type TestData struct {
 // TestRouteMatching tests that routes are matched correctly
 func TestRouteMatching(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Routes: []RouteConfigBase{{Path: "/users/:id", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r := NewRouter(RouterConfig{Logger: logger, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Routes: []any{RouteConfigBase{Path: "/users/:id", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) { // Changed to []any{RouteConfigBase{...}}
 		id := GetParam(r, "id")
 		_, err := w.Write([]byte("User ID: " + id))
 		if err != nil {
@@ -64,8 +67,8 @@ func TestRouteMatching(t *testing.T) {
 // TestSubRouterOverrides tests that sub-router overrides work correctly
 func TestSubRouterOverrides(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 1 * time.Second, SubRouters: []SubRouterConfig{{PathPrefix: "/api", TimeoutOverride: 2 * time.Second, Routes: []RouteConfigBase{
-		{Path: "/slow", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 1 * time.Second, SubRouters: []SubRouterConfig{{PathPrefix: "/api", TimeoutOverride: 2 * time.Second, Routes: []any{ // Changed to []any{...}
+		RouteConfigBase{Path: "/slow", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(1500 * time.Millisecond)
 			_, err := w.Write([]byte("Slow response"))
 			if err != nil {
@@ -73,7 +76,7 @@ func TestSubRouterOverrides(t *testing.T) {
 				return
 			}
 		}},
-		{Path: "/fast", Methods: []string{"GET"}, Timeout: 500 * time.Millisecond, Handler: func(w http.ResponseWriter, r *http.Request) {
+		RouteConfigBase{Path: "/fast", Methods: []string{"GET"}, Timeout: 500 * time.Millisecond, Handler: func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(750 * time.Millisecond)
 			_, err := w.Write([]byte("Fast response"))
 			if err != nil {
@@ -105,8 +108,8 @@ func TestSubRouterOverrides(t *testing.T) {
 // TestBodySizeLimits tests that body size limits are enforced
 func TestBodySizeLimits(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger, GlobalMaxBodySize: 10, SubRouters: []SubRouterConfig{{PathPrefix: "/api", MaxBodySizeOverride: 20, Routes: []RouteConfigBase{
-		{Path: "/small", Methods: []string{"POST"}, MaxBodySize: 5, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r := NewRouter(RouterConfig{Logger: logger, GlobalMaxBodySize: 10, SubRouters: []SubRouterConfig{{PathPrefix: "/api", MaxBodySizeOverride: 20, Routes: []any{ // Changed to []any{...}
+		RouteConfigBase{Path: "/small", Methods: []string{"POST"}, MaxBodySize: 5, Handler: func(w http.ResponseWriter, r *http.Request) {
 			_, err := io.ReadAll(r.Body)
 			if err != nil {
 				// Check if the error is due to body size limit
@@ -123,7 +126,7 @@ func TestBodySizeLimits(t *testing.T) {
 				return
 			}
 		}},
-		{Path: "/medium", Methods: []string{"POST"}, Handler: func(w http.ResponseWriter, r *http.Request) {
+		RouteConfigBase{Path: "/medium", Methods: []string{"POST"}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			_, err := io.ReadAll(r.Body)
 			if err != nil {
 				// Check if the error is due to body size limit
@@ -258,7 +261,7 @@ func TestMiddlewareChaining(t *testing.T) {
 		Middlewares: []common.Middleware{
 			addHeaderMiddleware("SubRouter", "true"),
 		},
-		Routes: []RouteConfigBase{testRoute},
+		Routes: []any{testRoute}, // Changed to []any{...}
 	}
 
 	// Define global router configuration
@@ -1287,5 +1290,203 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestNewGenericRouteDefinition tests the helper function for creating declarative generic route definitions.
+func TestNewGenericRouteDefinition(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Define types and handler
+	type DefReq struct{ Val string }
+	type DefResp struct{ Res string }
+	defHandler := func(r *http.Request, data DefReq) (DefResp, error) {
+		// Check if middleware was applied
+		if r.Header.Get("X-Sub-Mw") != "sub" || r.Header.Get("X-Route-Mw") != "route" {
+			return DefResp{}, errors.New("middleware not applied correctly")
+		}
+		return DefResp{Res: "Processed: " + data.Val}, nil
+	}
+	defCodec := codec.NewJSONCodec[DefReq, DefResp]()
+
+	// Define route config
+	routeCfg := RouteConfig[DefReq, DefResp]{
+		Path:    "/data",
+		Methods: []string{"POST"},
+		Codec:   defCodec,
+		Handler: defHandler,
+		Middlewares: []Middleware{
+			func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					r.Header.Set("X-Route-Mw", "route") // Use Header().Set for request modification
+					next.ServeHTTP(w, r)
+				})
+			},
+		},
+		Timeout: 500 * time.Millisecond, // Specific timeout
+	}
+
+	// Create the registration function using the helper
+	regFunc := NewGenericRouteDefinition[DefReq, DefResp, string, string](routeCfg)
+
+	// Define sub-router config with overrides and middleware
+	subRouterCfg := SubRouterConfig{
+		PathPrefix:      "/sub",
+		TimeoutOverride: 1 * time.Second, // Different from route timeout
+		Middlewares: []Middleware{
+			func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					r.Header.Set("X-Sub-Mw", "sub") // Use Header().Set for request modification
+					next.ServeHTTP(w, r)
+				})
+			},
+		},
+		Routes: []any{regFunc}, // Add the registration function here
+	}
+
+	// Create router with the sub-router
+	r := NewRouter[string, string](RouterConfig{
+		Logger:     logger,
+		SubRouters: []SubRouterConfig{subRouterCfg},
+	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	// Test the registered route
+	server := httptest.NewServer(r)
+	defer server.Close()
+
+	reqBody := `{"Val":"test-value"}`
+	req, _ := http.NewRequest("POST", server.URL+"/sub/data", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 2 * time.Second, // Client timeout > route timeout
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Check status
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		t.Fatalf("Expected status OK (200), got %d. Body: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Check response body
+	var respBody DefResp
+	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
+		t.Fatalf("Failed to decode response body: %v", err)
+	}
+	expectedResp := "Processed: test-value"
+	if respBody.Res != expectedResp {
+		t.Errorf("Expected response %q, got %q", expectedResp, respBody.Res)
+	}
+
+	// --- Test Timeout Override ---
+	// Define a slow handler
+	slowHandler := func(r *http.Request, data DefReq) (DefResp, error) {
+		time.Sleep(750 * time.Millisecond) // Longer than route timeout (500ms), shorter than sub-router (1s)
+		return DefResp{Res: "Slow"}, nil
+	}
+	slowRouteCfg := RouteConfig[DefReq, DefResp]{
+		Path:    "/slow",
+		Methods: []string{"POST"},
+		Codec:   defCodec,
+		Handler: slowHandler,
+		Timeout: 500 * time.Millisecond, // Route timeout
+	}
+	slowRegFunc := NewGenericRouteDefinition[DefReq, DefResp, string, string](slowRouteCfg)
+
+	// Create new router with this route
+	slowSubRouterCfg := SubRouterConfig{
+		PathPrefix:      "/sub-slow",
+		TimeoutOverride: 1 * time.Second, // Sub-router timeout
+		Routes:          []any{slowRegFunc},
+	}
+	slowRouter := NewRouter[string, string](RouterConfig{
+		Logger:     logger,
+		SubRouters: []SubRouterConfig{slowSubRouterCfg},
+	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	slowServer := httptest.NewServer(slowRouter)
+	defer slowServer.Close()
+
+	slowReq, _ := http.NewRequest("POST", slowServer.URL+"/sub-slow/slow", strings.NewReader(`{"Val":"slow"}`))
+	slowReq.Header.Set("Content-Type", "application/json")
+
+	slowResp, err := client.Do(slowReq) // Use client with timeout
+	if err != nil {
+		// Check if the error is a timeout error
+		if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "Timeout exceeded") {
+			t.Fatalf("Expected timeout error, but got: %v", err)
+		}
+		// If it's a timeout error, the test passes for this part.
+		// However, the server might still send a 504. Let's check the response if available.
+		if slowResp != nil {
+			defer slowResp.Body.Close()
+			if slowResp.StatusCode != http.StatusRequestTimeout { // Check for 504 Gateway Timeout
+				bodyBytes, _ := io.ReadAll(slowResp.Body)
+				t.Errorf("Expected status %d after timeout, got %d. Body: %s", http.StatusRequestTimeout, slowResp.StatusCode, string(bodyBytes))
+			}
+		}
+	} else {
+		// If no error, check the status code directly
+		defer slowResp.Body.Close()
+		if slowResp.StatusCode != http.StatusRequestTimeout {
+			bodyBytes, _ := io.ReadAll(slowResp.Body)
+			t.Errorf("Expected status %d due to route timeout, got %d. Body: %s", http.StatusRequestTimeout, slowResp.StatusCode, string(bodyBytes))
+		}
+	}
+}
+
+// TestRegisterSubRouter_UnsupportedRouteType tests the default case in registerSubRouter's switch statement.
+func TestRegisterSubRouter_UnsupportedRouteType(t *testing.T) {
+	// Create an observer logger
+	observedZapCore, observedLogs := observer.New(zapcore.WarnLevel)
+	observedLogger := zap.New(observedZapCore)
+
+	// Define sub-router config with an invalid route type (int)
+	subRouterCfg := SubRouterConfig{
+		PathPrefix: "/invalid",
+		Routes:     []any{123}, // Add an integer, which is an unsupported type
+	}
+
+	// Create router config
+	routerConfig := RouterConfig{
+		Logger:     observedLogger,
+		SubRouters: []SubRouterConfig{subRouterCfg},
+	}
+
+	// Create the router (this will trigger registerSubRouter)
+	_ = NewRouter[string, string](routerConfig, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	// Assert that a warning was logged
+	assert.Equal(t, 1, observedLogs.Len(), "Expected exactly one log entry")
+	if observedLogs.Len() > 0 {
+		logEntry := observedLogs.AllUntimed()[0]
+		assert.Equal(t, zapcore.WarnLevel, logEntry.Level, "Expected log level to be Warn")
+		assert.Equal(t, "Unsupported type found in SubRouterConfig.Routes", logEntry.Message, "Expected specific warning message")
+
+		// Check context fields
+		expectedContext := map[string]interface{}{
+			"pathPrefix": "/invalid",
+			"type":       "int", // The type of the invalid item
+		}
+		// Convert zapcore.Field to map for easier comparison
+		actualContext := make(map[string]interface{})
+		for _, field := range logEntry.Context {
+			switch field.Type {
+			case zapcore.StringType:
+				actualContext[field.Key] = field.String
+			case zapcore.Int64Type: // Handle other types if necessary
+				actualContext[field.Key] = field.Integer
+			default:
+				actualContext[field.Key] = field.Interface // Use Interface for Any type
+			}
+		}
+
+		assert.Equal(t, expectedContext["pathPrefix"], actualContext["pathPrefix"], "Expected pathPrefix field to match")
+		assert.Equal(t, expectedContext["type"], actualContext["type"], "Expected type field to match")
 	}
 }

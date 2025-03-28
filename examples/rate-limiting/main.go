@@ -166,8 +166,8 @@ func main() {
 	// Create auth subrouter
 	authSubrouter := router.SubRouterConfig{
 		PathPrefix: "/auth",
-		Routes: []router.RouteConfigBase{
-			{
+		Routes: []any{ // Changed to []any
+			router.RouteConfigBase{
 				Path:    "/login",
 				Methods: []string{"POST"},
 				// Strict rate limit for auth endpoints (shared bucket)
@@ -186,8 +186,8 @@ func main() {
 	// Create API subrouter
 	apiSubrouter := router.SubRouterConfig{
 		PathPrefix: "/api",
-		Routes: []router.RouteConfigBase{
-			{
+		Routes: []any{ // Changed to []any
+			router.RouteConfigBase{
 				Path:    "/profile",
 				Methods: []string{"GET"},
 				// User-based rate limiting
@@ -202,7 +202,7 @@ func main() {
 				},
 				Handler: userProfileHandler,
 			},
-			{
+			router.RouteConfigBase{ // Add explicit type
 				Path:    "/public",
 				Methods: []string{"GET"},
 				// IP-based rate limiting

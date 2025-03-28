@@ -127,8 +127,8 @@ func main() {
 		SubRouters: []router.SubRouterConfig{
 			{
 				PathPrefix: "/public",
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:      "/resource",
 						Methods:   []string{"GET"},
 						AuthLevel: router.Ptr(router.NoAuth), // Changed
@@ -138,8 +138,8 @@ func main() {
 			},
 			{
 				PathPrefix: "/boolean-auth",
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:      "/resource",
 						Methods:   []string{"GET"},
 						AuthLevel: router.Ptr(router.AuthRequired), // Changed
@@ -161,8 +161,8 @@ func main() {
 			},
 			{
 				PathPrefix: "/user-auth",
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:      "/custom",
 						Methods:   []string{"GET"},
 						AuthLevel: router.Ptr(router.AuthRequired), // Changed
@@ -171,7 +171,7 @@ func main() {
 						},
 						Handler: protectedUserHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:      "/bearer",
 						Methods:   []string{"GET"},
 						AuthLevel: router.Ptr(router.AuthRequired), // Changed

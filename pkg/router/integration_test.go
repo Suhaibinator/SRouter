@@ -30,8 +30,8 @@ func TestSubRouterIntegration(t *testing.T) {
 				PathPrefix:          "/api/v1",
 				TimeoutOverride:     2 * time.Second,
 				MaxBodySizeOverride: 2048, // 2 KB
-				Routes: []RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					RouteConfigBase{
 						Path:    "/users",
 						Methods: []string{"GET"},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -43,8 +43,8 @@ func TestSubRouterIntegration(t *testing.T) {
 			},
 			{
 				PathPrefix: "/api/v2",
-				Routes: []RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					RouteConfigBase{
 						Path:    "/users",
 						Methods: []string{"GET"},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -109,8 +109,8 @@ func TestPathParameters(t *testing.T) {
 		SubRouters: []SubRouterConfig{
 			{
 				PathPrefix: "/api",
-				Routes: []RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					RouteConfigBase{
 						Path:    "/users/:id",
 						Methods: []string{"GET"},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +119,7 @@ func TestPathParameters(t *testing.T) {
 							_, _ = w.Write([]byte(`{"id":"` + id + `"}`))
 						},
 					},
-					{
+					RouteConfigBase{ // Add explicit type
 						Path:    "/posts/:postId/comments/:commentId",
 						Methods: []string{"GET"},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -188,8 +188,8 @@ func TestTimeoutOverrides(t *testing.T) {
 			{
 				PathPrefix:      "/api/v1",
 				TimeoutOverride: 50 * time.Millisecond,
-				Routes: []RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					RouteConfigBase{
 						Path:    "/fast",
 						Methods: []string{"GET"},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +197,7 @@ func TestTimeoutOverrides(t *testing.T) {
 							w.WriteHeader(http.StatusOK)
 						},
 					},
-					{
+					RouteConfigBase{ // Add explicit type
 						Path:    "/slow",
 						Methods: []string{"GET"},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -206,7 +206,7 @@ func TestTimeoutOverrides(t *testing.T) {
 							w.WriteHeader(http.StatusOK)
 						},
 					},
-					{
+					RouteConfigBase{ // Add explicit type
 						Path:    "/custom-timeout",
 						Methods: []string{"GET"},
 						Timeout: 300 * time.Millisecond,
@@ -273,8 +273,8 @@ func TestMaxBodySizeOverrides(t *testing.T) {
 			{
 				PathPrefix:          "/api/v1",
 				MaxBodySizeOverride: 20, // 20 bytes
-				Routes: []RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					RouteConfigBase{
 						Path:    "/small",
 						Methods: []string{"POST"},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -287,7 +287,7 @@ func TestMaxBodySizeOverrides(t *testing.T) {
 							w.WriteHeader(http.StatusOK)
 						},
 					},
-					{
+					RouteConfigBase{ // Add explicit type
 						Path:        "/large",
 						Methods:     []string{"POST"},
 						MaxBodySize: 100, // 100 bytes
@@ -439,8 +439,8 @@ func TestMiddlewareIntegration(t *testing.T) {
 						})
 					},
 				},
-				Routes: []RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					RouteConfigBase{
 						Path:    "/test",
 						Methods: []string{"GET"},
 						Middlewares: []Middleware{

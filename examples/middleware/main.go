@@ -163,13 +163,13 @@ func main() {
 				Middlewares: []common.Middleware{
 					TimingMiddleware(), // Measure request time
 				},
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:    "/hello",
 						Methods: []string{"GET"},
 						Handler: SimpleHandler,
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/slow",
 						Methods: []string{"GET"},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -186,8 +186,8 @@ func main() {
 				Middlewares: []common.Middleware{
 					RateLimitMiddleware(2), // Limit to 2 requests per second
 				},
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:    "/resource",
 						Methods: []string{"GET"},
 						Handler: SimpleHandler,

@@ -125,29 +125,53 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 	return r
 }
 
-// registerSubRouter registers all routes in a sub-router.
-// It applies the sub-router's path prefix to all routes and registers them with the router.
+// registerSubRouter registers all routes and nested sub-routers defined in a SubRouterConfig.
+// It applies the sub-router's path prefix, overrides, and middlewares.
 func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
-	// Register regular routes
-	for _, route := range sr.Routes {
-		// Create a full path by combining the sub-router prefix with the route path
-		fullPath := sr.PathPrefix + route.Path
+	// Register routes defined in this sub-router
+	for _, routeDefinition := range sr.Routes {
+		switch route := routeDefinition.(type) {
+		case RouteConfigBase:
+			// Handle standard RouteConfigBase
+			fullPath := sr.PathPrefix + route.Path
 
-		// Get effective timeout, max body size, and rate limit for this route
-		timeout := r.getEffectiveTimeout(route.Timeout, sr.TimeoutOverride)
-		maxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, sr.MaxBodySizeOverride)
-		rateLimit := r.getEffectiveRateLimit(route.RateLimit, sr.RateLimitOverride)
+			// Get effective settings considering overrides
+			timeout := r.getEffectiveTimeout(route.Timeout, sr.TimeoutOverride)
+			maxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, sr.MaxBodySizeOverride)
+			rateLimit := r.getEffectiveRateLimit(route.RateLimit, sr.RateLimitOverride)
+			authLevel := route.AuthLevel // Use route-specific first
+			if authLevel == nil {
+				authLevel = sr.AuthLevel // Fallback to sub-router default
+			}
 
-		// Create a handler with all middlewares applied
-		handler := r.wrapHandler(route.Handler, route.AuthLevel, timeout, maxBodySize, rateLimit, append(sr.Middlewares, route.Middlewares...))
+			// Combine middlewares: sub-router + route-specific
+			allMiddlewares := make([]common.Middleware, 0, len(sr.Middlewares)+len(route.Middlewares))
+			allMiddlewares = append(allMiddlewares, sr.Middlewares...)
+			allMiddlewares = append(allMiddlewares, route.Middlewares...)
 
-		// Register the route with httprouter
-		for _, method := range route.Methods {
-			r.router.Handle(method, fullPath, r.convertToHTTPRouterHandle(handler))
+			// Create a handler with all middlewares applied (global middlewares are added inside wrapHandler)
+			handler := r.wrapHandler(route.Handler, authLevel, timeout, maxBodySize, rateLimit, allMiddlewares)
+
+			// Register the route with httprouter
+			for _, method := range route.Methods {
+				r.router.Handle(method, fullPath, r.convertToHTTPRouterHandle(handler))
+			}
+
+		case GenericRouteRegistrationFunc[T, U]:
+			// Handle generic route registration function
+			// The function itself will handle calculating effective settings and calling RegisterGenericRoute
+			route(r, sr) // Call the registration function
+
+		default:
+			// Log or handle unexpected type in Routes slice
+			r.logger.Warn("Unsupported type found in SubRouterConfig.Routes",
+				zap.String("pathPrefix", sr.PathPrefix),
+				zap.Any("type", fmt.Sprintf("%T", routeDefinition)),
+			)
 		}
 	}
 
-	// Register nested sub-routers if any
+	// Register nested sub-routers recursively
 	for _, nestedSR := range sr.SubRouters {
 		// Create a new sub-router with the combined path prefix
 		nestedSRWithPrefix := nestedSR
