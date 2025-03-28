@@ -550,8 +550,8 @@ func main() {
 		SubRouters: []router.SubRouterConfig{
 			{
 				PathPrefix: "/api",
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:    "/hello",
 						Methods: []string{"GET"},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -559,7 +559,7 @@ func main() {
 							w.Write([]byte(`{"message":"Hello, World!"}`))
 						},
 					},
-					{
+					router.RouteConfigBase{ // Add explicit type
 						Path:    "/error",
 						Methods: []string{"GET"},
 						Handler: func(w http.ResponseWriter, r *http.Request) {

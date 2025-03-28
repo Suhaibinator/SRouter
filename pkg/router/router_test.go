@@ -34,7 +34,7 @@ type TestData struct {
 // TestRouteMatching tests that routes are matched correctly
 func TestRouteMatching(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Routes: []RouteConfigBase{{Path: "/users/:id", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r := NewRouter(RouterConfig{Logger: logger, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Routes: []any{RouteConfigBase{Path: "/users/:id", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) { // Changed to []any{RouteConfigBase{...}}
 		id := GetParam(r, "id")
 		_, err := w.Write([]byte("User ID: " + id))
 		if err != nil {
@@ -64,8 +64,8 @@ func TestRouteMatching(t *testing.T) {
 // TestSubRouterOverrides tests that sub-router overrides work correctly
 func TestSubRouterOverrides(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 1 * time.Second, SubRouters: []SubRouterConfig{{PathPrefix: "/api", TimeoutOverride: 2 * time.Second, Routes: []RouteConfigBase{
-		{Path: "/slow", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 1 * time.Second, SubRouters: []SubRouterConfig{{PathPrefix: "/api", TimeoutOverride: 2 * time.Second, Routes: []any{ // Changed to []any{...}
+		RouteConfigBase{Path: "/slow", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(1500 * time.Millisecond)
 			_, err := w.Write([]byte("Slow response"))
 			if err != nil {
@@ -73,7 +73,7 @@ func TestSubRouterOverrides(t *testing.T) {
 				return
 			}
 		}},
-		{Path: "/fast", Methods: []string{"GET"}, Timeout: 500 * time.Millisecond, Handler: func(w http.ResponseWriter, r *http.Request) {
+		RouteConfigBase{Path: "/fast", Methods: []string{"GET"}, Timeout: 500 * time.Millisecond, Handler: func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(750 * time.Millisecond)
 			_, err := w.Write([]byte("Fast response"))
 			if err != nil {
@@ -105,8 +105,8 @@ func TestSubRouterOverrides(t *testing.T) {
 // TestBodySizeLimits tests that body size limits are enforced
 func TestBodySizeLimits(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger, GlobalMaxBodySize: 10, SubRouters: []SubRouterConfig{{PathPrefix: "/api", MaxBodySizeOverride: 20, Routes: []RouteConfigBase{
-		{Path: "/small", Methods: []string{"POST"}, MaxBodySize: 5, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r := NewRouter(RouterConfig{Logger: logger, GlobalMaxBodySize: 10, SubRouters: []SubRouterConfig{{PathPrefix: "/api", MaxBodySizeOverride: 20, Routes: []any{ // Changed to []any{...}
+		RouteConfigBase{Path: "/small", Methods: []string{"POST"}, MaxBodySize: 5, Handler: func(w http.ResponseWriter, r *http.Request) {
 			_, err := io.ReadAll(r.Body)
 			if err != nil {
 				// Check if the error is due to body size limit
@@ -123,7 +123,7 @@ func TestBodySizeLimits(t *testing.T) {
 				return
 			}
 		}},
-		{Path: "/medium", Methods: []string{"POST"}, Handler: func(w http.ResponseWriter, r *http.Request) {
+		RouteConfigBase{Path: "/medium", Methods: []string{"POST"}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			_, err := io.ReadAll(r.Body)
 			if err != nil {
 				// Check if the error is due to body size limit
@@ -258,7 +258,7 @@ func TestMiddlewareChaining(t *testing.T) {
 		Middlewares: []common.Middleware{
 			addHeaderMiddleware("SubRouter", "true"),
 		},
-		Routes: []RouteConfigBase{testRoute},
+		Routes: []any{testRoute}, // Changed to []any{...}
 	}
 
 	// Define global router configuration

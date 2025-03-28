@@ -77,26 +77,62 @@ func main() {
 		return user
 	}
 
-	// Create a sub-router for API v1
+	// Create JSON codecs for our generic routes (must be done before defining SubRouterConfig)
+	greetingCodec := codec.NewJSONCodec[GreetingRequest, GreetingResponse]()
+	userCodec := codec.NewJSONCodec[UserRequest, UserResponse]()
+
+	// Create a sub-router for API v1 with declarative generic route
 	apiV1SubRouter := router.SubRouterConfig{
 		PathPrefix: "/api/v1",
-		Routes: []router.RouteConfigBase{
-			{
+		Routes: []any{ // Use []any
+			// Standard route
+			router.RouteConfigBase{
 				Path:      "/hello",
 				Methods:   []string{"GET"},
-				AuthLevel: router.Ptr(router.NoAuth), // Changed
+				AuthLevel: router.Ptr(router.NoAuth),
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(`{"message":"Hello from API v1!"}`))
 				},
 			},
+			// Declarative generic route using the helper
+			router.NewGenericRouteDefinition[GreetingRequest, GreetingResponse, string, string](
+				router.RouteConfig[GreetingRequest, GreetingResponse]{
+					Path:      "/greet", // Path relative to the sub-router prefix
+					Methods:   []string{"POST"},
+					AuthLevel: router.Ptr(router.NoAuth),
+					Codec:     greetingCodec,
+					Handler:   greetingHandler,
+				},
+			),
 		},
 	}
 
-	// Create a sub-router for API v2 (no generic routes defined here anymore)
+	// Create a sub-router for API v2 with declarative generic routes
 	apiV2SubRouter := router.SubRouterConfig{
 		PathPrefix: "/api/v2",
-		// Routes can still be defined here if needed
+		Routes: []any{ // Use []any
+			// Declarative generic route for users
+			router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
+				router.RouteConfig[UserRequest, UserResponse]{
+					Path:      "/users",
+					Methods:   []string{"POST"},
+					AuthLevel: router.Ptr(router.NoAuth),
+					Codec:     userCodec,
+					Handler:   userHandler,
+				},
+			),
+			// Declarative generic route for greeting
+			router.NewGenericRouteDefinition[GreetingRequest, GreetingResponse, string, string](
+				router.RouteConfig[GreetingRequest, GreetingResponse]{
+					Path:      "/greet",
+					Methods:   []string{"POST"},
+					AuthLevel: router.Ptr(router.NoAuth),
+					Codec:     greetingCodec,
+					Handler:   greetingHandler,
+				},
+			),
+		},
 	}
 
 	// Create a router with string as both the user ID and user type
@@ -107,58 +143,7 @@ func main() {
 		SubRouters:    []router.SubRouterConfig{apiV1SubRouter, apiV2SubRouter}, // Register sub-routers
 	}, authFunction, userIdFromUserFunction)
 
-	// Create JSON codecs for our generic routes
-	greetingCodec := codec.NewJSONCodec[GreetingRequest, GreetingResponse]()
-	userCodec := codec.NewJSONCodec[UserRequest, UserResponse]()
-
-	// --- Imperatively register generic routes AFTER router creation ---
-
-	// Register generic route for API v1
-	errV1 := router.RegisterGenericRouteOnSubRouter[GreetingRequest, GreetingResponse, string, string](
-		r,         // The router instance
-		"/api/v1", // The prefix of the target sub-router
-		router.RouteConfig[GreetingRequest, GreetingResponse]{
-			Path:      "/greet", // Path relative to the sub-router prefix
-			Methods:   []string{"POST"},
-			AuthLevel: router.Ptr(router.NoAuth), // Changed
-			Codec:     greetingCodec,
-			Handler:   greetingHandler,
-		},
-	)
-	if errV1 != nil {
-		log.Fatalf("Failed to register generic route on /api/v1: %v", errV1)
-	}
-
-	// Register generic routes for API v2
-	errV2User := router.RegisterGenericRouteOnSubRouter[UserRequest, UserResponse, string, string](
-		r,
-		"/api/v2",
-		router.RouteConfig[UserRequest, UserResponse]{
-			Path:      "/users",
-			Methods:   []string{"POST"},
-			AuthLevel: router.Ptr(router.NoAuth), // Changed
-			Codec:     userCodec,
-			Handler:   userHandler,
-		},
-	)
-	if errV2User != nil {
-		log.Fatalf("Failed to register generic user route on /api/v2: %v", errV2User)
-	}
-
-	errV2Greet := router.RegisterGenericRouteOnSubRouter[GreetingRequest, GreetingResponse, string, string](
-		r,
-		"/api/v2",
-		router.RouteConfig[GreetingRequest, GreetingResponse]{
-			Path:      "/greet",
-			Methods:   []string{"POST"},
-			AuthLevel: router.Ptr(router.NoAuth), // Changed
-			Codec:     greetingCodec,
-			Handler:   greetingHandler,
-		},
-	)
-	if errV2Greet != nil {
-		log.Fatalf("Failed to register generic greet route on /api/v2: %v", errV2Greet)
-	}
+	// --- Imperative registration is no longer needed ---
 
 	// Start the server
 	fmt.Println("SubRouter Generic Routes Example Server listening on :8080")

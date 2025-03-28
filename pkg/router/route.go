@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
-	"github.com/Suhaibinator/SRouter/pkg/middleware" // <-- Add middleware import
+	"github.com/Suhaibinator/SRouter/pkg/middleware"
 )
 
 // RegisterRoute registers a route with the router.
@@ -223,5 +223,42 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 	// Register the route with httprouter
 	for _, method := range route.Methods {
 		r.router.Handle(method, route.Path, r.convertToHTTPRouterHandle(wrappedHandler))
+	}
+}
+
+// NewGenericRouteDefinition creates a GenericRouteRegistrationFunc for declarative configuration.
+// It captures the specific RouteConfig[Req, Resp] and returns a function that, when called
+// by registerSubRouter, calculates effective settings and registers the generic route.
+func NewGenericRouteDefinition[Req any, Resp any, UserID comparable, User any](
+	route RouteConfig[Req, Resp],
+) GenericRouteRegistrationFunc[UserID, User] {
+	return func(r *Router[UserID, User], sr SubRouterConfig) {
+		// Create a new route config instance to avoid modifying the original
+		finalRouteConfig := route
+
+		// Prefix the path
+		finalRouteConfig.Path = sr.PathPrefix + route.Path
+
+		// Combine middleware: sub-router + route-specific
+		// Note: Global middlewares are added later by wrapHandler
+		allMiddlewares := make([]Middleware, 0, len(sr.Middlewares)+len(route.Middlewares)) // Use Middleware alias
+		allMiddlewares = append(allMiddlewares, sr.Middlewares...)
+		allMiddlewares = append(allMiddlewares, route.Middlewares...)
+		finalRouteConfig.Middlewares = allMiddlewares // Overwrite middlewares in the config passed down
+
+		// Determine effective AuthLevel
+		authLevel := route.AuthLevel // Use route-specific first
+		if authLevel == nil {
+			authLevel = sr.AuthLevel // Fallback to sub-router default
+		}
+		finalRouteConfig.AuthLevel = authLevel // Set the effective auth level
+
+		// Get effective timeout, max body size, rate limit considering overrides
+		effectiveTimeout := r.getEffectiveTimeout(route.Timeout, sr.TimeoutOverride)
+		effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, sr.MaxBodySizeOverride)
+		effectiveRateLimit := r.getEffectiveRateLimit(route.RateLimit, sr.RateLimitOverride) // This returns *RateLimitConfig[UserID, User]
+
+		// Call the underlying generic registration function with the modified config and effective settings
+		RegisterGenericRoute[Req, Resp, UserID, User](r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
 	}
 }

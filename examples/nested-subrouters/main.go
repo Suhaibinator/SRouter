@@ -114,8 +114,8 @@ func main() {
 	// Create a users sub-router under v1
 	usersV1SubRouter := router.SubRouterConfig{
 		PathPrefix: "/users", // Relative to parent (/api/v1)
-		Routes: []router.RouteConfigBase{
-			{
+		Routes: []any{
+			router.RouteConfigBase{ // This type was already added, just confirming context
 				Path:      "", // Becomes /api/v1/users
 				Methods:   []string{"GET"},
 				AuthLevel: router.Ptr(router.NoAuth), // Changed
@@ -131,8 +131,8 @@ func main() {
 	// Create a v1 sub-router
 	apiV1SubRouter := router.SubRouterConfig{
 		PathPrefix: "/v1", // Relative to parent (/api)
-		Routes: []router.RouteConfigBase{
-			{
+		Routes: []any{
+			router.RouteConfigBase{ // Add explicit type
 				Path:      "/hello", // Becomes /api/v1/hello
 				Methods:   []string{"GET"},
 				AuthLevel: router.Ptr(router.NoAuth), // Changed
@@ -161,8 +161,8 @@ func main() {
 	// Create a v2 sub-router
 	apiV2SubRouter := router.SubRouterConfig{
 		PathPrefix: "/v2", // Relative to parent (/api)
-		Routes: []router.RouteConfigBase{
-			{
+		Routes: []any{ // Changed to []any
+			router.RouteConfigBase{ // Add explicit type
 				Path:      "/hello", // Becomes /api/v2/hello
 				Methods:   []string{"GET"},
 				AuthLevel: router.Ptr(router.NoAuth), // Changed
@@ -178,8 +178,8 @@ func main() {
 	// Create a main API sub-router
 	apiSubRouter := router.SubRouterConfig{
 		PathPrefix: "/api", // Root prefix
-		Routes: []router.RouteConfigBase{
-			{
+		Routes: []any{ // Changed to []any
+			router.RouteConfigBase{ // Add explicit type
 				Path:      "/status", // Becomes /api/status
 				Methods:   []string{"GET"},
 				AuthLevel: router.Ptr(router.NoAuth), // Changed

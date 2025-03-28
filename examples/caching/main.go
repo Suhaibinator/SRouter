@@ -105,8 +105,8 @@ func main() {
 					PathPrefix: "/api/v1",
 					// CacheResponse:  true, // Removed
 					// CacheKeyPrefix: "api-v1", // Removed
-					Routes: []router.RouteConfigBase{
-						{
+					Routes: []any{ // Changed to []any
+						router.RouteConfigBase{
 							Path:    "/users/:id",
 							Methods: []string{"GET"},
 							Handler: func(w http.ResponseWriter, req *http.Request) {

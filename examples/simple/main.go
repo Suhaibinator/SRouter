@@ -62,8 +62,8 @@ func main() {
 				PathPrefix:          "/api",
 				TimeoutOverride:     3 * time.Second,
 				MaxBodySizeOverride: 2 << 20, // 2 MB
-				Routes: []router.RouteConfigBase{
-					{
+				Routes: []any{ // Changed to []any
+					router.RouteConfigBase{
 						Path:      "/health",
 						Methods:   []string{"GET"},
 						AuthLevel: router.Ptr(router.NoAuth), // Changed
