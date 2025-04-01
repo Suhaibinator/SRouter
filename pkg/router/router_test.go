@@ -1168,14 +1168,14 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			method:         "GET",
 			path:           fmt.Sprintf("/err/unmarshal-path/%s", invalidJSONBase64),
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "Failed to unmarshal decoded path parameter data",
+			expectedBody:   "Failed to decode path parameter data",
 		},
 		{
 			name:           "Unmarshal Query Param Error",
 			method:         "GET",
 			path:           fmt.Sprintf("/err/unmarshal-query?qdata=%s", invalidJSONBase64),
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "Failed to unmarshal decoded query parameter data",
+			expectedBody:   "Failed to decode query parameter data",
 		},
 		{
 			name:           "Missing Query Param Error",

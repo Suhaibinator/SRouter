@@ -21,18 +21,26 @@ func (m *TestProtoMessage) String() string                     { return string(m
 func (m *TestProtoMessage) ProtoMessage()                      {}
 func (m *TestProtoMessage) ProtoReflect() protoreflect.Message { return nil }
 
+// testProtoFactory creates a new TestProtoMessage instance.
+func testProtoFactory() *TestProtoMessage {
+	return &TestProtoMessage{}
+}
+
 // TestNewProtoCodec tests the NewProtoCodec function
 func TestNewProtoCodec(t *testing.T) {
-	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage]()
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
 	if codec == nil {
 		t.Error("Expected non-nil codec")
+	}
+	if codec == nil || codec.newRequest == nil {
+		t.Error("Expected codec.newRequest to be set")
 	}
 }
 
 // TestProtoCodecDecode tests the Decode method of ProtoCodec
 func TestProtoCodecDecode(t *testing.T) {
 	// Create a codec
-	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage]()
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
 
 	// Create a request with test data
 	reqBody := []byte("test data")
@@ -73,7 +81,7 @@ func TestProtoCodecDecode(t *testing.T) {
 // TestProtoCodecEncode tests the Encode method of ProtoCodec
 func TestProtoCodecEncode(t *testing.T) {
 	// Create a codec
-	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage]()
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
 
 	// Create a mock implementation of proto.Marshal
 	originalMarshal := protoMarshal
@@ -114,10 +122,62 @@ func TestProtoCodecEncode(t *testing.T) {
 	}
 }
 
+// TestProtoCodecDecodeBytes tests the DecodeBytes method of ProtoCodec
+func TestProtoCodecDecodeBytes(t *testing.T) {
+	// Create a codec
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
+
+	// Test data (simulating decoded bytes from Base64/Base62)
+	testBytes := []byte("test byte data")
+
+	// Create a mock implementation of proto.Unmarshal
+	originalUnmarshal := protoUnmarshal
+	defer func() { protoUnmarshal = originalUnmarshal }()
+
+	unmarshalCalled := false
+	protoUnmarshal = func(b []byte, m proto.Message) error {
+		unmarshalCalled = true
+		if msg, ok := m.(*TestProtoMessage); ok {
+			// Ensure the correct bytes are passed to unmarshal
+			if !bytes.Equal(b, testBytes) {
+				t.Errorf("Unmarshal received bytes %q, want %q", string(b), string(testBytes))
+			}
+			msg.Data = b // Simulate unmarshaling by copying bytes
+			return nil
+		}
+		return errors.New("not a TestProtoMessage")
+	}
+
+	// Decode the bytes
+	decoded, err := codec.DecodeBytes(testBytes)
+	if err != nil {
+		t.Fatalf("DecodeBytes() returned error: %v", err)
+	}
+
+	// Verify Unmarshal was called
+	if !unmarshalCalled {
+		t.Error("Expected Unmarshal to be called")
+	}
+
+	// Verify the decoded data
+	if string(decoded.Data) != string(testBytes) {
+		t.Errorf("DecodeBytes() got Data = %q, want %q", string(decoded.Data), string(testBytes))
+	}
+
+	// Test error case
+	protoUnmarshal = func([]byte, proto.Message) error {
+		return errors.New("mock unmarshal error")
+	}
+	_, err = codec.DecodeBytes(testBytes)
+	if err == nil {
+		t.Error("Expected error when unmarshaling fails in DecodeBytes")
+	}
+}
+
 // TestProtoCodecDecodeErrors tests error handling in the Decode method of ProtoCodec
 func TestProtoCodecDecodeErrors(t *testing.T) {
 	// Create a codec
-	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage]()
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
 
 	// Test Decode with read error
 	req := httptest.NewRequest("POST", "/test", &errorReader{})
@@ -149,7 +209,7 @@ func TestProtoCodecDecodeErrors(t *testing.T) {
 // TestProtoCodecEncodeErrors tests error handling in the Encode method of ProtoCodec
 func TestProtoCodecEncodeErrors(t *testing.T) {
 	// Create a codec
-	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage]()
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
 
 	// Test Encode with marshal error
 	rr := httptest.NewRecorder()
@@ -182,13 +242,4 @@ func TestProtoCodecEncodeErrors(t *testing.T) {
 	}
 }
 
-// TestNewMessage tests the newMessage helper function
-func TestNewMessage(t *testing.T) {
-	// Test creating a new instance
-	msg := newMessage[*TestProtoMessage]()
-
-	// Verify the instance is properly initialized
-	if msg == nil {
-		t.Error("Expected non-nil message")
-	}
-}
+// TestNewMessage is removed as the newMessage function no longer exists.

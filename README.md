@@ -1293,10 +1293,14 @@ codec.NewJSONCodec[T, U]() *codec.JSONCodec[T, U]
 
 ### ProtoCodec
 
-Uses Protocol Buffers for marshaling and unmarshaling:
+Uses Protocol Buffers for marshaling and unmarshaling. Requires a factory function to create new request message instances without reflection.
 
 ```go
-codec.NewProtoCodec[T, U]() *codec.ProtoCodec[T, U]
+// Define a factory function for your specific proto message type (e.g., *MyProto)
+myProtoFactory := func() *MyProto { return &MyProto{} }
+
+// Pass the factory to the constructor
+codec.NewProtoCodec[T, U](myProtoFactory) *codec.ProtoCodec[T, U]
 ```
 
 ### Codec Interface
@@ -1305,8 +1309,18 @@ You can create your own codecs by implementing the `Codec` interface (defined in
 
 ```go
 type Codec[T any, U any] interface {
- Decode(r *http.Request) (T, error)
- Encode(w http.ResponseWriter, resp U) error
+	// NewRequest creates a new zero-value instance of the request type T.
+	NewRequest() T
+
+	// Decode extracts and deserializes data from an HTTP request body into a value of type T.
+	Decode(r *http.Request) (T, error)
+
+	// DecodeBytes extracts and deserializes data from a byte slice into a value of type T.
+	// Used for source types like query/path parameters.
+	DecodeBytes(data []byte) (T, error)
+
+	// Encode serializes a value of type U and writes it to the HTTP response.
+	Encode(w http.ResponseWriter, resp U) error
 }
 ```
 

@@ -1,7 +1,6 @@
 package router
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -51,11 +50,14 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 		// Get data based on source type
 		switch route.SourceType {
 		case Body: // Default is Body (0)
-			// Use the codec's Decode method directly for body data
+			// Use the codec's Decode method to read directly from the request body
 			data, err = route.Codec.Decode(req)
 			if err != nil {
-				// Check if this is a MaxBytesReader error
-				if err.Error() == "http: request body too large" {
+				// Check if this is a MaxBytesReader error (applied in wrapHandler)
+				// Note: io.ReadAll is no longer called here, the codec handles reading.
+				// We need to check for the specific error string potentially returned by http.MaxBytesReader
+				// or similar errors from the codec's Decode implementation.
+				if err.Error() == "http: request body too large" { // Keep this check
 					r.handleError(w, req, err, http.StatusRequestEntityTooLarge, "Request entity too large")
 					return
 				}
@@ -80,15 +82,13 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 				return
 			}
 
-			// Unmarshal the decoded data
-			var reqData Req
-			err = json.Unmarshal(decodedData, &reqData)
+			// Use codec's DecodeBytes to unmarshal the decoded data
+			data, err = route.Codec.DecodeBytes(decodedData)
 			if err != nil {
 				r.handleError(w, req, err, http.StatusBadRequest,
-					"Failed to unmarshal decoded query parameter data")
+					"Failed to decode query parameter data")
 				return
 			}
-			data = reqData
 
 		case Base62QueryParameter:
 			// Get from query parameter and decode base62
@@ -107,15 +107,13 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 				return
 			}
 
-			// Unmarshal the decoded data
-			var reqData Req
-			err = json.Unmarshal(decodedData, &reqData)
+			// Use codec's DecodeBytes to unmarshal the decoded data
+			data, err = route.Codec.DecodeBytes(decodedData)
 			if err != nil {
 				r.handleError(w, req, err, http.StatusBadRequest,
-					"Failed to unmarshal decoded query parameter data")
+					"Failed to decode query parameter data")
 				return
 			}
-			data = reqData
 
 		case Base64PathParameter:
 			// Get from path parameter and decode base64
@@ -146,15 +144,13 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 				return
 			}
 
-			// Unmarshal the decoded data
-			var reqData Req
-			err = json.Unmarshal(decodedData, &reqData)
+			// Use codec's DecodeBytes to unmarshal the decoded data
+			data, err = route.Codec.DecodeBytes(decodedData)
 			if err != nil {
 				r.handleError(w, req, err, http.StatusBadRequest,
-					"Failed to unmarshal decoded path parameter data")
+					"Failed to decode path parameter data")
 				return
 			}
-			data = reqData
 
 		case Base62PathParameter:
 			// Get from path parameter and decode base62
@@ -185,15 +181,14 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 				return
 			}
 
-			// Unmarshal the decoded data
-			var reqData Req
-			err = json.Unmarshal(decodedData, &reqData)
+			// Use codec's DecodeBytes to unmarshal the decoded data
+			data, err = route.Codec.DecodeBytes(decodedData)
 			if err != nil {
 				r.handleError(w, req, err, http.StatusBadRequest,
-					"Failed to unmarshal decoded path parameter data")
+					"Failed to decode path parameter data")
 				return
 			}
-			data = reqData
+		case Empty:
 
 		default:
 			r.handleError(w, req, errors.New("unsupported source type"),

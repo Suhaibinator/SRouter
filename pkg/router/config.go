@@ -56,6 +56,9 @@ const (
 	// Base62PathParameter retrieves data from a base62-encoded path parameter.
 	// The path parameter value is decoded from base62 before being passed to the codec.
 	Base62PathParameter
+
+	// Empty does not decode anything. It acts as a noop for decoding.
+	Empty
 )
 
 // PrometheusConfig is removed in favor of MetricsConfig with v2 metrics system.
@@ -178,15 +181,22 @@ type Middleware = common.Middleware
 type GenericHandler[T any, U any] func(r *http.Request, data T) (U, error)
 
 // Codec defines an interface for marshaling and unmarshaling request and response data.
-// It provides methods for decoding request data from an HTTP request and encoding
-// response data to an HTTP response. This allows for different data formats (e.g., JSON, Protocol Buffers).
+// It provides methods for creating new request objects, decoding request data, and encoding
+// response data. This allows for different data formats (e.g., JSON, Protocol Buffers).
 // The framework includes implementations for JSON and Protocol Buffers in the codec package.
 type Codec[T any, U any] interface {
-	// Decode extracts and deserializes data from an HTTP request into a value of type T.
-	// It reads the request body and converts it from the wire format (e.g., JSON, Protocol Buffers)
-	// into the appropriate Go type. If the deserialization fails, it returns an error.
+	// NewRequest creates a new zero-value instance of the request type T.
+	// This is used by the framework to get an instance for decoding, avoiding reflection.
+	NewRequest() T
+
+	// Decode extracts and deserializes data from an HTTP request body into a value of type T.
 	// The type T represents the request data type.
 	Decode(r *http.Request) (T, error)
+
+	// DecodeBytes extracts and deserializes data from a byte slice into a value of type T.
+	// This is used for source types where the data is already extracted (e.g., query/path parameters).
+	// The type T represents the request data type.
+	DecodeBytes(data []byte) (T, error)
 
 	// Encode serializes a value of type U and writes it to the HTTP response.
 	// It converts the Go value to the wire format (e.g., JSON, Protocol Buffers) and

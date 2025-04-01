@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package custom_app.v1;
+
+option go_package = "./proto_models";
+
+message User {
+  string id = 1;
+  string name = 2;
+  string email = 3;
+}
