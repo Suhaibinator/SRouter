@@ -14,10 +14,16 @@ type JSONCodec[T any, U any] struct {
 	// For example, custom field naming strategies, etc.
 }
 
+// NewRequest creates a new zero-value instance of the request type T.
+func (c *JSONCodec[T, U]) NewRequest() T {
+	var data T
+	return data
+}
+
 // Decode decodes the request body into a value of type T.
 // It reads the entire request body and unmarshals it from JSON.
 func (c *JSONCodec[T, U]) Decode(r *http.Request) (T, error) {
-	var data T
+	data := c.NewRequest() // Use NewRequest to get an instance
 
 	// Read the request body
 	body, err := io.ReadAll(r.Body)
@@ -27,9 +33,30 @@ func (c *JSONCodec[T, U]) Decode(r *http.Request) (T, error) {
 	defer r.Body.Close()
 
 	// Unmarshal the JSON
+	// We need to unmarshal into a pointer for JSON, even if T is not a pointer type itself.
+	// If T is already a pointer, &data will be **Type, which json.Unmarshal handles.
+	// If T is a struct, &data will be *Type.
 	err = json.Unmarshal(body, &data)
 	if err != nil {
-		return data, err
+		// Return the zero value of T in case of error
+		var zero T
+		return zero, err
+	}
+
+	return data, nil
+}
+
+// DecodeBytes decodes a byte slice into a value of type T.
+// It unmarshals the byte slice from JSON.
+func (c *JSONCodec[T, U]) DecodeBytes(body []byte) (T, error) {
+	data := c.NewRequest() // Use NewRequest to get an instance
+
+	// Unmarshal the JSON
+	err := json.Unmarshal(body, &data)
+	if err != nil {
+		// Return the zero value of T in case of error
+		var zero T
+		return zero, err
 	}
 
 	return data, nil
