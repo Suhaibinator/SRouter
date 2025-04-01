@@ -122,6 +122,58 @@ func TestProtoCodecEncode(t *testing.T) {
 	}
 }
 
+// TestProtoCodecDecodeBytes tests the DecodeBytes method of ProtoCodec
+func TestProtoCodecDecodeBytes(t *testing.T) {
+	// Create a codec
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
+
+	// Test data (simulating decoded bytes from Base64/Base62)
+	testBytes := []byte("test byte data")
+
+	// Create a mock implementation of proto.Unmarshal
+	originalUnmarshal := protoUnmarshal
+	defer func() { protoUnmarshal = originalUnmarshal }()
+
+	unmarshalCalled := false
+	protoUnmarshal = func(b []byte, m proto.Message) error {
+		unmarshalCalled = true
+		if msg, ok := m.(*TestProtoMessage); ok {
+			// Ensure the correct bytes are passed to unmarshal
+			if !bytes.Equal(b, testBytes) {
+				t.Errorf("Unmarshal received bytes %q, want %q", string(b), string(testBytes))
+			}
+			msg.Data = b // Simulate unmarshaling by copying bytes
+			return nil
+		}
+		return errors.New("not a TestProtoMessage")
+	}
+
+	// Decode the bytes
+	decoded, err := codec.DecodeBytes(testBytes)
+	if err != nil {
+		t.Fatalf("DecodeBytes() returned error: %v", err)
+	}
+
+	// Verify Unmarshal was called
+	if !unmarshalCalled {
+		t.Error("Expected Unmarshal to be called")
+	}
+
+	// Verify the decoded data
+	if string(decoded.Data) != string(testBytes) {
+		t.Errorf("DecodeBytes() got Data = %q, want %q", string(decoded.Data), string(testBytes))
+	}
+
+	// Test error case
+	protoUnmarshal = func([]byte, proto.Message) error {
+		return errors.New("mock unmarshal error")
+	}
+	_, err = codec.DecodeBytes(testBytes)
+	if err == nil {
+		t.Error("Expected error when unmarshaling fails in DecodeBytes")
+	}
+}
+
 // TestProtoCodecDecodeErrors tests error handling in the Decode method of ProtoCodec
 func TestProtoCodecDecodeErrors(t *testing.T) {
 	// Create a codec
