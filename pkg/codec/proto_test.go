@@ -32,7 +32,7 @@ func TestNewProtoCodec(t *testing.T) {
 	if codec == nil {
 		t.Error("Expected non-nil codec")
 	}
-	if codec.newRequest == nil {
+	if codec == nil || codec.newRequest == nil {
 		t.Error("Expected codec.newRequest to be set")
 	}
 }
