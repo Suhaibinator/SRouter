@@ -1069,15 +1069,15 @@ type RouterConfig struct {
 type MetricsConfig struct {
  // Collector is the metrics collector to use.
  // If nil, a default collector will be used if metrics are enabled.
- Collector interface{} // metrics.Collector
+ Collector any // metrics.Collector
 
  // Exporter is the metrics exporter to use.
  // If nil, a default exporter will be used if metrics are enabled.
- Exporter interface{} // metrics.Exporter
+ Exporter any // metrics.Exporter
 
  // MiddlewareFactory is the factory for creating metrics middleware.
  // If nil, a default middleware factory will be used if metrics are enabled.
- MiddlewareFactory interface{} // metrics.MiddlewareFactory
+ MiddlewareFactory any // metrics.MiddlewareFactory
 
  // Namespace for metrics.
  Namespace string

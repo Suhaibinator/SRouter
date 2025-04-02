@@ -174,7 +174,7 @@ type MockGenericRouteRegistrar struct {
 	TypeCastError     bool
 }
 
-func (m MockGenericRouteRegistrar) RegisterWith(router interface{}, pathPrefix string) error {
+func (m MockGenericRouteRegistrar) RegisterWith(router any, pathPrefix string) error {
 	if m.RegisterWithError {
 		return context.Canceled // Use a standard error for testing
 	}

@@ -67,13 +67,13 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 	r := &Router[T, U]{
 		config:            config,
 		router:            hr,
-		logger:            logger,
+		logger:            logger.Named("SRouter"),
 		authFunction:      authFunction,
 		getUserIdFromUser: userIdFromuserFunction,
 		middlewares:       config.Middlewares,
 		rateLimiter:       rateLimiter,
 		metricsWriterPool: sync.Pool{
-			New: func() interface{} {
+			New: func() any {
 				// metricsResponseWriter might still be needed for metrics, keep for now
 				return &metricsResponseWriter[T, U]{}
 			},
@@ -289,7 +289,7 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 			}
 
 			done := make(chan struct{})
-			panicChan := make(chan interface{}, 1) // Channel to capture panic
+			panicChan := make(chan any, 1) // Channel to capture panic
 
 			go func() {
 				defer func() {

@@ -1469,12 +1469,12 @@ func TestRegisterSubRouter_UnsupportedRouteType(t *testing.T) {
 		assert.Equal(t, "Unsupported type found in SubRouterConfig.Routes", logEntry.Message, "Expected specific warning message")
 
 		// Check context fields
-		expectedContext := map[string]interface{}{
+		expectedContext := map[string]any{
 			"pathPrefix": "/invalid",
 			"type":       "int", // The type of the invalid item
 		}
 		// Convert zapcore.Field to map for easier comparison
-		actualContext := make(map[string]interface{})
+		actualContext := make(map[string]any)
 		for _, field := range logEntry.Context {
 			switch field.Type {
 			case zapcore.StringType:

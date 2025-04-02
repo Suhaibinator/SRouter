@@ -79,19 +79,19 @@ type SourceTestResponse struct {
 func testGenericHandler[T any, U any](r *http.Request, data T) (U, error) {
 	// Convert data to map
 	dataBytes, _ := json.Marshal(data)
-	var dataMap map[string]interface{}
+	var dataMap map[string]any
 	_ = json.Unmarshal(dataBytes, &dataMap)
 
 	// Create response
-	var respMap map[string]interface{}
+	var respMap map[string]any
 	if name, ok := dataMap["name"].(string); ok {
-		respMap = map[string]interface{}{
+		respMap = map[string]any{
 			"message": "Hello, " + name + "!",
 			"id":      dataMap["id"],
 			"name":    name,
 		}
 	} else {
-		respMap = map[string]interface{}{
+		respMap = map[string]any{
 			"message": "Hello!",
 			"id":      dataMap["id"],
 			"name":    "",

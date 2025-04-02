@@ -49,7 +49,7 @@ func mockAuthMiddleware(next http.Handler) http.Handler {
 }
 
 // contextModifierMiddleware adds a value to the context
-func contextModifierMiddleware(key interface{}, value interface{}) common.Middleware { // Qualify Middleware
+func contextModifierMiddleware(key any, value any) common.Middleware { // Qualify Middleware
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := context.WithValue(r.Context(), key, value)
