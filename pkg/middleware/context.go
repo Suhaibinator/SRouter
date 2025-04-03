@@ -29,11 +29,15 @@ type SRouterContext[T comparable, U any] struct {
 	// Client IP address
 	ClientIP string
 
+	// Database transaction
+	Transaction DatabaseTransaction
+
 	// Track which fields are set
-	UserIDSet   bool
-	UserSet     bool
-	ClientIPSet bool
-	TraceIDSet  bool
+	UserIDSet      bool
+	UserSet        bool
+	ClientIPSet    bool
+	TraceIDSet     bool
+	TransactionSet bool
 
 	// Additional flags
 	Flags map[string]bool
@@ -157,6 +161,28 @@ func GetClientIP[T comparable, U any](ctx context.Context) (string, bool) {
 // GetClientIPFromRequest is a convenience function to get the client IP from a request
 func GetClientIPFromRequest[T comparable, U any](r *http.Request) (string, bool) {
 	return GetClientIP[T, U](r.Context())
+}
+
+// WithTransaction adds a database transaction to the context
+func WithTransaction[T comparable, U any](ctx context.Context, tx DatabaseTransaction) context.Context {
+	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.Transaction = tx
+	rc.TransactionSet = true
+	return ctx
+}
+
+// GetTransaction retrieves a database transaction from the router context
+func GetTransaction[T comparable, U any](ctx context.Context) (DatabaseTransaction, bool) {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok || !rc.TransactionSet {
+		return nil, false
+	}
+	return rc.Transaction, true
+}
+
+// GetTransactionFromRequest is a convenience function to get the transaction from a request
+func GetTransactionFromRequest[T comparable, U any](r *http.Request) (DatabaseTransaction, bool) {
+	return GetTransaction[T, U](r.Context())
 }
 
 // getAllFlagsFromContext retrieves all flags from any SRouterContext in the context.

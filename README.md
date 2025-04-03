@@ -692,18 +692,36 @@ type SRouterContext[T comparable, U any] struct {
     // Trace ID
     TraceID string
 
+    // Database transaction (using an interface for abstraction)
+    Transaction DatabaseTransaction // See pkg/middleware/db.go
+
     // Track which fields are set
-    UserIDSet   bool
-    UserSet     bool
-    ClientIPSet bool
-    TraceIDSet  bool
+    UserIDSet      bool
+    UserSet        bool
+    ClientIPSet    bool
+    TraceIDSet     bool
+    TransactionSet bool
 
     // Additional flags
-    Flags map[string]bool
+    Flags map[string]bool // Note: Docs mention map[string]any, code shows map[string]bool. Check consistency.
 }
+
+// DatabaseTransaction interface (pkg/middleware/db.go)
+type DatabaseTransaction interface {
+    Commit() error
+    Rollback() error
+    SavePoint(name string) error
+    RollbackTo(name string) error
+    GetDB() *gorm.DB // Returns underlying *gorm.DB
+}
+
+// GormTransactionWrapper (pkg/middleware/db.go)
+// Wraps *gorm.DB to implement DatabaseTransaction
+type GormTransactionWrapper struct { DB *gorm.DB }
+func NewGormTransactionWrapper(tx *gorm.DB) *GormTransactionWrapper { /* ... */ }
 ```
 
-The type parameters `T` and `U` represent the user ID type and user object type, respectively. This generic approach provides type safety while allowing flexibility in the types used for user IDs and objects.
+The type parameters `T` and `U` represent the user ID type and user object type, respectively. The `DatabaseTransaction` interface and `GormTransactionWrapper` facilitate testable transaction management (see `pkg/middleware/db.go` and `docs/context-management.md` for details on usage).
 
 #### Benefits of SRouterContext
 
@@ -747,9 +765,15 @@ traceID := middleware.GetTraceID(r) // Shortcut function
 
 // Get trace ID from context directly
 traceIDFromCtx := middleware.GetTraceIDFromContext(ctx)
+
+// Get the database transaction interface from the request
+txInterface, ok := middleware.GetTransactionFromRequest[T, U](r) // Replace T, U
+if ok {
+    // Use txInterface.Commit(), txInterface.Rollback(), or txInterface.GetDB()
+}
 ```
 
-These functions automatically handle the type parameters and provide a clean, consistent interface for accessing context values. **Note:** The user object returned by `middleware.GetUserFromRequest` is a pointer (`*U`).
+These functions automatically handle the type parameters and provide a clean, consistent interface for accessing context values. **Note:** The user object returned by `middleware.GetUserFromRequest` is a pointer (`*U`). For database transactions, you retrieve the `DatabaseTransaction` interface and can use `GetDB()` to access the underlying `*gorm.DB` for operations. See `docs/context-management.md` for detailed usage.
 
 ### Custom Error Handling
 
@@ -1361,11 +1385,14 @@ flagValue, ok := middleware.GetFlagFromRequest[T, U](r, "flagName") // Replace T
 
 // Get the trace ID from the request
 traceID := middleware.GetTraceID(r)
+
+// Get the database transaction interface from the request
+txInterface, ok := middleware.GetTransactionFromRequest[T, U](r) // Replace T, U
 ```
 
 These functions access values through the SRouterContext wrapper, providing a consistent and type-safe way to retrieve context values.
 
-**Note:** The user object returned by `middleware.GetUserFromRequest` is a pointer (`*U`). This matches the internal storage format and avoids unnecessary copying.
+**Note:** The user object returned by `middleware.GetUserFromRequest` is a pointer (`*U`). For database transactions, retrieve the `DatabaseTransaction` interface and use `GetDB()` for GORM operations. See `docs/context-management.md` for details.
 
 ## Error Handling Reference
 

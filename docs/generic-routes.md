@@ -21,12 +21,16 @@ type CreateUserResp struct {
 
 // Define a generic handler function
 // It takes the http.Request and the decoded request object (type T)
-// It returns the response object (type U) and an error
-func CreateUserHandler(r *http.Request, req CreateUserReq) (CreateUserResp, error) {
- // Access request context if needed: userID, ok := middleware.GetUserIDFromRequest[string, string](r)
- fmt.Printf("Received request to create user: Name=%s, Email=%s\n", req.Name, req.Email)
+ // It returns the response object (type U) and an error
+ func CreateUserHandler(r *http.Request, req CreateUserReq) (CreateUserResp, error) {
+  // Access request context if needed, e.g., for UserID, Transaction, etc.
+  // userID, ok := middleware.GetUserIDFromRequest[string, string](r) // Replace types as needed
+  // txInterface, txOK := middleware.GetTransactionFromRequest[string, string](r)
+  // if txOK { gormTx := txInterface.GetDB() /* use gormTx */ }
 
- // In a real application, you would interact with a database or service
+  fmt.Printf("Received request to create user: Name=%s, Email=%s\n", req.Name, req.Email)
+
+  // In a real application, you would interact with a database or service
  // If an error occurs (e.g., validation, database error), return it:
  // if req.Name == "" {
  //  return CreateUserResp{}, router.NewHTTPError(http.StatusBadRequest, "Name cannot be empty")

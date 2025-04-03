@@ -65,12 +65,15 @@ import (
 
 // LogUserIDMiddleware logs the user ID if authentication was successful.
 // Requires an authentication middleware to run first.
+// This example shows accessing UserID, but other context values (TraceID, ClientIP, Transaction, Flags)
+// can be accessed similarly using their respective GetXFromRequest functions.
 func LogUserIDMiddleware(logger *zap.Logger) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Attempt to get User ID from context
 			// Replace string, any with your router's UserIDType, UserObjectType
 			userID, ok := middleware.GetUserIDFromRequest[string, any](r)
+			// txInterface, txOK := middleware.GetTransactionFromRequest[string, any](r) // Example: Access transaction
 
 			if ok {
 				// Log if user ID was found
