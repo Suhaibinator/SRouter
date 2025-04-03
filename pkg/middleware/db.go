@@ -1,6 +1,10 @@
 package middleware
 
-import "gorm.io/gorm"
+import (
+	"errors" // Import errors
+
+	"gorm.io/gorm"
+)
 
 // DatabaseTransaction defines an interface for essential transaction control methods.
 // This allows mocking transaction behavior for testing purposes.
@@ -27,11 +31,18 @@ func NewGormTransactionWrapper(tx *gorm.DB) *GormTransactionWrapper {
 
 // Commit implements the DatabaseTransaction interface.
 func (w *GormTransactionWrapper) Commit() error {
+	if w.DB == nil {
+		return errors.New("cannot commit on nil transaction")
+	}
+	// Note: GORM's Commit() returns *gorm.DB, we access its Error field.
 	return w.DB.Commit().Error
 }
 
 // Rollback implements the DatabaseTransaction interface.
 func (w *GormTransactionWrapper) Rollback() error {
+	if w.DB == nil {
+		return errors.New("cannot rollback on nil transaction")
+	}
 	// GORM's Rollback might not return an error in the same way Commit does,
 	// but we check the Error field for consistency.
 	return w.DB.Rollback().Error
@@ -39,11 +50,17 @@ func (w *GormTransactionWrapper) Rollback() error {
 
 // SavePoint implements the DatabaseTransaction interface.
 func (w *GormTransactionWrapper) SavePoint(name string) error {
+	if w.DB == nil {
+		return errors.New("cannot savepoint on nil transaction")
+	}
 	return w.DB.SavePoint(name).Error
 }
 
 // RollbackTo implements the DatabaseTransaction interface.
 func (w *GormTransactionWrapper) RollbackTo(name string) error {
+	if w.DB == nil {
+		return errors.New("cannot rollback to savepoint on nil transaction")
+	}
 	return w.DB.RollbackTo(name).Error
 }
 
