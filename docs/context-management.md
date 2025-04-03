@@ -23,6 +23,10 @@ type SRouterContext[T comparable, U any] struct {
 	// TraceID holds the unique identifier for the request trace.
 	TraceID string
 
+	// Transaction holds an active database transaction object.
+	// It uses the DatabaseTransaction interface for abstraction.
+	Transaction DatabaseTransaction
+
 	// --- Internal tracking flags ---
 
 	// UserIDSet indicates if the UserID field has been explicitly set.
@@ -33,6 +37,8 @@ type SRouterContext[T comparable, U any] struct {
 	ClientIPSet bool
 	// TraceIDSet indicates if the TraceID field has been explicitly set.
 	TraceIDSet bool
+	// TransactionSet indicates if the Transaction field has been explicitly set.
+	TransactionSet bool
 
 	// Flags allow storing arbitrary boolean flags or simple string values.
 	Flags map[string]any // Changed to map[string]any for more flexibility (e.g., request ID string)
@@ -43,9 +49,42 @@ type contextKey struct{}
 
 // srouterCtxKey is the specific key used.
 var srouterCtxKey = contextKey{}
+
+// --- Database Transaction Handling ---
+
+// DatabaseTransaction defines an interface for essential transaction control methods.
+// This allows mocking transaction behavior (Commit, Rollback) for testing.
+type DatabaseTransaction interface {
+	Commit() error
+	Rollback() error
+	SavePoint(name string) error
+	RollbackTo(name string) error
+	// GetDB returns the underlying GORM DB instance for direct use.
+	GetDB() *gorm.DB
+}
+
+// GormTransactionWrapper wraps a *gorm.DB to implement DatabaseTransaction.
+// Necessary because GORM's Commit/Rollback return *gorm.DB, not error directly.
+type GormTransactionWrapper struct {
+	DB *gorm.DB
+}
+
+// NewGormTransactionWrapper creates the wrapper.
+func NewGormTransactionWrapper(tx *gorm.DB) *GormTransactionWrapper { /* ... */ }
+
+// Implementations for Commit, Rollback, SavePoint, RollbackTo, GetDB...
+// (These call the underlying DB methods and return the appropriate type)
+
+var _ DatabaseTransaction = (*GormTransactionWrapper)(nil) // Compile-time check
 ```
 
 The type parameters `T` (UserID type) and `U` (User object type) must match the types used when creating the `router.NewRouter[T, U]` instance.
+
+**Using Transactions:**
+
+*   Because GORM's transaction methods (like `Commit`) return `*gorm.DB` for chaining, they don't directly match the `DatabaseTransaction` interface which expects methods like `Commit() error`.
+*   Therefore, you must wrap your GORM transaction (`*gorm.DB`) using `middleware.NewGormTransactionWrapper` before adding it to the context with `middleware.WithTransaction`.
+*   When retrieving the transaction using `middleware.GetTransaction`, you get the `DatabaseTransaction` interface. You can call `Commit`/`Rollback` on this interface. To perform GORM operations (like `Find`, `Create`), call `GetDB()` on the interface to get the underlying `*gorm.DB`.
 
 ## Benefits
 
@@ -58,7 +97,7 @@ This approach offers several advantages over traditional `context.WithValue` nes
 
 ## Adding Values to Context (Middleware Authors)
 
-Middleware should use the provided helper functions (like `WithUserID`, `WithUser`, `WithClientIP`, `WithTraceID`, `WithFlag`) to add values. These functions handle creating or updating the `SRouterContext` wrapper within the `context.Context`.
+Middleware should use the provided helper functions (like `WithUserID`, `WithUser`, `WithClientIP`, `WithTraceID`, `WithFlag`, `WithTransaction`) to add values. These functions handle creating or updating the `SRouterContext` wrapper within the `context.Context`.
 
 ```go
 // Example within a middleware:
@@ -73,7 +112,37 @@ func MyMiddleware() common.Middleware {
             // Add user ID after successful authentication
             // ctx = middleware.WithUserID[string, MyUserType](ctx, "user-123")
 
+            // Example: Start and add a DB transaction
+            var db *gorm.DB // Assume db is initialized elsewhere
+            tx := db.Begin()
+            if tx.Error != nil {
+                // Handle transaction start error
+                // Log error, maybe return HTTP 500
+                // next.ServeHTTP(w, r.WithContext(ctx)) // Or maybe don't proceed
+                return
+            }
+
+            // Wrap the GORM transaction
+            txWrapper := middleware.NewGormTransactionWrapper(tx)
+
+            // Add the wrapper (which implements DatabaseTransaction) to the context
+            ctx = middleware.WithTransaction[string, MyUserType](ctx, txWrapper)
+
+            // It's crucial to have another middleware later in the chain
+            // (or deferred logic in this one) to Commit or Rollback the transaction
+            // based on the handler's outcome.
+
             next.ServeHTTP(w, r.WithContext(ctx))
+
+            // Example cleanup logic (could be in a separate middleware):
+            // finalTx, ok := middleware.GetTransaction[string, MyUserType](r.Context()) // Use r.Context() after handler
+            // if ok {
+            //     if /* handler indicated error */ {
+            //         finalTx.Rollback()
+            //     } else {
+            //         finalTx.Commit()
+            //     }
+            // }
         })
     }
 }
@@ -119,8 +188,31 @@ func myHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    // Get Database Transaction Interface
+    txInterface, ok := middleware.GetTransactionFromRequest[string, MyUserType](r)
+    if ok {
+        // Option 1: Control the transaction via the interface
+        // err := txInterface.Commit() // Usually done in middleware after handler
+
+        // Option 2: Get the underlying *gorm.DB for GORM operations
+        gormTx := txInterface.GetDB()
+        if gormTx != nil {
+            // Perform GORM operations using gormTx
+            var result MyModel
+            if err := gormTx.Where("id = ?", someID).First(&result).Error; err != nil {
+                // Handle GORM error within the transaction
+                // The transaction might be rolled back later by middleware
+            } else {
+                fmt.Printf("Found model: %+v\n", result)
+            }
+        }
+    } else {
+        fmt.Println("No database transaction found in context.")
+    }
+
+
     // ... handler logic ...
 }
 ```
 
-Always use these helper functions to interact with SRouter-managed context values for safety and maintainability. Remember that the user object (`GetUserFromRequest`) is returned as a pointer (`*U`).
+Always use these helper functions to interact with SRouter-managed context values for safety and maintainability. Remember that the user object (`GetUserFromRequest`) is returned as a pointer (`*U`). For transactions, add the `GormTransactionWrapper` using `WithTransaction`, and retrieve the `DatabaseTransaction` interface using `GetTransactionFromRequest`. Use `GetDB()` on the retrieved interface to perform GORM-specific operations.
