@@ -217,40 +217,86 @@ func (rw *mutexResponseWriter) Flush() {
 }
 
 type CORSOptions struct {
-	Origins []string
-	Methods []string
-	Headers []string
-	MaxAge  time.Duration
+	Origins          []string
+	Methods          []string
+	Headers          []string
+	ExposeHeaders    []string // Headers the browser is allowed to access
+	AllowCredentials bool     // Whether to allow credentials (cookies, authorization headers)
+	MaxAge           time.Duration
 }
 
 // CORS is a middleware that adds Cross-Origin Resource Sharing (CORS) headers to the response.
-// It allows you to specify which origins, methods, and headers are allowed for cross-origin requests.
-// This middleware also handles preflight OPTIONS requests automatically.
+// It allows you to specify which origins, methods, headers, and credentials are allowed for cross-origin requests,
+// and which headers can be exposed to the client-side script.
+// This middleware handles preflight OPTIONS requests automatically and optimizes header setting.
 func CORS(corsConfig CORSOptions) Middleware {
+	// Precompute header values for efficiency
+	allowOrigin := ""
+	if len(corsConfig.Origins) > 0 {
+		allowOrigin = strings.Join(corsConfig.Origins, ", ")
+	}
+
+	allowMethods := ""
+	if len(corsConfig.Methods) > 0 {
+		allowMethods = strings.Join(corsConfig.Methods, ", ")
+	}
+
+	allowHeaders := ""
+	if len(corsConfig.Headers) > 0 {
+		allowHeaders = strings.Join(corsConfig.Headers, ", ")
+	}
+
+	exposeHeaders := ""
+	if len(corsConfig.ExposeHeaders) > 0 {
+		exposeHeaders = strings.Join(corsConfig.ExposeHeaders, ", ")
+	}
+
+	maxAge := ""
+	if corsConfig.MaxAge > 0 {
+		maxAge = strconv.Itoa(int(corsConfig.MaxAge.Seconds()))
+	}
+
+	allowCredentials := corsConfig.AllowCredentials
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Set CORS headers
-			if len(corsConfig.Origins) > 0 {
-				w.Header().Set("Access-Control-Allow-Origin", strings.Join(corsConfig.Origins, ", "))
+			// Set headers common to both preflight and actual requests
+			if allowOrigin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 			}
-			if len(corsConfig.Methods) > 0 {
-				w.Header().Set("Access-Control-Allow-Methods", strings.Join(corsConfig.Methods, ", "))
-			}
-			if len(corsConfig.Headers) > 0 {
-				w.Header().Set("Access-Control-Allow-Headers", strings.Join(corsConfig.Headers, ", "))
-			}
-
-			if corsConfig.MaxAge > 0 {
-				w.Header().Set("Access-Control-Max-Age", strconv.Itoa(int(corsConfig.MaxAge.Seconds())))
+			// Allow-Credentials MUST be set on actual responses if needed,
+			// and it's often helpful to mirror it on preflight for consistency,
+			// although the spec primarily cares about it on the actual response.
+			if allowCredentials {
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 
-			// Handle preflight requests
+			// Handle preflight (OPTIONS) requests
 			if r.Method == http.MethodOptions {
+				// Set headers specific to preflight responses
+				if allowMethods != "" {
+					w.Header().Set("Access-Control-Allow-Methods", allowMethods)
+				}
+				if allowHeaders != "" {
+					w.Header().Set("Access-Control-Allow-Headers", allowHeaders)
+				}
+				if maxAge != "" {
+					w.Header().Set("Access-Control-Max-Age", maxAge)
+				}
+
+				// Preflight requests don't need to go further down the chain.
+				// Respond with 200 OK (or 204 No Content is also common).
 				w.WriteHeader(http.StatusOK)
 				return
 			}
 
-			// Call the next handler
+			// Set headers specific to the actual response *before* calling the next handler
+			// Expose-Headers tells the browser which headers the JS code is allowed to access.
+			if exposeHeaders != "" {
+				w.Header().Set("Access-Control-Expose-Headers", exposeHeaders)
+			}
+
+			// Call the next handler for actual requests (GET, POST, etc.)
 			next.ServeHTTP(w, r)
 		})
 	}
