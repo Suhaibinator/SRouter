@@ -85,7 +85,8 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 	if ipConfig == nil {
 		ipConfig = middleware.DefaultIPConfig()
 	}
-	r.middlewares = append([]common.Middleware{middleware.ClientIPMiddleware(ipConfig)}, r.middlewares...)
+	// Explicitly cast to common.Middleware, although likely unnecessary
+	r.middlewares = append([]common.Middleware{common.Middleware(middleware.ClientIPMiddleware(ipConfig))}, r.middlewares...)
 
 	// Add metrics middleware if configured
 	if config.EnableMetrics {

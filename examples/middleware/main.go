@@ -149,15 +149,15 @@ func main() {
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
 		Middlewares: []common.Middleware{
-			middleware.Recovery(logger),       // Recover from panics
+			middleware.Recovery(logger),       // Use variable
 			DetailedLoggingMiddleware(logger), // Log detailed request/response info
-			middleware.CORS(middleware.CORSOptions{
+			middleware.CORS(middleware.CORSOptions{ // Use variable
 				Origins: []string{"*"},
 			}), // Add CORS headers
 			HeadersMiddleware(customHeaders),    // Add custom headers
 			RequestIDMiddleware(),               // Add request ID
-			middleware.Timeout(1 * time.Second), // Set timeout
-			middleware.MaxBodySize(1 << 20),     // Set max body size
+			middleware.Timeout(1 * time.Second), // Use variable
+			middleware.MaxBodySize(1 << 20),     // Use variable
 		},
 		SubRouters: []router.SubRouterConfig{
 			{

@@ -12,13 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/common"
+	// Added back
 	"go.uber.org/zap"
 )
-
-// Middleware is an alias for the common.Middleware type.
-// It represents a function that wraps an http.Handler to provide additional functionality.
-type Middleware = common.Middleware
 
 // Chain chains multiple middlewares together into a single middleware.
 // The middlewares are applied in reverse order, so the first middleware in the list
@@ -35,7 +31,7 @@ func Chain(middlewares ...Middleware) Middleware {
 // Recovery is a middleware that recovers from panics in HTTP handlers.
 // It logs the panic and stack trace using the provided logger and returns a 500 Internal Server Error response.
 // This prevents the server from crashing when a panic occurs in a handler.
-func Recovery(logger *zap.Logger) Middleware {
+func recovery(logger *zap.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
@@ -65,7 +61,7 @@ func Recovery(logger *zap.Logger) Middleware {
 // - 400-499 status codes are logged at Warn level
 // - Requests taking longer than 1 second are logged at Warn level
 // - All other requests are logged at Debug level
-func Logging(logger *zap.Logger) Middleware {
+func logging(logger *zap.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -126,7 +122,7 @@ func Logging(logger *zap.Logger) Middleware {
 // MaxBodySize is a middleware that limits the size of the request body.
 // It prevents clients from sending excessively large requests that could
 // consume too much memory or cause denial of service.
-func MaxBodySize(maxSize int64) Middleware {
+func maxBodySize(maxSize int64) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Limit the size of the request body
@@ -142,7 +138,7 @@ func MaxBodySize(maxSize int64) Middleware {
 // If the handler takes longer than the specified timeout to respond,
 // the middleware will cancel the request context and return a 408 Request Timeout response.
 // This prevents long-running requests from blocking server resources indefinitely.
-func Timeout(timeout time.Duration) Middleware {
+func timeout(timeout time.Duration) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Create a context with a timeout
@@ -229,7 +225,7 @@ type CORSOptions struct {
 // It allows you to specify which origins, methods, headers, and credentials are allowed for cross-origin requests,
 // and which headers can be exposed to the client-side script.
 // This middleware handles preflight OPTIONS requests automatically and optimizes header setting.
-func CORS(corsConfig CORSOptions) Middleware {
+func cors(corsConfig CORSOptions) Middleware {
 	// Precompute header values for efficiency
 	allowOrigin := ""
 	if len(corsConfig.Origins) > 0 {

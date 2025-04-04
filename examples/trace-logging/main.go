@@ -28,7 +28,7 @@ func main() {
 		GlobalMaxBodySize: 1 << 20, // 1 MB
 		EnableTraceID:     true,    // Enable trace ID logging
 		Middlewares: []common.Middleware{
-			middleware.TraceMiddleware(), // Add trace middleware
+			middleware.Trace(), // Use Trace variable
 		},
 	}
 

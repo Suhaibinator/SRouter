@@ -31,8 +31,8 @@ func TestAuthenticationGeneric(t *testing.T) {
 	}
 
 	// Apply the Authentication middleware
-	middleware := Authentication[string, any](authFunc)
-	wrappedHandler := middleware(handler)
+	authMiddleware := Authentication[string, any](authFunc) // Kept public (generic)
+	wrappedHandler := authMiddleware(handler)
 
 	// Test with valid authentication
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -74,8 +74,8 @@ func TestAuthentication(t *testing.T) {
 	}
 
 	// Apply the AuthenticationBool middleware
-	middleware := AuthenticationBool[string, any](authFunc, "authenticated")
-	wrappedHandler := middleware(handler)
+	authMiddleware := AuthenticationBool[string, any](authFunc, "authenticated") // Kept public (generic)
+	wrappedHandler := authMiddleware(handler)
 
 	// Test with valid authentication
 	req := httptest.NewRequest("GET", "/test", nil)

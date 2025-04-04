@@ -73,7 +73,7 @@ func ClientIP(r *http.Request) string {
 // This implementation uses the SRouterContext approach for storing the IP address, which avoids
 // deep nesting of context values by using a single wrapper structure. For backward compatibility,
 // it also stores the IP address using the legacy context key.
-func ClientIPMiddleware(config *IPConfig) func(http.Handler) http.Handler {
+func clientIPMiddleware(config *IPConfig) func(http.Handler) http.Handler {
 	if config == nil {
 		config = DefaultIPConfig()
 	}
