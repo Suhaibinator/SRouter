@@ -290,14 +290,14 @@ func CORS(corsConfig CORSOptions) Middleware {
 				return
 			}
 
-			// Call the next handler for actual requests (GET, POST, etc.)
-			next.ServeHTTP(w, r)
-
-			// Set headers specific to the actual response after the handler runs
+			// Set headers specific to the actual response *before* calling the next handler
 			// Expose-Headers tells the browser which headers the JS code is allowed to access.
 			if exposeHeaders != "" {
 				w.Header().Set("Access-Control-Expose-Headers", exposeHeaders)
 			}
+
+			// Call the next handler for actual requests (GET, POST, etc.)
+			next.ServeHTTP(w, r)
 		})
 	}
 }

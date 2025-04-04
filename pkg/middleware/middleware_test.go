@@ -166,79 +166,153 @@ func TestMaxBodySize(t *testing.T) {
 	}
 }
 
-// TestCORS tests the CORS middleware that adds CORS headers to the response
+// TestCORS tests the CORS middleware, verifying headers for actual and preflight requests.
 func TestCORS(t *testing.T) {
-	// Create a test handler
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+	// --- Test Case 1: Standard Configuration ---
+	t.Run("StandardConfig", func(t *testing.T) {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		corsConfig := CORSOptions{
+			Origins:          []string{"http://example.com", "https://example.org"},
+			Methods:          []string{"GET", "POST", "PUT"},
+			Headers:          []string{"Content-Type", "Authorization"},
+			ExposeHeaders:    []string{"X-Custom-Header", "Content-Length"},
+			AllowCredentials: true,
+			MaxAge:           time.Hour,
+		}
+		middleware := CORS(corsConfig)
+		wrappedHandler := middleware(handler)
+
+		// Test Actual Request (GET)
+		reqGet := httptest.NewRequest("GET", "/test", nil)
+		recGet := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(recGet, reqGet)
+
+		// Check GET Response Headers
+		expectedOrigin := "http://example.com, https://example.org"
+		if got := recGet.Header().Get("Access-Control-Allow-Origin"); got != expectedOrigin {
+			t.Errorf("GET: Expected Allow-Origin '%s', got '%s'", expectedOrigin, got)
+		}
+		expectedExpose := "X-Custom-Header, Content-Length"
+		if got := recGet.Header().Get("Access-Control-Expose-Headers"); got != expectedExpose {
+			t.Errorf("GET: Expected Expose-Headers '%s', got '%s'", expectedExpose, got)
+		}
+		if got := recGet.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+			t.Errorf("GET: Expected Allow-Credentials 'true', got '%s'", got)
+		}
+		// These should NOT be set on non-OPTIONS requests
+		if got := recGet.Header().Get("Access-Control-Allow-Methods"); got != "" {
+			t.Errorf("GET: Expected Allow-Methods to be empty, got '%s'", got)
+		}
+		if got := recGet.Header().Get("Access-Control-Allow-Headers"); got != "" {
+			t.Errorf("GET: Expected Allow-Headers to be empty, got '%s'", got)
+		}
+		if got := recGet.Header().Get("Access-Control-Max-Age"); got != "" {
+			t.Errorf("GET: Expected Max-Age to be empty, got '%s'", got)
+		}
+		if recGet.Code != http.StatusOK {
+			t.Errorf("GET: Expected status code %d, got %d", http.StatusOK, recGet.Code)
+		}
+
+		// Test Preflight Request (OPTIONS)
+		reqOptions := httptest.NewRequest("OPTIONS", "/test", nil)
+		recOptions := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(recOptions, reqOptions)
+
+		// Check OPTIONS Response Headers
+		if got := recOptions.Header().Get("Access-Control-Allow-Origin"); got != expectedOrigin {
+			t.Errorf("OPTIONS: Expected Allow-Origin '%s', got '%s'", expectedOrigin, got)
+		}
+		expectedMethods := "GET, POST, PUT"
+		if got := recOptions.Header().Get("Access-Control-Allow-Methods"); got != expectedMethods {
+			t.Errorf("OPTIONS: Expected Allow-Methods '%s', got '%s'", expectedMethods, got)
+		}
+		expectedHeaders := "Content-Type, Authorization"
+		if got := recOptions.Header().Get("Access-Control-Allow-Headers"); got != expectedHeaders {
+			t.Errorf("OPTIONS: Expected Allow-Headers '%s', got '%s'", expectedHeaders, got)
+		}
+		expectedMaxAge := "3600" // 1 hour in seconds
+		if got := recOptions.Header().Get("Access-Control-Max-Age"); got != expectedMaxAge {
+			t.Errorf("OPTIONS: Expected Max-Age '%s', got '%s'", expectedMaxAge, got)
+		}
+		if got := recOptions.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+			t.Errorf("OPTIONS: Expected Allow-Credentials 'true', got '%s'", got)
+		}
+		// Expose-Headers is not relevant for preflight
+		if got := recOptions.Header().Get("Access-Control-Expose-Headers"); got != "" {
+			t.Errorf("OPTIONS: Expected Expose-Headers to be empty, got '%s'", got)
+		}
+		if recOptions.Code != http.StatusOK {
+			t.Errorf("OPTIONS: Expected status code %d, got %d", http.StatusOK, recOptions.Code)
+		}
 	})
 
-	// Apply the CORS middleware
-	// Apply the CORS middleware
-	corsConfig := CORSOptions{
-		Origins: []string{"http://example.com", "https://example.org"},
-		Methods: []string{"GET", "POST", "PUT"},
-		Headers: []string{"Content-Type", "Authorization"},
-		MaxAge:  time.Hour,
-	}
-	middleware := CORS(corsConfig)
-	wrappedHandler := middleware(handler)
+	// --- Test Case 2: Empty Configuration ---
+	t.Run("EmptyConfig", func(t *testing.T) {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+		middleware := CORS(CORSOptions{}) // Empty config
+		wrappedHandler := middleware(handler)
 
-	// Create a test request
-	req := httptest.NewRequest("GET", "/test", nil)
-	rec := httptest.NewRecorder()
+		// Test Actual Request (GET)
+		reqGet := httptest.NewRequest("GET", "/test", nil)
+		recGet := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(recGet, reqGet)
 
-	// Call the handler
-	wrappedHandler.ServeHTTP(rec, req)
+		// Check GET Response Headers (should all be empty)
+		if recGet.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Errorf("Empty GET: Expected Allow-Origin empty, got '%s'", recGet.Header().Get("Access-Control-Allow-Origin"))
+		}
+		if recGet.Header().Get("Access-Control-Expose-Headers") != "" {
+			t.Errorf("Empty GET: Expected Expose-Headers empty, got '%s'", recGet.Header().Get("Access-Control-Expose-Headers"))
+		}
+		if recGet.Header().Get("Access-Control-Allow-Credentials") != "" {
+			t.Errorf("Empty GET: Expected Allow-Credentials empty, got '%s'", recGet.Header().Get("Access-Control-Allow-Credentials"))
+		}
+		if recGet.Header().Get("Access-Control-Allow-Methods") != "" {
+			t.Errorf("Empty GET: Expected Allow-Methods empty, got '%s'", recGet.Header().Get("Access-Control-Allow-Methods"))
+		}
+		if recGet.Header().Get("Access-Control-Allow-Headers") != "" {
+			t.Errorf("Empty GET: Expected Allow-Headers empty, got '%s'", recGet.Header().Get("Access-Control-Allow-Headers"))
+		}
+		if recGet.Header().Get("Access-Control-Max-Age") != "" {
+			t.Errorf("Empty GET: Expected Max-Age empty, got '%s'", recGet.Header().Get("Access-Control-Max-Age"))
+		}
+		if recGet.Code != http.StatusOK {
+			t.Errorf("Empty GET: Expected status code %d, got %d", http.StatusOK, recGet.Code)
+		}
 
-	// Check that the CORS headers were set
-	if rec.Header().Get("Access-Control-Allow-Origin") != "http://example.com, https://example.org" {
-		t.Errorf("Expected Access-Control-Allow-Origin header to be 'http://example.com, https://example.org', got '%s'", rec.Header().Get("Access-Control-Allow-Origin"))
-	}
-	if rec.Header().Get("Access-Control-Allow-Methods") != "GET, POST, PUT" {
-		t.Errorf("Expected Access-Control-Allow-Methods header to be 'GET, POST, PUT', got '%s'", rec.Header().Get("Access-Control-Allow-Methods"))
-	}
-	if rec.Header().Get("Access-Control-Allow-Headers") != "Content-Type, Authorization" {
-		t.Errorf("Expected Access-Control-Allow-Headers header to be 'Content-Type, Authorization', got '%s'", rec.Header().Get("Access-Control-Allow-Headers"))
-	}
+		// Test Preflight Request (OPTIONS)
+		reqOptions := httptest.NewRequest("OPTIONS", "/test", nil)
+		recOptions := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(recOptions, reqOptions)
 
-	// Check that the response status code is 200
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, rec.Code)
-	}
-
-	// Test OPTIONS request (preflight)
-	req = httptest.NewRequest("OPTIONS", "/test", nil)
-	rec = httptest.NewRecorder()
-
-	// Call the handler
-	wrappedHandler.ServeHTTP(rec, req)
-
-	// Check that the response status code is 200
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, rec.Code)
-	}
-
-	// Test with empty arrays
-	middleware = CORS(CORSOptions{})
-	wrappedHandler = middleware(handler)
-
-	req = httptest.NewRequest("GET", "/test", nil)
-	rec = httptest.NewRecorder()
-
-	// Call the handler
-	wrappedHandler.ServeHTTP(rec, req)
-
-	// Check that the CORS headers were not set
-	if rec.Header().Get("Access-Control-Allow-Origin") != "" {
-		t.Errorf("Expected Access-Control-Allow-Origin header to be empty, got '%s'", rec.Header().Get("Access-Control-Allow-Origin"))
-	}
-	if rec.Header().Get("Access-Control-Allow-Methods") != "" {
-		t.Errorf("Expected Access-Control-Allow-Methods header to be empty, got '%s'", rec.Header().Get("Access-Control-Allow-Methods"))
-	}
-	if rec.Header().Get("Access-Control-Allow-Headers") != "" {
-		t.Errorf("Expected Access-Control-Allow-Headers header to be empty, got '%s'", rec.Header().Get("Access-Control-Allow-Headers"))
-	}
+		// Check OPTIONS Response Headers (should all be empty)
+		if recOptions.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Errorf("Empty OPTIONS: Expected Allow-Origin empty, got '%s'", recOptions.Header().Get("Access-Control-Allow-Origin"))
+		}
+		if recOptions.Header().Get("Access-Control-Allow-Methods") != "" {
+			t.Errorf("Empty OPTIONS: Expected Allow-Methods empty, got '%s'", recOptions.Header().Get("Access-Control-Allow-Methods"))
+		}
+		if recOptions.Header().Get("Access-Control-Allow-Headers") != "" {
+			t.Errorf("Empty OPTIONS: Expected Allow-Headers empty, got '%s'", recOptions.Header().Get("Access-Control-Allow-Headers"))
+		}
+		if recOptions.Header().Get("Access-Control-Max-Age") != "" {
+			t.Errorf("Empty OPTIONS: Expected Max-Age empty, got '%s'", recOptions.Header().Get("Access-Control-Max-Age"))
+		}
+		if recOptions.Header().Get("Access-Control-Allow-Credentials") != "" {
+			t.Errorf("Empty OPTIONS: Expected Allow-Credentials empty, got '%s'", recOptions.Header().Get("Access-Control-Allow-Credentials"))
+		}
+		if recOptions.Header().Get("Access-Control-Expose-Headers") != "" {
+			t.Errorf("Empty OPTIONS: Expected Expose-Headers empty, got '%s'", recOptions.Header().Get("Access-Control-Expose-Headers"))
+		}
+		if recOptions.Code != http.StatusOK {
+			t.Errorf("Empty OPTIONS: Expected status code %d, got %d", http.StatusOK, recOptions.Code)
+		}
+	})
 }
 
 // TestLoggingMiddleware_ServerError tests the Logging middleware with a server error (500+)
