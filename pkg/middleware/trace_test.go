@@ -99,10 +99,10 @@ func TestTraceMiddleware(t *testing.T) {
 	})
 
 	// Create a middleware
-	middleware := TraceMiddleware()
+	traceMiddleware := Trace() // Use the variable
 
 	// Create a wrapped handler
-	wrappedHandler := middleware(handler)
+	wrappedHandler := traceMiddleware(handler) // Use the correct variable name
 
 	// Create a request
 	req, err := http.NewRequest("GET", "/test", nil)
@@ -134,11 +134,11 @@ func TestTraceMiddlewareWithConfig(t *testing.T) {
 	})
 
 	// Create a middleware with a specific buffer size
-	bufferSize := 50 // Use a different size than the default
-	middleware := TraceMiddlewareWithConfig(bufferSize)
+	bufferSize := 50                               // Use a different size than the default
+	traceMiddleware := TraceWithConfig(bufferSize) // Use the variable
 
 	// Create a wrapped handler
-	wrappedHandler := middleware(handler)
+	wrappedHandler := traceMiddleware(handler) // Use the correct variable name
 
 	// Create a request
 	req, err := http.NewRequest("GET", "/test-config", nil)

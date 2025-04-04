@@ -454,7 +454,7 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 
 	// Create a chain of middleware with IP middleware first, then rate limiting
 	ipConfig := DefaultIPConfig()
-	ipMiddleware := ClientIPMiddleware(ipConfig)
+	ipMiddleware := ClientIPMiddleware(ipConfig) // Use the variable
 
 	// Apply the middleware chain: IP middleware -> Rate limit middleware -> Handler
 	handler := ipMiddleware(rateLimitMiddleware(testHandler))

@@ -85,8 +85,8 @@ func TestRecovery(t *testing.T) {
 	})
 
 	// Apply the Recovery middleware
-	middleware := Recovery(logger)
-	wrappedHandler := middleware(handler)
+	recoveryMiddleware := Recovery(logger) // Use the variable
+	wrappedHandler := recoveryMiddleware(handler)
 
 	// Create a test request
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -138,8 +138,8 @@ func TestMaxBodySize(t *testing.T) {
 	})
 
 	// Apply the MaxBodySize middleware with a limit of 10 bytes
-	middleware := MaxBodySize(10)
-	wrappedHandler := middleware(handler)
+	maxBodyMiddleware := MaxBodySize(10) // Use the variable
+	wrappedHandler := maxBodyMiddleware(handler)
 
 	// Create a test request with a body larger than the limit
 	req := httptest.NewRequest("POST", "/test", strings.NewReader("This is a test body that is larger than 10 bytes"))
@@ -182,8 +182,8 @@ func TestCORS(t *testing.T) {
 			AllowCredentials: true,
 			MaxAge:           time.Hour,
 		}
-		middleware := CORS(corsConfig)
-		wrappedHandler := middleware(handler)
+		corsMiddleware := CORS(corsConfig) // Use the variable
+		wrappedHandler := corsMiddleware(handler)
 
 		// Test Actual Request (GET)
 		reqGet := httptest.NewRequest("GET", "/test", nil)
@@ -254,8 +254,8 @@ func TestCORS(t *testing.T) {
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
-		middleware := CORS(CORSOptions{}) // Empty config
-		wrappedHandler := middleware(handler)
+		corsMiddleware := CORS(CORSOptions{}) // Empty config // Use the variable
+		wrappedHandler := corsMiddleware(handler)
 
 		// Test Actual Request (GET)
 		reqGet := httptest.NewRequest("GET", "/test", nil)
@@ -327,8 +327,8 @@ func TestLoggingMiddleware_ServerError(t *testing.T) {
 	})
 
 	// Apply the Logging middleware
-	middleware := Logging(logger)
-	wrappedHandler := middleware(handler)
+	loggingMiddleware := Logging(logger) // Use the variable
+	wrappedHandler := loggingMiddleware(handler)
 
 	// Create a test request
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -373,8 +373,8 @@ func TestLoggingMiddleware_ClientError(t *testing.T) {
 	})
 
 	// Apply the Logging middleware
-	middleware := Logging(logger)
-	wrappedHandler := middleware(handler)
+	loggingMiddleware := Logging(logger) // Use the variable
+	wrappedHandler := loggingMiddleware(handler)
 
 	// Create a test request
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -420,8 +420,8 @@ func TestLoggingMiddleware_SlowRequest(t *testing.T) {
 	})
 
 	// Apply the Logging middleware
-	middleware := Logging(logger)
-	wrappedHandler := middleware(handler)
+	loggingMiddleware := Logging(logger) // Use the variable
+	wrappedHandler := loggingMiddleware(handler)
 
 	// Create a test request
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -570,8 +570,8 @@ func TestTimeout_ContextCancellation(t *testing.T) {
 	})
 
 	// Apply the Timeout middleware with a 50ms timeout
-	middleware := Timeout(50 * time.Millisecond)
-	wrappedHandler := middleware(handler)
+	timeoutMiddleware := Timeout(50 * time.Millisecond) // Use the variable
+	wrappedHandler := timeoutMiddleware(handler)
 
 	// Create a test request
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -594,8 +594,8 @@ func TestTimeout_HandlerCompletes(t *testing.T) {
 	})
 
 	// Apply the Timeout middleware with a 1s timeout
-	middleware := Timeout(1 * time.Second)
-	wrappedHandler := middleware(handler)
+	timeoutMiddleware := Timeout(1 * time.Second) // Use the variable
+	wrappedHandler := timeoutMiddleware(handler)
 
 	// Create a test request
 	req := httptest.NewRequest("GET", "/test", nil)

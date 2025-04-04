@@ -201,6 +201,7 @@ func NewBearerTokenMiddleware[T comparable, U any](
 }
 
 // NewBearerTokenValidatorMiddleware creates a middleware that uses Bearer Token Authentication
+// NewBearerTokenValidatorMiddleware creates a middleware that uses Bearer Token Authentication
 // with a custom validator function.
 // T is the User ID type (comparable), U is the User object type (any).
 func NewBearerTokenValidatorMiddleware[T comparable, U any](
@@ -370,6 +371,7 @@ func AuthenticationWithUser[T comparable, U any](
 }
 
 // NewBearerTokenWithUserMiddleware creates a middleware that uses Bearer Token Authentication
+// NewBearerTokenWithUserMiddleware creates a middleware that uses Bearer Token Authentication
 // and returns a user object, adding it to the SRouterContext.
 // T is the User ID type (comparable), U is the User object type (any).
 func NewBearerTokenWithUserMiddleware[T comparable, U any](
@@ -382,6 +384,7 @@ func NewBearerTokenWithUserMiddleware[T comparable, U any](
 	return AuthenticationWithUserProvider[T, U](provider, logger)
 }
 
+// NewAPIKeyWithUserMiddleware creates a middleware that uses API Key Authentication
 // NewAPIKeyWithUserMiddleware creates a middleware that uses API Key Authentication
 // and returns a user object, adding it to the SRouterContext.
 // T is the User ID type (comparable), U is the User object type (any).

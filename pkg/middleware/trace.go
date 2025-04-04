@@ -223,10 +223,10 @@ func AddTraceIDToRequest(r *http.Request, traceID string) *http.Request {
 	return r.WithContext(ctx)
 }
 
-// TraceMiddleware creates a middleware that generates a unique trace ID for each request
+// traceMiddleware creates a middleware that generates a unique trace ID for each request
 // and adds it to the request context. This allows for request tracing across logs.
 // This implementation uses a precomputed pool of UUIDs for better performance.
-func TraceMiddleware() common.Middleware {
+func traceMiddleware() common.Middleware {
 	// Get or initialize the default generator
 	generator := GetDefaultGenerator()
 
@@ -245,9 +245,9 @@ func TraceMiddleware() common.Middleware {
 	}
 }
 
-// TraceMiddlewareWithConfig creates a trace middleware with a custom ID generator configuration.
+// traceMiddlewareWithConfig creates a trace middleware with a custom ID generator configuration.
 // Generators with the same buffer size are shared for memory efficiency.
-func TraceMiddlewareWithConfig(bufferSize int) common.Middleware {
+func traceMiddlewareWithConfig(bufferSize int) common.Middleware {
 	// Get or create a generator with the specified buffer size
 	generator := getOrCreateGenerator(bufferSize)
 
