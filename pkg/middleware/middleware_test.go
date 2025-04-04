@@ -179,6 +179,7 @@ func TestCORS(t *testing.T) {
 		Origins: []string{"http://example.com", "https://example.org"},
 		Methods: []string{"GET", "POST", "PUT"},
 		Headers: []string{"Content-Type", "Authorization"},
+		MaxAge:  time.Hour,
 	}
 	middleware := CORS(corsConfig)
 	wrappedHandler := middleware(handler)

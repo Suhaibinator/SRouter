@@ -429,6 +429,7 @@ func TestMiddlewareIntegration(t *testing.T) {
 				Origins: []string{"*"},
 				Methods: []string{"GET", "POST"},
 				Headers: []string{"Content-Type"},
+				MaxAge:  time.Hour,
 			}),
 		},
 		SubRouters: []SubRouterConfig{

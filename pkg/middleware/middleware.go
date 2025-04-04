@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -240,7 +241,7 @@ func CORS(corsConfig CORSOptions) Middleware {
 			}
 
 			if corsConfig.MaxAge > 0 {
-				w.Header().Set("Access-Control-Max-Age", corsConfig.MaxAge.String())
+				w.Header().Set("Access-Control-Max-Age", strconv.Itoa(int(corsConfig.MaxAge.Seconds())))
 			}
 
 			// Handle preflight requests
