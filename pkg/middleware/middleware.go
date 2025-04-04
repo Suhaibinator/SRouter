@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -215,21 +216,32 @@ func (rw *mutexResponseWriter) Flush() {
 	}
 }
 
+type CORSOptions struct {
+	Origins []string
+	Methods []string
+	Headers []string
+	MaxAge  time.Duration
+}
+
 // CORS is a middleware that adds Cross-Origin Resource Sharing (CORS) headers to the response.
 // It allows you to specify which origins, methods, and headers are allowed for cross-origin requests.
 // This middleware also handles preflight OPTIONS requests automatically.
-func CORS(origins []string, methods []string, headers []string) Middleware {
+func CORS(corsConfig CORSOptions) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Set CORS headers
-			if len(origins) > 0 {
-				w.Header().Set("Access-Control-Allow-Origin", strings.Join(origins, ", "))
+			if len(corsConfig.Origins) > 0 {
+				w.Header().Set("Access-Control-Allow-Origin", strings.Join(corsConfig.Origins, ", "))
 			}
-			if len(methods) > 0 {
-				w.Header().Set("Access-Control-Allow-Methods", strings.Join(methods, ", "))
+			if len(corsConfig.Methods) > 0 {
+				w.Header().Set("Access-Control-Allow-Methods", strings.Join(corsConfig.Methods, ", "))
 			}
-			if len(headers) > 0 {
-				w.Header().Set("Access-Control-Allow-Headers", strings.Join(headers, ", "))
+			if len(corsConfig.Headers) > 0 {
+				w.Header().Set("Access-Control-Allow-Headers", strings.Join(corsConfig.Headers, ", "))
+			}
+
+			if corsConfig.MaxAge > 0 {
+				w.Header().Set("Access-Control-Max-Age", strconv.Itoa(int(corsConfig.MaxAge.Seconds())))
 			}
 
 			// Handle preflight requests

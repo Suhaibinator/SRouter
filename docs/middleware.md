@@ -151,7 +151,7 @@ SRouter provides several built-in middleware functions, typically located in the
 -   **`TraceMiddleware`**: Adds a unique trace ID to the request context.
 -   **Authentication Middleware**: (e.g., `NewBasicAuthMiddleware`, `NewBearerTokenMiddleware`, `NewAPIKeyMiddleware`) Handles specific authentication schemes.
 -   **`RateLimiterMiddleware`**: Applies rate limiting based on configuration. (Often applied internally based on config).
--   **`CORS`**: Adds Cross-Origin Resource Sharing headers.
+-   **`CORS`**: Adds Cross-Origin Resource Sharing headers.  It takes a `CORSOptions` struct as an argument to configure the allowed origins, methods, and headers.
 
 Always check the specific package documentation or source code for the most up-to-date list and usage details of built-in middleware.
 
