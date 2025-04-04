@@ -174,10 +174,13 @@ func TestCORS(t *testing.T) {
 	})
 
 	// Apply the CORS middleware
-	origins := []string{"http://example.com", "https://example.org"}
-	methods := []string{"GET", "POST", "PUT"}
-	headers := []string{"Content-Type", "Authorization"}
-	middleware := CORS(origins, methods, headers)
+	// Apply the CORS middleware
+	corsConfig := CORSOptions{
+		Origins: []string{"http://example.com", "https://example.org"},
+		Methods: []string{"GET", "POST", "PUT"},
+		Headers: []string{"Content-Type", "Authorization"},
+	}
+	middleware := CORS(corsConfig)
 	wrappedHandler := middleware(handler)
 
 	// Create a test request
@@ -216,7 +219,7 @@ func TestCORS(t *testing.T) {
 	}
 
 	// Test with empty arrays
-	middleware = CORS([]string{}, []string{}, []string{})
+	middleware = CORS(CORSOptions{})
 	wrappedHandler = middleware(handler)
 
 	req = httptest.NewRequest("GET", "/test", nil)

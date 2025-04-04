@@ -425,7 +425,11 @@ func TestMiddlewareIntegration(t *testing.T) {
 	r := NewRouter(RouterConfig{
 		Logger: logger,
 		Middlewares: []Middleware{
-			middleware.CORS([]string{"*"}, []string{"GET", "POST"}, []string{"Content-Type"}),
+			middleware.CORS(middleware.CORSOptions{
+				Origins: []string{"*"},
+				Methods: []string{"GET", "POST"},
+				Headers: []string{"Content-Type"},
+			}),
 		},
 		SubRouters: []SubRouterConfig{
 			{
