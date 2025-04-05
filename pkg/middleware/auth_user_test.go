@@ -316,7 +316,7 @@ func TestAuthenticationWithUserProvider(t *testing.T) {
 	})
 
 	// Create a middleware
-	middleware := AuthenticationWithUserProvider[string, User](provider, logger)
+	middleware := AuthenticationWithUserProvider[string](provider, logger)
 
 	// Wrap the handler
 	wrappedHandler := middleware(handler)
@@ -380,7 +380,7 @@ func TestAuthenticationWithUser(t *testing.T) {
 	}
 
 	// Create a middleware
-	middleware := AuthenticationWithUser[string, User](authFunc)
+	middleware := AuthenticationWithUser[string](authFunc)
 
 	// Wrap the handler
 	wrappedHandler := middleware(handler)
@@ -419,7 +419,7 @@ func TestGetUser(t *testing.T) {
 
 	// Create a request with the user in the context using the new context wrapper
 	req, _ := http.NewRequest("GET", "/", nil)
-	ctx := WithUser[string, User](req.Context(), user)
+	ctx := WithUser[string](req.Context(), user)
 	req = req.WithContext(ctx)
 
 	// Get the user from the context
@@ -450,7 +450,7 @@ func TestNewBearerTokenWithUserMiddleware(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 
 	// Create a middleware
-	middleware := NewBearerTokenWithUserMiddleware[string, User](
+	middleware := NewBearerTokenWithUserMiddleware[string](
 		func(token string) (*User, error) {
 			if token == "token1" {
 				return &User{
@@ -517,7 +517,7 @@ func TestNewAPIKeyWithUserMiddleware(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 
 	// Create a middleware
-	middleware := NewAPIKeyWithUserMiddleware[string, User](
+	middleware := NewAPIKeyWithUserMiddleware[string](
 		func(key string) (*User, error) {
 			if key == "key1" {
 				return &User{

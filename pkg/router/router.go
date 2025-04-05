@@ -898,7 +898,7 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 				// Add the user ID to the request context using middleware package functions
 				ctx := middleware.WithUserID[T, U](req.Context(), id)
 				if r.config.AddUserObjectToCtx {
-					ctx = middleware.WithUser[T, U](ctx, &user)
+					ctx = middleware.WithUser[T](ctx, &user)
 				}
 				req = req.WithContext(ctx)
 				// Get trace ID from context

@@ -35,7 +35,7 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 		return user
 	}
 
-	router := NewRouter[string, string](config, authFunction, getUserIDFromUser)
+	router := NewRouter(config, authFunction, getUserIDFromUser)
 
 	// Create a base test handler
 	baseHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +130,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 	core, logs := observer.New(zap.InfoLevel)
 	logger := zap.New(core)
 
-	r := NewRouter[string, string](RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := mw.GetUserIDFromRequest[string, string](r)
@@ -196,7 +196,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 	// Test with valid Authorization header (using debug logger)
 	debugCore, debugLogs := observer.New(zap.DebugLevel)
 	debugLogger := zap.New(debugCore)
-	r = NewRouter[string, string](RouterConfig{Logger: debugLogger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r = NewRouter(RouterConfig{Logger: debugLogger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	wrappedHandler = r.authRequiredMiddleware(handler) // Re-wrap with new router instance
 
 	req, _ = http.NewRequest("GET", "/test", nil)
@@ -244,7 +244,7 @@ func TestAuthRequiredMiddlewareWithTraceID(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
-	r := NewRouter[string, string](RouterConfig{Logger: logger, EnableTraceID: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, EnableTraceID: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

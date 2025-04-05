@@ -254,6 +254,6 @@ func NewGenericRouteDefinition[Req any, Resp any, UserID comparable, User any](
 		effectiveRateLimit := r.getEffectiveRateLimit(route.RateLimit, sr.RateLimitOverride) // This returns *RateLimitConfig[UserID, User]
 
 		// Call the underlying generic registration function with the modified config and effective settings
-		RegisterGenericRoute[Req, Resp, UserID, User](r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
+		RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
 	}
 }

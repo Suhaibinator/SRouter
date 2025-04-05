@@ -3,6 +3,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/hex"
 	"net/http"
 	"sync"
 	"time"
@@ -81,8 +82,8 @@ func getOrCreateGenerator(bufferSize int) *IDGenerator {
 func (g *IDGenerator) init() {
 	g.initOnce.Do(func() {
 		// First fill the channel
-		for i := 0; i < g.size; i++ {
-			g.idChan <- uuid.New().String()
+		for range g.size {
+			g.idChan <- generateUUID()
 		}
 
 		// Then start the background worker to keep it filled
@@ -106,8 +107,8 @@ func (g *IDGenerator) init() {
 					if len(batchUUIDs) == 0 {
 						// Refill our batch
 						batchUUIDs = batchUUIDs[:0] // Clear without deallocating
-						for i := 0; i < batchSize; i++ {
-							batchUUIDs = append(batchUUIDs, uuid.New().String())
+						for range batchSize {
+							batchUUIDs = append(batchUUIDs, generateUUID())
 						}
 					}
 
@@ -132,7 +133,7 @@ func (g *IDGenerator) init() {
 				} else {
 					// Normal case: channel has plenty of capacity, add one at a time
 					select {
-					case g.idChan <- uuid.New().String():
+					case g.idChan <- generateUUID():
 						// Successfully added a new UUID
 					default:
 						// Channel is full, sleep longer to save CPU
@@ -145,6 +146,12 @@ func (g *IDGenerator) init() {
 			}
 		}()
 	})
+}
+
+func generateUUID() string {
+	// Generate a new UUID and return it as a string
+	id := uuid.New()
+	return hex.EncodeToString(id[:])
 }
 
 // GetID returns a precomputed UUID from the channel.
@@ -166,7 +173,7 @@ func (g *IDGenerator) GetIDNonBlocking() string {
 		return id
 	default:
 		// Channel is empty, generate a new UUID on the spot as fallback
-		return uuid.New().String()
+		return generateUUID()
 	}
 }
 

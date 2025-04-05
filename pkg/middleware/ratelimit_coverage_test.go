@@ -51,7 +51,7 @@ func TestCreateRateLimitMiddleware_Coverage(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create a rate limit middleware
-	middleware := CreateRateLimitMiddleware[string, string](
+	middleware := CreateRateLimitMiddleware(
 		"test-bucket",
 		10,
 		time.Minute,
