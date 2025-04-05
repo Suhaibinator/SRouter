@@ -123,6 +123,7 @@ routerConfig := router.RouterConfig{
                         mymiddleware.LogUserIDMiddleware(logger), // Route: Runs last before handler
                     },
                     Handler: GetUsersHandler,
+                    AuthLevel: router.AuthRequired, // Example: Requires authentication
                 },
                 // ... other v1 routes
             },
@@ -130,6 +131,10 @@ routerConfig := router.RouterConfig{
     },
     // ...
 }
+
+// Note: The router's internal authentication middleware (authRequiredMiddleware, authOptionalMiddleware)
+// automatically bypass authentication checks for HTTP OPTIONS requests (preflight requests).
+// This ensures CORS preflight requests succeed without needing explicit authentication.
 ```
 
 ## Middleware Execution Order

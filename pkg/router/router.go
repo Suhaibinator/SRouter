@@ -411,7 +411,7 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 	effectiveRateLimit := r.getEffectiveRateLimit(route.RateLimit, subRouterRateLimit) // This returns *RateLimitConfig[UserID, User]
 
 	// Call the underlying generic registration function with the modified config
-	RegisterGenericRoute[Req, Resp, UserID, User](r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
+	RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
 
 	return nil
 }
@@ -783,6 +783,11 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 // It uses the middleware.AuthenticationWithUser function with a configurable authentication function.
 func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodOptions {
+			// Allow preflight requests without authentication
+			next.ServeHTTP(w, req)
+			return
+		}
 		// Declare traceID variable to be used throughout the function
 		var traceID string
 		// Check for the presence of an Authorization header
@@ -876,6 +881,11 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 // but allows the request to proceed even if authentication fails.
 func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodOptions {
+			// Allow preflight requests without authentication
+			next.ServeHTTP(w, req)
+			return
+		}
 		// Try to authenticate the request
 		authHeader := req.Header.Get("Authorization")
 		if authHeader != "" {
