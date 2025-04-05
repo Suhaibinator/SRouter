@@ -195,7 +195,7 @@ func main() {
 	// --- Create Router and Register Sub-Routers ---
 
 	// Create a router with string as both the user ID and user type
-	r := router.NewRouter[string, string](router.RouterConfig{
+	r := router.NewRouter(router.RouterConfig{
 		Logger:        logger,
 		GlobalTimeout: 5 * time.Second,
 		SubRouters:    []router.SubRouterConfig{apiSubRouter}, // Register only the top-level sub-router
@@ -209,7 +209,7 @@ func main() {
 	profileCodec := codec.NewJSONCodec[ProfileRequest, ProfileResponse]()
 
 	// Register generic route for /api/v1/greet
-	errV1Greet := router.RegisterGenericRouteOnSubRouter[GreetingRequest, GreetingResponse, string, string](
+	errV1Greet := router.RegisterGenericRouteOnSubRouter(
 		r,
 		"/api/v1", // Target prefix
 		router.RouteConfig[GreetingRequest, GreetingResponse]{
@@ -225,7 +225,7 @@ func main() {
 	}
 
 	// Register generic route for /api/v1/users/info
-	errV1UserInfo := router.RegisterGenericRouteOnSubRouter[UserRequest, UserResponse, string, string](
+	errV1UserInfo := router.RegisterGenericRouteOnSubRouter(
 		r,
 		"/api/v1/users", // Target prefix (nested)
 		router.RouteConfig[UserRequest, UserResponse]{
@@ -241,7 +241,7 @@ func main() {
 	}
 
 	// Register generic route for /api/v2/users/info
-	errV2UserInfo := router.RegisterGenericRouteOnSubRouter[UserRequest, UserResponse, string, string](
+	errV2UserInfo := router.RegisterGenericRouteOnSubRouter(
 		r,
 		"/api/v2/users", // Target prefix (nested)
 		router.RouteConfig[UserRequest, UserResponse]{
@@ -257,7 +257,7 @@ func main() {
 	}
 
 	// Register generic route for /api/v2/auth/profile
-	errV2AuthProfile := router.RegisterGenericRouteOnSubRouter[ProfileRequest, ProfileResponse, string, string](
+	errV2AuthProfile := router.RegisterGenericRouteOnSubRouter(
 		r,
 		"/api/v2/auth", // Target prefix (nested)
 		router.RouteConfig[ProfileRequest, ProfileResponse]{

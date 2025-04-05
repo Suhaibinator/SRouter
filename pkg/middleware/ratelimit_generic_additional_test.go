@@ -29,7 +29,7 @@ func TestExtractUser(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 		user := "testUser"
 		// Use the new context wrapper
-		ctx := WithUser[string, string](req.Context(), &user)
+		ctx := WithUser[string](req.Context(), &user)
 		req = req.WithContext(ctx)
 
 		// Create a config with UserIDFromUser function
@@ -55,7 +55,7 @@ func TestExtractUser(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 		user := "testUser"
 		// Use the new context wrapper
-		ctx := WithUser[string, string](req.Context(), &user)
+		ctx := WithUser[string](req.Context(), &user)
 		req = req.WithContext(ctx)
 
 		// Create a config with UserIDFromUser function but no UserIDToString
@@ -78,7 +78,7 @@ func TestExtractUser(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 		user := "testUser"
 		// Use the new context wrapper
-		ctx := WithUser[int, string](req.Context(), &user)
+		ctx := WithUser[int](req.Context(), &user)
 		req = req.WithContext(ctx)
 
 		// Create a config with UserIDFromUser function returning int
@@ -101,7 +101,7 @@ func TestExtractUser(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 		user := "testUser"
 		// Use the new context wrapper
-		ctx := WithUser[CustomID, string](req.Context(), &user)
+		ctx := WithUser[CustomID](req.Context(), &user)
 		req = req.WithContext(ctx)
 
 		// Create a CustomID instance

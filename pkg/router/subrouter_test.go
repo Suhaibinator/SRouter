@@ -17,7 +17,7 @@ import (
 func TestRegisterSubRouterWithCaching(t *testing.T) {
 
 	// Create a router with caching enabled
-	r := NewRouter[string, string](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger: zap.NewNop(),
 	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser) // Use mock functions
 
@@ -80,7 +80,7 @@ func TestRegisterSubRouterWithCaching(t *testing.T) {
 func TestRegisterSubRouterWithCachingNonGetMethod(t *testing.T) {
 
 	// Create a router with caching enabled
-	r := NewRouter[string, string](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger: zap.NewNop(),
 	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser) // Use mock functions
 
@@ -129,7 +129,7 @@ func TestRegisterSubRouterWithCachingNonGetMethod(t *testing.T) {
 func TestRegisterSubRouterWithCachingErrorCoverage(t *testing.T) { // Renamed to avoid conflict
 
 	// Create a router with caching enabled
-	r := NewRouter[string, string](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger: zap.NewNop(),
 	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser) // Use mock functions
 
@@ -179,7 +179,7 @@ func TestRegisterSubRouterWithCachingErrorCoverage(t *testing.T) { // Renamed to
 // TestExportedRegisterSubRouter tests the exported RegisterSubRouter wrapper function
 func TestExportedRegisterSubRouter(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter[string, string](RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
 	subRouterCfg := SubRouterConfig{
 		PathPrefix: "/export",
@@ -212,7 +212,7 @@ func TestRegisterSubRouter(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create a router with caching enabled
-	r := NewRouter[string, string](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger:        logger,
 		GlobalTimeout: 5 * time.Second,
 	},
@@ -399,7 +399,7 @@ func TestRegisterSubRouterWithoutCaching(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Create a router without caching
-	r := NewRouter[string, string](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger: logger,
 	},
 		mocks.MockAuthFunction,   // Use mock function

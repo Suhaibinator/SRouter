@@ -341,7 +341,7 @@ func TestRateLimitMiddlewareWithUserStrategy(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Add the user to the context using the new wrapper
 		user := TestUser{ID: "test-user", Name: "Test User"}
-		ctx := WithUser[string, TestUser](r.Context(), &user)
+		ctx := WithUser[string](r.Context(), &user)
 
 		// Call the handler with the updated context
 		handler.ServeHTTP(w, r.WithContext(ctx))
@@ -384,7 +384,7 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 
 	// Create a rate limit middleware using the helper function
-	middleware := CreateRateLimitMiddleware[string, TestUser](
+	middleware := CreateRateLimitMiddleware(
 		"test-bucket-create",
 		2, // Set a low limit for testing
 		time.Second,
@@ -406,7 +406,7 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Add the user to the context using the new wrapper
 		user := TestUser{ID: "test-user", Name: "Test User"}
-		ctx := WithUser[string, TestUser](r.Context(), &user)
+		ctx := WithUser[string](r.Context(), &user)
 
 		// Call the handler with the updated context
 		handler.ServeHTTP(w, r.WithContext(ctx))

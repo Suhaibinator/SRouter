@@ -131,7 +131,7 @@ func main() {
 						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.AuthOptional), // Authentication is optional. OPTIONS requests are automatically allowed.
 						Middlewares: []router.Middleware{
-							middleware.AuthenticationWithUser[*User, User](customUserAuth), // Middleware to add user to context if authenticated
+							middleware.AuthenticationWithUser[*User](customUserAuth), // Middleware to add user to context if authenticated
 						},
 						Handler: optionalAuthHandler,
 					},
@@ -140,7 +140,7 @@ func main() {
 						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.AuthRequired), // Authentication is required. OPTIONS requests are automatically allowed.
 						Middlewares: []router.Middleware{
-							middleware.AuthenticationWithUser[*User, User](customUserAuth), // Middleware to add user to context if authenticated
+							middleware.AuthenticationWithUser[*User](customUserAuth), // Middleware to add user to context if authenticated
 						},
 						Handler: requiredAuthHandler,
 					},
@@ -175,7 +175,7 @@ func main() {
 	}
 
 	// Create a router with *User as the user ID type and User as the user type
-	r := router.NewRouter[*User, User](routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
 
 	// Start the server
 	fmt.Println("Authentication Levels Example Server listening on :8080")

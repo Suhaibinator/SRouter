@@ -719,7 +719,7 @@ func TestRegisterGenericRouteOnSubRouter(t *testing.T) {
 	apiV1SR := SubRouterConfig{PathPrefix: "/api/v1", SubRouters: []SubRouterConfig{usersV1SR}}
 
 	// Create router with sub-router structure
-	r := NewRouter[string, string](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger:     logger,
 		SubRouters: []SubRouterConfig{apiV1SR},
 	}, authFunc, userIDFunc)
@@ -1345,7 +1345,7 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 	}
 
 	// Create router with the sub-router
-	r := NewRouter[string, string](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger:     logger,
 		SubRouters: []SubRouterConfig{subRouterCfg},
 	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
@@ -1459,7 +1459,7 @@ func TestRegisterSubRouter_UnsupportedRouteType(t *testing.T) {
 	}
 
 	// Create the router (this will trigger registerSubRouter)
-	_ = NewRouter[string, string](routerConfig, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	_ = NewRouter(routerConfig, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
 	// Assert that a warning was logged
 	assert.Equal(t, 1, observedLogs.Len(), "Expected exactly one log entry")
@@ -1564,7 +1564,7 @@ func TestAuthOptionalMiddleware_OptionsBypass(t *testing.T) {
 	}
 	mockUserID := func(user string) string { return user }
 
-	r := NewRouter[string, string](RouterConfig{Logger: logger}, mockAuth, mockUserID)
+	r := NewRouter(RouterConfig{Logger: logger}, mockAuth, mockUserID)
 
 	// Simple handler that checks for user ID if present (and method is not OPTIONS)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -1669,7 +1669,7 @@ func TestConcurrentRequests(t *testing.T) {
 	}
 
 	// Router setup with a mix of routes
-	r := NewRouter[string, string](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger: logger,
 		Middlewares: []common.Middleware{
 			addHeaderMiddleware("X-Global-Test", "true"),
