@@ -138,7 +138,7 @@ func main() {
 		GlobalMaxBodySize: 2 << 20, // 2 MB
 		Middlewares: []common.Middleware{
 			middleware.Recovery(logger),
-			middleware.Logging(logger),
+			middleware.Logging(logger, false), // Add false for default logging behavior
 		},
 		SubRouters: []router.SubRouterConfig{
 			// API v1 sub-router

@@ -327,7 +327,7 @@ func TestLoggingMiddleware_ServerError(t *testing.T) {
 	})
 
 	// Apply the Logging middleware
-	loggingMiddleware := Logging(logger) // Use the variable
+	loggingMiddleware := Logging(logger, false) // Use the variable, pass false for default behavior
 	wrappedHandler := loggingMiddleware(handler)
 
 	// Create a test request
@@ -373,7 +373,7 @@ func TestLoggingMiddleware_ClientError(t *testing.T) {
 	})
 
 	// Apply the Logging middleware
-	loggingMiddleware := Logging(logger) // Use the variable
+	loggingMiddleware := Logging(logger, false) // Use the variable, pass false for default behavior
 	wrappedHandler := loggingMiddleware(handler)
 
 	// Create a test request
@@ -420,7 +420,7 @@ func TestLoggingMiddleware_SlowRequest(t *testing.T) {
 	})
 
 	// Apply the Logging middleware
-	loggingMiddleware := Logging(logger) // Use the variable
+	loggingMiddleware := Logging(logger, false) // Use the variable, pass false for default behavior
 	wrappedHandler := loggingMiddleware(handler)
 
 	// Create a test request
