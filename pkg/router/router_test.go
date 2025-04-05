@@ -1404,7 +1404,7 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 		TimeoutOverride: 1 * time.Second, // Sub-router timeout
 		Routes:          []any{slowRegFunc},
 	}
-	slowRouter := NewRouter[string, string](RouterConfig{
+	slowRouter := NewRouter(RouterConfig{
 		Logger:     logger,
 		SubRouters: []SubRouterConfig{slowSubRouterCfg},
 	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
@@ -1499,7 +1499,7 @@ func TestAuthRequiredMiddleware_OptionsBypass(t *testing.T) {
 	}
 	mockUserID := func(user string) string { return user }
 
-	r := NewRouter[string, string](RouterConfig{Logger: logger}, mockAuth, mockUserID)
+	r := NewRouter(RouterConfig{Logger: logger}, mockAuth, mockUserID)
 
 	// Simple handler that checks for user ID if not OPTIONS
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -1507,13 +1507,11 @@ func TestAuthRequiredMiddleware_OptionsBypass(t *testing.T) {
 			userID, ok := middleware.GetUserIDFromRequest[string, string](req) // Use correct types
 			if !ok {
 				t.Error("Expected user ID in context for non-OPTIONS request")
-				http.Error(w, "Missing User ID", http.StatusInternalServerError)
-				return
+				return // Return immediately after reporting the test error
 			}
 			if userID != "user123" {
 				t.Errorf("Expected user ID 'user123', got '%s'", userID)
-				http.Error(w, "Incorrect User ID", http.StatusInternalServerError)
-				return
+				return // Return immediately after reporting the test error
 			}
 		}
 		w.WriteHeader(http.StatusOK)
