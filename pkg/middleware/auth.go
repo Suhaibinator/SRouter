@@ -119,6 +119,11 @@ func AuthenticationWithProvider[T comparable, U any](
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Check if the request is authenticated
+			if r.Method == http.MethodOptions {
+				// Allow preflight requests without authentication
+				next.ServeHTTP(w, r)
+				return
+			}
 			userID, ok := provider.Authenticate(r)
 			if !ok {
 				logger.Warn("Authentication failed",
@@ -147,6 +152,11 @@ func Authentication[T comparable, U any](
 ) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodOptions {
+				// Allow preflight requests without authentication
+				next.ServeHTTP(w, r)
+				return
+			}
 			// Check if the request is authenticated
 			userID, ok := authFunc(r)
 			if !ok {
@@ -173,6 +183,11 @@ func AuthenticationBool[T comparable, U any](
 ) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodOptions {
+				// Allow preflight requests without authentication
+				next.ServeHTTP(w, r)
+				return
+			}
 			// Check if the request is authenticated
 			if !authFunc(r) {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -338,7 +353,7 @@ func AuthenticationWithUserProvider[T comparable, U any](
 			}
 
 			// Store the user object in the SRouterContext
-			ctx := WithUser[T, U](r.Context(), user)
+			ctx := WithUser[T](r.Context(), user)
 
 			// Call next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -362,7 +377,7 @@ func AuthenticationWithUser[T comparable, U any](
 			}
 
 			// Store the user object in the SRouterContext
-			ctx := WithUser[T, U](r.Context(), user)
+			ctx := WithUser[T](r.Context(), user)
 
 			// Call next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -381,7 +396,7 @@ func NewBearerTokenWithUserMiddleware[T comparable, U any](
 	provider := &BearerTokenUserAuthProvider[U]{
 		GetUserFunc: getUserFunc,
 	}
-	return AuthenticationWithUserProvider[T, U](provider, logger)
+	return AuthenticationWithUserProvider[T](provider, logger)
 }
 
 // NewAPIKeyWithUserMiddleware creates a middleware that uses API Key Authentication
@@ -398,5 +413,5 @@ func NewAPIKeyWithUserMiddleware[T comparable, U any](
 		Header:      header,
 		Query:       query,
 	}
-	return AuthenticationWithUserProvider[T, U](provider, logger)
+	return AuthenticationWithUserProvider[T](provider, logger)
 }

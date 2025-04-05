@@ -42,6 +42,9 @@ func main() {
 	}
 
 	// Create authentication middlewares
+	// Note: All authentication middleware provided by SRouter automatically allows
+	// OPTIONS requests to pass through without authentication checks, facilitating
+	// CORS preflight requests.
 	bearerTokenMiddleware := middleware.NewBearerTokenMiddleware[int64, any](bearerTokens, logger)
 	apiKeyMiddleware := middleware.NewAPIKeyMiddleware[int64, any](apiKeys, "X-API-Key", "api_key", logger)
 

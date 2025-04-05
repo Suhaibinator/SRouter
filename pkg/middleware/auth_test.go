@@ -8,15 +8,17 @@ import (
 
 // TestAuthenticationGeneric tests the generic Authentication middleware
 func TestAuthenticationGeneric(t *testing.T) {
-	// Create a test handler
+	// Create a test handler that expects user ID only for non-OPTIONS requests
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Get the user ID from the context
-		userID, ok := GetUserIDFromRequest[string, any](r)
-		if !ok {
-			t.Error("Expected user ID in context, but not found")
-		}
-		if userID != "user123" {
-			t.Errorf("Expected user ID 'user123', got '%s'", userID)
+		if r.Method != http.MethodOptions {
+			// Get the user ID from the context only for non-OPTIONS requests
+			userID, ok := GetUserIDFromRequest[string, any](r)
+			if !ok {
+				t.Error("Expected user ID in context for non-OPTIONS request, but not found")
+			}
+			if userID != "user123" {
+				t.Errorf("Expected user ID 'user123' for non-OPTIONS request, got '%s'", userID)
+			}
 		}
 		w.WriteHeader(http.StatusOK)
 	})
@@ -58,6 +60,19 @@ func TestAuthenticationGeneric(t *testing.T) {
 	// Check that the response status code is 401 (Unauthorized)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("Expected status code %d, got %d", http.StatusUnauthorized, rec.Code)
+	}
+
+	// Test with OPTIONS request (should bypass authentication)
+	req = httptest.NewRequest("OPTIONS", "/test", nil)
+	req.Header.Set("X-Auth-Token", "invalid-token") // Even with invalid token
+	rec = httptest.NewRecorder()
+
+	// Call the handler
+	wrappedHandler.ServeHTTP(rec, req)
+
+	// Check that the response status code is 200 (OK) because OPTIONS should skip auth
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status code %d for OPTIONS request, got %d", http.StatusOK, rec.Code)
 	}
 }
 
@@ -113,5 +128,18 @@ func TestAuthentication(t *testing.T) {
 	// Check that the response status code is 401 (Unauthorized)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("Expected status code %d, got %d", http.StatusUnauthorized, rec.Code)
+	}
+
+	// Test with OPTIONS request (should bypass authentication)
+	req = httptest.NewRequest("OPTIONS", "/test", nil)
+	req.Header.Set("X-Auth-Token", "invalid-token") // Even with invalid token
+	rec = httptest.NewRecorder()
+
+	// Call the handler
+	wrappedHandler.ServeHTTP(rec, req)
+
+	// Check that the response status code is 200 (OK) because OPTIONS should skip auth
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status code %d for OPTIONS request, got %d", http.StatusOK, rec.Code)
 	}
 }

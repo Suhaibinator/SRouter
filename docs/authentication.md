@@ -53,6 +53,8 @@ This middleware is responsible for:
     *   **On Failure (for `AuthRequired`)**: Write an error response (e.g., `http.Error(w, "Unauthorized", http.StatusUnauthorized)`) and **do not** call `next.ServeHTTP`.
     *   **On Failure (for `AuthOptional`)**: Simply call `next.ServeHTTP(w, r)` without populating the context.
 
+**Important Note on OPTIONS Requests:** All built-in authentication middleware automatically bypasses authentication checks for HTTP `OPTIONS` requests. This is done to ensure that CORS preflight requests function correctly without requiring authentication headers. If you implement custom authentication middleware, you should generally include similar logic to skip checks for `OPTIONS` requests.
+
 **Applying Middleware:** Authentication middleware should typically be added globally in `RouterConfig.Middlewares` or per-sub-router in `SubRouterConfig.Middlewares` so it runs for all relevant routes. Ensure it runs *before* other middleware that might depend on the user context (like user-based rate limiting).
 
 ```go
