@@ -55,7 +55,7 @@ func main() {
 		GlobalMaxBodySize: 1 << 20, // 1 MB
 		EnableMetrics:     true,
 		Middlewares: []common.Middleware{
-			middleware.Logging(logger),
+			middleware.Logging(logger, false), // Add false for default logging behavior
 		},
 		SubRouters: []router.SubRouterConfig{
 			{

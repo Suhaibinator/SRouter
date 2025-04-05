@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/julien040/go-ternary"
+
 	// Added back
 	"go.uber.org/zap"
 )
@@ -60,8 +62,8 @@ func recovery(logger *zap.Logger) Middleware {
 // - 500+ status codes are logged at Error level
 // - 400-499 status codes are logged at Warn level
 // - Requests taking longer than 1 second are logged at Warn level
-// - All other requests are logged at Debug level
-func logging(logger *zap.Logger) Middleware {
+// - All other requests are logged at Debug level (or Info level if logInfoLevelForSuccess is true)
+func logging(logger *zap.Logger, logInfoLevelForSuccess bool) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -77,7 +79,8 @@ func logging(logger *zap.Logger) Middleware {
 
 			// Calculate duration
 			duration := time.Since(start)
-
+			traceId := GetTraceIDFromContext(r.Context())
+			ip, foundIp := GetClientIP[string, string](r.Context())
 			// Use appropriate log level based on status code and duration
 			if rw.statusCode >= 500 {
 				// Server errors at Error level
@@ -86,7 +89,8 @@ func logging(logger *zap.Logger) Middleware {
 					zap.String("path", r.URL.Path),
 					zap.Int("status", rw.statusCode),
 					zap.Duration("duration", duration),
-					zap.String("remote_addr", r.RemoteAddr),
+					zap.String("ip", ternary.If(foundIp, ip, r.RemoteAddr)),
+					zap.String("trace_id", traceId),
 				)
 			} else if rw.statusCode >= 400 {
 				// Client errors at Warn level
@@ -95,6 +99,8 @@ func logging(logger *zap.Logger) Middleware {
 					zap.String("path", r.URL.Path),
 					zap.Int("status", rw.statusCode),
 					zap.Duration("duration", duration),
+					zap.String("ip", ternary.If(foundIp, ip, r.RemoteAddr)),
+					zap.String("trace_id", traceId),
 				)
 			} else if duration > 1*time.Second {
 				// Slow requests at Warn level
@@ -103,14 +109,19 @@ func logging(logger *zap.Logger) Middleware {
 					zap.String("path", r.URL.Path),
 					zap.Int("status", rw.statusCode),
 					zap.Duration("duration", duration),
+					zap.String("ip", ternary.If(foundIp, ip, r.RemoteAddr)),
+					zap.String("trace_id", traceId),
 				)
 			} else {
-				// Normal requests at Debug level to avoid log spam
-				logger.Debug("Request",
+				// Normal requests
+				logFunc := ternary.If(logInfoLevelForSuccess, logger.Info, logger.Debug)
+				logFunc("Request",
 					zap.String("method", r.Method),
 					zap.String("path", r.URL.Path),
 					zap.Int("status", rw.statusCode),
 					zap.Duration("duration", duration),
+					zap.String("ip", ternary.If(foundIp, ip, r.RemoteAddr)),
+					zap.String("trace_id", traceId),
 				)
 			}
 		})
