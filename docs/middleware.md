@@ -146,7 +146,10 @@ Middleware defined earlier in a slice generally runs *before* middleware defined
 
 SRouter provides several built-in middleware functions, typically located in the `pkg/middleware` package. Refer to the source code or specific examples for their exact signatures and usage. Common examples include:
 
--   **`Logging`**: Logs request details (method, path, status, duration, trace ID).
+-   **`Logging(logger *zap.Logger, logInfoLevelForSuccess bool)`**: Logs request details (method, path, status, duration, IP, trace ID).
+    -   By default (`logInfoLevelForSuccess = false`), successful requests (2xx status, < 1s duration) are logged at `Debug` level to reduce noise. Errors (5xx) are logged at `Error`, client errors (4xx) and slow requests (> 1s) at `Warn`.
+    -   If `logInfoLevelForSuccess` is set to `true`, successful requests will be logged at `Info` level instead of `Debug`.
+    -   Example: `middleware.Logging(logger, true)` // Log successful requests at Info level.
 -   **`Recovery`**: Recovers from panics in handlers/middleware and logs them, usually returning a 500 error. (SRouter often applies this internally).
 -   **`TraceMiddleware`**: Adds a unique trace ID to the request context.
 -   **Authentication Middleware**: (e.g., `NewBasicAuthMiddleware`, `NewBearerTokenMiddleware`, `NewAPIKeyMiddleware`) Handles specific authentication schemes.
