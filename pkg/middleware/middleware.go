@@ -114,10 +114,7 @@ func logging(logger *zap.Logger, logInfoLevelForSuccess bool) Middleware {
 				)
 			} else {
 				// Normal requests
-				logFunc := logger.Debug // Default to Debug
-				if logInfoLevelForSuccess {
-					logFunc = logger.Info // Use Info if configured
-				}
+				logFunc := ternary.If(logInfoLevelForSuccess, logger.Info, logger.Debug)
 				logFunc("Request",
 					zap.String("method", r.Method),
 					zap.String("path", r.URL.Path),
