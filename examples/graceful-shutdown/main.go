@@ -97,19 +97,19 @@ func main() {
 	// Register routes
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/slow",
-		Methods: []string{"GET"},
+		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: SlowHandler,
 	})
 
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/quick",
-		Methods: []string{"GET"},
+		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: QuickHandler,
 	})
 
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/status",
-		Methods: []string{"GET"},
+		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: StatusHandler,
 	})
 

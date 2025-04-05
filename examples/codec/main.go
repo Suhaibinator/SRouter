@@ -61,7 +61,7 @@ func main() {
 	// Define the generic route configuration
 	routeCfg := router.RouteConfig[*pb.User, *pb.User]{
 		Path:    "/users",
-		Methods: []string{"POST"},
+		Methods: []router.HttpMethod{router.MethodPost},
 		Codec:   protoCodec,
 		Handler: handleCreateUser,
 		// AuthLevel defaults to NoAuth if nil

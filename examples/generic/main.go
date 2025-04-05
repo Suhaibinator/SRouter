@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
+	"net/http" // Ensure net/http is imported
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
@@ -281,44 +281,44 @@ func main() {
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
 	// Register generic routes
-	router.RegisterGenericRoute[CreateUserRequest, CreateUserResponse, string, string](r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+	router.RegisterGenericRoute(r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:    "/users",
-		Methods: []string{"POST"},
+		Methods: []router.HttpMethod{router.MethodPost}, // Use string literal or http.MethodPost constant
 		Codec:   codec.NewJSONCodec[CreateUserRequest, CreateUserResponse](),
 		Handler: CreateUserHandler,
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
-	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
+	router.RegisterGenericRoute(r, router.RouteConfig[GetUserRequest, GetUserResponse]{
 		Path:    "/users/:id",
-		Methods: []string{"GET"},
+		Methods: []router.HttpMethod{router.MethodGet},                 // Use string literal or http.MethodGet constant
 		Codec:   codec.NewJSONCodec[GetUserRequest, GetUserResponse](), // Codec might not be used if ID is only from path
 		Handler: GetUserHandler,
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
-	router.RegisterGenericRoute[UpdateUserRequest, UpdateUserResponse, string, string](r, router.RouteConfig[UpdateUserRequest, UpdateUserResponse]{
+	router.RegisterGenericRoute(r, router.RouteConfig[UpdateUserRequest, UpdateUserResponse]{
 		Path:    "/users/:id",
-		Methods: []string{"PUT"},
+		Methods: []router.HttpMethod{router.MethodPut}, // Use string literal or http.MethodPut constant
 		Codec:   codec.NewJSONCodec[UpdateUserRequest, UpdateUserResponse](),
 		Handler: UpdateUserHandler,
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
-	router.RegisterGenericRoute[DeleteUserRequest, DeleteUserResponse, string, string](r, router.RouteConfig[DeleteUserRequest, DeleteUserResponse]{
+	router.RegisterGenericRoute(r, router.RouteConfig[DeleteUserRequest, DeleteUserResponse]{
 		Path:    "/users/:id",
-		Methods: []string{"DELETE"},
+		Methods: []router.HttpMethod{router.MethodDelete},                    // Use string literal or http.MethodDelete constant
 		Codec:   codec.NewJSONCodec[DeleteUserRequest, DeleteUserResponse](), // Codec might not be used
 		Handler: DeleteUserHandler,
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
-	router.RegisterGenericRoute[ListUsersRequest, ListUsersResponse, string, string](r, router.RouteConfig[ListUsersRequest, ListUsersResponse]{
+	router.RegisterGenericRoute(r, router.RouteConfig[ListUsersRequest, ListUsersResponse]{
 		Path:    "/users",
-		Methods: []string{"GET"},
+		Methods: []router.HttpMethod{router.MethodGet},                     // Use string literal or http.MethodGet constant
 		Codec:   codec.NewJSONCodec[ListUsersRequest, ListUsersResponse](), // Codec might not be used if params are from query
 		Handler: ListUsersHandler,
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
-	router.RegisterGenericRoute[EmptyRequest, ErrorResponse, string, string](r, router.RouteConfig[EmptyRequest, ErrorResponse]{
+	router.RegisterGenericRoute(r, router.RouteConfig[EmptyRequest, ErrorResponse]{
 		Path:    "/error",
-		Methods: []string{"GET"},
+		Methods: []router.HttpMethod{router.MethodGet}, // Use string literal or http.MethodGet constant
 		Codec:   codec.NewJSONCodec[EmptyRequest, ErrorResponse](),
 		Handler: ErrorHandler,
 	}, time.Duration(0), int64(0), nil) // Added effective settings

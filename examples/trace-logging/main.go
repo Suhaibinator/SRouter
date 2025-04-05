@@ -51,7 +51,7 @@ func main() {
 	// Register a route that logs with trace ID
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/hello",
-		Methods: []string{"GET"},
+		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Get the trace ID
 			traceID := middleware.GetTraceID(r)
@@ -80,7 +80,7 @@ func main() {
 	// Register a route that demonstrates propagating trace ID to a downstream service
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/downstream",
-		Methods: []string{"GET"},
+		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Get the trace ID
 			traceID := middleware.GetTraceID(r)

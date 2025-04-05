@@ -78,7 +78,7 @@ func BenchmarkSimpleRoute(b *testing.B) {
 	r := NewRouter(RouterConfig{Logger: logger}, nopAuthFunc, userIDFromString)
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/hello",
-		Methods: []string{http.MethodGet},
+		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: simpleHandler,
 	})
 
@@ -100,7 +100,7 @@ func BenchmarkRouteWithParams(b *testing.B) {
 	r := NewRouter(RouterConfig{Logger: logger}, nopAuthFunc, userIDFromString)
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/users/:id/posts/:postId", // Using existing path with two params
-		Methods: []string{http.MethodGet},
+		Methods: []HttpMethod{MethodGet},    // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			id := GetParam(r, "id")
 			postId := GetParam(r, "postId")
@@ -140,8 +140,8 @@ func BenchmarkMiddlewareStack(b *testing.B) {
 
 	r.RegisterRoute(RouteConfigBase{
 		Path:        "/secure",
-		Methods:     []string{http.MethodGet},
-		Middlewares: routeMiddleware, // Already qualified above
+		Methods:     []HttpMethod{MethodGet}, // Use HttpMethod enum
+		Middlewares: routeMiddleware,         // Already qualified above
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Check if context value was set
 			if val := r.Context().Value(testCtxKey); val != "testValue" {
@@ -186,8 +186,8 @@ func BenchmarkGenericRouteBody(b *testing.B) {
 	// Remove err assignment, use RouteConfig, add missing args, use correct SourceType
 	// Use RouteConfig directly, not embedding RouteConfigBase. Rename GenericHandler to Handler.
 	RegisterGenericRoute(r, RouteConfig[GenericRequestData, GenericResponseData]{
-		Path:       "/generic/body",           // Direct field
-		Methods:    []string{http.MethodPost}, // Direct field
+		Path:       "/generic/body",          // Direct field
+		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      jsonCodec,
 		SourceType: Body, // Use correct constant
 		Handler: func(r *http.Request, req GenericRequestData) (GenericResponseData, error) { // Correct signature
@@ -233,8 +233,8 @@ func BenchmarkGenericRoutePathParam(b *testing.B) {
 	// Remove err assignment, use RouteConfig, add missing args, use correct SourceType
 	// Use RouteConfig directly, not embedding RouteConfigBase. Rename GenericHandler to Handler.
 	RegisterGenericRoute(r, RouteConfig[GenericPathParamData, GenericResponseData]{
-		Path:    "/generic/param/:data",   // Direct field
-		Methods: []string{http.MethodGet}, // Direct field
+		Path:    "/generic/param/:data",  // Direct field
+		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		// Codec:      codec.NewNopCodec(), // Or a codec designed for path params
 		SourceType: Base64PathParameter, // Use correct constant
 		Handler: func(r *http.Request, req GenericPathParamData) (GenericResponseData, error) { // Correct signature
@@ -306,7 +306,7 @@ func BenchmarkRouterWithTimeout(b *testing.B) {
 
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/timeout",
-		Methods: []string{http.MethodGet},
+		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: simpleHandler,
 	})
 
@@ -338,8 +338,8 @@ func BenchmarkMemoryUsage(b *testing.B) {
 		path := fmt.Sprintf("/route%d", i)
 		r.RegisterRoute(RouteConfigBase{
 			Path:    path,
-			Methods: []string{http.MethodGet}, // Use constant
-			Handler: simpleHandler,            // Use helper
+			Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
+			Handler: simpleHandler,           // Use helper
 		})
 	}
 

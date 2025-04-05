@@ -108,7 +108,7 @@ func main() {
 					Routes: []any{ // Changed to []any
 						router.RouteConfigBase{
 							Path:    "/users/:id",
-							Methods: []string{"GET"},
+							Methods: []router.HttpMethod{router.MethodGet},
 							Handler: func(w http.ResponseWriter, req *http.Request) {
 								// Get the user ID from the path parameter
 								idStr := router.GetParam(req, "id")
@@ -146,7 +146,7 @@ func main() {
 	// 1. Standard route without caching (using request body)
 	router.RegisterGenericRoute(r, router.RouteConfig[UserRequest, UserResponse]{
 		Path:    "/users/body",
-		Methods: []string{"POST"},
+		Methods: []router.HttpMethod{router.MethodPost},
 		Codec:   jsonCodec,
 		Handler: getUserHandler,
 		// CacheResponse is false by default (and functionality removed)
@@ -155,7 +155,7 @@ func main() {
 	// 2. Route with caching using query parameter (Note: Caching functionality removed)
 	router.RegisterGenericRoute(r, router.RouteConfig[UserRequest, UserResponse]{
 		Path:       "/users/query",
-		Methods:    []string{"GET"},
+		Methods:    []router.HttpMethod{router.MethodGet},
 		Codec:      jsonCodec,
 		Handler:    getUserHandler,
 		SourceType: router.Base64QueryParameter,
@@ -167,7 +167,7 @@ func main() {
 	// 3. Route with caching using path parameter (Note: Caching functionality removed)
 	router.RegisterGenericRoute(r, router.RouteConfig[UserRequest, UserResponse]{
 		Path:       "/users/path/:data",
-		Methods:    []string{"GET"},
+		Methods:    []router.HttpMethod{router.MethodGet},
 		Codec:      jsonCodec,
 		Handler:    getUserHandler,
 		SourceType: router.Base64PathParameter,

@@ -33,7 +33,7 @@ func TestSubRouterIntegration(t *testing.T) {
 				Routes: []any{ // Changed to []any
 					RouteConfigBase{
 						Path:    "/users",
-						Methods: []string{"GET"},
+						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							w.Header().Set("Content-Type", "application/json")
 							_, _ = w.Write([]byte(`{"users":["user1","user2"]}`))
@@ -46,7 +46,7 @@ func TestSubRouterIntegration(t *testing.T) {
 				Routes: []any{ // Changed to []any
 					RouteConfigBase{
 						Path:    "/users",
-						Methods: []string{"GET"},
+						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							w.Header().Set("Content-Type", "application/json")
 							_, _ = w.Write([]byte(`{"users":["user3","user4"]}`))
@@ -112,7 +112,7 @@ func TestPathParameters(t *testing.T) {
 				Routes: []any{ // Changed to []any
 					RouteConfigBase{
 						Path:    "/users/:id",
-						Methods: []string{"GET"},
+						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							id := GetParam(r, "id")
 							w.Header().Set("Content-Type", "application/json")
@@ -121,7 +121,7 @@ func TestPathParameters(t *testing.T) {
 					},
 					RouteConfigBase{ // Add explicit type
 						Path:    "/posts/:postId/comments/:commentId",
-						Methods: []string{"GET"},
+						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							postId := GetParam(r, "postId")
 							commentId := GetParam(r, "commentId")
@@ -191,7 +191,7 @@ func TestTimeoutOverrides(t *testing.T) {
 				Routes: []any{ // Changed to []any
 					RouteConfigBase{
 						Path:    "/fast",
-						Methods: []string{"GET"},
+						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							// This handler returns immediately
 							w.WriteHeader(http.StatusOK)
@@ -199,7 +199,7 @@ func TestTimeoutOverrides(t *testing.T) {
 					},
 					RouteConfigBase{ // Add explicit type
 						Path:    "/slow",
-						Methods: []string{"GET"},
+						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							// This handler sleeps for 200ms, which is longer than the timeout
 							time.Sleep(200 * time.Millisecond)
@@ -208,7 +208,7 @@ func TestTimeoutOverrides(t *testing.T) {
 					},
 					RouteConfigBase{ // Add explicit type
 						Path:    "/custom-timeout",
-						Methods: []string{"GET"},
+						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 						Timeout: 300 * time.Millisecond,
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							// This handler sleeps for 200ms, which is shorter than the custom timeout
@@ -276,7 +276,7 @@ func TestMaxBodySizeOverrides(t *testing.T) {
 				Routes: []any{ // Changed to []any
 					RouteConfigBase{
 						Path:    "/small",
-						Methods: []string{"POST"},
+						Methods: []HttpMethod{MethodPost}, // Use HttpMethod enum
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							// Read the body
 							_, err := io.ReadAll(r.Body)
@@ -289,8 +289,8 @@ func TestMaxBodySizeOverrides(t *testing.T) {
 					},
 					RouteConfigBase{ // Add explicit type
 						Path:        "/large",
-						Methods:     []string{"POST"},
-						MaxBodySize: 100, // 100 bytes
+						Methods:     []HttpMethod{MethodPost}, // Use HttpMethod enum
+						MaxBodySize: 100,                      // 100 bytes
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							// Read the body
 							_, err := io.ReadAll(r.Body)
@@ -376,7 +376,7 @@ func TestGenericRouteIntegration(t *testing.T) {
 	// Register a generic route
 	RegisterGenericRoute(r, RouteConfig[TestRequest, TestResponse]{
 		Path:    "/greet",
-		Methods: []string{"POST"},
+		Methods: []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:   codec.NewJSONCodec[TestRequest, TestResponse](),
 		Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
 			return TestResponse{
@@ -447,7 +447,7 @@ func TestMiddlewareIntegration(t *testing.T) {
 				Routes: []any{ // Changed to []any
 					RouteConfigBase{
 						Path:    "/test",
-						Methods: []string{"GET"},
+						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 						Middlewares: []Middleware{
 							func(next http.Handler) http.Handler {
 								return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -527,7 +527,7 @@ func TestGracefulShutdown(t *testing.T) {
 	// Register a route that sleeps
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/sleep",
-		Methods: []string{"GET"},
+		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(100 * time.Millisecond)
 			w.WriteHeader(http.StatusOK)
@@ -610,7 +610,7 @@ func TestEdgeCases(t *testing.T) {
 	// Register a route with a root path
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/",
-		Methods: []string{"GET"},
+		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("Root"))
@@ -620,7 +620,7 @@ func TestEdgeCases(t *testing.T) {
 	// Register a route with a trailing slash
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/trailing/",
-		Methods: []string{"GET"},
+		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("Trailing"))
@@ -630,7 +630,7 @@ func TestEdgeCases(t *testing.T) {
 	// Register a route with special characters
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/special/:param",
-		Methods: []string{"GET"},
+		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			param := GetParam(r, "param")
 			w.WriteHeader(http.StatusOK)
@@ -641,7 +641,7 @@ func TestEdgeCases(t *testing.T) {
 	// Register a route with multiple methods
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/methods",
-		Methods: []string{"GET", "POST", "PUT", "DELETE"},
+		Methods: []HttpMethod{MethodGet, MethodPost, MethodPut, MethodDelete}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(r.Method))

@@ -88,7 +88,7 @@ func main() {
 			// Standard route
 			router.RouteConfigBase{
 				Path:      "/hello",
-				Methods:   []string{"GET"},
+				Methods:   []router.HttpMethod{router.MethodGet},
 				AuthLevel: router.Ptr(router.NoAuth),
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
@@ -99,7 +99,7 @@ func main() {
 			router.NewGenericRouteDefinition[GreetingRequest, GreetingResponse, string, string](
 				router.RouteConfig[GreetingRequest, GreetingResponse]{
 					Path:      "/greet", // Path relative to the sub-router prefix
-					Methods:   []string{"POST"},
+					Methods:   []router.HttpMethod{router.MethodPost},
 					AuthLevel: router.Ptr(router.NoAuth),
 					Codec:     greetingCodec,
 					Handler:   greetingHandler,
@@ -116,7 +116,7 @@ func main() {
 			router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
 				router.RouteConfig[UserRequest, UserResponse]{
 					Path:      "/users",
-					Methods:   []string{"POST"},
+					Methods:   []router.HttpMethod{router.MethodPost},
 					AuthLevel: router.Ptr(router.NoAuth),
 					Codec:     userCodec,
 					Handler:   userHandler,
@@ -126,7 +126,7 @@ func main() {
 			router.NewGenericRouteDefinition[GreetingRequest, GreetingResponse, string, string](
 				router.RouteConfig[GreetingRequest, GreetingResponse]{
 					Path:      "/greet",
-					Methods:   []string{"POST"},
+					Methods:   []router.HttpMethod{router.MethodPost},
 					AuthLevel: router.Ptr(router.NoAuth),
 					Codec:     greetingCodec,
 					Handler:   greetingHandler,

@@ -118,7 +118,7 @@ routerConfig := router.RouterConfig{
             Routes: []any{
                 router.RouteConfigBase{
                     Path: "/users",
-                    Methods: []string{"GET"},
+                    Methods: []router.HttpMethod{router.MethodGet},
                     Middlewares: []common.Middleware{
                         mymiddleware.LogUserIDMiddleware(logger), // Route: Runs last before handler
                     },

@@ -169,7 +169,7 @@ func main() {
 		Routes: []any{ // Changed to []any
 			router.RouteConfigBase{
 				Path:    "/login",
-				Methods: []string{"POST"},
+				Methods: []router.HttpMethod{router.MethodPost},
 				// Strict rate limit for auth endpoints (shared bucket)
 				RateLimit: &middleware.RateLimitConfig[any, any]{
 					BucketName:      "auth-endpoints",
@@ -189,7 +189,7 @@ func main() {
 		Routes: []any{ // Changed to []any
 			router.RouteConfigBase{
 				Path:    "/profile",
-				Methods: []string{"GET"},
+				Methods: []router.HttpMethod{router.MethodGet},
 				// User-based rate limiting
 				RateLimit: &middleware.RateLimitConfig[any, any]{
 					BucketName: "user-profile",
@@ -204,7 +204,7 @@ func main() {
 			},
 			router.RouteConfigBase{ // Add explicit type
 				Path:    "/public",
-				Methods: []string{"GET"},
+				Methods: []router.HttpMethod{router.MethodGet},
 				// IP-based rate limiting
 				RateLimit: &middleware.RateLimitConfig[any, any]{
 					BucketName: "public-endpoints",

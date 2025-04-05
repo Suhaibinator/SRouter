@@ -168,12 +168,12 @@ func main() {
 				Routes: []any{ // Changed to []any
 					router.RouteConfigBase{
 						Path:    "/hello",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: SimpleHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/slow",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							// Simulate a slow operation
 							time.Sleep(500 * time.Millisecond)
@@ -191,7 +191,7 @@ func main() {
 				Routes: []any{ // Changed to []any
 					router.RouteConfigBase{
 						Path:    "/resource",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: SimpleHandler,
 					},
 				},
@@ -220,7 +220,7 @@ func main() {
 	// Register a route with route-specific middleware
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/custom",
-		Methods: []string{"GET"},
+		Methods: []router.HttpMethod{router.MethodGet},
 		Middlewares: []common.Middleware{
 			func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

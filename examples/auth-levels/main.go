@@ -122,13 +122,13 @@ func main() {
 				Routes: []any{ // Changed to []any
 					router.RouteConfigBase{
 						Path:      "/no-auth",
-						Methods:   []string{"GET"},
+						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.NoAuth), // Changed
 						Handler:   noAuthHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:      "/optional-auth",
-						Methods:   []string{"GET"},
+						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.AuthOptional), // Authentication is optional. OPTIONS requests are automatically allowed.
 						Middlewares: []router.Middleware{
 							middleware.AuthenticationWithUser[*User, User](customUserAuth), // Middleware to add user to context if authenticated
@@ -137,7 +137,7 @@ func main() {
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:      "/required-auth",
-						Methods:   []string{"GET"},
+						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.AuthRequired), // Authentication is required. OPTIONS requests are automatically allowed.
 						Middlewares: []router.Middleware{
 							middleware.AuthenticationWithUser[*User, User](customUserAuth), // Middleware to add user to context if authenticated

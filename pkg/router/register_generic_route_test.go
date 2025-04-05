@@ -125,7 +125,7 @@ func TestRegisterGenericRouteWithBody(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
-		Methods:    []string{"POST"},
+		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
@@ -160,7 +160,7 @@ func TestRegisterGenericRouteWithUnsupportedSourceType(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: SourceType(999), // Unsupported source type
@@ -186,7 +186,7 @@ func TestRegisterGenericRouteWithAuthRequired(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
-		Methods:    []string{"POST"},
+		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
@@ -224,7 +224,7 @@ func TestRegisterGenericRouteWithAuthOptional(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
-		Methods:    []string{"POST"},
+		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
@@ -278,7 +278,7 @@ func TestRegisterGenericRouteWithBase62QueryParameter(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base62QueryParameter,
@@ -313,7 +313,7 @@ func TestRegisterGenericRouteWithBase62PathParameter(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:data",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base62PathParameter,
@@ -348,7 +348,7 @@ func TestRegisterGenericRouteWithBase62QueryParameterMissing(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base62QueryParameter,
@@ -373,7 +373,7 @@ func TestRegisterGenericRouteWithBase62QueryParameterInvalid(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base62QueryParameter,
@@ -398,7 +398,7 @@ func TestRegisterGenericRouteWithBase62PathParameterMissing(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:somevalue",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base62PathParameter,
@@ -423,7 +423,7 @@ func TestRegisterGenericRouteWithBase62PathParameterInvalid(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:data",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base62PathParameter,
@@ -448,7 +448,7 @@ func TestRegisterGenericRouteWithEncodeError(t *testing.T) {
 
 	RegisterGenericRoute(r, RouteConfig[RequestType, UnmarshalableResponse]{
 		Path:    "/greet-encode-error",
-		Methods: []string{"POST"},
+		Methods: []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:   codec.NewJSONCodec[RequestType, UnmarshalableResponse](),
 		Handler: func(req *http.Request, data RequestType) (UnmarshalableResponse, error) {
 			return UnmarshalableResponse{
@@ -483,7 +483,7 @@ func TestRegisterGenericRouteWithMiddleware(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:        "/test",
-		Methods:     []string{"POST"},
+		Methods:     []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:       codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:     testGenericHandler[RequestType, ResponseType],
 		SourceType:  Body,
@@ -536,7 +536,7 @@ func TestRegisterGenericRouteWithMaxBodySize(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:        "/test",
-		Methods:     []string{"POST"},
+		Methods:     []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:       codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:     testGenericHandler[RequestType, ResponseType],
 		SourceType:  Body,
@@ -584,7 +584,7 @@ func TestRegisterGenericRouteWithQueryParameter(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base64QueryParameter,
@@ -618,7 +618,7 @@ func TestRegisterGenericRouteWithPathParameter(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:data",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base64PathParameter,
@@ -652,7 +652,7 @@ func TestRegisterGenericRouteWithBase64QueryParameterAgain(t *testing.T) {
 
 	RegisterGenericRoute[RequestType, ResponseType, string, string](r, RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Base64QueryParameter,

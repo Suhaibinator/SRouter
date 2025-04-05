@@ -31,7 +31,7 @@ SRouter defines constants for the available source types in the `router` package
     ```go
     router.RouteConfig[MyRequest, MyResponse]{
         Path:       "/data/from/query",
-        Methods:    []string{"GET"},
+        Methods:    []router.HttpMethod{router.MethodGet},
         Handler:    MyHandler,
         Codec:      codec.NewJSONCodec[MyRequest, MyResponse](), // Codec still needed for DecodeBytes
         SourceType: router.Base64QueryParameter,
@@ -61,7 +61,7 @@ SRouter defines constants for the available source types in the `router` package
     ```go
     router.RouteConfig[MyRequest, MyResponse]{
         Path:       "/data/from/path/:payload", // Define path parameter
-        Methods:    []string{"GET"},
+        Methods:    []router.HttpMethod{router.MethodGet},
         Handler:    MyHandler,
         Codec:      codec.NewJSONCodec[MyRequest, MyResponse](),
         SourceType: router.Base64PathParameter,
@@ -77,7 +77,7 @@ SRouter defines constants for the available source types in the `router` package
     ```go
     router.RouteConfig[MyRequest, MyResponse]{
         Path:       "/data/b62/:p", // Define path parameter
-        Methods:    []string{"GET"},
+        Methods:    []router.HttpMethod{router.MethodGet},
         Handler:    MyHandler,
         Codec:      codec.NewJSONCodec[MyRequest, MyResponse](),
         SourceType: router.Base62PathParameter,

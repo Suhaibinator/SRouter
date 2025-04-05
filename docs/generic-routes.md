@@ -49,7 +49,7 @@ type CreateUserResp struct {
 // Define the route configuration
 createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
  Path:        "/users",
- Methods:     []string{"POST"},
+ Methods:     []router.HttpMethod{router.MethodPost},
  AuthLevel:   router.Ptr(router.AuthRequired), // Example: Requires authentication
  Codec:       codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Specify the codec
  Handler:     CreateUserHandler, // Assign the generic handler

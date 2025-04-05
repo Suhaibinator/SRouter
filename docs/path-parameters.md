@@ -10,13 +10,13 @@ Path parameters are defined using a colon (`:`) followed by the parameter name i
 // Example route definition within a SubRouterConfig or RouteConfigBase/RouteConfig
 router.RouteConfigBase{
     Path:    "/users/:id", // ':id' is the path parameter
-    Methods: []string{"GET"},
+    Methods: []router.HttpMethod{router.MethodGet},
     Handler: GetUserHandler,
 }
 
 router.RouteConfigBase{
     Path:    "/articles/:category/:slug", // Multiple parameters
-    Methods: []string{"GET"},
+    Methods: []router.HttpMethod{router.MethodGet},
     Handler: GetArticleHandler,
 }
 ```

@@ -42,7 +42,7 @@ func TestMetricsConfig(t *testing.T) {
 	// Register a route
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/test",
-		Methods: []string{"GET"},
+		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		},
@@ -84,7 +84,7 @@ func TestMetrics(t *testing.T) {
 	// Register a route
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/test",
-		Methods: []string{"GET"},
+		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			_, err := w.Write([]byte("Hello, World!"))
 			if err != nil {
@@ -181,7 +181,7 @@ func TestTracing(t *testing.T) {
 	// Register a route
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/test",
-		Methods: []string{"GET"},
+		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			_, err := w.Write([]byte("Hello, World!"))
 			if err != nil {

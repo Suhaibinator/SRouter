@@ -61,7 +61,7 @@ func main() {
 	// Register a simple route
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/hello",
-		Methods: []string{"GET"},
+		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"message":"Hello, World!"}`))

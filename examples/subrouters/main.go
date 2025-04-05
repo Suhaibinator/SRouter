@@ -151,22 +151,22 @@ func main() {
 				Routes: []any{ // Changed to []any
 					router.RouteConfigBase{
 						Path:    "/users",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: v1GetUsersHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/users/:id",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: v1GetUserHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/users",
-						Methods: []string{"POST"},
+						Methods: []router.HttpMethod{router.MethodPost},
 						Handler: v1CreateUserHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/slow",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: slowHandler,
 					},
 				},
@@ -181,22 +181,22 @@ func main() {
 				Routes: []any{ // Changed to []any
 					router.RouteConfigBase{
 						Path:    "/users",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: v2GetUsersHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/users/:id",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: v2GetUserHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/users",
-						Methods: []string{"POST"},
+						Methods: []router.HttpMethod{router.MethodPost},
 						Handler: v2CreateUserHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/slow",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: slowHandler,
 						Timeout: 4 * time.Second, // Override sub-router timeout
 					},
@@ -212,22 +212,22 @@ func main() {
 				Routes: []any{ // Changed to []any
 					router.RouteConfigBase{
 						Path:    "/dashboard",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: adminDashboardHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/users",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: adminUsersHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/settings",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: adminSettingsHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/large",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: largeResponseHandler,
 					},
 				},
@@ -238,17 +238,17 @@ func main() {
 				Routes: []any{ // Changed to []any
 					router.RouteConfigBase{
 						Path:    "/",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: homeHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/about",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: aboutHandler,
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/contact",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: contactHandler,
 					},
 				},

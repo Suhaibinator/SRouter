@@ -117,7 +117,7 @@ func main() {
 		Routes: []any{
 			router.RouteConfigBase{ // This type was already added, just confirming context
 				Path:      "", // Becomes /api/v1/users
-				Methods:   []string{"GET"},
+				Methods:   []router.HttpMethod{router.MethodGet},
 				AuthLevel: router.Ptr(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
@@ -134,7 +134,7 @@ func main() {
 		Routes: []any{
 			router.RouteConfigBase{ // Add explicit type
 				Path:      "/hello", // Becomes /api/v1/hello
-				Methods:   []string{"GET"},
+				Methods:   []router.HttpMethod{router.MethodGet},
 				AuthLevel: router.Ptr(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
@@ -164,7 +164,7 @@ func main() {
 		Routes: []any{ // Changed to []any
 			router.RouteConfigBase{ // Add explicit type
 				Path:      "/hello", // Becomes /api/v2/hello
-				Methods:   []string{"GET"},
+				Methods:   []router.HttpMethod{router.MethodGet},
 				AuthLevel: router.Ptr(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
@@ -181,7 +181,7 @@ func main() {
 		Routes: []any{ // Changed to []any
 			router.RouteConfigBase{ // Add explicit type
 				Path:      "/status", // Becomes /api/status
-				Methods:   []string{"GET"},
+				Methods:   []router.HttpMethod{router.MethodGet},
 				AuthLevel: router.Ptr(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
@@ -214,7 +214,7 @@ func main() {
 		"/api/v1", // Target prefix
 		router.RouteConfig[GreetingRequest, GreetingResponse]{
 			Path:      "/greet", // Relative path
-			Methods:   []string{"POST"},
+			Methods:   []router.HttpMethod{router.MethodPost},
 			AuthLevel: router.Ptr(router.NoAuth), // Changed
 			Codec:     greetingCodec,
 			Handler:   greetingHandler,
@@ -230,7 +230,7 @@ func main() {
 		"/api/v1/users", // Target prefix (nested)
 		router.RouteConfig[UserRequest, UserResponse]{
 			Path:      "/info", // Relative path
-			Methods:   []string{"POST"},
+			Methods:   []router.HttpMethod{router.MethodPost},
 			AuthLevel: router.Ptr(router.NoAuth), // Changed
 			Codec:     userCodec,
 			Handler:   userHandler,
@@ -246,7 +246,7 @@ func main() {
 		"/api/v2/users", // Target prefix (nested)
 		router.RouteConfig[UserRequest, UserResponse]{
 			Path:      "/info", // Relative path
-			Methods:   []string{"POST"},
+			Methods:   []router.HttpMethod{router.MethodPost},
 			AuthLevel: router.Ptr(router.NoAuth), // Changed
 			Codec:     userCodec,
 			Handler:   userHandler,
@@ -262,7 +262,7 @@ func main() {
 		"/api/v2/auth", // Target prefix (nested)
 		router.RouteConfig[ProfileRequest, ProfileResponse]{
 			Path:      "/profile", // Relative path
-			Methods:   []string{"POST"},
+			Methods:   []router.HttpMethod{router.MethodPost},
 			AuthLevel: router.Ptr(router.AuthRequired), // Changed - This route requires authentication
 			Codec:     profileCodec,
 			Handler:   profileHandler,

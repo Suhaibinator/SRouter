@@ -40,7 +40,7 @@ subRouter := router.SubRouterConfig{
 // Example: Route-Specific Limit
 route := router.RouteConfig[MyReq, MyResp]{ // Use specific types for route config
     Path:    "/heavy-operation",
-    Methods: []string{"POST"},
+    Methods: []router.HttpMethod{router.MethodPost},
     RateLimit: &middleware.RateLimitConfig[any, any]{ // Use [any, any] here too
         BucketName: "heavy_op_ip_limit",
         Limit:      5,
@@ -124,7 +124,7 @@ You can enforce a shared rate limit across multiple endpoints by assigning the *
 // Login endpoint shares a bucket with register endpoint
 loginRoute := router.RouteConfigBase{
     Path:    "/login",
-    Methods: []string{"POST"},
+    Methods: []router.HttpMethod{router.MethodPost},
     RateLimit: &middleware.RateLimitConfig[any, any]{
         BucketName: "auth_ip_limit", // Shared bucket name
         Limit:      5,
@@ -136,7 +136,7 @@ loginRoute := router.RouteConfigBase{
 
 registerRoute := router.RouteConfigBase{
     Path:    "/register",
-    Methods: []string{"POST"},
+    Methods: []router.HttpMethod{router.MethodPost},
     RateLimit: &middleware.RateLimitConfig[any, any]{
         BucketName: "auth_ip_limit", // Same bucket name
         Limit:      5,               // Limit applies to combined requests

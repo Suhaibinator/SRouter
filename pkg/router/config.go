@@ -11,6 +11,22 @@ import (
 	"go.uber.org/zap"
 )
 
+// HttpMethod defines the type for HTTP methods.
+type HttpMethod string
+
+// Constants for standard HTTP methods.
+const (
+	MethodGet     HttpMethod = http.MethodGet
+	MethodHead    HttpMethod = http.MethodHead
+	MethodPost    HttpMethod = http.MethodPost
+	MethodPut     HttpMethod = http.MethodPut
+	MethodPatch   HttpMethod = http.MethodPatch // RFC 5789
+	MethodDelete  HttpMethod = http.MethodDelete
+	MethodConnect HttpMethod = http.MethodConnect
+	MethodOptions HttpMethod = http.MethodOptions
+	MethodTrace   HttpMethod = http.MethodTrace
+)
+
 // AuthLevel defines the authentication level for a route.
 // It determines how authentication is handled for the route.
 type AuthLevel int
@@ -142,7 +158,7 @@ type SubRouterConfig struct {
 // It includes settings for path, HTTP methods, authentication, timeouts, and middleware.
 type RouteConfigBase struct {
 	Path        string                                // Route path (will be prefixed with sub-router path prefix if applicable)
-	Methods     []string                              // HTTP methods this route handles
+	Methods     []HttpMethod                          // HTTP methods this route handles (use constants like MethodGet)
 	AuthLevel   *AuthLevel                            // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired). If nil, inherits from sub-router or defaults to NoAuth.
 	Timeout     time.Duration                         // Override timeout for this specific route
 	MaxBodySize int64                                 // Override max body size for this specific route
@@ -156,7 +172,7 @@ type RouteConfigBase struct {
 // allowing for strongly-typed handlers and automatic marshaling/unmarshaling.
 type RouteConfig[T any, U any] struct {
 	Path        string                                // Route path (will be prefixed with sub-router path prefix if applicable)
-	Methods     []string                              // HTTP methods this route handles
+	Methods     []HttpMethod                          // HTTP methods this route handles (use constants like MethodGet)
 	AuthLevel   *AuthLevel                            // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired). If nil, inherits from sub-router or defaults to NoAuth.
 	Timeout     time.Duration                         // Override timeout for this specific route
 	MaxBodySize int64                                 // Override max body size for this specific route

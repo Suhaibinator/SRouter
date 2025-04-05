@@ -37,7 +37,7 @@ type TestData struct {
 // TestRouteMatching tests that routes are matched correctly
 func TestRouteMatching(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Routes: []any{RouteConfigBase{Path: "/users/:id", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) { // Changed to []any{RouteConfigBase{...}}
+	r := NewRouter(RouterConfig{Logger: logger, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Routes: []any{RouteConfigBase{Path: "/users/:id", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { // Changed to []any{RouteConfigBase{...}}
 		id := GetParam(r, "id")
 		_, err := w.Write([]byte("User ID: " + id))
 		if err != nil {
@@ -68,7 +68,7 @@ func TestRouteMatching(t *testing.T) {
 func TestSubRouterOverrides(t *testing.T) {
 	logger, _ := zap.NewProduction()
 	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 1 * time.Second, SubRouters: []SubRouterConfig{{PathPrefix: "/api", TimeoutOverride: 2 * time.Second, Routes: []any{ // Changed to []any{...}
-		RouteConfigBase{Path: "/slow", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) {
+		RouteConfigBase{Path: "/slow", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(1500 * time.Millisecond)
 			_, err := w.Write([]byte("Slow response"))
 			if err != nil {
@@ -76,7 +76,7 @@ func TestSubRouterOverrides(t *testing.T) {
 				return
 			}
 		}},
-		RouteConfigBase{Path: "/fast", Methods: []string{"GET"}, Timeout: 500 * time.Millisecond, Handler: func(w http.ResponseWriter, r *http.Request) {
+		RouteConfigBase{Path: "/fast", Methods: []HttpMethod{MethodGet}, Timeout: 500 * time.Millisecond, Handler: func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(750 * time.Millisecond)
 			_, err := w.Write([]byte("Fast response"))
 			if err != nil {
@@ -109,7 +109,7 @@ func TestSubRouterOverrides(t *testing.T) {
 func TestBodySizeLimits(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger, GlobalMaxBodySize: 10, SubRouters: []SubRouterConfig{{PathPrefix: "/api", MaxBodySizeOverride: 20, Routes: []any{ // Changed to []any{...}
-		RouteConfigBase{Path: "/small", Methods: []string{"POST"}, MaxBodySize: 5, Handler: func(w http.ResponseWriter, r *http.Request) {
+		RouteConfigBase{Path: "/small", Methods: []HttpMethod{MethodPost}, MaxBodySize: 5, Handler: func(w http.ResponseWriter, r *http.Request) {
 			_, err := io.ReadAll(r.Body)
 			if err != nil {
 				// Check if the error is due to body size limit
@@ -126,7 +126,7 @@ func TestBodySizeLimits(t *testing.T) {
 				return
 			}
 		}},
-		RouteConfigBase{Path: "/medium", Methods: []string{"POST"}, Handler: func(w http.ResponseWriter, r *http.Request) {
+		RouteConfigBase{Path: "/medium", Methods: []HttpMethod{MethodPost}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			_, err := io.ReadAll(r.Body)
 			if err != nil {
 				// Check if the error is due to body size limit
@@ -201,7 +201,7 @@ func TestJSONCodec(t *testing.T) {
 	logger, _ := zap.NewProduction()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	// Pass zero values for effective settings as this test doesn't involve sub-routers
-	RegisterGenericRoute(r, RouteConfig[RouterTestRequest, RouterTestResponse]{Path: "/greet", Methods: []string{"POST"}, Codec: codec.NewJSONCodec[RouterTestRequest, RouterTestResponse](), Handler: func(r *http.Request, req RouterTestRequest) (RouterTestResponse, error) {
+	RegisterGenericRoute(r, RouteConfig[RouterTestRequest, RouterTestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[RouterTestRequest, RouterTestResponse](), Handler: func(r *http.Request, req RouterTestRequest) (RouterTestResponse, error) {
 		return RouterTestResponse{Greeting: "Hello, " + req.Name + "!"}, nil
 	}}, time.Duration(0), int64(0), nil) // Added effective settings
 	server := httptest.NewServer(r)
@@ -242,7 +242,7 @@ func TestMiddlewareChaining(t *testing.T) {
 	// Define route configuration
 	testRoute := RouteConfigBase{
 		Path:    "/test",
-		Methods: []string{"GET"},
+		Methods: []HttpMethod{MethodGet},
 		Middlewares: []common.Middleware{
 			addHeaderMiddleware("Route", "true"),
 		},
@@ -304,7 +304,7 @@ func TestMiddlewareChaining(t *testing.T) {
 func TestShutdown(t *testing.T) {
 	logger, _ := zap.NewProduction()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{Path: "/slow", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r.RegisterRoute(RouteConfigBase{Path: "/slow", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(500 * time.Millisecond)
 		_, err := w.Write([]byte("OK"))
 		if err != nil {
@@ -352,7 +352,7 @@ func TestShutdown(t *testing.T) {
 func TestRegisterRouteCoverage(t *testing.T) { // Renamed to avoid conflict
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{Path: "/direct", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r.RegisterRoute(RouteConfigBase{Path: "/direct", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 		_, err := w.Write([]byte("Direct route"))
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
@@ -382,7 +382,7 @@ func TestRegisterRouteCoverage(t *testing.T) { // Renamed to avoid conflict
 func TestGetParamsCoverage(t *testing.T) { // Renamed to avoid conflict
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{Path: "/users/:id/posts/:postId", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r.RegisterRoute(RouteConfigBase{Path: "/users/:id/posts/:postId", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 		params := GetParams(r)
 		if len(params) != 2 {
 			t.Errorf("Expected 2 params, got %d", len(params))
@@ -459,8 +459,8 @@ func TestUserAuthCoverage(t *testing.T) { // Renamed to avoid conflict
 func TestSimpleErrorCoverage(t *testing.T) { // Renamed to avoid conflict
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{Path: "/error", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, req *http.Request) { http.Error(w, "Bad request", http.StatusBadRequest) }})
-	r.RegisterRoute(RouteConfigBase{Path: "/regular-error", Methods: []string{"GET"}, Handler: func(w http.ResponseWriter, req *http.Request) {
+	r.RegisterRoute(RouteConfigBase{Path: "/error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) { http.Error(w, "Bad request", http.StatusBadRequest) }})
+	r.RegisterRoute(RouteConfigBase{Path: "/regular-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 	}})
 	server := httptest.NewServer(r)
@@ -563,7 +563,7 @@ func TestRegisterGenericRouteCoverage(t *testing.T) { // Renamed to avoid confli
 	}
 	r := NewRouter(RouterConfig{}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	// Pass zero values for effective settings
-	RegisterGenericRoute(r, RouteConfig[TestRequest, TestResponse]{Path: "/greet", Methods: []string{"POST"}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
+	RegisterGenericRoute(r, RouteConfig[TestRequest, TestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
 		return TestResponse{Greeting: "Hello, " + data.Name, Age: data.Age}, nil
 	}}, time.Duration(0), int64(0), nil) // Added effective settings
 	req, _ := http.NewRequest("POST", "/greet", strings.NewReader(`{"name":"John","age":30}`))
@@ -624,7 +624,7 @@ func TestRegisterGenericRouteWithErrorCoverage(t *testing.T) { // Renamed to avo
 	}
 	r := NewRouter(RouterConfig{}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	// Pass zero values for effective settings
-	RegisterGenericRoute(r, RouteConfig[TestRequest, TestResponse]{Path: "/greet-error", Methods: []string{"POST"}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
+	RegisterGenericRoute(r, RouteConfig[TestRequest, TestResponse]{Path: "/greet-error", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
 		return TestResponse{}, errors.New("handler error")
 	}}, time.Duration(0), int64(0), nil) // Added effective settings
 	req, _ := http.NewRequest("POST", "/greet-error", strings.NewReader(`{"name":"John","age":30}`))
@@ -727,7 +727,7 @@ func TestRegisterGenericRouteOnSubRouter(t *testing.T) {
 	// Define generic route config
 	routeCfg := RouteConfig[TestRequest, TestResponse]{
 		Path:    "/info", // Relative path
-		Methods: []string{"POST"},
+		Methods: []HttpMethod{MethodPost},
 		Codec:   codec.NewJSONCodec[TestRequest, TestResponse](),
 		Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
 			return TestResponse{Greeting: "Info for " + data.Name, Age: data.Age}, nil
@@ -868,7 +868,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 	// Register Base64 route with empty SourceKey
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/base64/:dataParam", // Path parameter name is 'dataParam'
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64PathParameter,
 		SourceKey:  "",                                     // Empty SourceKey, should use 'dataParam'
 		Codec:      codec.NewJSONCodec[TestData, string](), // Use JSON codec for request and response
@@ -878,7 +878,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 	// Register Base62 route with empty SourceKey
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/base62/:valueParam", // Path parameter name is 'valueParam'
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base62PathParameter,
 		SourceKey:  "",                                     // Empty SourceKey, should use 'valueParam'
 		Codec:      codec.NewJSONCodec[TestData, string](), // Use JSON codec for request and response
@@ -888,7 +888,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 	// Register routes to test "no path parameters found" error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/no-params-base64", // No path parameters
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64PathParameter,
 		SourceKey:  "", // Empty SourceKey
 		Codec:      codec.NewJSONCodec[TestData, string](),
@@ -897,7 +897,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/no-params-base62", // No path parameters
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base62PathParameter,
 		SourceKey:  "", // Empty SourceKey
 		Codec:      codec.NewJSONCodec[TestData, string](),
@@ -1013,7 +1013,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 	invalidJSONBase64 := base64.StdEncoding.EncodeToString([]byte("{invalid json"))
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/err/unmarshal-path/:data",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64PathParameter,
 		SourceKey:  "data",
 		Codec:      codec.NewJSONCodec[TestData, string](),
@@ -1026,7 +1026,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 	// Unmarshal Query Param Error (Base64)
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/err/unmarshal-query",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64QueryParameter,
 		SourceKey:  "qdata",
 		Codec:      codec.NewJSONCodec[TestData, string](),
@@ -1039,7 +1039,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 	// Missing Query Param Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/err/missing-query",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64QueryParameter, // Type doesn't matter much here
 		SourceKey:  "required_param",
 		Codec:      codec.NewJSONCodec[TestData, string](),
@@ -1052,7 +1052,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 	// Body Decode Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/err/body-decode",
-		Methods:    []string{"POST"},
+		Methods:    []HttpMethod{MethodPost},
 		SourceType: Body,
 		Codec:      codec.NewJSONCodec[TestData, string](),
 		Handler: func(req *http.Request, data TestData) (string, error) {
@@ -1064,7 +1064,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 	// Unsupported SourceType Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/err/unsupported-source",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet},
 		SourceType: 99, // Invalid source type
 		Codec:      codec.NewJSONCodec[TestData, string](),
 		Handler: func(req *http.Request, data TestData) (string, error) {
@@ -1076,7 +1076,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 	// Handler Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/err/handler",
-		Methods:    []string{"POST"},
+		Methods:    []HttpMethod{MethodPost},
 		SourceType: Body,
 		Codec:      codec.NewJSONCodec[TestData, string](),
 		Handler: func(req *http.Request, data TestData) (string, error) {
@@ -1090,7 +1090,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 	}
 	RegisterGenericRoute(r, RouteConfig[TestData, UnencodableResponse]{
 		Path:       "/err/resp-encode",
-		Methods:    []string{"POST"},
+		Methods:    []HttpMethod{MethodPost},
 		SourceType: Body,
 		Codec:      codec.NewJSONCodec[TestData, UnencodableResponse](),
 		Handler: func(req *http.Request, data TestData) (UnencodableResponse, error) {
@@ -1101,7 +1101,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 	// Base64 Query Decode Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/err/base64-query-decode",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64QueryParameter,
 		SourceKey:  "b64data",
 		Codec:      codec.NewJSONCodec[TestData, string](),
@@ -1114,7 +1114,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 	// Base62 Query Decode Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/err/base62-query-decode",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base62QueryParameter,
 		SourceKey:  "b62data",
 		Codec:      codec.NewJSONCodec[TestData, string](),
@@ -1127,7 +1127,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 	// Base64 Path Decode Error (already covered in TestGenericRoutePathParameterFallback, but good to have here too)
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/err/base64-path-decode/:data",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64PathParameter,
 		SourceKey:  "data",
 		Codec:      codec.NewJSONCodec[TestData, string](),
@@ -1140,7 +1140,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 	// Base62 Path Decode Error (already covered in TestGenericRoutePathParameterFallback, but good to have here too)
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/err/base62-path-decode/:data",
-		Methods:    []string{"GET"},
+		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base62PathParameter,
 		SourceKey:  "data",
 		Codec:      codec.NewJSONCodec[TestData, string](),
@@ -1312,7 +1312,7 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 	// Define route config
 	routeCfg := RouteConfig[DefReq, DefResp]{
 		Path:    "/data",
-		Methods: []string{"POST"},
+		Methods: []HttpMethod{MethodPost},
 		Codec:   defCodec,
 		Handler: defHandler,
 		Middlewares: []Middleware{
@@ -1391,7 +1391,7 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 	}
 	slowRouteCfg := RouteConfig[DefReq, DefResp]{
 		Path:    "/slow",
-		Methods: []string{"POST"},
+		Methods: []HttpMethod{MethodPost},
 		Codec:   defCodec,
 		Handler: slowHandler,
 		Timeout: 500 * time.Millisecond, // Route timeout
@@ -1679,7 +1679,7 @@ func TestConcurrentRequests(t *testing.T) {
 	// 1. Simple GET route
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/simple",
-		Methods: []string{http.MethodGet},
+		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("Simple OK"))
@@ -1689,7 +1689,7 @@ func TestConcurrentRequests(t *testing.T) {
 	// 2. GET route with params
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/params/:id",
-		Methods: []string{http.MethodGet},
+		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			id := GetParam(r, "id")
 			w.WriteHeader(http.StatusOK)
@@ -1702,7 +1702,7 @@ func TestConcurrentRequests(t *testing.T) {
 	type ConcurrentResp struct{ Res string }
 	RegisterGenericRoute(r, RouteConfig[ConcurrentReq, ConcurrentResp]{
 		Path:    "/generic",
-		Methods: []string{http.MethodPost},
+		Methods: []HttpMethod{MethodPost},
 		Codec:   codec.NewJSONCodec[ConcurrentReq, ConcurrentResp](),
 		Handler: func(req *http.Request, data ConcurrentReq) (ConcurrentResp, error) {
 			return ConcurrentResp{Res: "Generic OK: " + data.Data}, nil
@@ -1712,7 +1712,7 @@ func TestConcurrentRequests(t *testing.T) {
 	// 4. Route with middleware
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/middleware",
-		Methods: []string{http.MethodGet},
+		Methods: []HttpMethod{http.MethodGet},
 		Middlewares: []common.Middleware{
 			addHeaderMiddleware("X-Route-Test", "true"),
 		},

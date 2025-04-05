@@ -65,7 +65,7 @@ func main() {
 				Routes: []any{ // Changed to []any
 					router.RouteConfigBase{
 						Path:      "/health",
-						Methods:   []string{"GET"},
+						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.NoAuth), // Changed
 						Handler:   HealthCheckHandler,
 					},
@@ -96,7 +96,7 @@ func main() {
 	// Note: Since this route is under "/api", we use RegisterGenericRouteOnSubRouter
 	userRouteConfig := router.RouteConfig[CreateUserReq, CreateUserResp]{
 		Path:      "/users", // Relative path
-		Methods:   []string{"POST"},
+		Methods:   []router.HttpMethod{router.MethodPost},
 		AuthLevel: router.Ptr(router.AuthRequired), // Changed
 		Timeout:   3 * time.Second,                 // Route-specific override (will be used by getEffectiveTimeout)
 		Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),

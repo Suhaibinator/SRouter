@@ -154,7 +154,7 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 
 			// Register the route with httprouter
 			for _, method := range route.Methods {
-				r.router.Handle(method, fullPath, r.convertToHTTPRouterHandle(handler))
+				r.router.Handle(string(method), fullPath, r.convertToHTTPRouterHandle(handler)) // Convert HttpMethod to string
 			}
 
 		case GenericRouteRegistrationFunc[T, U]:

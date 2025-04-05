@@ -18,19 +18,19 @@ apiV1SubRouter := router.SubRouterConfig{
 		// Standard route
 		router.RouteConfigBase{
 			Path:    "/users", // Becomes /api/v1/users
-			Methods: []string{"GET"},
+			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: ListUsersHandler, // Assume this handler exists
 		},
 		router.RouteConfigBase{
 			Path:    "/users/:id", // Becomes /api/v1/users/:id
-			Methods: []string{"GET"},
+			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: GetUserHandler, // Assume this handler exists
 		},
 		// Declarative generic route using the helper
 		router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, string, string](
 			router.RouteConfig[CreateUserReq, CreateUserResp]{
 				Path:      "/users", // Path relative to the sub-router prefix (/api/v1/users)
-				Methods:   []string{"POST"},
+				Methods:   []router.HttpMethod{router.MethodPost},
 				AuthLevel: router.Ptr(router.AuthRequired), // Example: Requires authentication
 				Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Assume codec exists
 				Handler:   CreateUserHandler, // Assume this generic handler exists
@@ -45,7 +45,7 @@ apiV2SubRouter := router.SubRouterConfig{
 	Routes: []any{ // Use []any
 		router.RouteConfigBase{
 			Path:    "/users", // Becomes /api/v2/users
-			Methods: []string{"GET"},
+			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: ListUsersV2Handler, // Assume this handler exists
 		},
 	},
@@ -86,9 +86,9 @@ usersV1SubRouter := router.SubRouterConfig{
 	PathPrefix: "/users", // Relative to /api/v1 -> /api/v1/users
 	// TimeoutOverride: 1 * time.Second, // Could override /api/v1's timeout
 	Routes: []any{
-		router.RouteConfigBase{ Path: "/:id", Methods: []string{"GET"}, Handler: GetUserHandler }, // /api/v1/users/:id
+		router.RouteConfigBase{ Path: "/:id", Methods: []router.HttpMethod{router.MethodGet}, Handler: GetUserHandler }, // /api/v1/users/:id
 		router.NewGenericRouteDefinition[UserReq, UserResp, string, string]( // Assume types/codec/handler exist
-			router.RouteConfig[UserReq, UserResp]{ Path: "/info", Methods: []string{"POST"}, Codec: userCodec, Handler: UserInfoHandler }, // /api/v1/users/info
+			router.RouteConfig[UserReq, UserResp]{ Path: "/info", Methods: []router.HttpMethod{router.MethodPost}, Codec: userCodec, Handler: UserInfoHandler }, // /api/v1/users/info
 		),
 	},
 }
@@ -98,7 +98,7 @@ apiV1SubRouter := router.SubRouterConfig{
 	TimeoutOverride: 3 * time.Second, // Applies to /api/v1/status and potentially nested routes unless overridden again
 	SubRouters: []router.SubRouterConfig{usersV1SubRouter}, // Nest the users sub-router
 	Routes: []any{
-		router.RouteConfigBase{ Path: "/status", Methods: []string{"GET"}, Handler: V1StatusHandler }, // /api/v1/status
+		router.RouteConfigBase{ Path: "/status", Methods: []router.HttpMethod{router.MethodGet}, Handler: V1StatusHandler }, // /api/v1/status
 	},
 }
 
@@ -106,7 +106,7 @@ apiSubRouter := router.SubRouterConfig{
 	PathPrefix: "/api", // Root prefix for this group
 	SubRouters: []router.SubRouterConfig{apiV1SubRouter}, // Nest the v1 sub-router
 	Routes: []any{
-		router.RouteConfigBase{ Path: "/health", Methods: []string{"GET"}, Handler: HealthHandler }, // /api/health
+		router.RouteConfigBase{ Path: "/health", Methods: []router.HttpMethod{router.MethodGet}, Handler: HealthHandler }, // /api/health
 	},
 }
 

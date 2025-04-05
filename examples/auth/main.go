@@ -59,7 +59,7 @@ func main() {
 				Routes: []any{ // Changed to []any
 					router.RouteConfigBase{
 						Path:    "/resource",
-						Methods: []string{"GET"},
+						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: publicHandler,
 					},
 				},
@@ -69,7 +69,7 @@ func main() {
 				Routes: []any{ // Changed to []any
 					router.RouteConfigBase{
 						Path:        "/resource",
-						Methods:     []string{"GET"},
+						Methods:     []router.HttpMethod{router.MethodGet},
 						Middlewares: []router.Middleware{bearerTokenMiddleware},
 						Handler:     protectedHandler,
 					},
@@ -80,7 +80,7 @@ func main() {
 				Routes: []any{ // Changed to []any
 					router.RouteConfigBase{
 						Path:        "/resource",
-						Methods:     []string{"GET"},
+						Methods:     []router.HttpMethod{router.MethodGet},
 						Middlewares: []router.Middleware{apiKeyMiddleware},
 						Handler:     protectedHandler,
 					},
@@ -91,7 +91,7 @@ func main() {
 				Routes: []any{ // Changed to []any
 					router.RouteConfigBase{
 						Path:      "/resource",
-						Methods:   []string{"GET"},
+						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.AuthRequired), // Uses the router's internal authRequiredMiddleware. OPTIONS requests are automatically allowed.
 						Handler:   protectedHandler,
 					},

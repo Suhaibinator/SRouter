@@ -104,7 +104,7 @@ func main() {
 	// Register a simple route
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/hello",
-		Methods: []string{"GET"},
+		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"message":"Hello, World!"}`))
@@ -131,19 +131,19 @@ apiV1SubRouter := router.SubRouterConfig{
 		// Standard route
 		router.RouteConfigBase{
 			Path:    "/users", // Becomes /api/v1/users
-			Methods: []string{"GET"},
+			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: ListUsersHandler,
 		},
 		router.RouteConfigBase{
 			Path:    "/users/:id", // Becomes /api/v1/users/:id
-			Methods: []string{"GET"},
+			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: GetUserHandler,
 		},
 		// Declarative generic route using the helper
 		router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, string, string](
 			router.RouteConfig[CreateUserReq, CreateUserResp]{
 				Path:      "/users", // Path relative to the sub-router prefix (/api/v1/users)
-				Methods:   []string{"POST"},
+				Methods:   []router.HttpMethod{router.MethodPost},
 				AuthLevel: router.Ptr(router.AuthRequired),
 				Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
 				Handler:   CreateUserHandler,
@@ -158,7 +158,7 @@ apiV2SubRouter := router.SubRouterConfig{
 	Routes: []any{ // Use []any
 		router.RouteConfigBase{
 			Path:    "/users", // Becomes /api/v2/users
-			Methods: []string{"GET"},
+			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: ListUsersV2Handler,
 		},
 	},
@@ -186,9 +186,9 @@ You can nest `SubRouterConfig` structs within each other to create a hierarchica
 usersV1SubRouter := router.SubRouterConfig{
 	PathPrefix: "/users", // Relative to /api/v1
 	Routes: []any{
-		router.RouteConfigBase{ Path: "/:id", Methods: []string{"GET"}, Handler: GetUserHandler },
+		router.RouteConfigBase{ Path: "/:id", Methods: []router.HttpMethod{router.MethodGet}, Handler: GetUserHandler },
 		router.NewGenericRouteDefinition[UserReq, UserResp, string, string](
-			router.RouteConfig[UserReq, UserResp]{ Path: "/info", Methods: []string{"POST"}, Codec: userCodec, Handler: UserInfoHandler },
+			router.RouteConfig[UserReq, UserResp]{ Path: "/info", Methods: []router.HttpMethod{router.MethodPost}, Codec: userCodec, Handler: UserInfoHandler },
 		),
 	},
 }
@@ -196,14 +196,14 @@ apiV1SubRouter := router.SubRouterConfig{
 	PathPrefix: "/v1", // Relative to /api
 	SubRouters: []router.SubRouterConfig{usersV1SubRouter},
 	Routes: []any{
-		router.RouteConfigBase{ Path: "/status", Methods: []string{"GET"}, Handler: V1StatusHandler },
+		router.RouteConfigBase{ Path: "/status", Methods: []router.HttpMethod{router.MethodGet}, Handler: V1StatusHandler },
 	},
 }
 apiSubRouter := router.SubRouterConfig{
 	PathPrefix: "/api", // Root prefix for this group
 	SubRouters: []router.SubRouterConfig{apiV1SubRouter},
 	Routes: []any{
-		router.RouteConfigBase{ Path: "/health", Methods: []string{"GET"}, Handler: HealthHandler },
+		router.RouteConfigBase{ Path: "/health", Methods: []router.HttpMethod{router.MethodGet}, Handler: HealthHandler },
 	},
 }
 
@@ -249,7 +249,7 @@ func CreateUserHandler(r *http.Request, req CreateUserReq) (CreateUserResp, erro
 // Note the extra arguments for effective settings (usually 0/nil for direct registration)
 router.RegisterGenericRoute[CreateUserReq, CreateUserResp, string, string](r, router.RouteConfig[CreateUserReq, CreateUserResp]{
  Path:        "/standalone/users",
- Methods:     []string{"POST"},
+ Methods:     []router.HttpMethod{router.MethodPost},
  AuthLevel:   router.AuthRequired,
  Codec:       codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
  Handler:     CreateUserHandler,
@@ -491,7 +491,7 @@ subRouter := router.SubRouterConfig{
 // Create a route with rate limiting
 route := router.RouteConfig[MyReq, MyResp]{ // Use specific types for route config
     Path:    "/users",
-    Methods: []string{"POST"},
+    Methods: []router.HttpMethod{router.MethodPost},
     RateLimit: &middleware.RateLimitConfig[any, any]{ // Use [any, any] here too
         BucketName: "create-user",
         Limit:      10,
@@ -557,7 +557,7 @@ You can share rate limit buckets between different endpoints by using the same b
 // Login endpoint
 loginRoute := router.RouteConfigBase{
     Path:    "/login",
-    Methods: []string{"POST"},
+    Methods: []router.HttpMethod{router.MethodPost},
     RateLimit: &middleware.RateLimitConfig[any, any]{
         BucketName: "auth-endpoints", // Shared bucket name
         Limit:      5,
@@ -570,7 +570,7 @@ loginRoute := router.RouteConfigBase{
 // Register endpoint
 registerRoute := router.RouteConfigBase{
     Path:    "/register",
-    Methods: []string{"POST"},
+    Methods: []router.HttpMethod{router.MethodPost},
     RateLimit: &middleware.RateLimitConfig[any, any]{
         BucketName: "auth-endpoints", // Same bucket name as login
         Limit:      5,
@@ -957,7 +957,7 @@ func NewXMLCodec[T any, U any]() *XMLCodec[T, U] {
 // Use the XML codec with a generic route
 router.RegisterGenericRoute[CreateUserReq, CreateUserResp, string, string](r, router.RouteConfig[CreateUserReq, CreateUserResp]{
  Path:        "/api/users",
- Methods:     []string{"POST"},
+ Methods:     []router.HttpMethod{router.MethodPost},
  AuthLevel:   router.NoAuth, // No authentication required
  Codec:       NewXMLCodec[CreateUserReq, CreateUserResp](),
  Handler:     CreateUserHandler,
