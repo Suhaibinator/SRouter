@@ -73,6 +73,77 @@ func TestChain(t *testing.T) {
 	}
 }
 
+// TestLoggingMiddleware_SuccessInfoLevel tests the Logging middleware with logInfoLevelForSuccess set to true
+func TestLoggingMiddleware_SuccessInfoLevel(t *testing.T) {
+	// Create a logger with an observer for testing
+	core, logs := observer.New(zapcore.InfoLevel) // Observe Info level and above
+	logger := zap.New(core)
+
+	// Create a test handler that returns 200 OK
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	// Apply the Logging middleware with logInfoLevelForSuccess = true
+	loggingMiddleware := Logging(logger, true) // Pass true
+	wrappedHandler := loggingMiddleware(handler)
+
+	// Create a test request
+	req := httptest.NewRequest("GET", "/test-info", nil)
+	rec := httptest.NewRecorder()
+
+	// Call the handler
+	wrappedHandler.ServeHTTP(rec, req)
+
+	// Check that the response status code is 200
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	// Check that the logger recorded an info log
+	if logs.Len() == 0 {
+		t.Fatal("Expected at least one log entry")
+	}
+
+	// Find the info log
+	var found bool
+	for _, log := range logs.All() {
+		// Check for InfoLevel and the correct message
+		if log.Level == zapcore.InfoLevel && log.Message == "Request" {
+			found = true
+			// Optionally check for specific fields
+			expectedFields := map[string]interface{}{
+				"method": "GET",
+				"path":   "/test-info",
+				"status": http.StatusOK,
+				// Duration might be tricky to assert exactly, maybe check type or presence
+			}
+			for key, expectedValue := range expectedFields {
+				fieldValue, ok := log.ContextMap()[key]
+				if !ok {
+					t.Errorf("Expected field '%s' not found in log context", key)
+				} else if fmt.Sprintf("%v", fieldValue) != fmt.Sprintf("%v", expectedValue) {
+					// Use fmt.Sprintf for robust comparison across types
+					t.Errorf("Expected field '%s' to be '%v', got '%v'", key, expectedValue, fieldValue)
+				}
+			}
+			break
+		}
+	}
+
+	if !found {
+		t.Error("Expected to find an info log with message 'Request'")
+	}
+
+	// Also verify no Debug logs were emitted for this request (since we expect Info)
+	for _, log := range logs.All() {
+		if log.Level == zapcore.DebugLevel && log.Message == "Request" {
+			t.Error("Found unexpected Debug log for successful request when Info level was expected")
+		}
+	}
+}
+
 // TestRecovery tests the Recovery middleware that recovers from panics
 func TestRecovery(t *testing.T) {
 	// Create a logger with an observer for testing
