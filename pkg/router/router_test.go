@@ -1491,6 +1491,165 @@ func TestRegisterSubRouter_UnsupportedRouteType(t *testing.T) {
 	}
 }
 
+// TestAuthRequiredMiddleware_OptionsBypass tests that OPTIONS requests bypass authRequiredMiddleware
+func TestAuthRequiredMiddleware_OptionsBypass(t *testing.T) {
+	logger := zap.NewNop()
+	mockAuth := func(ctx context.Context, token string) (string, bool) {
+		return "user123", token == "valid-token"
+	}
+	mockUserID := func(user string) string { return user }
+
+	r := NewRouter[string, string](RouterConfig{Logger: logger}, mockAuth, mockUserID)
+
+	// Simple handler that checks for user ID if not OPTIONS
+	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodOptions {
+			userID, ok := middleware.GetUserIDFromRequest[string, string](req) // Use correct types
+			if !ok {
+				t.Error("Expected user ID in context for non-OPTIONS request")
+				http.Error(w, "Missing User ID", http.StatusInternalServerError)
+				return
+			}
+			if userID != "user123" {
+				t.Errorf("Expected user ID 'user123', got '%s'", userID)
+				http.Error(w, "Incorrect User ID", http.StatusInternalServerError)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+
+	// Apply the middleware directly for testing its behavior
+	wrappedHandler := r.authRequiredMiddleware(handler)
+	server := httptest.NewServer(wrappedHandler)
+	defer server.Close()
+
+	// Test OPTIONS request (should pass regardless of auth)
+	reqOptions, _ := http.NewRequest(http.MethodOptions, server.URL+"/test", nil)
+	reqOptions.Header.Set("Authorization", "Bearer invalid-token") // Invalid token
+	respOptions, err := http.DefaultClient.Do(reqOptions)
+	if err != nil {
+		t.Fatalf("OPTIONS request failed: %v", err)
+	}
+	defer respOptions.Body.Close()
+	assert.Equal(t, http.StatusOK, respOptions.StatusCode, "OPTIONS request should return OK")
+
+	// Test GET request with invalid auth (should fail)
+	reqInvalid, _ := http.NewRequest(http.MethodGet, server.URL+"/test", nil)
+	reqInvalid.Header.Set("Authorization", "Bearer invalid-token")
+	respInvalid, err := http.DefaultClient.Do(reqInvalid)
+	if err != nil {
+		t.Fatalf("Invalid GET request failed: %v", err)
+	}
+	defer respInvalid.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, respInvalid.StatusCode, "Invalid GET request should return Unauthorized")
+
+	// Test GET request with valid auth (should pass)
+	reqValid, _ := http.NewRequest(http.MethodGet, server.URL+"/test", nil)
+	reqValid.Header.Set("Authorization", "Bearer valid-token")
+	respValid, err := http.DefaultClient.Do(reqValid)
+	if err != nil {
+		t.Fatalf("Valid GET request failed: %v", err)
+	}
+	defer respValid.Body.Close()
+	assert.Equal(t, http.StatusOK, respValid.StatusCode, "Valid GET request should return OK")
+	bodyBytes, _ := io.ReadAll(respValid.Body)
+	assert.Equal(t, "OK", string(bodyBytes), "Valid GET request body mismatch")
+}
+
+// TestAuthOptionalMiddleware_OptionsBypass tests that OPTIONS requests bypass authOptionalMiddleware
+func TestAuthOptionalMiddleware_OptionsBypass(t *testing.T) {
+	logger := zap.NewNop()
+	mockAuth := func(ctx context.Context, token string) (string, bool) {
+		return "user123", token == "valid-token"
+	}
+	mockUserID := func(user string) string { return user }
+
+	r := NewRouter[string, string](RouterConfig{Logger: logger}, mockAuth, mockUserID)
+
+	// Simple handler that checks for user ID if present (and method is not OPTIONS)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodOptions {
+			userID, ok := middleware.GetUserIDFromRequest[string, string](req) // Use correct types
+			authHeader := req.Header.Get("Authorization")
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+
+			if token == "valid-token" {
+				if !ok {
+					t.Error("Expected user ID in context for valid non-OPTIONS request")
+					http.Error(w, "Missing User ID", http.StatusInternalServerError)
+					return
+				}
+				if userID != "user123" {
+					t.Errorf("Expected user ID 'user123', got '%s'", userID)
+					http.Error(w, "Incorrect User ID", http.StatusInternalServerError)
+					return
+				}
+			} else {
+				// For invalid or missing token, user ID should NOT be present
+				if ok {
+					t.Errorf("Did not expect user ID in context for invalid/missing token, but found '%s'", userID)
+					http.Error(w, "Unexpected User ID", http.StatusInternalServerError)
+					return
+				}
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+
+	// Apply the middleware directly
+	wrappedHandler := r.authOptionalMiddleware(handler)
+	server := httptest.NewServer(wrappedHandler)
+	defer server.Close()
+
+	// Test OPTIONS request (should pass regardless of auth)
+	reqOptions, _ := http.NewRequest(http.MethodOptions, server.URL+"/test", nil)
+	reqOptions.Header.Set("Authorization", "Bearer invalid-token") // Invalid token
+	respOptions, err := http.DefaultClient.Do(reqOptions)
+	if err != nil {
+		t.Fatalf("OPTIONS request failed: %v", err)
+	}
+	defer respOptions.Body.Close()
+	assert.Equal(t, http.StatusOK, respOptions.StatusCode, "OPTIONS request should return OK")
+
+	// Test GET request with invalid auth (should pass, no user context)
+	reqInvalid, _ := http.NewRequest(http.MethodGet, server.URL+"/test", nil)
+	reqInvalid.Header.Set("Authorization", "Bearer invalid-token")
+	respInvalid, err := http.DefaultClient.Do(reqInvalid)
+	if err != nil {
+		t.Fatalf("Invalid GET request failed: %v", err)
+	}
+	defer respInvalid.Body.Close()
+	assert.Equal(t, http.StatusOK, respInvalid.StatusCode, "Invalid GET request should return OK for optional auth")
+	bodyBytesInv, _ := io.ReadAll(respInvalid.Body)
+	assert.Equal(t, "OK", string(bodyBytesInv), "Invalid GET request body mismatch")
+
+	// Test GET request with no auth (should pass, no user context)
+	reqNoAuth, _ := http.NewRequest(http.MethodGet, server.URL+"/test", nil)
+	respNoAuth, err := http.DefaultClient.Do(reqNoAuth)
+	if err != nil {
+		t.Fatalf("No auth GET request failed: %v", err)
+	}
+	defer respNoAuth.Body.Close()
+	assert.Equal(t, http.StatusOK, respNoAuth.StatusCode, "No auth GET request should return OK for optional auth")
+	bodyBytesNo, _ := io.ReadAll(respNoAuth.Body)
+	assert.Equal(t, "OK", string(bodyBytesNo), "No auth GET request body mismatch")
+
+	// Test GET request with valid auth (should pass, with user context)
+	reqValid, _ := http.NewRequest(http.MethodGet, server.URL+"/test", nil)
+	reqValid.Header.Set("Authorization", "Bearer valid-token")
+	respValid, err := http.DefaultClient.Do(reqValid)
+	if err != nil {
+		t.Fatalf("Valid GET request failed: %v", err)
+	}
+	defer respValid.Body.Close()
+	assert.Equal(t, http.StatusOK, respValid.StatusCode, "Valid GET request should return OK for optional auth")
+	bodyBytesVal, _ := io.ReadAll(respValid.Body)
+	assert.Equal(t, "OK", string(bodyBytesVal), "Valid GET request body mismatch")
+}
+
 // --- Phase 2: Concurrency Testing ---
 
 // TestConcurrentRequests simulates multiple clients hitting various endpoints concurrently.

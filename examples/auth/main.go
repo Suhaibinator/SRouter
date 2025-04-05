@@ -92,7 +92,7 @@ func main() {
 					router.RouteConfigBase{
 						Path:      "/resource",
 						Methods:   []string{"GET"},
-						AuthLevel: router.Ptr(router.AuthRequired), // Uses the default auth middleware
+						AuthLevel: router.Ptr(router.AuthRequired), // Uses the router's internal authRequiredMiddleware. OPTIONS requests are automatically allowed.
 						Handler:   protectedHandler,
 					},
 				},
