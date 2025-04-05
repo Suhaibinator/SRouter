@@ -80,7 +80,7 @@ func logging(logger *zap.Logger, logInfoLevelForSuccess bool) Middleware {
 			// Calculate duration
 			duration := time.Since(start)
 			traceId := GetTraceIDFromContext(r.Context())
-			ip, foundIp := GetClientIP[int, int](r.Context())
+			ip, foundIp := GetClientIP[string, string](r.Context())
 			// Use appropriate log level based on status code and duration
 			if rw.statusCode >= 500 {
 				// Server errors at Error level
