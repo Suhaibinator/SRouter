@@ -82,7 +82,7 @@ func TestLoggingMiddleware_SuccessInfoLevel(t *testing.T) {
 	// Create a test handler that returns 200 OK
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	// Apply the Logging middleware with logInfoLevelForSuccess = true
