@@ -114,10 +114,10 @@ func TestWithTraceID_AlreadySet(t *testing.T) {
 	secondTraceID := "second-trace-id"
 
 	// Set the first trace ID
-	ctx = WithTraceID[string, any](ctx, initialTraceID)
+	ctx = WithTraceID[uint64, string](ctx, initialTraceID)
 
 	// Attempt to set a second trace ID
-	ctx = WithTraceID[string, any](ctx, secondTraceID)
+	ctx = WithTraceID[uint64, string](ctx, secondTraceID)
 
 	// Verify that the initial trace ID is still the one present
 	finalTraceID := GetTraceIDFromContext[uint64, string](ctx)
@@ -126,7 +126,7 @@ func TestWithTraceID_AlreadySet(t *testing.T) {
 	}
 
 	// Double-check the SRouterContext directly
-	rc, ok := GetSRouterContext[string, any](ctx)
+	rc, ok := GetSRouterContext[uint64, string](ctx)
 	if !ok {
 		t.Fatal("SRouterContext not found in context")
 	}
@@ -189,7 +189,7 @@ func TestGetTraceIDFromContext(t *testing.T) {
 
 	// Add a trace ID to the context using the new approach
 	expectedTraceID := "test-trace-id"
-	ctx = WithTraceID[string, any](ctx, expectedTraceID)
+	ctx = WithTraceID[uint64, string](ctx, expectedTraceID)
 
 	// Test with trace ID
 	if traceID := GetTraceIDFromContext[uint64, string](ctx); traceID != expectedTraceID {
