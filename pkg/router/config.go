@@ -125,7 +125,6 @@ type RouterConfig struct {
 	GlobalRateLimit    *middleware.RateLimitConfig[any, any] // Default rate limit for all routes
 	IPConfig           *middleware.IPConfig                  // Configuration for client IP extraction
 	EnableMetrics      bool                                  // Enable metrics collection
-	EnableTracing      bool                                  // Enable distributed tracing
 	TraceIDBufferSize  int                                   // Buffer size for trace ID generator (0 disables trace ID)
 	PrometheusConfig   *PrometheusConfig                     // Prometheus metrics configuration (optional, deprecated)
 	MetricsConfig      *MetricsConfig                        // Metrics configuration (optional)

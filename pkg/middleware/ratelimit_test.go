@@ -71,7 +71,7 @@ func TestRateLimitExtractIP(t *testing.T) {
 	// Test with X-Forwarded-For header
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Forwarded-For", "192.168.1.1, 10.0.0.1")
-	ip := extractIP(req, logger)
+	ip := extractIP[uint64, string](req, logger)
 	if ip != "192.168.1.1" {
 		t.Errorf("Expected IP to be 192.168.1.1, got %s", ip)
 	}
@@ -79,7 +79,7 @@ func TestRateLimitExtractIP(t *testing.T) {
 	// Test with X-Real-IP header
 	req = httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Real-IP", "192.168.1.2")
-	ip = extractIP(req, logger)
+	ip = extractIP[uint64, string](req, logger)
 	if ip != "192.168.1.2" {
 		t.Errorf("Expected IP to be 192.168.1.2, got %s", ip)
 	}
@@ -87,7 +87,7 @@ func TestRateLimitExtractIP(t *testing.T) {
 	// Test with RemoteAddr
 	req = httptest.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "192.168.1.3:1234"
-	ip = extractIP(req, logger)
+	ip = extractIP[uint64, string](req, logger)
 	if ip != "192.168.1.3:1234" {
 		t.Errorf("Expected IP to be 192.168.1.3:1234, got %s", ip)
 	}
@@ -454,7 +454,7 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 
 	// Create a chain of middleware with IP middleware first, then rate limiting
 	ipConfig := DefaultIPConfig()
-	ipMiddleware := ClientIPMiddleware(ipConfig) // Use the variable
+	ipMiddleware := ClientIPMiddleware[uint64, any](ipConfig) // Use the variable
 
 	// Apply the middleware chain: IP middleware -> Rate limit middleware -> Handler
 	handler := ipMiddleware(rateLimitMiddleware(testHandler))

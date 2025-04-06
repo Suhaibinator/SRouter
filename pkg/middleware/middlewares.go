@@ -18,9 +18,6 @@ var (
 	MaxBodySize = maxBodySize
 	Timeout     = timeout
 	CORS        = cors
-
-	// From ip.go
-	ClientIPMiddleware = clientIPMiddleware // Renamed from ClientIPMiddleware
 )
 
 // Note: Generic middleware constructors (Authentication*, New*Middleware, RateLimit, etc.)

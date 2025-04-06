@@ -94,9 +94,9 @@ func (u *UberRateLimiter) Allow(key string, limit int, window time.Duration) (bo
 
 // extractIP extracts the client IP address from the request context
 // If the IP is not in the context, it falls back to the old method
-func extractIP(r *http.Request, logger *zap.Logger) string {
+func extractIP[T comparable, U any](r *http.Request, logger *zap.Logger) string {
 	// Try to get the IP from the context first (set by ClientIPMiddleware)
-	if ip := ClientIP(r); ip != "" {
+	if ip := ClientIP[T, U](r); ip != "" {
 		return ip
 	}
 
@@ -246,12 +246,12 @@ func RateLimit[T comparable, U any](config *RateLimitConfig[T, U], limiter RateL
 
 			switch config.Strategy {
 			case StrategyIP:
-				key = extractIP(r, logger)
+				key = extractIP[T, U](r, logger)
 			case StrategyUser:
 				key = extractUser(r, config)
 				// If no user is found and strategy is user, fall back to IP
 				if key == "" {
-					key = extractIP(r, logger)
+					key = extractIP[T, U](r, logger)
 				}
 			case StrategyCustom:
 				if config.KeyExtractor != nil {
@@ -267,10 +267,10 @@ func RateLimit[T comparable, U any](config *RateLimitConfig[T, U], limiter RateL
 					}
 				} else {
 					// If no key extractor is provided, fall back to IP
-					key = extractIP(r, logger)
+					key = extractIP[T, U](r, logger)
 				}
 			default:
-				key = extractIP(r, logger)
+				key = extractIP[T, U](r, logger)
 			}
 
 			// Combine bucket name and key to create a unique identifier

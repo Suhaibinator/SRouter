@@ -141,8 +141,12 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 			Flags: make(map[string]bool),
 		}
 	}
-
-	// Store the trace ID in the flags
+	// Check if the trace ID is already set
+	if rc.TraceIDSet {
+		// If it is, we can skip setting it again
+		return ctx
+	}
+	// If not, set the trace ID
 	rc.TraceID = traceID
 	rc.TraceIDSet = true
 

@@ -97,7 +97,7 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 		ipConfig = middleware.DefaultIPConfig()
 	}
 	// Add IP middleware as the first middleware (before any other middleware)
-	r.middlewares = append([]common.Middleware{middleware.ClientIPMiddleware(ipConfig)}, r.middlewares...)
+	r.middlewares = append([]common.Middleware{middleware.ClientIPMiddleware[T, U](ipConfig)}, r.middlewares...)
 	// Add metrics middleware if configured
 	if config.EnableMetrics {
 		var metricsMiddleware common.Middleware
@@ -436,7 +436,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var traceID string
 
 	// Apply metrics and tracing if enabled
-	if r.config.EnableMetrics || r.config.EnableTracing {
+	if r.config.EnableMetrics || r.config.TraceIDBufferSize > 0 {
 		// Get a metricsResponseWriter from the pool
 		mrw := r.metricsWriterPool.Get().(*metricsResponseWriter[T, U])
 
@@ -529,7 +529,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 
 			// Log tracing information
-			if r.config.EnableTracing {
+			if r.config.TraceIDBufferSize > 0 {
 				// Create log fields
 				fields := []zap.Field{
 					zap.String("method", req.Method),

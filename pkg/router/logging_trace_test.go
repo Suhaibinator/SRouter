@@ -34,6 +34,7 @@ func TestTraceIDLogging(t *testing.T) {
 	if len(logEntries) == 0 {
 		t.Errorf("Expected logs to be recorded")
 	}
+	//traceID := middleware.GetTraceIDFromContext(req.Context())
 	found := false
 	for _, log := range logEntries {
 		for _, field := range log.Context {
