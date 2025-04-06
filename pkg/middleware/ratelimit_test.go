@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors" // Need to import errors package
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -71,7 +72,7 @@ func TestRateLimitExtractIP(t *testing.T) {
 	// Test with X-Forwarded-For header
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Forwarded-For", "192.168.1.1, 10.0.0.1")
-	ip := extractIP(req, logger)
+	ip := extractIP[uint64, string](req, logger)
 	if ip != "192.168.1.1" {
 		t.Errorf("Expected IP to be 192.168.1.1, got %s", ip)
 	}
@@ -79,7 +80,7 @@ func TestRateLimitExtractIP(t *testing.T) {
 	// Test with X-Real-IP header
 	req = httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Real-IP", "192.168.1.2")
-	ip = extractIP(req, logger)
+	ip = extractIP[uint64, string](req, logger)
 	if ip != "192.168.1.2" {
 		t.Errorf("Expected IP to be 192.168.1.2, got %s", ip)
 	}
@@ -87,7 +88,7 @@ func TestRateLimitExtractIP(t *testing.T) {
 	// Test with RemoteAddr
 	req = httptest.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "192.168.1.3:1234"
-	ip = extractIP(req, logger)
+	ip = extractIP[uint64, string](req, logger)
 	if ip != "192.168.1.3:1234" {
 		t.Errorf("Expected IP to be 192.168.1.3:1234, got %s", ip)
 	}
@@ -216,6 +217,225 @@ func TestRateLimitMiddleware(t *testing.T) {
 	retryAfterHeader := resp.Header.Get("Retry-After")
 	if retryAfterHeader == "" {
 		t.Errorf("Expected Retry-After header to be set")
+	}
+}
+
+func TestRateLimitMiddlewareCustomStrategySuccess(t *testing.T) {
+	// Create a logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create a mock rate limiter
+	mockLimiter := &TestRateLimiter{} // Reuse mock
+
+	// Define the custom key to be returned
+	customKey := "my-custom-key"
+
+	// Create a rate limit config with Custom strategy and a successful KeyExtractor
+	config := &RateLimitConfig[string, any]{
+		BucketName: "test-bucket-custom-success",
+		Limit:      2, // Low limit for testing
+		Window:     time.Second,
+		Strategy:   StrategyCustom,
+		KeyExtractor: func(r *http.Request) (string, error) {
+			return customKey, nil // Return the custom key successfully
+		},
+	}
+
+	// Create the middleware
+	middleware := RateLimit(config, mockLimiter, logger)
+
+	// Create a test handler
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Wrap the test handler
+	handler := middleware(testHandler)
+
+	// Create a test server
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Make requests
+	client := &http.Client{}
+
+	// First request should succeed
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Second request should succeed
+	resp, err = client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Third request should fail (based on the custom key)
+	resp, err = client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("Expected status code %d, got %d", http.StatusTooManyRequests, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Verify the mock limiter was called 3 times (indicating the custom key was used)
+	if mockLimiter.allowCount != 3 {
+		t.Errorf("Expected Allow to be called 3 times, got %d", mockLimiter.allowCount)
+	}
+}
+
+func TestRateLimitMiddlewareCustomStrategyNilExtractor(t *testing.T) {
+	// Create a logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create a mock rate limiter
+	mockLimiter := &TestRateLimiter{} // Reuse mock
+
+	// Create a rate limit config with Custom strategy but nil KeyExtractor
+	config := &RateLimitConfig[string, any]{
+		BucketName:   "test-bucket-custom-nil",
+		Limit:        2, // Low limit for testing
+		Window:       time.Second,
+		Strategy:     StrategyCustom,
+		KeyExtractor: nil, // Explicitly nil
+	}
+
+	// Create the middleware
+	middleware := RateLimit(config, mockLimiter, logger)
+
+	// Create a test handler
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Wrap the test handler
+	handler := middleware(testHandler)
+
+	// Create a test server
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Make requests (should behave like IP strategy)
+	client := &http.Client{}
+
+	// First request should succeed
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Second request should succeed
+	resp, err = client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Third request should fail
+	resp, err = client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("Expected status code %d, got %d", http.StatusTooManyRequests, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// Verify the mock limiter was called 3 times
+	if mockLimiter.allowCount != 3 {
+		t.Errorf("Expected Allow to be called 3 times, got %d", mockLimiter.allowCount)
+	}
+}
+
+func TestRateLimitMiddlewareCustomStrategyError(t *testing.T) {
+	// Create a logger with an observer to capture logs
+	core, observed := observer.New(zap.ErrorLevel) // Capture Error level logs
+	logger := zap.New(core)
+
+	// Create a mock rate limiter (it won't be hit in this error case)
+	mockLimiter := &TestRateLimiter{}
+
+	// Define the error to be returned by the key extractor
+	extractorError := errors.New("failed to extract key")
+
+	// Create a rate limit config with Custom strategy and an erroring KeyExtractor
+	config := &RateLimitConfig[string, any]{
+		BucketName: "test-bucket-custom-error",
+		Limit:      5,
+		Window:     time.Minute,
+		Strategy:   StrategyCustom,
+		KeyExtractor: func(r *http.Request) (string, error) {
+			return "", extractorError // Always return an error
+		},
+	}
+
+	// Create the middleware
+	middleware := RateLimit(config, mockLimiter, logger)
+
+	// Create a test handler (it won't be reached)
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Test handler should not be called when KeyExtractor errors")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Wrap the test handler with the middleware
+	handler := middleware(testHandler)
+
+	// Create a test server
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Make a request
+	client := &http.Client{}
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Verify the status code is Internal Server Error
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("Expected status code %d, got %d", http.StatusInternalServerError, resp.StatusCode)
+	}
+
+	// Verify that the error was logged
+	logs := observed.FilterMessage("Failed to extract rate limit key").All()
+	if len(logs) == 0 {
+		t.Errorf("Expected log message 'Failed to extract rate limit key' was not found")
+	} else {
+		// Check if the logged error matches the expected error
+		foundError := false
+		for _, field := range logs[0].Context {
+			if field.Key == "error" {
+				if loggedErr, ok := field.Interface.(error); ok {
+					if errors.Is(loggedErr, extractorError) {
+						foundError = true
+						break
+					}
+				}
+			}
+		}
+		if !foundError {
+			t.Errorf("Logged error does not match the expected extractor error. Got context: %v", logs[0].Context)
+		}
 	}
 }
 
@@ -437,7 +657,7 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 	mockLimiter := &TestRateLimiter{}
 
 	// Create a rate limit config with IP strategy
-	config := &RateLimitConfig[string, any]{
+	config := &RateLimitConfig[uint64, any]{
 		BucketName: "test-bucket-ip",
 		Limit:      2, // Set a low limit for testing
 		Window:     time.Second,
@@ -454,7 +674,7 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 
 	// Create a chain of middleware with IP middleware first, then rate limiting
 	ipConfig := DefaultIPConfig()
-	ipMiddleware := ClientIPMiddleware(ipConfig) // Use the variable
+	ipMiddleware := ClientIPMiddleware[uint64, any](ipConfig) // Use the variable
 
 	// Apply the middleware chain: IP middleware -> Rate limit middleware -> Handler
 	handler := ipMiddleware(rateLimitMiddleware(testHandler))
@@ -523,5 +743,80 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("Expected warning log about IP middleware not being configured")
+	}
+}
+
+func TestRateLimitMiddlewareDefaultStrategy(t *testing.T) {
+	// Create a logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create a mock rate limiter
+	mockLimiter := &TestRateLimiter{} // Reuse the mock from other tests
+
+	// Create a rate limit config with an invalid strategy to trigger the default case
+	invalidStrategy := RateLimitStrategy(99) // Use a value not defined in the enum
+	config := &RateLimitConfig[string, any]{
+		BucketName: "test-bucket-default",
+		Limit:      2, // Set a low limit for testing
+		Window:     time.Second,
+		Strategy:   invalidStrategy, // This should trigger the default case
+	}
+
+	// Create the middleware
+	middleware := RateLimit(config, mockLimiter, logger)
+
+	// Create a test handler that returns 200 OK
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Wrap the test handler with the middleware
+	handler := middleware(testHandler)
+
+	// Create a test server
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Make requests to test rate limiting (should behave like IP strategy)
+	client := &http.Client{}
+
+	// First request should succeed
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+	resp.Body.Close() // Close the response body
+
+	// Second request should succeed
+	resp, err = client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+	resp.Body.Close() // Close the response body
+
+	// Third request should fail with 429 Too Many Requests
+	resp, err = client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("Expected status code %d, got %d", http.StatusTooManyRequests, resp.StatusCode)
+	}
+	resp.Body.Close() // Close the response body
+
+	// Check rate limit headers on the last response
+	limitHeader := resp.Header.Get("X-RateLimit-Limit")
+	if limitHeader != "2" {
+		t.Errorf("Expected X-RateLimit-Limit header to be 2, got %s", limitHeader)
+	}
+	retryAfterHeader := resp.Header.Get("Retry-After")
+	if retryAfterHeader == "" {
+		t.Errorf("Expected Retry-After header to be set")
 	}
 }

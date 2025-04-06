@@ -19,19 +19,6 @@ type IDGenerator struct {
 	initOnce sync.Once
 }
 
-// generatorRegistry keeps track of IDGenerator instances by buffer size to prevent duplication
-var generatorRegistry = struct {
-	sync.RWMutex
-	generators map[int]*IDGenerator
-}{
-	generators: make(map[int]*IDGenerator),
-}
-
-// defaultGenerator is the singleton instance of IDGenerator with the default buffer size
-var defaultGenerator *IDGenerator
-var defaultGeneratorOnce sync.Once
-var defaultBufferSize = 100000 // Default buffer of 100000 UUIDs to handle bursts better
-
 // NewIDGenerator creates a new IDGenerator with the specified buffer size
 func NewIDGenerator(bufferSize int) *IDGenerator {
 	g := &IDGenerator{
@@ -40,42 +27,6 @@ func NewIDGenerator(bufferSize int) *IDGenerator {
 	}
 	g.init()
 	return g
-}
-
-// GetDefaultGenerator returns the default singleton IDGenerator
-func GetDefaultGenerator() *IDGenerator {
-	defaultGeneratorOnce.Do(func() {
-		defaultGenerator = getOrCreateGenerator(defaultBufferSize)
-	})
-	return defaultGenerator
-}
-
-// getOrCreateGenerator retrieves an existing generator with the specified buffer size
-// or creates a new one if none exists. This prevents creating duplicate generators
-// with the same buffer size, which would waste memory.
-func getOrCreateGenerator(bufferSize int) *IDGenerator {
-	// First check if we already have a generator with this buffer size
-	generatorRegistry.RLock()
-	gen, exists := generatorRegistry.generators[bufferSize]
-	generatorRegistry.RUnlock()
-
-	if exists {
-		return gen
-	}
-
-	// If not, create a new one and register it
-	generatorRegistry.Lock()
-	defer generatorRegistry.Unlock()
-
-	// Double-check in case another goroutine created it while we were waiting for the lock
-	if gen, exists = generatorRegistry.generators[bufferSize]; exists {
-		return gen
-	}
-
-	// Create a new generator and register it
-	gen = NewIDGenerator(bufferSize)
-	generatorRegistry.generators[bufferSize] = gen
-	return gen
 }
 
 // init starts the background goroutine that fills the channel with UUIDs
@@ -190,8 +141,12 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 			Flags: make(map[string]bool),
 		}
 	}
-
-	// Store the trace ID in the flags
+	// Check if the trace ID is already set
+	if rc.TraceIDSet {
+		// If it is, we can skip setting it again
+		return ctx
+	}
+	// If not, set the trace ID
 	rc.TraceID = traceID
 	rc.TraceIDSet = true
 
@@ -230,42 +185,30 @@ func AddTraceIDToRequest(r *http.Request, traceID string) *http.Request {
 	return r.WithContext(ctx)
 }
 
-// traceMiddleware creates a middleware that generates a unique trace ID for each request
-// and adds it to the request context. This allows for request tracing across logs.
-// This implementation uses a precomputed pool of UUIDs for better performance.
-func traceMiddleware() common.Middleware {
-	// Get or initialize the default generator
-	generator := GetDefaultGenerator()
-
+// CreateTraceMiddleware creates a trace middleware with the provided ID generator.
+// This is the core implementation used by both traceMiddleware and traceMiddlewareWithConfig.
+// It checks for an existing trace ID in the request headers before generating a new one,
+// which allows for trace ID propagation across service calls.
+func CreateTraceMiddleware(generator *IDGenerator) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Get a precomputed trace ID from the generator using non-blocking method
-			// This ensures the request is never delayed even during extreme traffic spikes
-			traceID := generator.GetIDNonBlocking()
+			var traceID string
+
+			// Check if there's already a trace ID in the request headers
+			existingTraceID := r.Header.Get("X-Trace-ID")
+			if existingTraceID != "" {
+				// Use the existing trace ID for propagation
+				traceID = existingTraceID
+			} else {
+				// Generate a new trace ID if none exists
+				traceID = generator.GetIDNonBlocking()
+			}
 
 			// Add the trace ID to the request context using the new wrapper
 			ctx := WithTraceID[string, any](r.Context(), traceID)
 
-			// Call the next handler with the updated request
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
-}
-
-// traceMiddlewareWithConfig creates a trace middleware with a custom ID generator configuration.
-// Generators with the same buffer size are shared for memory efficiency.
-func traceMiddlewareWithConfig(bufferSize int) common.Middleware {
-	// Get or create a generator with the specified buffer size
-	generator := getOrCreateGenerator(bufferSize)
-
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Get a precomputed trace ID from the generator using non-blocking method
-			// This ensures the request is never delayed even during extreme traffic spikes
-			traceID := generator.GetIDNonBlocking()
-
-			// Add the trace ID to the request context using the new wrapper
-			ctx := WithTraceID[string, any](r.Context(), traceID)
+			// Add trace ID to the headers for logging or tracing
+			w.Header().Set("X-Trace-ID", traceID)
 
 			// Call the next handler with the updated request
 			next.ServeHTTP(w, r.WithContext(ctx))

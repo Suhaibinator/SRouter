@@ -20,7 +20,7 @@ import (
 func TestTraceIDLogging(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, EnableTraceID: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, TraceIDBufferSize: 1000}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	r.RegisterRoute(RouteConfigBase{Path: "/test", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }}) // Use HttpMethod enum
 	req, err := http.NewRequest("GET", "/test", nil)
 	if err != nil {
@@ -34,6 +34,7 @@ func TestTraceIDLogging(t *testing.T) {
 	if len(logEntries) == 0 {
 		t.Errorf("Expected logs to be recorded")
 	}
+	//traceID := middleware.GetTraceIDFromContext(req.Context())
 	found := false
 	for _, log := range logEntries {
 		for _, field := range log.Context {
@@ -55,7 +56,7 @@ func TestTraceIDLogging(t *testing.T) {
 func TestTraceIDLoggingDisabled(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, EnableTraceID: false}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, TraceIDBufferSize: 0}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	r.RegisterRoute(RouteConfigBase{Path: "/test", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }}) // Use HttpMethod enum
 	req, err := http.NewRequest("GET", "/test", nil)
 	if err != nil {
@@ -162,7 +163,7 @@ func TestLoggingMiddlewareWithoutTraceID(t *testing.T) {
 func TestHandleErrorWithTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableTraceID: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1000}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	req, err := http.NewRequest("GET", "/test", nil)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
@@ -196,7 +197,7 @@ func TestHandleErrorWithTraceID(t *testing.T) {
 func TestHandleErrorWithoutTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableTraceID: false}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 0}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	req, err := http.NewRequest("GET", "/test", nil)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
@@ -230,7 +231,7 @@ func TestHandleErrorWithoutTraceID(t *testing.T) {
 func TestRecoveryMiddlewareWithTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableTraceID: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1000}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { panic("Test panic") })
 	wrappedHandler := r.recoveryMiddleware(handler)
 	req, err := http.NewRequest("GET", "/test", nil)
@@ -266,7 +267,7 @@ func TestRecoveryMiddlewareWithTraceID(t *testing.T) {
 func TestRecoveryMiddlewareWithoutTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableTraceID: false}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 0}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { panic("Test panic") })
 	wrappedHandler := r.recoveryMiddleware(handler)
 	req, err := http.NewRequest("GET", "/test", nil)

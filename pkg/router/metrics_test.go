@@ -174,8 +174,8 @@ func TestTracing(t *testing.T) {
 
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
-		Logger:        logger,
-		EnableTracing: true,
+		Logger:            logger,
+		TraceIDBufferSize: 1000, // Enable trace ID with buffer size of 1000
 	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser) // Use mock functions
 
 	// Register a route

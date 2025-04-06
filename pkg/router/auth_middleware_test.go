@@ -244,7 +244,7 @@ func TestAuthRequiredMiddlewareWithTraceID(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
-	r := NewRouter(RouterConfig{Logger: logger, EnableTraceID: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1000}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

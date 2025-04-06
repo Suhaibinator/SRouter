@@ -18,13 +18,6 @@ var (
 	MaxBodySize = maxBodySize
 	Timeout     = timeout
 	CORS        = cors
-
-	// From ip.go
-	ClientIPMiddleware = clientIPMiddleware // Renamed from ClientIPMiddleware
-
-	// From trace.go
-	Trace           = traceMiddleware           // Renamed from TraceMiddleware
-	TraceWithConfig = traceMiddlewareWithConfig // Renamed from TraceMiddlewareWithConfig
 )
 
 // Note: Generic middleware constructors (Authentication*, New*Middleware, RateLimit, etc.)

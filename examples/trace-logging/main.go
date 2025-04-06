@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"go.uber.org/zap"
@@ -19,17 +18,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create a router configuration with trace middleware
 	routerConfig := router.RouterConfig{
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
-		EnableTraceID:     true,    // Enable trace ID logging
-		Middlewares: []common.Middleware{
-			middleware.Trace(), // Use Trace variable
-		},
+		TraceIDBufferSize: 1000,    // Enable trace ID with buffer size of 1000
+		// Trace middleware is now added automatically by the router
 	}
 
 	// Define the auth function
@@ -73,7 +70,7 @@ func main() {
 
 			// Return a response
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(fmt.Sprintf(`{"message":"Hello, World!", "trace_id":"%s"}`, traceID)))
+			_, _ = w.Write(fmt.Appendf(nil, `{"message":"Hello, World!", "trace_id":"%s"}`, traceID))
 		},
 	})
 
@@ -93,7 +90,7 @@ func main() {
 
 			// Create a new request to a downstream service
 			// In a real application, this would be a different service
-			req, err := http.NewRequest("GET", "http://localhost:8080/hello", nil)
+			req, err := http.NewRequest("GET", "http://localhost:8082/hello", nil)
 			if err != nil {
 				logger.Error("Failed to create request",
 					zap.String("trace_id", traceID),
@@ -127,14 +124,15 @@ func main() {
 
 			// Return a response
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(fmt.Sprintf(`{"message":"Downstream service call successful", "trace_id":"%s"}`, traceID)))
+			_, _ = w.Write(fmt.Appendf(nil, `{"message":"Downstream service call successful", "trace_id":"%s"}`, traceID))
 		},
 	})
 
 	// Start the server
-	fmt.Println("Server running on :8080")
+	port := ":8082" // Use a different port
+	fmt.Printf("Server running on %s\n", port)
 	fmt.Println("Try accessing:")
-	fmt.Println("  - http://localhost:8080/hello")
-	fmt.Println("  - http://localhost:8080/downstream")
-	log.Fatal(http.ListenAndServe(":8080", r))
+	fmt.Printf("  - http://localhost%s/hello\n", port)
+	fmt.Printf("  - http://localhost%s/downstream\n", port)
+	log.Fatal(http.ListenAndServe(port, r))
 }

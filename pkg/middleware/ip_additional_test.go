@@ -23,14 +23,14 @@ func TestDefaultIPConfig(t *testing.T) {
 // TestClientIPMiddleware tests the ClientIPMiddleware function (now a variable)
 func TestClientIPMiddleware(t *testing.T) {
 	// Test with nil config (should use default)
-	middleware := ClientIPMiddleware(nil) // Use the variable
+	middleware := ClientIPMiddleware[uint64, any](nil) // Use the variable
 	if middleware == nil {
 		t.Fatal("Expected non-nil middleware")
 	}
 
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := ClientIP(r)
+		ip := ClientIP[uint64, any](r)
 		_, _ = w.Write([]byte(ip))
 	})
 
@@ -55,7 +55,7 @@ func TestClientIPMiddleware(t *testing.T) {
 		Source:     IPSourceXRealIP,
 		TrustProxy: true,
 	}
-	middleware = ClientIPMiddleware(config) // Use the variable
+	middleware = ClientIPMiddleware[uint64, any](config) // Use the variable
 	wrappedHandler = middleware(handler)
 
 	// Create a test request with X-Real-IP header
@@ -77,7 +77,7 @@ func TestClientIPMiddleware(t *testing.T) {
 		CustomHeader: "X-Custom-IP",
 		TrustProxy:   true,
 	}
-	middleware = ClientIPMiddleware(config) // Use the variable
+	middleware = ClientIPMiddleware[uint64, any](config) // Use the variable
 	wrappedHandler = middleware(handler)
 
 	// Create a test request with custom header
@@ -98,7 +98,7 @@ func TestClientIPMiddleware(t *testing.T) {
 		Source:     IPSourceRemoteAddr,
 		TrustProxy: true,
 	}
-	middleware = ClientIPMiddleware(config) // Use the variable
+	middleware = ClientIPMiddleware[uint64, any](config) // Use the variable
 	wrappedHandler = middleware(handler)
 
 	// Create a test request with RemoteAddr
@@ -119,7 +119,7 @@ func TestClientIPMiddleware(t *testing.T) {
 		Source:     IPSourceType("unknown"),
 		TrustProxy: true,
 	}
-	middleware = ClientIPMiddleware(config) // Use the variable
+	middleware = ClientIPMiddleware[uint64, any](config) // Use the variable
 	wrappedHandler = middleware(handler)
 
 	// Create a test request with X-Forwarded-For header
@@ -140,7 +140,7 @@ func TestClientIPMiddleware(t *testing.T) {
 		Source:     IPSourceXForwardedFor,
 		TrustProxy: false,
 	}
-	middleware = ClientIPMiddleware(config) // Use the variable
+	middleware = ClientIPMiddleware[uint64, any](config) // Use the variable
 	wrappedHandler = middleware(handler)
 
 	// Create a test request with X-Forwarded-For header and RemoteAddr

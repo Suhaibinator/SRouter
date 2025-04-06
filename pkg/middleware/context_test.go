@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -24,149 +23,6 @@ func (m *mockTx) Rollback() error              { return m.rollbackErr }
 func (m *mockTx) SavePoint(name string) error  { return nil } // No-op for basic tests
 func (m *mockTx) RollbackTo(name string) error { return nil } // No-op for basic tests
 func (m *mockTx) GetDB() *gorm.DB              { return m.dbInstance }
-
-// TestGetAllFlagsFromContext tests the getAllFlagsFromContext function
-// including all edge cases and non-happy paths
-func TestGetAllFlagsFromContext(t *testing.T) {
-	// Test case 1: Empty context (should return nil)
-	t.Run("EmptyContext", func(t *testing.T) {
-		ctx := context.Background()
-		result := getAllFlagsFromContext(ctx)
-		if result != nil {
-			t.Errorf("Expected nil for empty context, got %v", result)
-		}
-	})
-
-	// Test case 2: Context with non-SRouterContext value (should return nil)
-	t.Run("NonSRouterContextValue", func(t *testing.T) {
-		// Use a different key type to ensure no collision with sRouterContextKey
-		type differentKeyType struct{}
-		differentKey := differentKeyType{}
-
-		ctx := context.WithValue(context.Background(), differentKey, "some value")
-		result := getAllFlagsFromContext(ctx)
-		if result != nil {
-			t.Errorf("Expected nil for context with non-SRouterContext value, got %v", result)
-		}
-	})
-
-	// Test case 3: Context with value of wrong type for sRouterContextKey (should return nil)
-	t.Run("WrongTypeValue", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), sRouterContextKey{}, "wrong type")
-		result := getAllFlagsFromContext(ctx)
-		if result != nil {
-			t.Errorf("Expected nil for context with wrong type value, got %v", result)
-		}
-	})
-
-	// Test case 4: Context with string SRouterContext but nil Flags (should return nil)
-	t.Run("StringSRouterContextNilFlags", func(t *testing.T) {
-		rc := &SRouterContext[string, any]{
-			UserID: "user123",
-			Flags:  nil, // nil flags
-		}
-		ctx := context.WithValue(context.Background(), sRouterContextKey{}, rc)
-		result := getAllFlagsFromContext(ctx)
-		if result != nil {
-			t.Errorf("Expected nil for context with nil Flags, got %v", result)
-		}
-	})
-
-	// Test case 5: Context with int SRouterContext but nil Flags (should return nil)
-	t.Run("IntSRouterContextNilFlags", func(t *testing.T) {
-		rc := &SRouterContext[int, any]{
-			UserID: 123,
-			Flags:  nil, // nil flags
-		}
-		ctx := context.WithValue(context.Background(), sRouterContextKey{}, rc)
-		result := getAllFlagsFromContext(ctx)
-		if result != nil {
-			t.Errorf("Expected nil for context with nil Flags, got %v", result)
-		}
-	})
-
-	// Test case 6: Context with string SRouterContext and empty Flags (should return empty map)
-	t.Run("StringSRouterContextEmptyFlags", func(t *testing.T) {
-		rc := &SRouterContext[string, any]{
-			UserID: "user123",
-			Flags:  make(map[string]bool), // empty flags map
-		}
-		ctx := context.WithValue(context.Background(), sRouterContextKey{}, rc)
-		result := getAllFlagsFromContext(ctx)
-		if result == nil {
-			t.Errorf("Expected empty map for context with empty Flags, got nil")
-		} else if len(result) != 0 {
-			t.Errorf("Expected empty map for context with empty Flags, got %v", result)
-		}
-	})
-
-	// Test case 7: Context with int SRouterContext and empty Flags (should return empty map)
-	t.Run("IntSRouterContextEmptyFlags", func(t *testing.T) {
-		rc := &SRouterContext[int, any]{
-			UserID: 123,
-			Flags:  make(map[string]bool), // empty flags map
-		}
-		ctx := context.WithValue(context.Background(), sRouterContextKey{}, rc)
-		result := getAllFlagsFromContext(ctx)
-		if result == nil {
-			t.Errorf("Expected empty map for context with empty Flags, got nil")
-		} else if len(result) != 0 {
-			t.Errorf("Expected empty map for context with empty Flags, got %v", result)
-		}
-	})
-
-	// Test case 8: Happy path - string SRouterContext with Flags (should return flags)
-	t.Run("StringSRouterContextWithFlags", func(t *testing.T) {
-		expected := map[string]bool{
-			"flag1": true,
-			"flag2": false,
-		}
-		rc := &SRouterContext[string, any]{
-			UserID: "user123",
-			Flags:  expected,
-		}
-		ctx := context.WithValue(context.Background(), sRouterContextKey{}, rc)
-		result := getAllFlagsFromContext(ctx)
-		if !reflect.DeepEqual(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
-	})
-
-	// Test case 9: Happy path - int SRouterContext with Flags (should return flags)
-	t.Run("IntSRouterContextWithFlags", func(t *testing.T) {
-		expected := map[string]bool{
-			"flag1": true,
-			"flag2": false,
-		}
-		rc := &SRouterContext[int, any]{
-			UserID: 123,
-			Flags:  expected,
-		}
-		ctx := context.WithValue(context.Background(), sRouterContextKey{}, rc)
-		result := getAllFlagsFromContext(ctx)
-		if !reflect.DeepEqual(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
-	})
-
-	// Test case 10: Context with unusual SRouterContext type that doesn't match known ones (should return nil)
-	t.Run("UnusualSRouterContextType", func(t *testing.T) {
-		// We can't directly create a *SRouterContext[float64, any] due to type checking,
-		// but we can mimic this situation by using an interface value with a different type
-		// This simulates a case where the type parameters don't match the common ones we check for
-		type unusualStruct struct {
-			Flags map[string]bool
-		}
-		unusual := &unusualStruct{
-			Flags: map[string]bool{"flag": true},
-		}
-		ctx := context.WithValue(context.Background(), sRouterContextKey{}, unusual)
-		result := getAllFlagsFromContext(ctx)
-		if result != nil {
-			t.Errorf("Expected nil for unusual SRouterContext type, got %v", result)
-		}
-	})
-}
 
 // TestTransactionContext tests adding and retrieving DatabaseTransaction from context
 func TestTransactionContext(t *testing.T) {
@@ -244,4 +100,91 @@ func TestTransactionContext(t *testing.T) {
 	retrievedTx, ok = GetTransactionFromRequest[string, any](reqWithTx)
 	assert.True(ok, "GetTransactionFromRequest should return true for request with tx")
 	assert.Same(mockTx2, retrievedTx, "GetTransactionFromRequest should retrieve the mutated tx instance (tx2)")
+}
+
+// TestFlagContext tests adding and retrieving flags from context
+func TestFlagContext(t *testing.T) {
+	assert := assert.New(t)
+	ctx := context.Background()
+
+	flagName1 := "feature-enabled"
+	flagName2 := "debug-mode"
+	nonExistentFlag := "does-not-exist"
+
+	// 1. Get flag from empty context
+	val, ok := GetFlag[string, any](ctx, flagName1)
+	assert.False(ok, "Should return false when getting flag from empty context")
+	assert.False(val, "Value should be false for non-existent flag in empty context")
+
+	// 2. Add flag1 (true)
+	ctxWithFlag1 := WithFlag[string, any](ctx, flagName1, true)
+
+	// 3. Get flag1
+	val, ok = GetFlag[string, any](ctxWithFlag1, flagName1)
+	assert.True(ok, "Should return true when getting existing flag")
+	assert.True(val, "Value should be true for flag1")
+
+	// 4. Get non-existent flag from context with flag1
+	val, ok = GetFlag[string, any](ctxWithFlag1, nonExistentFlag)
+	assert.False(ok, "Should return false when getting non-existent flag")
+	assert.False(val, "Value should be false for non-existent flag")
+
+	// 5. Add flag2 (false) to the context that already has flag1
+	ctxWithBothFlags := WithFlag[string, any](ctxWithFlag1, flagName2, false)
+
+	// 6. Get flag1 from context with both flags
+	val, ok = GetFlag[string, any](ctxWithBothFlags, flagName1)
+	assert.True(ok, "Should still get flag1 after adding flag2")
+	assert.True(val, "Value of flag1 should still be true")
+
+	// 7. Get flag2 from context with both flags
+	val, ok = GetFlag[string, any](ctxWithBothFlags, flagName2)
+	assert.True(ok, "Should get flag2")
+	assert.False(val, "Value of flag2 should be false")
+
+	// 8. Overwrite flag1 to false
+	ctxOverwritten := WithFlag[string, any](ctxWithBothFlags, flagName1, false)
+
+	// 9. Get overwritten flag1
+	val, ok = GetFlag[string, any](ctxOverwritten, flagName1)
+	assert.True(ok, "Should get overwritten flag1")
+	assert.False(val, "Value of overwritten flag1 should be false")
+
+	// 10. Get flag2 from overwritten context (should still be there)
+	val, ok = GetFlag[string, any](ctxOverwritten, flagName2)
+	assert.True(ok, "Should still get flag2 after overwriting flag1")
+	assert.False(val, "Value of flag2 should still be false")
+
+	// 11. Test with different generic types
+	type CustomUser struct{ Name string }
+	ctxWithIntUser := WithFlag[int, CustomUser](context.Background(), flagName1, true)
+	val, ok = GetFlag[int, CustomUser](ctxWithIntUser, flagName1)
+	assert.True(ok, "Should work with different generic types [int, CustomUser]")
+	assert.True(val, "Should retrieve correct flag value with different generic types")
+}
+
+// TestGetFlagFromRequest tests the GetFlagFromRequest convenience function
+func TestGetFlagFromRequest(t *testing.T) {
+	assert := assert.New(t)
+	req := httptest.NewRequest("GET", "/", nil)
+	flagName := "test-flag"
+
+	// 1. Get from request with no context flag
+	val, ok := GetFlagFromRequest[string, any](req, flagName)
+	assert.False(ok, "GetFlagFromRequest should return false for request with no flag")
+	assert.False(val, "GetFlagFromRequest value should be false for request with no flag")
+
+	// 2. Add flag to request context
+	ctxWithFlag := WithFlag[string, any](req.Context(), flagName, true)
+	reqWithFlag := req.WithContext(ctxWithFlag)
+
+	// 3. Get flag from request
+	val, ok = GetFlagFromRequest[string, any](reqWithFlag, flagName)
+	assert.True(ok, "GetFlagFromRequest should return true for request with flag")
+	assert.True(val, "GetFlagFromRequest value should be true for request with flag")
+
+	// 4. Get non-existent flag from request with flag
+	val, ok = GetFlagFromRequest[string, any](reqWithFlag, "other-flag")
+	assert.False(ok, "GetFlagFromRequest should return false for non-existent flag")
+	assert.False(val, "GetFlagFromRequest value should be false for non-existent flag")
 }

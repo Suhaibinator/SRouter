@@ -33,7 +33,8 @@ type Router[T comparable, U any] struct {
 	wg                sync.WaitGroup
 	shutdown          bool
 	shutdownMu        sync.RWMutex
-	metricsWriterPool sync.Pool // Pool for reusing metricsResponseWriter objects
+	metricsWriterPool sync.Pool               // Pool for reusing metricsResponseWriter objects
+	traceIDGenerator  *middleware.IDGenerator // Generator for trace IDs
 }
 
 // RegisterSubRouterWithSubRouter registers a nested SubRouter with a parent SubRouter
@@ -81,13 +82,22 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 		},
 	}
 
+	// Initialize trace ID generator if trace ID is enabled
+	if config.TraceIDBufferSize > 0 {
+		r.traceIDGenerator = middleware.NewIDGenerator(config.TraceIDBufferSize)
+		// Create trace middleware using the router's generator
+		traceMW := middleware.CreateTraceMiddleware(r.traceIDGenerator)
+		// Add trace middleware as the first middleware (before any other middleware)
+		r.middlewares = append([]common.Middleware{traceMW}, r.middlewares...)
+	}
+
 	// Add IP middleware as the first middleware (before any other middleware)
 	ipConfig := config.IPConfig
 	if ipConfig == nil {
 		ipConfig = middleware.DefaultIPConfig()
 	}
 	// Add IP middleware as the first middleware (before any other middleware)
-	r.middlewares = append([]common.Middleware{middleware.ClientIPMiddleware(ipConfig)}, r.middlewares...)
+	r.middlewares = append([]common.Middleware{middleware.ClientIPMiddleware[T, U](ipConfig)}, r.middlewares...)
 	// Add metrics middleware if configured
 	if config.EnableMetrics {
 		var metricsMiddleware common.Middleware
@@ -322,7 +332,7 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 					zap.Duration("timeout", timeout),
 					zap.String("client_ip", req.RemoteAddr),
 				}
-				if r.config.EnableTraceID && traceID != "" {
+				if traceID != "" {
 					fields = append(fields, zap.String("trace_id", traceID))
 				}
 				r.logger.Error("Request timed out", fields...)
@@ -426,7 +436,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var traceID string
 
 	// Apply metrics and tracing if enabled
-	if r.config.EnableMetrics || r.config.EnableTracing {
+	if r.config.EnableMetrics || r.config.TraceIDBufferSize > 0 {
 		// Get a metricsResponseWriter from the pool
 		mrw := r.metricsWriterPool.Get().(*metricsResponseWriter[T, U])
 
@@ -459,8 +469,8 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				}
 
 				// Add trace ID if enabled and present
-				if r.config.EnableTraceID && traceID != "" {
-					fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
+				if r.config.TraceIDBufferSize > 0 && traceID != "" {
+					fields = append(fields, zap.String("trace_id", traceID))
 				}
 
 				// Use Debug level for metrics to avoid log spam
@@ -477,7 +487,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 					}
 
 					// Add trace ID if enabled and present
-					if r.config.EnableTraceID && traceID != "" {
+					if r.config.TraceIDBufferSize > 0 && traceID != "" {
 						fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 					}
 
@@ -495,7 +505,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 					}
 
 					// Add trace ID if enabled and present
-					if r.config.EnableTraceID && traceID != "" {
+					if r.config.TraceIDBufferSize > 0 && traceID != "" {
 						fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 					}
 
@@ -510,7 +520,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 					}
 
 					// Add trace ID if enabled and present
-					if r.config.EnableTraceID && traceID != "" {
+					if r.config.TraceIDBufferSize > 0 && traceID != "" {
 						fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 					}
 
@@ -519,7 +529,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 
 			// Log tracing information
-			if r.config.EnableTracing {
+			if r.config.TraceIDBufferSize > 0 {
 				// Create log fields
 				fields := []zap.Field{
 					zap.String("method", req.Method),
@@ -531,7 +541,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				}
 
 				// Add trace ID if enabled and present
-				if r.config.EnableTraceID && traceID != "" {
+				if r.config.TraceIDBufferSize > 0 && traceID != "" {
 					fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 				}
 
@@ -681,7 +691,7 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 	}
 
 	// Add trace ID if enabled and present
-	if r.config.EnableTraceID && traceID != "" {
+	if r.config.TraceIDBufferSize > 0 && traceID != "" {
 		fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 	}
 
@@ -739,7 +749,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, statusCode int, mes
 	}
 
 	// Add trace ID if enabled and available
-	if r.config.EnableTraceID && traceID != "" {
+	if r.config.TraceIDBufferSize > 0 && traceID != "" {
 		errorMap := errorPayload["error"].(map[string]string)
 		errorMap["trace_id"] = traceID
 	}
@@ -800,7 +810,7 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 				}
 
 				// Add trace ID if enabled and present
-				if r.config.EnableTraceID && traceID != "" {
+				if r.config.TraceIDBufferSize > 0 && traceID != "" {
 					fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 				}
 
@@ -846,7 +856,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 			}
 
 			// Add trace ID if enabled and present
-			if r.config.EnableTraceID && traceID != "" {
+			if r.config.TraceIDBufferSize > 0 && traceID != "" {
 				fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 			}
 
@@ -884,7 +894,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 			}
 
 			// Add trace ID if enabled and present
-			if r.config.EnableTraceID && traceID != "" {
+			if r.config.TraceIDBufferSize > 0 && traceID != "" {
 				fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 			}
 
@@ -906,7 +916,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Add trace ID if enabled and present
-		if r.config.EnableTraceID && traceID != "" {
+		if r.config.TraceIDBufferSize > 0 && traceID != "" {
 			fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 		}
 
@@ -952,7 +962,7 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 				}
 
 				// Add trace ID if enabled and present
-				if r.config.EnableTraceID && traceID != "" {
+				if r.config.TraceIDBufferSize > 0 && traceID != "" {
 					fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 				}
 
