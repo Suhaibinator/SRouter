@@ -18,7 +18,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create a router configuration with trace middleware
 	routerConfig := router.RouterConfig{
@@ -70,7 +70,7 @@ func main() {
 
 			// Return a response
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(fmt.Appendf(nil, `{"message":"Hello, World!", "trace_id":"%s"}`, traceID))
+			_, _ = w.Write(fmt.Appendf(nil, `{"message":"Hello, World!", "trace_id":"%s"}`, traceID))
 		},
 	})
 
@@ -124,7 +124,7 @@ func main() {
 
 			// Return a response
 			w.Header().Set("Content-Type", "application/json")
-			w.Write(fmt.Appendf(nil, `{"message":"Downstream service call successful", "trace_id":"%s"}`, traceID))
+			_, _ = w.Write(fmt.Appendf(nil, `{"message":"Downstream service call successful", "trace_id":"%s"}`, traceID))
 		},
 	})
 
