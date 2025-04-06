@@ -575,19 +575,35 @@ func TestRegisterGenericRouteCoverage(t *testing.T) { // Renamed to avoid confli
 	}
 }
 
-// TestHandleErrorWithHTTPError tests handling an error with an HTTPError
+// TestHandleErrorWithHTTPError tests handling an error with an HTTPError, expecting JSON output
 func TestHandleErrorWithHTTPError(t *testing.T) {
-	r := NewRouter(RouterConfig{}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	httpErr := NewHTTPError(http.StatusNotFound, "Not Found")
+	logger := zap.NewNop() // Use Nop logger for testing
+	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	httpErr := NewHTTPError(http.StatusNotFound, "Not Found") // Use the actual message, not pre-formatted JSON
 	req, _ := http.NewRequest("GET", "/test", nil)
 	rr := httptest.NewRecorder()
-	r.handleError(rr, req, httpErr, http.StatusInternalServerError, "Internal Server Error")
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("Expected status code %d, got %d", http.StatusNotFound, rr.Code)
+
+	// Call handleError which should now write JSON
+	r.handleError(rr, req, httpErr, http.StatusInternalServerError, "Internal Server Error") // Default status/message are overridden by httpErr
+
+	// Check status code
+	assert.Equal(t, http.StatusNotFound, rr.Code, "Expected status code to be StatusNotFound")
+
+	// Check Content-Type header
+	assert.Equal(t, "application/json; charset=utf-8", rr.Header().Get("Content-Type"), "Expected Content-Type header to be application/json")
+
+	// Unmarshal the JSON body
+	var respBody map[string]map[string]string
+	err := json.Unmarshal(rr.Body.Bytes(), &respBody)
+	assert.NoError(t, err, "Failed to unmarshal JSON response body")
+
+	// Check the structure and content of the JSON body
+	expectedBody := map[string]map[string]string{
+		"error": {
+			"message": "Not Found",
+		},
 	}
-	if rr.Body.String() != "Not Found\n" {
-		t.Errorf("Expected response body %q, got %q", "Not Found\n", rr.Body.String())
-	}
+	assert.Equal(t, expectedBody, respBody, "Expected JSON body content mismatch")
 }
 
 // TestLoggingMiddleware tests the LoggingMiddleware function
