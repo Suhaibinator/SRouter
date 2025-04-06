@@ -525,3 +525,78 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 		t.Errorf("Expected warning log about IP middleware not being configured")
 	}
 }
+
+func TestRateLimitMiddlewareDefaultStrategy(t *testing.T) {
+	// Create a logger
+	logger, _ := zap.NewDevelopment()
+
+	// Create a mock rate limiter
+	mockLimiter := &TestRateLimiter{} // Reuse the mock from other tests
+
+	// Create a rate limit config with an invalid strategy to trigger the default case
+	invalidStrategy := RateLimitStrategy(99) // Use a value not defined in the enum
+	config := &RateLimitConfig[string, any]{
+		BucketName: "test-bucket-default",
+		Limit:      2, // Set a low limit for testing
+		Window:     time.Second,
+		Strategy:   invalidStrategy, // This should trigger the default case
+	}
+
+	// Create the middleware
+	middleware := RateLimit(config, mockLimiter, logger)
+
+	// Create a test handler that returns 200 OK
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Wrap the test handler with the middleware
+	handler := middleware(testHandler)
+
+	// Create a test server
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Make requests to test rate limiting (should behave like IP strategy)
+	client := &http.Client{}
+
+	// First request should succeed
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+	resp.Body.Close() // Close the response body
+
+	// Second request should succeed
+	resp, err = client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+	resp.Body.Close() // Close the response body
+
+	// Third request should fail with 429 Too Many Requests
+	resp, err = client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("Failed to make request: %v", err)
+	}
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("Expected status code %d, got %d", http.StatusTooManyRequests, resp.StatusCode)
+	}
+	resp.Body.Close() // Close the response body
+
+	// Check rate limit headers on the last response
+	limitHeader := resp.Header.Get("X-RateLimit-Limit")
+	if limitHeader != "2" {
+		t.Errorf("Expected X-RateLimit-Limit header to be 2, got %s", limitHeader)
+	}
+	retryAfterHeader := resp.Header.Get("Retry-After")
+	if retryAfterHeader == "" {
+		t.Errorf("Expected Retry-After header to be set")
+	}
+}
