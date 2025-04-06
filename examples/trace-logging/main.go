@@ -46,7 +46,7 @@ func main() {
 	}
 
 	// Create a router
-	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
 
 	// Register a route that logs with trace ID
 	r.RegisterRoute(router.RouteConfigBase{
