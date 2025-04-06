@@ -1020,7 +1020,10 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 
 // TestRegisterGenericRouteErrorPaths covers various error scenarios in RegisterGenericRoute.
 func TestRegisterGenericRouteErrorPaths(t *testing.T) {
-	logger := zap.NewNop()
+	// Use an observer logger to capture logs for specific error messages
+	core, observedLogs := observer.New(zapcore.ErrorLevel) // Capture Error level logs
+	logger := zap.New(core)
+	// logger := zap.NewNop() // Original Nop logger
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
 	// --- Route Definitions for Error Cases ---
@@ -1166,6 +1169,17 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 		},
 	}, time.Duration(0), int64(0), nil)
 
+	// Context Deadline Exceeded Error
+	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+		Path:       "/err/deadline-exceeded",
+		Methods:    []HttpMethod{MethodPost},
+		SourceType: Body, // Source type doesn't matter much here
+		Codec:      codec.NewJSONCodec[TestData, string](),
+		Handler: func(req *http.Request, data TestData) (string, error) {
+			return "", context.DeadlineExceeded // Explicitly return this error
+		},
+	}, time.Duration(0), int64(0), nil)
+
 	// --- Test Server ---
 	server := httptest.NewServer(r)
 	defer server.Close()
@@ -1259,6 +1273,14 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   "Failed to decode base62 path parameter",
 		},
+		{
+			name:           "Context Deadline Exceeded",
+			method:         "POST",
+			path:           "/err/deadline-exceeded",
+			body:           strings.NewReader(`{"value":"test"}`), // Valid body
+			expectedStatus: http.StatusRequestTimeout,
+			expectedBody:   "Request Timeout", // Specific message for deadline exceeded
+		},
 	}
 
 	// --- Run Tests ---
@@ -1306,6 +1328,24 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 				}
 			}
 		})
+	}
+
+	// --- Verify Specific Log for Deadline Exceeded ---
+	deadlineLogs := observedLogs.FilterMessage("Request timed out (detected in handler)").AllUntimed()
+	assert.Equal(t, 1, len(deadlineLogs), "Expected exactly one 'Request timed out (detected in handler)' log entry")
+	if len(deadlineLogs) > 0 {
+		// Optionally check context fields if needed
+		foundErrField := false
+		for _, field := range deadlineLogs[0].Context {
+			if field.Key == "error" {
+				if errVal, ok := field.Interface.(error); ok {
+					assert.True(t, errors.Is(errVal, context.DeadlineExceeded), "Expected logged error to be context.DeadlineExceeded")
+					foundErrField = true
+					break
+				}
+			}
+		}
+		assert.True(t, foundErrField, "Expected 'error' field in deadline exceeded log context")
 	}
 }
 
