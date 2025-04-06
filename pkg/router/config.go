@@ -126,7 +126,8 @@ type RouterConfig struct {
 	IPConfig           *middleware.IPConfig                  // Configuration for client IP extraction
 	EnableMetrics      bool                                  // Enable metrics collection
 	EnableTracing      bool                                  // Enable distributed tracing
-	EnableTraceID      bool                                  // Enable trace ID logging
+	TraceIDBufferSize  int                                   // Buffer size for trace ID generator (0 disables trace ID)
+	EnableTraceID      bool                                  // Enable trace ID logging (deprecated, use TraceIDBufferSize > 0 instead)
 	PrometheusConfig   *PrometheusConfig                     // Prometheus metrics configuration (optional, deprecated)
 	MetricsConfig      *MetricsConfig                        // Metrics configuration (optional)
 	SubRouters         []SubRouterConfig                     // Sub-routers with their own configurations

@@ -33,7 +33,8 @@ type Router[T comparable, U any] struct {
 	wg                sync.WaitGroup
 	shutdown          bool
 	shutdownMu        sync.RWMutex
-	metricsWriterPool sync.Pool // Pool for reusing metricsResponseWriter objects
+	metricsWriterPool sync.Pool               // Pool for reusing metricsResponseWriter objects
+	traceIDGenerator  *middleware.IDGenerator // Generator for trace IDs
 }
 
 // RegisterSubRouterWithSubRouter registers a nested SubRouter with a parent SubRouter
@@ -79,6 +80,20 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 				return &metricsResponseWriter[T, U]{}
 			},
 		},
+	}
+
+	// Initialize trace ID generator if trace ID is enabled
+	if config.TraceIDBufferSize > 0 {
+		r.traceIDGenerator = middleware.NewIDGenerator(config.TraceIDBufferSize)
+		// Create trace middleware using the router's generator
+		traceMW := middleware.CreateTraceMiddleware(r.traceIDGenerator)
+		// Add trace middleware as the first middleware (before any other middleware)
+		r.middlewares = append([]common.Middleware{traceMW}, r.middlewares...)
+	} else if config.EnableTraceID {
+		// Backward compatibility for EnableTraceID
+		r.traceIDGenerator = middleware.GetDefaultGenerator()
+		traceMW := middleware.CreateTraceMiddleware(r.traceIDGenerator)
+		r.middlewares = append([]common.Middleware{traceMW}, r.middlewares...)
 	}
 
 	// Add IP middleware as the first middleware (before any other middleware)

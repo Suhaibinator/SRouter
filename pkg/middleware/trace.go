@@ -230,21 +230,30 @@ func AddTraceIDToRequest(r *http.Request, traceID string) *http.Request {
 	return r.WithContext(ctx)
 }
 
-// traceMiddleware creates a middleware that generates a unique trace ID for each request
-// and adds it to the request context. This allows for request tracing across logs.
-// This implementation uses a precomputed pool of UUIDs for better performance.
-func traceMiddleware() common.Middleware {
-	// Get or initialize the default generator
-	generator := GetDefaultGenerator()
-
+// CreateTraceMiddleware creates a trace middleware with the provided ID generator.
+// This is the core implementation used by both traceMiddleware and traceMiddlewareWithConfig.
+// It checks for an existing trace ID in the request headers before generating a new one,
+// which allows for trace ID propagation across service calls.
+func CreateTraceMiddleware(generator *IDGenerator) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Get a precomputed trace ID from the generator using non-blocking method
-			// This ensures the request is never delayed even during extreme traffic spikes
-			traceID := generator.GetIDNonBlocking()
+			var traceID string
+
+			// Check if there's already a trace ID in the request headers
+			existingTraceID := r.Header.Get("X-Trace-ID")
+			if existingTraceID != "" {
+				// Use the existing trace ID for propagation
+				traceID = existingTraceID
+			} else {
+				// Generate a new trace ID if none exists
+				traceID = generator.GetIDNonBlocking()
+			}
 
 			// Add the trace ID to the request context using the new wrapper
 			ctx := WithTraceID[string, any](r.Context(), traceID)
+
+			// Add trace ID to the headers for logging or tracing
+			w.Header().Set("X-Trace-ID", traceID)
 
 			// Call the next handler with the updated request
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -252,23 +261,21 @@ func traceMiddleware() common.Middleware {
 	}
 }
 
+// traceMiddleware creates a middleware that generates a unique trace ID for each request
+// and adds it to the request context. This allows for request tracing across logs.
+// This implementation uses a precomputed pool of UUIDs for better performance.
+// Deprecated: Use CreateTraceMiddleware with a router-specific generator instead.
+func traceMiddleware() common.Middleware {
+	// Get or initialize the default generator
+	generator := GetDefaultGenerator()
+	return CreateTraceMiddleware(generator)
+}
+
 // traceMiddlewareWithConfig creates a trace middleware with a custom ID generator configuration.
 // Generators with the same buffer size are shared for memory efficiency.
+// Deprecated: Use CreateTraceMiddleware with a router-specific generator instead.
 func traceMiddlewareWithConfig(bufferSize int) common.Middleware {
 	// Get or create a generator with the specified buffer size
 	generator := getOrCreateGenerator(bufferSize)
-
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Get a precomputed trace ID from the generator using non-blocking method
-			// This ensures the request is never delayed even during extreme traffic spikes
-			traceID := generator.GetIDNonBlocking()
-
-			// Add the trace ID to the request context using the new wrapper
-			ctx := WithTraceID[string, any](r.Context(), traceID)
-
-			// Call the next handler with the updated request
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
+	return CreateTraceMiddleware(generator)
 }
