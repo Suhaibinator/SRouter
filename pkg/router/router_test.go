@@ -606,27 +606,6 @@ func TestHandleErrorWithHTTPError(t *testing.T) {
 	assert.Equal(t, expectedBody, respBody, "Expected JSON body content mismatch")
 }
 
-// TestLoggingMiddleware tests the LoggingMiddleware function
-func TestLoggingMiddlewareCoverage(t *testing.T) { // Renamed to avoid conflict
-	r := NewRouter(RouterConfig{}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	wrappedHandler := LoggingMiddleware(r.logger, false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, err := w.Write([]byte("Hello, World!"))
-		if err != nil {
-			t.Fatalf("Failed to write response: %v", err)
-		}
-	}))
-	req, _ := http.NewRequest("GET", "/test", nil)
-	rr := httptest.NewRecorder()
-	wrappedHandler.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
-	}
-	if rr.Body.String() != "Hello, World!" {
-		t.Errorf("Expected response body %q, got %q", "Hello, World!", rr.Body.String())
-	}
-}
-
 // TestRegisterGenericRouteWithError tests registering a generic route with an error
 func TestRegisterGenericRouteWithErrorCoverage(t *testing.T) { // Renamed to avoid conflict
 	// Corrected struct tag syntax
@@ -1929,7 +1908,7 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 	// before ServeHTTP is called internally by the server.
 	// This mimics the state *before* the defer captures `req`.
 	initialTraceID := "initial-context-trace-id" // This is what the defer will capture
-	req = middleware.AddTraceIDToRequest(req, initialTraceID)
+	req = middleware.AddTraceIDToRequest[string, string](req, initialTraceID)
 
 	r.ServeHTTP(rr, req) // Call ServeHTTP directly
 

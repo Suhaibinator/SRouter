@@ -119,18 +119,20 @@ type MetricsConfig struct {
 // RouterConfig defines the global configuration for the router.
 // It includes settings for logging, timeouts, metrics, and middleware.
 type RouterConfig struct {
-	Logger             *zap.Logger                           // Logger for all router operations
-	GlobalTimeout      time.Duration                         // Default response timeout for all routes
-	GlobalMaxBodySize  int64                                 // Default maximum request body size in bytes
-	GlobalRateLimit    *middleware.RateLimitConfig[any, any] // Default rate limit for all routes
-	IPConfig           *middleware.IPConfig                  // Configuration for client IP extraction
-	EnableMetrics      bool                                  // Enable metrics collection
-	TraceIDBufferSize  int                                   // Buffer size for trace ID generator (0 disables trace ID)
-	PrometheusConfig   *PrometheusConfig                     // Prometheus metrics configuration (optional, deprecated)
-	MetricsConfig      *MetricsConfig                        // Metrics configuration (optional)
-	SubRouters         []SubRouterConfig                     // Sub-routers with their own configurations
-	Middlewares        []common.Middleware                   // Global middlewares applied to all routes
-	AddUserObjectToCtx bool                                  // Add user object to context
+	Logger              *zap.Logger                           // Logger for all router operations
+	GlobalTimeout       time.Duration                         // Default response timeout for all routes
+	GlobalMaxBodySize   int64                                 // Default maximum request body size in bytes
+	GlobalRateLimit     *middleware.RateLimitConfig[any, any] // Default rate limit for all routes
+	IPConfig            *middleware.IPConfig                  // Configuration for client IP extraction
+	EnableMetrics       bool                                  // Enable metrics collection
+	EnableTraceLogging  bool                                  // Enable trace logging
+	TraceLoggingUseInfo bool                                  // Use Info level for trace logging
+	TraceIDBufferSize   int                                   // Buffer size for trace ID generator (0 disables trace ID)
+	PrometheusConfig    *PrometheusConfig                     // Prometheus metrics configuration (optional, deprecated)
+	MetricsConfig       *MetricsConfig                        // Metrics configuration (optional)
+	SubRouters          []SubRouterConfig                     // Sub-routers with their own configurations
+	Middlewares         []common.Middleware                   // Global middlewares applied to all routes
+	AddUserObjectToCtx  bool                                  // Add user object to context
 }
 
 // GenericRouteRegistrationFunc defines the function signature for registering a generic route declaratively.

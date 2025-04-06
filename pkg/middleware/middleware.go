@@ -12,8 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/julien040/go-ternary"
-
 	// Added back
 	"go.uber.org/zap"
 )
@@ -52,78 +50,6 @@ func recovery(logger *zap.Logger) Middleware {
 			}()
 
 			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// Logging is a middleware that logs HTTP requests and responses.
-// It captures the request method, path, status code, and duration.
-// The log level is determined by the status code and duration:
-// - 500+ status codes are logged at Error level
-// - 400-499 status codes are logged at Warn level
-// - Requests taking longer than 1 second are logged at Warn level
-// - All other requests are logged at Debug level (or Info level if logInfoLevelForSuccess is true)
-func logging(logger *zap.Logger, logInfoLevelForSuccess bool) Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			start := time.Now()
-
-			// Create a response writer that captures the status code
-			rw := &responseWriter{
-				ResponseWriter: w,
-				statusCode:     http.StatusOK,
-			}
-
-			// Call the next handler
-			next.ServeHTTP(rw, r)
-
-			// Calculate duration
-			duration := time.Since(start)
-			traceId := GetTraceIDFromContext(r.Context())
-			ip, foundIp := GetClientIP[string, string](r.Context())
-			// Use appropriate log level based on status code and duration
-			if rw.statusCode >= 500 {
-				// Server errors at Error level
-				logger.Error("Server error",
-					zap.String("method", r.Method),
-					zap.String("path", r.URL.Path),
-					zap.Int("status", rw.statusCode),
-					zap.Duration("duration", duration),
-					zap.String("ip", ternary.If(foundIp, ip, r.RemoteAddr)),
-					zap.String("trace_id", traceId),
-				)
-			} else if rw.statusCode >= 400 {
-				// Client errors at Warn level
-				logger.Warn("Client error",
-					zap.String("method", r.Method),
-					zap.String("path", r.URL.Path),
-					zap.Int("status", rw.statusCode),
-					zap.Duration("duration", duration),
-					zap.String("ip", ternary.If(foundIp, ip, r.RemoteAddr)),
-					zap.String("trace_id", traceId),
-				)
-			} else if duration > 1*time.Second {
-				// Slow requests at Warn level
-				logger.Warn("Slow request",
-					zap.String("method", r.Method),
-					zap.String("path", r.URL.Path),
-					zap.Int("status", rw.statusCode),
-					zap.Duration("duration", duration),
-					zap.String("ip", ternary.If(foundIp, ip, r.RemoteAddr)),
-					zap.String("trace_id", traceId),
-				)
-			} else {
-				// Normal requests
-				logFunc := ternary.If(logInfoLevelForSuccess, logger.Info, logger.Debug)
-				logFunc("Request",
-					zap.String("method", r.Method),
-					zap.String("path", r.URL.Path),
-					zap.Int("status", rw.statusCode),
-					zap.Duration("duration", duration),
-					zap.String("ip", ternary.If(foundIp, ip, r.RemoteAddr)),
-					zap.String("trace_id", traceId),
-				)
-			}
 		})
 	}
 }
@@ -306,33 +232,5 @@ func cors(corsConfig CORSOptions) Middleware {
 			// Call the next handler for actual requests (GET, POST, etc.)
 			next.ServeHTTP(w, r)
 		})
-	}
-}
-
-// responseWriter is a wrapper around http.ResponseWriter that captures the status code.
-// This allows middleware to inspect the status code after the handler has completed.
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-// WriteHeader captures the status code and calls the underlying ResponseWriter.WriteHeader.
-// This allows middleware to inspect the status code after the handler has completed.
-func (rw *responseWriter) WriteHeader(statusCode int) {
-	rw.statusCode = statusCode
-	rw.ResponseWriter.WriteHeader(statusCode)
-}
-
-// Write calls the underlying ResponseWriter.Write.
-// It passes through the write operation to the wrapped ResponseWriter.
-func (rw *responseWriter) Write(b []byte) (int, error) {
-	return rw.ResponseWriter.Write(b)
-}
-
-// Flush calls the underlying ResponseWriter.Flush if it implements http.Flusher.
-// This allows streaming responses to be flushed to the client immediately.
-func (rw *responseWriter) Flush() {
-	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
 	}
 }

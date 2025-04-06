@@ -256,7 +256,7 @@ func TestAuthRequiredMiddlewareWithTraceID(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/test", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
 	traceID := "test-trace-id-required"
-	req = mw.AddTraceIDToRequest(req, traceID) // Add trace ID using middleware package
+	req = mw.AddTraceIDToRequest[string, string](req, traceID) // Add trace ID using middleware package
 
 	rr := httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)

@@ -14,7 +14,6 @@ type Middleware = common.Middleware
 var (
 	// From middleware.go
 	Recovery    = recovery
-	Logging     = logging
 	MaxBodySize = maxBodySize
 	Timeout     = timeout
 	CORS        = cors

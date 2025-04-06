@@ -20,16 +20,16 @@ func TestAddTraceIDToRequest(t *testing.T) {
 	}
 
 	// Verify no trace ID initially
-	if traceID := GetTraceID(req); traceID != "" {
+	if traceID := GetTraceID[uint64, string](req); traceID != "" {
 		t.Errorf("Expected trace ID to be empty initially, got %q", traceID)
 	}
 
 	// Add a trace ID to the request
 	expectedTraceID := "test-trace-id-123"
-	req = AddTraceIDToRequest(req, expectedTraceID)
+	req = AddTraceIDToRequest[uint64, string](req, expectedTraceID)
 
 	// Verify the trace ID was added
-	if traceID := GetTraceID(req); traceID != expectedTraceID {
+	if traceID := GetTraceID[uint64, string](req); traceID != expectedTraceID {
 		t.Errorf("Expected trace ID to be %q after adding, got %q", expectedTraceID, traceID)
 	}
 }
@@ -93,16 +93,16 @@ func TestGetTraceID(t *testing.T) {
 	}
 
 	// Test with no trace ID
-	if traceID := GetTraceID(req); traceID != "" {
+	if traceID := GetTraceID[uint64, string](req); traceID != "" {
 		t.Errorf("Expected trace ID to be empty, got %q", traceID)
 	}
 
 	// Add a trace ID to the context using the new method
 	expectedTraceID := "test-trace-id"
-	req = AddTraceIDToRequest(req, expectedTraceID)
+	req = AddTraceIDToRequest[uint64, string](req, expectedTraceID)
 
 	// Test with trace ID
-	if traceID := GetTraceID(req); traceID != expectedTraceID {
+	if traceID := GetTraceID[uint64, string](req); traceID != expectedTraceID {
 		t.Errorf("Expected trace ID to be %q, got %q", expectedTraceID, traceID)
 	}
 }
@@ -120,7 +120,7 @@ func TestWithTraceID_AlreadySet(t *testing.T) {
 	ctx = WithTraceID[string, any](ctx, secondTraceID)
 
 	// Verify that the initial trace ID is still the one present
-	finalTraceID := GetTraceIDFromContext(ctx)
+	finalTraceID := GetTraceIDFromContext[uint64, string](ctx)
 	if finalTraceID != initialTraceID {
 		t.Errorf("Expected trace ID to remain %q after second call, but got %q", initialTraceID, finalTraceID)
 	}
@@ -146,7 +146,7 @@ func TestCreateTraceMiddleware_WithExistingHeader(t *testing.T) {
 	// Create a handler that checks the trace ID in the context
 	var handlerTraceID string
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handlerTraceID = GetTraceID(r) // Get trace ID from context
+		handlerTraceID = GetTraceID[uint64, string](r) // Get trace ID from context
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -183,7 +183,7 @@ func TestGetTraceIDFromContext(t *testing.T) {
 	ctx := context.Background()
 
 	// Test with no trace ID
-	if traceID := GetTraceIDFromContext(ctx); traceID != "" {
+	if traceID := GetTraceIDFromContext[uint64, string](ctx); traceID != "" {
 		t.Errorf("Expected trace ID to be empty, got %q", traceID)
 	}
 
@@ -192,7 +192,7 @@ func TestGetTraceIDFromContext(t *testing.T) {
 	ctx = WithTraceID[string, any](ctx, expectedTraceID)
 
 	// Test with trace ID
-	if traceID := GetTraceIDFromContext(ctx); traceID != expectedTraceID {
+	if traceID := GetTraceIDFromContext[uint64, string](ctx); traceID != expectedTraceID {
 		t.Errorf("Expected trace ID to be %q, got %q", expectedTraceID, traceID)
 	}
 }

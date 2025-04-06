@@ -9,7 +9,6 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"go.uber.org/zap"
 )
@@ -54,9 +53,7 @@ func main() {
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
 		EnableMetrics:     true,
-		Middlewares: []common.Middleware{
-			middleware.Logging(logger, false), // Add false for default logging behavior
-		},
+		Middlewares:       []common.Middleware{},
 		SubRouters: []router.SubRouterConfig{
 			{
 				PathPrefix:          "/api",

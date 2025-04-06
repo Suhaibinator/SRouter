@@ -51,7 +51,7 @@ func main() {
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Get the trace ID
-			traceID := middleware.GetTraceID(r)
+			traceID := middleware.GetTraceID[string, string](r)
 
 			// Log with trace ID
 			logger.Info("Processing request",
@@ -80,7 +80,7 @@ func main() {
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Get the trace ID
-			traceID := middleware.GetTraceID(r)
+			traceID := middleware.GetTraceID[string, string](r)
 
 			// Log with trace ID
 			logger.Info("Received request, calling downstream service",

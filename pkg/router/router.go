@@ -16,6 +16,7 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/metrics"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/julien040/go-ternary"
 	"github.com/julienschmidt/httprouter"
 	"go.uber.org/zap"
 )
@@ -325,7 +326,7 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 				return
 			case <-ctx.Done():
 				// Timeout occurred. Log it.
-				traceID := middleware.GetTraceID(req)
+				traceID := middleware.GetTraceID[T, U](req)
 				fields := []zap.Field{
 					zap.String("method", req.Method),
 					zap.String("path", req.URL.Path),
@@ -455,10 +456,12 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			duration := time.Since(mrw.startTime)
 
 			// Get updated trace ID from context
-			traceID = middleware.GetTraceID(req)
+			traceID = middleware.GetTraceID[T, U](req)
+			ip, _ := middleware.GetClientIPFromRequest[T, U](req)
 
 			// Log metrics
-			if r.config.EnableMetrics {
+			if r.config.EnableTraceLogging {
+
 				// Create log fields
 				fields := []zap.Field{
 					zap.String("method", req.Method),
@@ -466,6 +469,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 					zap.Int("status", mrw.statusCode),
 					zap.Duration("duration", duration),
 					zap.Int64("bytes", mrw.bytesWritten),
+					zap.String("ip", ip),
 				}
 
 				// Add trace ID if enabled and present
@@ -484,6 +488,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 						zap.String("path", req.URL.Path),
 						zap.Int("status", mrw.statusCode),
 						zap.Duration("duration", duration),
+						zap.String("ip", ip),
 					}
 
 					// Add trace ID if enabled and present
@@ -502,6 +507,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 						zap.String("path", req.URL.Path),
 						zap.Int("status", mrw.statusCode),
 						zap.Duration("duration", duration),
+						zap.String("ip", ip),
 					}
 
 					// Add trace ID if enabled and present
@@ -517,6 +523,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 						zap.String("path", req.URL.Path),
 						zap.Int("status", mrw.statusCode),
 						zap.Duration("duration", duration),
+						zap.String("ip", ip),
 					}
 
 					// Add trace ID if enabled and present
@@ -534,7 +541,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				fields := []zap.Field{
 					zap.String("method", req.Method),
 					zap.String("path", req.URL.Path),
-					zap.String("remote_addr", req.RemoteAddr),
+					zap.String("ip", ip),
 					zap.String("user_agent", req.UserAgent()),
 					zap.Int("status", mrw.statusCode),
 					zap.Duration("duration", duration),
@@ -545,8 +552,8 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 					fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 				}
 
-				// Use Debug level for tracing to avoid log spam
-				r.logger.Debug("Request trace", fields...)
+				logFunc := ternary.If(r.config.TraceLoggingUseInfo, r.logger.Info, r.logger.Debug)
+				logFunc("Request trace", fields...)
 			}
 
 			// Reset fields that might hold references to prevent memory leaks
@@ -681,7 +688,7 @@ func (r *Router[T, U]) getEffectiveRateLimit(routeRateLimit, subRouterRateLimit 
 // It also checks for context deadline exceeded errors.
 func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err error, statusCode int, message string) {
 	// Get trace ID from context
-	traceID := middleware.GetTraceID(req)
+	traceID := middleware.GetTraceID[T, U](req)
 
 	// Create log fields
 	fields := []zap.Field{
@@ -800,7 +807,7 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				// Get trace ID from context
-				traceID := middleware.GetTraceID(req)
+				traceID := middleware.GetTraceID[T, U](req)
 
 				// Create log fields
 				fields := []zap.Field{
@@ -845,7 +852,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 		authHeader := req.Header.Get("Authorization")
 		if authHeader == "" {
 			// Get updated trace ID from context
-			traceID = middleware.GetTraceID(req)
+			traceID = middleware.GetTraceID[T, U](req)
 
 			// Create log fields
 			fields := []zap.Field{
@@ -874,18 +881,18 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 			id := r.getUserIdFromUser(user)
 			// Add the user ID to the request context using middleware package functions
 			// First get the trace ID so we can preserve it
-			traceID = middleware.GetTraceID(req)
+			traceID = middleware.GetTraceID[T, U](req)
 
 			// Add the user ID to the context
 			ctx := middleware.WithUserID[T, U](req.Context(), id)
 
 			// If there was a trace ID, make sure it's preserved
 			if traceID != "" {
-				ctx = middleware.AddTraceIDToRequest(req.WithContext(ctx), traceID).Context()
+				ctx = middleware.AddTraceIDToRequest[T, U](req.WithContext(ctx), traceID).Context()
 			}
 			req = req.WithContext(ctx)
 			// Get updated trace ID from context
-			traceID = middleware.GetTraceID(req)
+			traceID = middleware.GetTraceID[T, U](req)
 
 			// Create log fields
 			fields := []zap.Field{
@@ -905,7 +912,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Get trace ID from context
-		traceID = middleware.GetTraceID(req)
+		traceID = middleware.GetTraceID[T, U](req)
 
 		// Create log fields
 		fields := []zap.Field{
@@ -953,7 +960,7 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 				}
 				req = req.WithContext(ctx)
 				// Get trace ID from context
-				traceID := middleware.GetTraceID(req)
+				traceID := middleware.GetTraceID[T, U](req)
 
 				// Create log fields
 				fields := []zap.Field{
@@ -974,45 +981,6 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 		// Call the next handler regardless of authentication result
 		next.ServeHTTP(w, req)
 	})
-}
-
-// LoggingMiddleware is a middleware that logs HTTP requests and responses.
-// It captures the request method, path, status code, and duration.
-// If enableTraceID is true, it will include the trace ID in the logs if present.
-func LoggingMiddleware(logger *zap.Logger, enableTraceID bool) Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			start := time.Now()
-
-			// Create a response writer that captures the status code
-			rw := &responseWriter{
-				ResponseWriter: w,
-				statusCode:     http.StatusOK,
-			}
-
-			// Call the next handler
-			next.ServeHTTP(rw, req)
-
-			// Get trace ID from context
-			traceID := middleware.GetTraceID(req)
-
-			// Create log fields
-			fields := []zap.Field{
-				zap.String("method", req.Method),
-				zap.String("path", req.URL.Path),
-				zap.Int("status", rw.statusCode),
-				zap.Duration("duration", time.Since(start)),
-			}
-
-			// Add trace ID if enabled and present
-			if enableTraceID && traceID != "" {
-				fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
-			}
-
-			// Log the request
-			logger.Info("Request", fields...)
-		})
-	}
 }
 
 // responseWriter is a wrapper around http.ResponseWriter that captures the status code.

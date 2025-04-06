@@ -158,9 +158,9 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 // It first tries to find the trace ID in the SRouterContext using the flags map,
 // and falls back to the legacy context key approach for backward compatibility.
 // Returns an empty string if no trace ID is found.
-func GetTraceIDFromContext(ctx context.Context) string {
+func GetTraceIDFromContext[T comparable, U any](ctx context.Context) string {
 	// Try the new way first
-	rc, ok := GetSRouterContext[string, any](ctx)
+	rc, ok := GetSRouterContext[T, U](ctx)
 	if !ok {
 		return ""
 	}
@@ -174,14 +174,14 @@ func GetTraceIDFromContext(ctx context.Context) string {
 
 // GetTraceID extracts the trace ID from the request context.
 // Returns an empty string if no trace ID is found.
-func GetTraceID(r *http.Request) string {
-	return GetTraceIDFromContext(r.Context())
+func GetTraceID[T comparable, U any](r *http.Request) string {
+	return GetTraceIDFromContext[T, U](r.Context())
 }
 
 // AddTraceIDToRequest adds a trace ID to the request context.
 // This is useful for testing or for manually setting a trace ID.
-func AddTraceIDToRequest(r *http.Request, traceID string) *http.Request {
-	ctx := WithTraceID[string, any](r.Context(), traceID)
+func AddTraceIDToRequest[T comparable, U any](r *http.Request, traceID string) *http.Request {
+	ctx := WithTraceID[T, U](r.Context(), traceID)
 	return r.WithContext(ctx)
 }
 
