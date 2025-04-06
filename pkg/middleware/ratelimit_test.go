@@ -437,7 +437,7 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 	mockLimiter := &TestRateLimiter{}
 
 	// Create a rate limit config with IP strategy
-	config := &RateLimitConfig[string, any]{
+	config := &RateLimitConfig[uint64, any]{
 		BucketName: "test-bucket-ip",
 		Limit:      2, // Set a low limit for testing
 		Window:     time.Second,
