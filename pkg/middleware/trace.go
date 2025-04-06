@@ -260,22 +260,3 @@ func CreateTraceMiddleware(generator *IDGenerator) common.Middleware {
 		})
 	}
 }
-
-// traceMiddleware creates a middleware that generates a unique trace ID for each request
-// and adds it to the request context. This allows for request tracing across logs.
-// This implementation uses a precomputed pool of UUIDs for better performance.
-// Deprecated: Use CreateTraceMiddleware with a router-specific generator instead.
-func traceMiddleware() common.Middleware {
-	// Get or initialize the default generator
-	generator := GetDefaultGenerator()
-	return CreateTraceMiddleware(generator)
-}
-
-// traceMiddlewareWithConfig creates a trace middleware with a custom ID generator configuration.
-// Generators with the same buffer size are shared for memory efficiency.
-// Deprecated: Use CreateTraceMiddleware with a router-specific generator instead.
-func traceMiddlewareWithConfig(bufferSize int) common.Middleware {
-	// Get or create a generator with the specified buffer size
-	generator := getOrCreateGenerator(bufferSize)
-	return CreateTraceMiddleware(generator)
-}

@@ -3,7 +3,6 @@ package middleware
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"sync" // Ensure sync is imported
 	"testing"
 	"time" // Ensure time is imported
@@ -51,7 +50,7 @@ func TestIDGeneratorBatchFill(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(numConsumers)
 
-	for i := 0; i < numConsumers; i++ {
+	for range numConsumers {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < consumeCount/numConsumers; j++ {
@@ -80,86 +79,6 @@ func TestIDGeneratorBatchFill(t *testing.T) {
 	if id == "" {
 		t.Error("Generator failed to produce ID after contention test")
 	}
-}
-
-// TestTraceMiddleware tests that the TraceMiddleware adds a trace ID to the request context
-func TestTraceMiddleware(t *testing.T) {
-	// Create a handler that checks for the trace ID
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Get the trace ID from the context
-		traceID := GetTraceID(r)
-
-		// Check that the trace ID is not empty
-		if traceID == "" {
-			t.Error("Expected trace ID to be set, but it was empty")
-		}
-
-		// Write the trace ID to the response
-		_, _ = w.Write([]byte(traceID))
-	})
-
-	// Create a middleware
-	traceMiddleware := Trace() // Use the variable
-
-	// Create a wrapped handler
-	wrappedHandler := traceMiddleware(handler) // Use the correct variable name
-
-	// Create a request
-	req, err := http.NewRequest("GET", "/test", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
-
-	// Create a response recorder
-	rr := httptest.NewRecorder()
-
-	// Serve the request
-	wrappedHandler.ServeHTTP(rr, req)
-
-	// Check that the response contains a trace ID (non-empty string)
-	if rr.Body.String() == "" {
-		t.Error("Expected response to contain a trace ID, but it was empty")
-	}
-}
-
-// TestTraceMiddlewareWithConfig tests that TraceMiddlewareWithConfig adds a trace ID
-func TestTraceMiddlewareWithConfig(t *testing.T) {
-	// Create a handler that checks for the trace ID
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		traceID := GetTraceID(r)
-		if traceID == "" {
-			t.Error("Expected trace ID to be set, but it was empty")
-		}
-		_, _ = w.Write([]byte(traceID))
-	})
-
-	// Create a middleware with a specific buffer size
-	bufferSize := 50                               // Use a different size than the default
-	traceMiddleware := TraceWithConfig(bufferSize) // Use the variable
-
-	// Create a wrapped handler
-	wrappedHandler := traceMiddleware(handler) // Use the correct variable name
-
-	// Create a request
-	req, err := http.NewRequest("GET", "/test-config", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
-
-	// Create a response recorder
-	rr := httptest.NewRecorder()
-
-	// Serve the request
-	wrappedHandler.ServeHTTP(rr, req)
-
-	// Check that the response contains a trace ID (non-empty string)
-	if rr.Body.String() == "" {
-		t.Error("Expected response to contain a trace ID, but it was empty")
-	}
-
-	// Optional: Verify a generator with the specific buffer size was created/used
-	// This might require exposing internal state or using more complex testing techniques.
-	// For now, just verifying functionality is sufficient.
 }
 
 // TestGetTraceID tests that GetTraceID returns the trace ID from the request context
