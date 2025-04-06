@@ -19,19 +19,6 @@ type IDGenerator struct {
 	initOnce sync.Once
 }
 
-// generatorRegistry keeps track of IDGenerator instances by buffer size to prevent duplication
-var generatorRegistry = struct {
-	sync.RWMutex
-	generators map[int]*IDGenerator
-}{
-	generators: make(map[int]*IDGenerator),
-}
-
-// defaultGenerator is the singleton instance of IDGenerator with the default buffer size
-var defaultGenerator *IDGenerator
-var defaultGeneratorOnce sync.Once
-var defaultBufferSize = 100000 // Default buffer of 100000 UUIDs to handle bursts better
-
 // NewIDGenerator creates a new IDGenerator with the specified buffer size
 func NewIDGenerator(bufferSize int) *IDGenerator {
 	g := &IDGenerator{
@@ -40,42 +27,6 @@ func NewIDGenerator(bufferSize int) *IDGenerator {
 	}
 	g.init()
 	return g
-}
-
-// GetDefaultGenerator returns the default singleton IDGenerator
-func GetDefaultGenerator() *IDGenerator {
-	defaultGeneratorOnce.Do(func() {
-		defaultGenerator = getOrCreateGenerator(defaultBufferSize)
-	})
-	return defaultGenerator
-}
-
-// getOrCreateGenerator retrieves an existing generator with the specified buffer size
-// or creates a new one if none exists. This prevents creating duplicate generators
-// with the same buffer size, which would waste memory.
-func getOrCreateGenerator(bufferSize int) *IDGenerator {
-	// First check if we already have a generator with this buffer size
-	generatorRegistry.RLock()
-	gen, exists := generatorRegistry.generators[bufferSize]
-	generatorRegistry.RUnlock()
-
-	if exists {
-		return gen
-	}
-
-	// If not, create a new one and register it
-	generatorRegistry.Lock()
-	defer generatorRegistry.Unlock()
-
-	// Double-check in case another goroutine created it while we were waiting for the lock
-	if gen, exists = generatorRegistry.generators[bufferSize]; exists {
-		return gen
-	}
-
-	// Create a new generator and register it
-	gen = NewIDGenerator(bufferSize)
-	generatorRegistry.generators[bufferSize] = gen
-	return gen
 }
 
 // init starts the background goroutine that fills the channel with UUIDs
