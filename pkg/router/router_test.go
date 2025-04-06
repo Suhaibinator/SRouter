@@ -1838,3 +1838,87 @@ func TestConcurrentRequests(t *testing.T) {
 	}
 	mu.Unlock()
 }
+
+// TestServeHTTP_MetricsLoggingWithTraceID verifies that the trace_id field is included
+// in the "Request metrics" log when tracing and metrics are enabled.
+func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
+	assert := assert.New(t)
+
+	// 1. Create an observer logger
+	observedZapCore, observedLogs := observer.New(zapcore.DebugLevel) // Use DebugLevel for "Request metrics"
+	observedLogger := zap.New(observedZapCore)
+
+	// 2. Configure router with tracing, metrics, and observer logger
+	routerConfig := RouterConfig{
+		Logger:            observedLogger,
+		TraceIDBufferSize: 10,   // Enable tracing
+		EnableMetrics:     true, // Enable metrics logging
+	}
+	r := NewRouter(routerConfig, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	// 3. Register a simple route
+	r.RegisterRoute(RouteConfigBase{
+		Path:    "/ping",
+		Methods: []HttpMethod{MethodGet},
+		Handler: func(w http.ResponseWriter, req *http.Request) {
+			// Simulate middleware adding trace ID to context (for testing the logger)
+			// In real execution, the trace middleware does this.
+			// We need to ensure the context passed *down* has the ID.
+			// However, the defer in ServeHTTP captures the *initial* req.
+			// The test should reflect the actual implementation's behavior.
+			// The trace middleware *does* set the response header.
+			traceIDFromHeader := req.Header.Get("X-Trace-ID") // Get ID potentially set by middleware
+			if traceIDFromHeader == "" {
+				// If middleware didn't run/set it (like in this direct ServeHTTP call),
+				// generate one to simulate it being available *somewhere*.
+				// The key is testing if the defer *logs* it if found.
+				traceIDFromHeader = "simulated-trace-id-for-test"
+			}
+			w.Header().Set("X-Trace-ID", traceIDFromHeader) // Ensure header is set for the defer logic
+
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("pong"))
+		},
+	})
+
+	// 4. Make a request
+	rr := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodGet, "/ping", nil)
+
+	// Simulate the trace middleware adding the trace ID to the request context
+	// before ServeHTTP is called internally by the server.
+	// This mimics the state *before* the defer captures `req`.
+	initialTraceID := "initial-context-trace-id" // This is what the defer will capture
+	req = middleware.AddTraceIDToRequest(req, initialTraceID)
+
+	r.ServeHTTP(rr, req) // Call ServeHTTP directly
+
+	// 5. Assert response status
+	assert.Equal(http.StatusOK, rr.Code, "Expected status OK")
+
+	// 6. Filter logs for "Request metrics"
+	metricsLogs := observedLogs.FilterMessage("Request metrics").AllUntimed()
+	assert.GreaterOrEqual(len(metricsLogs), 1, "Expected at least one 'Request metrics' log entry")
+
+	// 7. Check the first matching log entry for trace_id field
+	// IMPORTANT: Based on the current implementation of ServeHTTP's defer,
+	// it uses `middleware.GetTraceID(req)` which captures the *initial* request context.
+	// Therefore, we expect the logged trace_id to be `initialTraceID`.
+	if len(metricsLogs) > 0 {
+		logEntry := metricsLogs[0]
+		foundTraceID := false
+		var loggedTraceID string
+		for _, field := range logEntry.Context {
+			if field.Key == "trace_id" {
+				foundTraceID = true
+				assert.Equal(zapcore.StringType, field.Type, "Expected trace_id field type to be String")
+				loggedTraceID = field.String
+				break
+			}
+		}
+		assert.True(foundTraceID, "Expected to find 'trace_id' field in log context")
+		// Assert against the trace ID added to the initial request context
+		assert.Equal(initialTraceID, loggedTraceID, "Expected logged trace_id to match the one from the initial request context captured by defer")
+		assert.NotEmpty(loggedTraceID, "Expected trace_id field value to be non-empty")
+	}
+}
