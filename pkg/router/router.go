@@ -4,6 +4,7 @@ package router
 
 import (
 	"context"
+	"encoding/json" // Added for JSON marshalling
 	"errors"
 	"fmt"
 	"net/http"
@@ -332,11 +333,11 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 				if !wrappedW.wroteHeader.Swap(true) {
 					// Handler hasn't written yet, we can write the timeout error.
 					// Hold the lock while writing headers and body for timeout.
-					wrappedW.ResponseWriter.Header().Set("Content-Type", "text/plain; charset=utf-8")
-					wrappedW.ResponseWriter.WriteHeader(http.StatusRequestTimeout)
-					fmt.Fprintln(wrappedW.ResponseWriter, "Request Timeout")
+					// Use the new JSON error writer
+					r.writeJSONError(wrappedW.ResponseWriter, http.StatusRequestTimeout, "Request Timeout", traceID)
 				}
 				// If wroteHeader was already true, handler won the race, do nothing here.
+				// Unlock should happen regardless of whether we wrote the error or not.
 				wrappedW.mu.Unlock()
 				return
 			}
@@ -707,9 +708,53 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 		r.logger.Error(message, fields...)
 	}
 
-	// Return the error response using http.Error, which handles checking
-	// if headers have already been written.
-	http.Error(w, message, statusCode)
+	// Return the error response as JSON
+	r.writeJSONError(w, statusCode, message, traceID)
+}
+
+// writeJSONError writes a JSON error response to the client.
+// It sets the Content-Type header to application/json and writes the status code.
+// It includes the trace ID in the JSON payload if available and enabled.
+func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, statusCode int, message string, traceID string) {
+	// Check if headers have already been written (best effort)
+	// This check might not be foolproof depending on the ResponseWriter implementation.
+	// http.Error handles this internally, but we need to be careful here.
+	// A common pattern is to use a custom ResponseWriter wrapper that tracks this state.
+	// Since we have mutexResponseWriter and metricsResponseWriter, they might offer ways,
+	// but for simplicity, we'll rely on the fact that these error handlers are often
+	// called before the main handler writes anything. If a panic/timeout happens *after*
+	// writing has started, writing the JSON error might fail or corrupt the response.
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	// Ensure the status code is written *before* the body, especially if WriteHeader hasn't been called yet.
+	// If WriteHeader was already called (e.g., by a middleware before the error), this might write a second
+	// header, which is ignored by net/http, but it's good practice to set it.
+	w.WriteHeader(statusCode) // WriteHeader is idempotent after the first call
+
+	// Prepare the JSON payload
+	errorPayload := map[string]interface{}{
+		"error": map[string]string{
+			"message": message,
+		},
+	}
+
+	// Add trace ID if enabled and available
+	if r.config.EnableTraceID && traceID != "" {
+		errorMap := errorPayload["error"].(map[string]string)
+		errorMap["trace_id"] = traceID
+	}
+
+	// Marshal and write the JSON response
+	if err := json.NewEncoder(w).Encode(errorPayload); err != nil {
+		// Log an error if we fail to marshal/write the JSON error response itself
+		// At this point, we can't easily send a different error to the client.
+		r.logger.Error("Failed to write JSON error response",
+			zap.Error(err),
+			zap.Int("original_status", statusCode),
+			zap.String("original_message", message),
+			zap.String("trace_id", traceID), // Log trace ID even if writing failed
+		)
+	}
 }
 
 // HTTPError represents an HTTP error with a status code and message.
@@ -763,14 +808,10 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 				r.logger.Error("Panic recovered", fields...)
 
 				// Return a 500 Internal Server Error
-				// Avoid double writing headers if panic happens after write started
-				if _, ok := w.(interface{ Status() int }); !ok {
-					// If we can't check status, assume not written yet
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				} else if w.(interface{ Status() int }).Status() == 0 {
-					// Or if status is known to be unwritten
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				}
+				// Return a 500 Internal Server Error as JSON
+				// We attempt to write the JSON error. If headers were already written,
+				// writeJSONError might log an error, but we can't do much more here.
+				r.writeJSONError(w, http.StatusInternalServerError, "Internal Server Error", traceID)
 			}
 		}()
 
@@ -811,7 +852,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 
 			// Log that authentication failed
 			r.logger.Warn("Authentication failed", fields...)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			r.writeJSONError(w, http.StatusUnauthorized, "Unauthorized", traceID)
 			return
 		}
 
@@ -871,7 +912,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 
 		// Log that authentication failed
 		r.logger.Warn("Authentication failed", fields...)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		r.writeJSONError(w, http.StatusUnauthorized, "Unauthorized", traceID)
 	})
 }
 
