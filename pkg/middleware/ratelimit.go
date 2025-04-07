@@ -20,7 +20,6 @@ import (
 // UberRateLimiter implements common.RateLimiter using Uber's ratelimit library (leaky bucket).
 type UberRateLimiter struct {
 	limiters sync.Map // map[string]ratelimit.Limiter
-	mu       sync.Mutex
 }
 
 // NewUberRateLimiter creates a new rate limiter using Uber's ratelimit library.
@@ -33,22 +32,21 @@ func NewUberRateLimiter() *UberRateLimiter {
 func (u *UberRateLimiter) getLimiter(key string, rps int) ratelimit.Limiter {
 	compositeKey := fmt.Sprintf("%s-%d", key, rps) // Combine key and rps
 
+	// Fast path: Check if limiter already exists.
 	if limiter, ok := u.limiters.Load(compositeKey); ok {
 		return limiter.(ratelimit.Limiter)
 	}
 
-	u.mu.Lock()
-	defer u.mu.Unlock()
+	// Slow path: Limiter doesn't exist, create a new one.
+	newLimiter := ratelimit.New(rps)
 
-	// Double-check after acquiring lock
-	if limiter, ok := u.limiters.Load(compositeKey); ok {
-		return limiter.(ratelimit.Limiter)
-	}
+	// Atomically load or store.
+	// - If compositeKey already exists (due to concurrent creation), LoadOrStore loads and returns the existing value.
+	// - If compositeKey doesn't exist, LoadOrStore stores newLimiter and returns it.
+	actualLimiter, _ := u.limiters.LoadOrStore(compositeKey, newLimiter)
 
-	// Create new limiter
-	limiter := ratelimit.New(rps)
-	u.limiters.Store(compositeKey, limiter) // Store using the composite key
-	return limiter
+	// Return the actual limiter stored in the map (either the existing one or the new one).
+	return actualLimiter.(ratelimit.Limiter)
 }
 
 // Ensure UberRateLimiter implements the common.RateLimiter interface.

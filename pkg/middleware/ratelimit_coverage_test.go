@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"net/http"          // Added import
 	"net/http/httptest" // Added import
+
+	// Added import
+	"sync" // Added import
 	"testing"
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"   // Added import
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/ratelimit" // Added import for assert.Same
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -32,23 +36,68 @@ func TestNewUberRateLimiter_Coverage(t *testing.T) {
 	}
 }
 
-// TestGetLimiter tests the getLimiter function indirectly through the Allow method
+// TestGetLimiter_Coverage tests the getLimiter function indirectly through the Allow method, including concurrency.
 func TestGetLimiter_Coverage(t *testing.T) {
-	// Create a new UberRateLimiter
 	limiter := NewUberRateLimiter()
+	key := "concurrent-get-limiter-key"
+	limit := 1000
+	window := 10 * time.Millisecond
+	// Calculate rps the same way Allow does
+	rps := int(float64(limit) / window.Seconds())
 
-	// Call Allow which will internally call getLimiter
-	allowed, remaining, _ := limiter.Allow("test-key", 10, time.Millisecond)
+	numGoroutines := 20
+	callsPerGoroutine := 5
 
-	// Verify that the request was allowed
-	if !allowed {
-		t.Errorf("Expected request to be allowed, but it was denied")
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	// Use a map to store the first limiter instance seen by any goroutine
+	var firstLimiter ratelimit.Limiter
+	var once sync.Once
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < callsPerGoroutine; j++ {
+				// Call Allow which will internally call getLimiter
+				allowed, _, _ := limiter.Allow(key, limit, window)
+				assert.True(t, allowed, "Request should be allowed initially")
+
+				// Check if the same limiter instance is returned across goroutines
+				// This indirectly tests that the double-check prevents creating multiple limiters
+				compositeKey := fmt.Sprintf("%s-%d", key, rps)
+				val, ok := limiter.limiters.Load(compositeKey)
+				// Explicitly check 'ok' before proceeding to prevent panic on nil interface conversion
+				if !assert.True(t, ok, "Limiter should exist in the map for key %s", compositeKey) {
+					// If the assertion fails (ok is false), skip the rest of the checks for this iteration
+					// as val will be nil, causing a panic on type assertion.
+					// This indicates a potential timing issue or problem in limiter creation/storage.
+					continue // Skip to the next iteration of the inner loop
+				}
+				// Only proceed if ok is true
+				currentLimiter := val.(ratelimit.Limiter)
+
+				once.Do(func() {
+					firstLimiter = currentLimiter // Capture the first successfully retrieved limiter
+				})
+
+				// Use assert.Same to check if it's the exact same instance in memory
+				assert.Same(t, firstLimiter, currentLimiter, "Expected the same limiter instance to be returned")
+			}
+		}()
 	}
 
-	// Verify that the remaining count is reasonable
-	if remaining < 0 {
-		t.Errorf("Expected remaining to be non-negative, got %d", remaining)
-	}
+	wg.Wait()
+
+	// Final check that only one limiter was created for the key/rps combination
+	count := 0
+	limiter.limiters.Range(func(k, v interface{}) bool {
+		if k == fmt.Sprintf("%s-%d", key, rps) {
+			count++
+		}
+		return true
+	})
+	assert.Equal(t, 1, count, "Expected exactly one limiter instance for the key/rps")
 }
 
 // TestCreateRateLimitMiddleware_Coverage tests the CreateRateLimitMiddleware function
@@ -358,4 +407,86 @@ func TestRateLimit_UserStrategyFallback(t *testing.T) {
 			assert.True(t, foundAddr, "Expected log context to contain correct remote_addr")
 		}
 	})
+}
+
+// TestRateLimit_CustomStrategyEmptyKey tests the case where the custom key extractor returns an empty string
+func TestRateLimit_CustomStrategyEmptyKey(t *testing.T) {
+	core, observedLogs := observer.New(zapcore.ErrorLevel) // Capture Error level logs
+	logger := zap.New(core)
+	limiter := NewUberRateLimiter() // Use a real limiter
+
+	config := &common.RateLimitConfig[string, string]{
+		BucketName: "custom-empty",
+		Limit:      10,
+		Window:     time.Minute,
+		Strategy:   common.StrategyCustom,
+		KeyExtractor: func(r *http.Request) (string, error) {
+			return "", nil // Return empty key
+		},
+	}
+	middleware := RateLimit(config, limiter, logger)
+	handlerCalled := false
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlerCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+	wrappedHandler := middleware(testHandler)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(rr, req)
+
+	assert.False(t, handlerCalled, "Handler should not have been called")
+	assert.Equal(t, http.StatusInternalServerError, rr.Code, "Expected status 500 for empty custom key")
+
+	// Check logs for the specific error message
+	logEntries := observedLogs.FilterMessage("Custom KeyExtractor returned an empty key.").All()
+	assert.Equal(t, 1, len(logEntries), "Expected one log entry for empty custom key error")
+}
+
+// MockRateLimiterWithReset is a mock implementation allowing control over the reset duration
+type MockRateLimiterWithReset struct {
+	allowFunc func(key string, limit int, window time.Duration) (bool, int, time.Duration)
+}
+
+// Allow implements the RateLimiter interface
+func (m *MockRateLimiterWithReset) Allow(key string, limit int, window time.Duration) (bool, int, time.Duration) {
+	return m.allowFunc(key, limit, window)
+}
+
+// TestRateLimit_RetryAfterMinimum tests the minimum value for the Retry-After header
+func TestRateLimit_RetryAfterMinimum(t *testing.T) {
+	logger := zap.NewNop()
+	// Mock limiter that denies the request and returns a reset duration less than 1 second
+	mockLimiter := &MockRateLimiterWithReset{
+		allowFunc: func(key string, limit int, window time.Duration) (bool, int, time.Duration) {
+			return false, 0, 500 * time.Millisecond // Return reset duration < 1s
+		},
+	}
+
+	config := &common.RateLimitConfig[string, string]{
+		BucketName: "retry-test",
+		Limit:      1,
+		Window:     time.Minute,
+		Strategy:   common.StrategyIP,
+	}
+	middleware := RateLimit(config, mockLimiter, logger)
+	handlerCalled := false
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlerCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+	wrappedHandler := middleware(testHandler)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "127.0.0.1:9999" // Use RemoteAddr as fallback
+	rr := httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(rr, req)
+
+	assert.False(t, handlerCalled, "Handler should not have been called")
+	assert.Equal(t, http.StatusTooManyRequests, rr.Code, "Expected status 429")
+
+	// Check that Retry-After header is set to the minimum of 1 second
+	retryAfter := rr.Header().Get("Retry-After")
+	assert.Equal(t, "1", retryAfter, "Expected Retry-After header to be 1")
 }
