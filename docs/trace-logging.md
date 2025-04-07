@@ -23,25 +23,28 @@ You can enable trace ID logging in two ways:
     r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction) // Assume auth funcs exist
     ```
 
-2.  **Via `TraceMiddleware`:** Add `middleware.TraceMiddleware()` to your middleware chain (usually as the first middleware). This approach offers slightly more control, such as configuring the buffer size for UUID generation if needed.
+2.  **Via `CreateTraceMiddleware`:** Add the middleware created by `middleware.CreateTraceMiddleware(generator)` to your middleware chain (usually as the first middleware). This requires creating an `IDGenerator` first.
 
     ```go
     import "github.com/Suhaibinator/SRouter/pkg/middleware"
     import "github.com/Suhaibinator/SRouter/pkg/common"
 
+    // Create an ID generator (adjust buffer size as needed)
+    traceIDGenerator := middleware.NewIDGenerator(10000) // Example buffer size
+
     routerConfig := router.RouterConfig{
         Logger: logger, // Assume logger exists
         Middlewares: []common.Middleware{
-            middleware.TraceMiddleware(), // Add trace middleware
+            middleware.CreateTraceMiddleware(traceIDGenerator), // Add trace middleware
             // Other middleware...
-            middleware.Logging(logger), // Logging middleware will pick up the trace ID
+            // Note: Logging is handled internally, no separate middleware.Logging needed here
         },
         // Other configuration...
     }
     r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction) // Assume auth funcs exist
     ```
 
-    Using both `EnableTraceID: true` and `TraceMiddleware` is redundant; choose one method. Using the middleware explicitly is often clearer.
+    Using both `TraceIDBufferSize > 0` in `RouterConfig` and adding `CreateTraceMiddleware` manually is redundant; the router adds it internally if `TraceIDBufferSize > 0`. Use the middleware approach if you need to manage the `IDGenerator` lifecycle separately or use a custom generator.
 
 ## Accessing the Trace ID
 
@@ -71,7 +74,7 @@ func myHandler(w http.ResponseWriter, r *http.Request) {
 
 ### `middleware.GetTraceIDFromContext`
 
-If you only have access to the `context.Context` (e.g., in a function called by your handler), you can use this function.
+If you only have access to the `context.Context` (e.g., in a function called by your handler), you can use this function. Remember to include the router's type parameters `[T, U]`.
 
 ```go
 import (
@@ -80,9 +83,9 @@ import (
     "github.com/Suhaibinator/SRouter/pkg/middleware"
 )
 
-func processData(ctx context.Context, data string) {
+func processData[T comparable, U any](ctx context.Context, data string) { // Example making func generic
     // Get the trace ID from the context passed down from the handler
-    traceID := middleware.GetTraceIDFromContext(ctx)
+    traceID := middleware.GetTraceIDFromContext[T, U](ctx) // Add type params
 
     // Use the trace ID in logs or further processing
     log.Printf("[trace_id=%s] Processing data: %s\n", traceID, data)

@@ -4,7 +4,7 @@ SRouter provides a flexible authentication system integrated with its routing co
 
 ## Authentication Levels
 
-SRouter defines three authentication levels using the `router.AuthLevel` type. You can specify the required level for a route in its `RouteConfigBase` or `RouteConfig[T, U]` using the `AuthLevel` field (which is a pointer, `*router.AuthLevel`). If `AuthLevel` is `nil`, the route inherits the default level from its parent sub-router, or ultimately defaults to `NoAuth` if no parent specifies it.
+SRouter defines three authentication levels using the `router.AuthLevel` type (defined in `pkg/router`). You can specify the required level for a route in its `router.RouteConfigBase` or `router.RouteConfig[T, U]` using the `AuthLevel` field (which is a pointer, `*router.AuthLevel`). If `AuthLevel` is `nil`, the route inherits the default level from its parent sub-router, or ultimately defaults to `router.NoAuth` if no parent specifies it.
 
 1.  **`router.NoAuth`**: No authentication is required. The request proceeds directly to the handler (after other middleware). This is the default if `AuthLevel` is not set.
 2.  **`router.AuthOptional`**: Authentication is attempted by the configured authentication middleware.
@@ -16,11 +16,12 @@ SRouter defines three authentication levels using the `router.AuthLevel` type. Y
 
 ```go
 import "github.com/Suhaibinator/SRouter/pkg/router"
+import "github.com/Suhaibinator/SRouter/pkg/middleware" // For context helpers if needed in handler
 
 // Example route configurations:
 routePublic := router.RouteConfigBase{
     Path: "/public/info",
-    // AuthLevel: nil, // Defaults to NoAuth
+    // AuthLevel: nil, // Defaults to router.NoAuth
     // Or explicitly:
     AuthLevel: router.Ptr(router.NoAuth),
     // ... handler, methods
@@ -32,13 +33,13 @@ routeOptional := router.RouteConfigBase{
     // ... handler, methods
 }
 
-routeProtected := router.RouteConfig[UpdateSettingsReq, UpdateSettingsResp]{
+routeProtected := router.RouteConfig[UpdateSettingsReq, UpdateSettingsResp]{ // Assume types exist
     Path: "/user/settings",
     AuthLevel: router.Ptr(router.AuthRequired), // Must be logged in
     // ... handler, methods, codec
 }
 ```
-*(Note: `router.Ptr()` is a simple helper function to get a pointer to an `AuthLevel` value, as the config fields expect pointers)*
+*(Note: `router.Ptr()` is a helper function in `pkg/router` to get a pointer to an `AuthLevel` value, as the config fields expect pointers)*
 
 ## Authentication Middleware
 

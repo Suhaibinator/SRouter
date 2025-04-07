@@ -4,10 +4,10 @@ Codecs are responsible for encoding and decoding data in SRouter's generic route
 
 ## The Codec Interface
 
-Any codec used with SRouter's generic routes must implement the `router.Codec[T, U]` interface (likely defined in `pkg/router/config.go` or similar):
+Any codec used with SRouter's generic routes must implement the `router.Codec[T, U]` interface (defined in `pkg/router/config.go`):
 
 ```go
-package router // Or wherever Codec is defined
+package router // Defined in pkg/router/config.go
 
 import "net/http"
 
@@ -190,8 +190,8 @@ Remember to handle errors appropriately within your codec methods, potentially r
 
 ## Codec Reference
 
--   **`router.Codec[T, U]`**: Interface defining methods `NewRequest() T`, `Decode(*http.Request) (T, error)`, `DecodeBytes([]byte) (T, error)`, and `Encode(http.ResponseWriter, U) error`.
--   **`codec.NewJSONCodec[T, U]() *codec.JSONCodec[T, U]`**: Constructor for the built-in JSON codec.
--   **`codec.NewProtoCodec[T, U](factoryFunc func() T) *codec.ProtoCodec[T, U]`**: Constructor for the built-in Protocol Buffers codec, requiring a factory function for the request type `T`.
+-   **`router.Codec[T, U]`**: Interface defined in `pkg/router/config.go` with methods `NewRequest() T`, `Decode(*http.Request) (T, error)`, `DecodeBytes([]byte) (T, error)`, and `Encode(http.ResponseWriter, U) error`.
+-   **`codec.NewJSONCodec[T, U]() *codec.JSONCodec[T, U]`**: Constructor for the built-in JSON codec (in `pkg/codec`).
+-   **`codec.NewProtoCodec[T, U](factoryFunc func() T) *codec.ProtoCodec[T, U]`**: Constructor for the built-in Protocol Buffers codec (in `pkg/codec`), requiring a factory function for the request type `T`.
 
 See the `examples/codec` directory for runnable examples using different codecs.

@@ -31,7 +31,7 @@ apiV1SubRouter := router.SubRouterConfig{
 			router.RouteConfig[CreateUserReq, CreateUserResp]{
 				Path:      "/users", // Path relative to the sub-router prefix (/api/v1/users)
 				Methods:   []router.HttpMethod{router.MethodPost},
-				AuthLevel: router.Ptr(router.AuthRequired), // Example: Requires authentication
+				AuthLevel: router.Ptr(router.AuthRequired), // Example: Requires authentication (use router.AuthRequired)
 				Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Assume codec exists
 				Handler:   CreateUserHandler, // Assume this generic handler exists
 				// Middlewares, Timeout, MaxBodySize, RateLimit can be set here too, overriding sub-router settings

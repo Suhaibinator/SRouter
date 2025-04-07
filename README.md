@@ -317,14 +317,14 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 You can access the trace ID in your handlers and middleware:
 
 ```go
-func myHandler(w http.ResponseWriter, r *http.Request) {
-    // Get the trace ID
-    traceID := middleware.GetTraceID(r)
-
-    // Use the trace ID
-    fmt.Printf("Processing request with trace ID: %s\n", traceID)
-
-    // ...
+// Configure IP extraction to use a custom header
+routerConfig := router.RouterConfig{
+    // ... other config
+    IPConfig: &middleware.IPConfig{
+        Source:       middleware.IPSourceCustomHeader,
+        CustomHeader: "X-Client-IP",
+        TrustProxy:   true,
+    },
 }
 ```
 
@@ -413,14 +413,19 @@ See the `examples/graceful-shutdown` directory for a complete example of gracefu
 
 ### IP Configuration
 
-SRouter provides a flexible way to extract client IP addresses, which is particularly important when your application is behind a reverse proxy or load balancer. The IP configuration allows you to specify where to extract the client IP from and whether to trust proxy headers.
+SRouter provides a flexible way to extract client IP addresses, which is particularly important when your application is behind a reverse proxy or load balancer. The IP configuration, defined via the `IPConfig` field in `router.RouterConfig` (which takes a `*middleware.IPConfig`), allows you to specify where to extract the client IP from and whether to trust proxy headers.
 
 ```go
+import (
+	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/Suhaibinator/SRouter/pkg/router"
+)
+
 // Configure IP extraction to use X-Forwarded-For header
 routerConfig := router.RouterConfig{
     // ... other config
     IPConfig: &middleware.IPConfig{
-        Source:     middleware.IPSourceXForwardedFor,
+        Source:     middleware.IPSourceXForwardedFor, // Constant from middleware package
         TrustProxy: true,
     },
 }
@@ -428,35 +433,40 @@ routerConfig := router.RouterConfig{
 
 #### IP Source Types
 
-SRouter supports several IP source types:
+SRouter supports several IP source types, defined as constants in the `pkg/middleware` package:
 
-1. **IPSourceRemoteAddr**: Uses the request's RemoteAddr field (default if no source is specified)
-2. **IPSourceXForwardedFor**: Uses the X-Forwarded-For header (common for most reverse proxies)
-3. **IPSourceXRealIP**: Uses the X-Real-IP header (used by Nginx and some other proxies)
-4. **IPSourceCustomHeader**: Uses a custom header specified in the configuration
+1. **`middleware.IPSourceRemoteAddr`**: Uses the request's RemoteAddr field (default if `IPConfig` is nil or `Source` is not specified).
+2. **`middleware.IPSourceXForwardedFor`**: Uses the `X-Forwarded-For` header (common for most reverse proxies).
+3. **`middleware.IPSourceXRealIP`**: Uses the `X-Real-IP` header (used by Nginx and some other proxies).
+4. **`middleware.IPSourceCustomHeader`**: Uses a custom header specified in the `CustomHeader` field of `middleware.IPConfig`.
 
 ```go
+import (
+	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/Suhaibinator/SRouter/pkg/router"
+)
+
 // Configure IP extraction to use a custom header
 routerConfig := router.RouterConfig{
     // ... other config
     IPConfig: &middleware.IPConfig{
-        Source:       middleware.IPSourceCustomHeader,
+        Source:       middleware.IPSourceCustomHeader, // Constant from middleware package
         CustomHeader: "X-Client-IP",
         TrustProxy:   true,
     },
 }
 ```
 
-#### Trust Proxy Setting
+#### Trust Proxy Setting (`TrustProxy`)
 
-The `TrustProxy` setting determines whether to trust proxy headers:
+The `TrustProxy` setting (a field within `middleware.IPConfig`) determines whether to trust proxy headers:
 
-- If `true`, the specified source will be used to extract the client IP
-- If `false` or if the specified source doesn't contain an IP, the request's RemoteAddr will be used as a fallback
+- If `true`, the source specified by `Source` will be used to extract the client IP.
+- If `false`, the `Source` header is ignored, and the request's `RemoteAddr` will always be used.
 
 This is important for security, as malicious clients could potentially spoof headers if your application blindly trusts them.
 
-See the `examples/middleware` directory for examples of using IP configuration.
+See the `docs/ip-configuration.md` file for more details and the `examples/middleware` directory for runnable examples.
 
 ### Rate Limiting
 
@@ -468,7 +478,7 @@ SRouter provides a flexible rate limiting system that can be configured at the g
 // Create a router with global rate limiting
 routerConfig := router.RouterConfig{
     // ... other config
-    GlobalRateLimit: &middleware.RateLimitConfig[any, any]{ // Use [any, any] for global/sub-router config
+    GlobalRateLimit: &middleware.RateLimitConfig[any, any]{ // Use [any, any] as placeholder types for global/sub-router config
         BucketName: "global",
         Limit:      100,
         Window:     time.Minute,
@@ -479,7 +489,7 @@ routerConfig := router.RouterConfig{
 // Create a sub-router with rate limiting
 subRouter := router.SubRouterConfig{
     PathPrefix: "/api/v1",
-    RateLimitOverride: &middleware.RateLimitConfig[any, any]{ // Use [any, any]
+    RateLimitOverride: &middleware.RateLimitConfig[any, any]{ // Use [any, any] as placeholder types
         BucketName: "api-v1",
         Limit:      50,
         Window:     time.Minute,
@@ -489,10 +499,10 @@ subRouter := router.SubRouterConfig{
 }
 
 // Create a route with rate limiting
-route := router.RouteConfig[MyReq, MyResp]{ // Use specific types for route config
+route := router.RouteConfig[MyReq, MyResp]{ // Use specific types [Req, Resp] for route config
     Path:    "/users",
     Methods: []router.HttpMethod{router.MethodPost},
-    RateLimit: &middleware.RateLimitConfig[any, any]{ // Use [any, any] here too
+    RateLimit: &middleware.RateLimitConfig[MyReq, MyResp]{ // Use specific types [Req, Resp] here too
         BucketName: "create-user",
         Limit:      10,
         Window:     time.Minute,
@@ -607,17 +617,19 @@ SRouter provides a flexible authentication system with three authentication leve
 
 #### Authentication Levels
 
-SRouter supports three authentication levels, specified in `RouteConfig` or `RouteConfigBase`:
+SRouter supports three authentication levels (defined as constants in the `pkg/router` package), specified in `router.RouteConfig` or `router.RouteConfigBase`:
 
-1. **NoAuth**: No authentication is required.
-2. **AuthOptional**: Authentication is attempted (e.g., by middleware). If successful, user info is added to the context. The request proceeds regardless.
-3. **AuthRequired**: Authentication is required (e.g., by middleware). If authentication fails, the middleware should reject the request (e.g., with 401 Unauthorized). If successful, user info is added to the context.
+1. **`router.NoAuth`**: No authentication is required.
+2. **`router.AuthOptional`**: Authentication is attempted (e.g., by middleware). If successful, user info is added to the context. The request proceeds regardless.
+3. **`router.AuthRequired`**: Authentication is required (e.g., by middleware). If authentication fails, the middleware should reject the request (e.g., with 401 Unauthorized). If successful, user info is added to the context.
 
 ```go
+import "github.com/Suhaibinator/SRouter/pkg/router"
+
 // Example route configurations
-routePublic := router.RouteConfigBase{ AuthLevel: router.NoAuth, ... }
-routeOptional := router.RouteConfigBase{ AuthLevel: router.AuthOptional, ... }
-routeProtected := router.RouteConfigBase{ AuthLevel: router.AuthRequired, ... }
+routePublic := router.RouteConfigBase{ AuthLevel: router.Ptr(router.NoAuth), ... }
+routeOptional := router.RouteConfigBase{ AuthLevel: router.Ptr(router.AuthOptional), ... }
+routeProtected := router.RouteConfigBase{ AuthLevel: router.Ptr(router.AuthRequired), ... }
 ```
 
 #### Authentication Middleware
@@ -703,7 +715,7 @@ type SRouterContext[T comparable, U any] struct {
     TransactionSet bool
 
     // Additional flags
-    Flags map[string]bool // Note: Docs mention map[string]any, code shows map[string]bool. Check consistency.
+    Flags map[string]bool // Note: Implementation uses map[string]bool
 }
 
 // DatabaseTransaction interface (pkg/middleware/db.go)
@@ -777,9 +789,15 @@ These functions automatically handle the type parameters and provide a clean, co
 
 ### Custom Error Handling
 
-You can create custom HTTP errors with specific status codes and messages:
+You can create custom HTTP errors (defined in `pkg/router`) with specific status codes and messages:
 
 ```go
+import (
+	"fmt"
+	"net/http"
+	"github.com/Suhaibinator/SRouter/pkg/router"
+)
+
 // Create a custom HTTP error
 func NotFoundError(resourceType, id string) *router.HTTPError {
  return router.NewHTTPError(
@@ -852,20 +870,24 @@ SRouter provides flexible ways to retrieve and decode request data beyond just t
 
 #### Available Source Types
 
-SRouter supports the following source types (defined as constants in the `router` package):
+SRouter supports the following source types (defined as constants in the `pkg/router` package):
 
-1. **Body** (default): Retrieves data from the request body.
+1. **`router.Body`** (default): Retrieves data from the request body.
 
    ```go
+   import "github.com/Suhaibinator/SRouter/pkg/router"
+
    router.RegisterGenericRoute[UserRequest, UserResponse, string, string](r, router.RouteConfig[UserRequest, UserResponse]{
        // ...
-       // SourceType defaults to Body if not specified
+       // SourceType defaults to router.Body if not specified
    }, ...)
    ```
 
-2. **Base64QueryParameter**: Retrieves data from a base64-encoded query parameter.
+2. **`router.Base64QueryParameter`**: Retrieves data from a base64-encoded query parameter.
 
    ```go
+   import "github.com/Suhaibinator/SRouter/pkg/router"
+
    router.RegisterGenericRoute[UserRequest, UserResponse, string, string](r, router.RouteConfig[UserRequest, UserResponse]{
        // ...
        SourceType: router.Base64QueryParameter,
@@ -873,9 +895,11 @@ SRouter supports the following source types (defined as constants in the `router
    }, ...)
    ```
 
-3. **Base62QueryParameter**: Retrieves data from a base62-encoded query parameter.
+3. **`router.Base62QueryParameter`**: Retrieves data from a base62-encoded query parameter.
 
    ```go
+   import "github.com/Suhaibinator/SRouter/pkg/router"
+
    router.RegisterGenericRoute[UserRequest, UserResponse, string, string](r, router.RouteConfig[UserRequest, UserResponse]{
        // ...
        SourceType: router.Base62QueryParameter,
@@ -883,9 +907,11 @@ SRouter supports the following source types (defined as constants in the `router
    }, ...)
    ```
 
-4. **Base64PathParameter**: Retrieves data from a base64-encoded path parameter.
+4. **`router.Base64PathParameter`**: Retrieves data from a base64-encoded path parameter.
 
    ```go
+   import "github.com/Suhaibinator/SRouter/pkg/router"
+
    router.RegisterGenericRoute[UserRequest, UserResponse, string, string](r, router.RouteConfig[UserRequest, UserResponse]{
        Path:       "/users/:data",
        // ...
@@ -894,9 +920,11 @@ SRouter supports the following source types (defined as constants in the `router
    }, ...)
    ```
 
-5. **Base62PathParameter**: Retrieves data from a base62-encoded path parameter.
+5. **`router.Base62PathParameter`**: Retrieves data from a base62-encoded path parameter.
 
    ```go
+   import "github.com/Suhaibinator/SRouter/pkg/router"
+
    router.RegisterGenericRoute[UserRequest, UserResponse, string, string](r, router.RouteConfig[UserRequest, UserResponse]{
        Path:       "/users/:data",
        // ...
@@ -1074,16 +1102,17 @@ type RouterConfig struct {
  Logger             *zap.Logger                           // Logger for all router operations
  GlobalTimeout      time.Duration                         // Default response timeout for all routes
  GlobalMaxBodySize  int64                                 // Default maximum request body size in bytes
- GlobalRateLimit    *middleware.RateLimitConfig[any, any] // Default rate limit for all routes
- IPConfig           *middleware.IPConfig                  // Configuration for client IP extraction
+ GlobalRateLimit    *middleware.RateLimitConfig[any, any] // Default rate limit for all routes (uses [any, any] as placeholder types)
+ IPConfig           *middleware.IPConfig                  // Configuration for client IP extraction (type defined in pkg/middleware)
  EnableMetrics      bool                                  // Enable metrics collection
- EnableTracing      bool                                  // Enable distributed tracing (Note: Implementation might be via middleware)
- EnableTraceID      bool                                  // Enable trace ID logging (can also be done via TraceMiddleware)
+ EnableTraceLogging  bool                                  // Enable trace logging
+ TraceLoggingUseInfo bool                                  // Use Info level for trace logging
+ TraceIDBufferSize   int                                   // Buffer size for trace ID generator (0 disables trace ID)
+ PrometheusConfig    *PrometheusConfig                     // Prometheus metrics configuration (optional, deprecated)
  MetricsConfig      *MetricsConfig                        // Metrics configuration (optional)
  SubRouters         []SubRouterConfig                     // Sub-routers with their own configurations
  Middlewares        []common.Middleware                   // Global middlewares applied to all routes
  AddUserObjectToCtx bool                                  // Add user object to context (used by built-in auth middleware)
- // CacheGet, CacheSet, CacheKeyPrefix removed - implement caching via middleware if needed
 }
 ```
 
@@ -1215,33 +1244,28 @@ const (
 
 ## Middleware Reference
 
-SRouter provides several built-in middleware functions in the `pkg/middleware` package:
-
-### Logging
-
-Logs requests with method, path, status code, and duration:
-
-```go
-middleware.Logging(logger *zap.Logger) Middleware
-```
+SRouter provides several built-in middleware functions and constructors in the `pkg/middleware` package:
 
 ### Recovery
 
-Recovers from panics and returns a 500 Internal Server Error:
+Recovers from panics and returns a 500 Internal Server Error. The router applies its own recovery middleware internally, but a standalone version is available:
 
 ```go
-middleware.Recovery(logger *zap.Logger) Middleware // Note: Router applies its own recovery internally
+middleware.Recovery(logger *zap.Logger) Middleware // Exposed via variable in pkg/middleware/middlewares.go
 ```
 
 ### Authentication
 
-SRouter provides several authentication middleware options in `pkg/middleware`:
+SRouter provides several authentication middleware constructors in `pkg/middleware`:
 
 #### Basic Authentication
 
+Uses `AuthenticationWithProvider` and `AuthenticationWithUserProvider` with appropriate `AuthProvider` implementations (e.g., `BasicAuthProvider`, `BasicUserAuthProvider`).
+
 ```go
-middleware.NewBasicAuthMiddleware(credentials map[string]string, logger *zap.Logger) Middleware
-middleware.NewBasicAuthWithUserMiddleware[U any](validator func(string, string) (*U, error), logger *zap.Logger) Middleware
+// Example Usage (Provider implementation not shown here)
+// middleware.AuthenticationWithProvider[UserIDType, UserObjType](basicAuthProvider, logger)
+// middleware.AuthenticationWithUserProvider[UserIDType, UserObjType](basicUserAuthProvider, logger)
 ```
 
 #### Bearer Token Authentication
@@ -1274,12 +1298,28 @@ Sets a timeout for the request (Note: Router applies this internally based on co
 // Typically configured via RouterConfig/SubRouterConfig/RouteConfig
 ```
 
+### MaxBodySize
+
+Limits the size of the request body (Note: Router applies this internally based on config):
+
+```go
+middleware.MaxBodySize(maxSize int64) Middleware // Exposed via variable in pkg/middleware/middlewares.go
+```
+
+### Timeout
+
+Sets a timeout for the request (Note: Router applies this internally based on config):
+
+```go
+middleware.Timeout(timeout time.Duration) Middleware // Exposed via variable in pkg/middleware/middlewares.go
+```
+
 ### CORS
 
 Adds CORS headers to the response:
 
 ```go
-middleware.CORS(origins []string, methods []string, headers []string) Middleware
+middleware.CORS(corsConfig middleware.CORSOptions) Middleware // Exposed via variable in pkg/middleware/middlewares.go
 ```
 
 ### Chain
@@ -1296,11 +1336,10 @@ See Metrics section.
 
 ### TraceMiddleware
 
-Adds trace ID to the request context:
+Adds trace ID to the request context. Uses an efficient `IDGenerator`.
 
 ```go
-middleware.TraceMiddleware() Middleware
-middleware.TraceMiddlewareWithConfig(bufferSize int) Middleware
+middleware.CreateTraceMiddleware(generator *middleware.IDGenerator) Middleware
 ```
 
 ## Codec Reference
@@ -1329,9 +1368,11 @@ codec.NewProtoCodec[T, U](myProtoFactory) *codec.ProtoCodec[T, U]
 
 ### Codec Interface
 
-You can create your own codecs by implementing the `Codec` interface (defined in `pkg/router/config.go`):
+You can create your own codecs by implementing the `router.Codec` interface (defined in `pkg/router/config.go`):
 
 ```go
+package router // Defined in pkg/router/config.go
+
 type Codec[T any, U any] interface {
 	// NewRequest creates a new zero-value instance of the request type T.
 	NewRequest() T
@@ -1352,17 +1393,24 @@ type Codec[T any, U any] interface {
 
 ### GetParam
 
-Retrieves a specific parameter from the request context:
+Retrieves a specific parameter from the request context (helper function in `pkg/router`):
 
 ```go
+import "github.com/Suhaibinator/SRouter/pkg/router"
+
 router.GetParam(r *http.Request, name string) string
 ```
 
 ### GetParams
 
-Retrieves all parameters from the request context:
+Retrieves all parameters from the request context (helper function in `pkg/router`):
 
 ```go
+import (
+	"github.com/Suhaibinator/SRouter/pkg/router"
+	"github.com/julienschmidt/httprouter"
+)
+
 router.GetParams(r *http.Request) httprouter.Params
 ```
 
@@ -1398,17 +1446,21 @@ These functions access values through the SRouterContext wrapper, providing a co
 
 ### NewHTTPError
 
-Creates a new HTTPError:
+Creates a new HTTPError (defined in `pkg/router`):
 
 ```go
+import "github.com/Suhaibinator/SRouter/pkg/router"
+
 router.NewHTTPError(statusCode int, message string) *router.HTTPError
 ```
 
 ### HTTPError
 
-Represents an HTTP error with a status code and message:
+Represents an HTTP error with a status code and message (defined in `pkg/router`):
 
 ```go
+package router // Defined in pkg/router/router.go
+
 type HTTPError struct {
  StatusCode int
  Message    string

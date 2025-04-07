@@ -12,10 +12,11 @@ Generic handlers (`GenericHandler[T, U]`) have the signature `func(*http.Request
 
 ## `router.HTTPError`
 
-This struct allows you to specify both the HTTP status code and the error message that should be sent to the client.
+This struct (defined in `pkg/router/router.go`) allows you to specify both the HTTP status code and the error message that should be sent to the client.
 
 ```go
-// Defined in pkg/router/errors.go (or similar)
+package router // Defined in pkg/router/router.go
+
 type HTTPError struct {
     StatusCode int
     Message    string // This message IS sent to the client
@@ -23,11 +24,11 @@ type HTTPError struct {
 
 // Error makes HTTPError satisfy the error interface.
 func (e *HTTPError) Error() string {
-    return e.Message
+    return fmt.Sprintf("%d: %s", e.StatusCode, e.Message) // Corrected implementation
 }
 
 // NewHTTPError is a constructor for creating HTTPError instances.
-func NewHTTPError(statusCode int, message string) *HTTPError {
+func NewHTTPError(statusCode int, message string) *HTTPError { // Defined in pkg/router/router.go
     return &HTTPError{
         StatusCode: statusCode,
         Message:    message,
@@ -89,5 +90,5 @@ When `NewHTTPError` is returned:
 
 ## Error Handling Reference
 
--   **`router.HTTPError`**: Struct containing `StatusCode` (int) and `Message` (string). Implements the `error` interface.
--   **`router.NewHTTPError(statusCode int, message string) *router.HTTPError`**: Constructor function to create `*HTTPError` instances.
+-   **`router.HTTPError`**: Struct defined in `pkg/router/router.go` containing `StatusCode` (int) and `Message` (string). Implements the `error` interface.
+-   **`router.NewHTTPError(statusCode int, message string) *router.HTTPError`**: Constructor function defined in `pkg/router/router.go` to create `*HTTPError` instances.

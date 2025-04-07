@@ -40,8 +40,8 @@ type SRouterContext[T comparable, U any] struct {
 	// TransactionSet indicates if the Transaction field has been explicitly set.
 	TransactionSet bool
 
-	// Flags allow storing arbitrary boolean flags or simple string values.
-	Flags map[string]any // Changed to map[string]any for more flexibility (e.g., request ID string)
+	// Flags allow storing arbitrary boolean flags.
+	Flags map[string]bool
 }
 
 // contextKey is an unexported type used as the key for storing SRouterContext in context.Context.
@@ -180,12 +180,10 @@ func myHandler(w http.ResponseWriter, r *http.Request) {
     traceID := middleware.GetTraceID(r) // No type params needed for this specific helper
     fmt.Printf("Trace ID: %s\n", traceID)
 
-    // Get a custom flag/value
-    requestUUIDAny, ok := middleware.GetFlagFromRequest[string, MyUserType](r, "request_uuid")
+    // Get a custom flag/value (Flags map stores bool)
+    isAdmin, ok := middleware.GetFlagFromRequest[string, MyUserType](r, "isAdmin")
     if ok {
-        if requestUUID, castOK := requestUUIDAny.(string); castOK {
-             fmt.Printf("Request UUID: %s\n", requestUUID)
-        }
+        fmt.Printf("Is Admin Flag: %t\n", isAdmin)
     }
 
     // Get Database Transaction Interface

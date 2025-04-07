@@ -68,36 +68,36 @@ Key `RateLimitConfig` fields:
 
 SRouter defines several strategies using constants in the `pkg/middleware` package:
 
-1.  **`middleware.RateLimitStrategyIP`**: Limits requests based on the client's IP address (as determined by the [IP Configuration](./ip-configuration.md)). This is the most common strategy for anonymous or global rate limiting.
+1.  **`middleware.StrategyIP`**: Limits requests based on the client's IP address (as determined by the [IP Configuration](./ip-configuration.md)). This is the most common strategy for anonymous or global rate limiting.
 
     ```go
     RateLimit: &middleware.RateLimitConfig[any, any]{
         BucketName: "ip_limit",
         Limit:      100,
         Window:     time.Minute,
-        Strategy:   middleware.RateLimitStrategyIP,
+        Strategy:   middleware.StrategyIP,
     }
     ```
 
-2.  **`middleware.RateLimitStrategyUser`**: Limits requests based on the authenticated user ID. This requires an [Authentication](./authentication.md) middleware to run *before* the rate limiter to populate the user ID in the request context.
+2.  **`middleware.StrategyUser`**: Limits requests based on the authenticated user ID. This requires an [Authentication](./authentication.md) middleware to run *before* the rate limiter to populate the user ID in the request context.
 
     ```go
     RateLimit: &middleware.RateLimitConfig[any, any]{
         BucketName: "user_limit",
         Limit:      50,
         Window:     time.Hour,
-        Strategy:   middleware.RateLimitStrategyUser, // Requires Auth middleware first
+        Strategy:   middleware.StrategyUser, // Requires Auth middleware first
     }
     ```
 
-3.  **`middleware.RateLimitStrategyCustom`**: Limits requests based on a custom key extracted from the request using the `KeyExtractor` function. This allows for flexible strategies, like limiting based on API keys, specific headers, or combinations of factors.
+3.  **`middleware.StrategyCustom`**: Limits requests based on a custom key extracted from the request using the `KeyExtractor` function. This allows for flexible strategies, like limiting based on API keys, specific headers, or combinations of factors.
 
     ```go
     RateLimit: &middleware.RateLimitConfig[any, any]{
         BucketName: "api_key_limit",
         Limit:      200,
         Window:     time.Hour,
-        Strategy:   middleware.RateLimitStrategyCustom,
+        Strategy:   middleware.StrategyCustom,
         KeyExtractor: func(r *http.Request) (string, error) {
             // Example: Extract API key from header or query param
             apiKey := r.Header.Get("X-API-Key")

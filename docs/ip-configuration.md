@@ -4,10 +4,13 @@ SRouter provides a flexible way to extract the client's real IP address, which i
 
 ## Configuration
 
-IP extraction is configured via the `IPConfig` field within the main `RouterConfig`. This field takes a pointer to a `middleware.IPConfig` struct.
+IP extraction is configured via the `IPConfig` field within the main `router.RouterConfig`. This field takes a pointer to a `middleware.IPConfig` struct, defined in the `pkg/middleware` package.
 
 ```go
-import "github.com/Suhaibinator/SRouter/pkg/middleware"
+import (
+	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/Suhaibinator/SRouter/pkg/router"
+)
 
 // Configure IP extraction to trust and use the X-Forwarded-For header
 routerConfig := router.RouterConfig{
@@ -28,21 +31,25 @@ If `IPConfig` is `nil` or not provided, SRouter defaults to using the request's 
 
 The `Source` field in `middleware.IPConfig` determines where SRouter attempts to find the client IP. It uses constants defined in the `pkg/middleware` package:
 
-1.  **`middleware.IPSourceRemoteAddr`**: (Default if `Source` is not specified) Uses the `r.RemoteAddr` field directly. This is the IP address of the immediate peer connecting to your server (which might be the proxy itself).
+1.  **`middleware.IPSourceRemoteAddr`**: (Default if `IPConfig` is nil or `Source` is not specified) Uses the `r.RemoteAddr` field directly. This is the IP address of the immediate peer connecting to your server (which might be the proxy itself).
 2.  **`middleware.IPSourceXForwardedFor`**: Uses the `X-Forwarded-For` header. This header can contain a comma-separated list of IPs (`client, proxy1, proxy2`). SRouter typically extracts the *first* IP in the list as the original client IP when `TrustProxy` is true.
 3.  **`middleware.IPSourceXRealIP`**: Uses the `X-Real-IP` header. This header is often set by proxies like Nginx to contain only the original client IP.
 4.  **`middleware.IPSourceCustomHeader`**: Uses a custom header name specified in the `CustomHeader` field of `IPConfig`.
 
 ```go
+import (
+	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/Suhaibinator/SRouter/pkg/router"
+)
+
 // Example: Using a custom header
 routerConfig := router.RouterConfig{
-    // ...
+    // ... other config
     IPConfig: &middleware.IPConfig{
         Source:       middleware.IPSourceCustomHeader,
-        CustomHeader: "CF-Connecting-IP", // Example: Cloudflare header
+        CustomHeader: "X-Client-IP",
         TrustProxy:   true,
     },
-    // ...
 }
 ```
 
@@ -55,10 +62,15 @@ The `TrustProxy` boolean field is critical for security:
 
 ## Accessing the Client IP
 
-Once configured, the extracted client IP is stored in the request context. You can retrieve it using the `middleware.GetClientIPFromRequest` helper function:
+Once configured, the extracted client IP is stored in the request context. You can retrieve it using the `middleware.GetClientIPFromRequest` helper function, also from the `pkg/middleware` package:
 
 ```go
-import "github.com/Suhaibinator/SRouter/pkg/middleware"
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/Suhaibinator/SRouter/pkg/middleware"
+)
 
 func myHandler(w http.ResponseWriter, r *http.Request) {
     // Get the client IP extracted based on IPConfig settings

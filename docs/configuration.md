@@ -4,10 +4,10 @@ This section details the configuration structs used by SRouter.
 
 ## `RouterConfig`
 
-This is the main configuration struct passed to `router.NewRouter`.
+This is the main configuration struct passed to `router.NewRouter`, defined in `pkg/router/config.go`.
 
 ```go
-package router
+package router // Defined in pkg/router/config.go
 
 import (
 	"time"
@@ -29,23 +29,29 @@ type RouterConfig struct {
 	GlobalMaxBodySize int64
 
 	// GlobalRateLimit specifies the default rate limit configuration for all routes.
-	// Can be overridden. Nil means no global rate limit.
+	// Can be overridden. Nil means no global rate limit. Uses [any, any] as placeholder types.
 	GlobalRateLimit *middleware.RateLimitConfig[any, any]
 
-	// IPConfig defines how client IP addresses are extracted.
+	// IPConfig defines how client IP addresses are extracted (using middleware.IPConfig).
 	// See docs/ip-configuration.md. Nil uses default (RemoteAddr, no proxy trust).
 	IPConfig *middleware.IPConfig
 
 	// EnableMetrics globally enables or disables the metrics collection system.
 	EnableMetrics bool
 
-	// EnableTracing enables distributed tracing support (Note: Actual implementation
-	// might be via specific tracing middleware rather than just this flag).
-	EnableTracing bool // Check if still relevant or handled by middleware
+	// EnableTraceLogging enables detailed trace logging for each request.
+	EnableTraceLogging bool
 
-	// EnableTraceID enables automatic trace ID generation and injection into context
-	// and logs. Can also be achieved using middleware.TraceMiddleware().
-	EnableTraceID bool
+	// TraceLoggingUseInfo controls the log level for trace logs (Info if true, Debug if false).
+	TraceLoggingUseInfo bool
+
+	// TraceIDBufferSize sets the buffer size for the pre-generating trace ID generator.
+	// Setting to 0 disables automatic trace ID generation/injection via config
+	// (though middleware.CreateTraceMiddleware can still be used).
+	TraceIDBufferSize int
+
+	// PrometheusConfig is deprecated. Use MetricsConfig instead.
+	PrometheusConfig *PrometheusConfig // Deprecated
 
 	// MetricsConfig holds detailed configuration for the metrics system when EnableMetrics is true.
 	// See MetricsConfig section below and docs/metrics.md.
@@ -63,32 +69,30 @@ type RouterConfig struct {
 	// (if used) should attempt to add the full user object (U) to the context,
 	// in addition to the user ID (T). Often true if U provides useful info.
 	AddUserObjectToCtx bool
-
-	// --- Deprecated/Removed Fields (Example - check current source) ---
-	// CacheGet, CacheSet, CacheKeyPrefix (Caching should now be implemented via middleware)
 }
 ```
 
 ## `MetricsConfig`
 
-Used within `RouterConfig` to configure the metrics system.
+Used within `RouterConfig` to configure the metrics system (defined in `pkg/router/config.go`).
 
 ```go
-package router
+package router // Defined in pkg/router/config.go
 
-import "github.com/Suhaibinator/SRouter/pkg/metrics" // Assuming interfaces are here
+// Assumes interfaces like Collector, Exporter, MiddlewareFactory are defined in pkg/metrics
+// import "github.com/Suhaibinator/SRouter/pkg/metrics"
 
 type MetricsConfig struct {
 	// Collector provides the implementation for creating and managing metric instruments.
-	// Must implement metrics.Collector. Required if EnableMetrics is true.
-	Collector any // Typically metrics.Collector
+	// Must implement an interface compatible with SRouter's internal usage (e.g., metrics.Collector). Required if EnableMetrics is true.
+	Collector any
 
 	// Exporter provides the implementation for exposing metrics (e.g., HTTP handler).
-	// Optional. Might implement metrics.Exporter or metrics.HTTPExporter.
+	// Optional. Might implement an interface like metrics.Exporter or metrics.HTTPExporter.
 	Exporter any
 
 	// MiddlewareFactory creates the metrics middleware.
-	// Optional. If nil, SRouter likely uses a default factory. Must implement metrics.MiddlewareFactory.
+	// Optional. If nil, SRouter likely uses a default factory. Must implement an interface like metrics.MiddlewareFactory.
 	MiddlewareFactory any
 
 	// Namespace for metrics (e.g., "myapp"). Used as a prefix.
@@ -113,10 +117,10 @@ type MetricsConfig struct {
 
 ## `SubRouterConfig`
 
-Defines a group of routes under a common path prefix with shared configuration overrides. Can be nested.
+Defines a group of routes under a common path prefix with shared configuration overrides (defined in `pkg/router/config.go`). Can be nested.
 
 ```go
-package router
+package router // Defined in pkg/router/config.go
 
 import (
 	"time"
@@ -138,7 +142,7 @@ type SubRouterConfig struct {
 	MaxBodySizeOverride int64
 
 	// RateLimitOverride overrides the global or parent's rate limit config.
-	// Nil inherits.
+	// Nil inherits. Uses [any, any] as placeholder types.
 	RateLimitOverride *middleware.RateLimitConfig[any, any]
 
 	// Routes is a slice containing route definitions. Can hold:
@@ -153,21 +157,18 @@ type SubRouterConfig struct {
 	// SubRouters defines nested sub-routers within this group.
 	SubRouters []SubRouterConfig
 
-	// AuthLevel sets the default authentication level for routes in this sub-router
-	// if the route itself doesn't specify one. Nil inherits from parent or defaults to NoAuth.
+	// AuthLevel sets the default authentication level (router.AuthLevel) for routes in this sub-router
+	// if the route itself doesn't specify one. Nil inherits from parent or defaults to router.NoAuth.
 	AuthLevel *AuthLevel
-
-	// --- Deprecated/Removed Fields (Example - check current source) ---
-	// CacheResponse, CacheKeyPrefix
 }
 ```
 
 ## `RouteConfigBase`
 
-Used for defining standard routes with `http.HandlerFunc`.
+Used for defining standard routes with `http.HandlerFunc` (defined in `pkg/router/config.go`).
 
 ```go
-package router
+package router // Defined in pkg/router/config.go
 
 import (
 	"net/http"
@@ -180,11 +181,11 @@ type RouteConfigBase struct {
 	// Path is the route path relative to any parent sub-router prefixes (e.g., "/users/:id"). Required.
 	Path string
 
-	// Methods is a slice of HTTP methods this route handles (e.g., []string{"GET", "POST"}). Required.
-	Methods []string
+	// Methods is a slice of HTTP methods (router.HttpMethod) this route handles (e.g., []router.HttpMethod{router.MethodGet}). Required.
+	Methods []HttpMethod // Use router.HttpMethod constants
 
-	// AuthLevel specifies the authentication requirement for this route.
-	// Nil inherits from parent sub-router or defaults to NoAuth.
+	// AuthLevel specifies the authentication requirement (router.AuthLevel) for this route.
+	// Nil inherits from parent sub-router or defaults to router.NoAuth.
 	AuthLevel *AuthLevel
 
 	// Timeout overrides the timeout specifically for this route. Zero inherits.
@@ -193,7 +194,7 @@ type RouteConfigBase struct {
 	// MaxBodySize overrides the max body size specifically for this route. Zero inherits. Negative means no limit.
 	MaxBodySize int64
 
-	// RateLimit overrides the rate limit specifically for this route. Nil inherits.
+	// RateLimit overrides the rate limit specifically for this route. Nil inherits. Uses [any, any] placeholder types.
 	RateLimit *middleware.RateLimitConfig[any, any]
 
 	// Handler is the standard Go HTTP handler function. Required.
@@ -207,10 +208,10 @@ type RouteConfigBase struct {
 
 ## `RouteConfig[T, U]`
 
-Used for defining generic routes with type-safe request (`T`) and response (`U`) handling.
+Used for defining generic routes with type-safe request (`T`) and response (`U`) handling (defined in `pkg/router/config.go`).
 
 ```go
-package router
+package router // Defined in pkg/router/config.go
 
 import (
 	"net/http"
@@ -226,10 +227,10 @@ type RouteConfig[T any, U any] struct {
 	// Path is the route path relative to any parent sub-router prefixes. Required.
 	Path string
 
-	// Methods is a slice of HTTP methods this route handles. Required.
-	Methods []string
+	// Methods is a slice of HTTP methods (router.HttpMethod) this route handles. Required.
+	Methods []HttpMethod // Use router.HttpMethod constants
 
-	// AuthLevel specifies the authentication requirement for this route.
+	// AuthLevel specifies the authentication requirement (router.AuthLevel) for this route.
 	// Nil inherits.
 	AuthLevel *AuthLevel
 
@@ -239,11 +240,11 @@ type RouteConfig[T any, U any] struct {
 	// MaxBodySize overrides the max body size specifically for this route. Zero inherits. Negative means no limit.
 	MaxBodySize int64
 
-	// RateLimit overrides the rate limit specifically for this route. Nil inherits.
+	// RateLimit overrides the rate limit specifically for this route. Nil inherits. Uses [any, any] placeholder types.
 	RateLimit *middleware.RateLimitConfig[any, any]
 
 	// Codec is the encoder/decoder implementation for types T and U. Required.
-	// Must implement the Codec[T, U] interface.
+	// Must implement the router.Codec[T, U] interface.
 	Codec Codec[T, U]
 
 	// Handler is the generic handler function. Required.
@@ -252,24 +253,21 @@ type RouteConfig[T any, U any] struct {
 	// Middlewares is a slice of middlewares applied only to this route.
 	Middlewares []common.Middleware
 
-	// SourceType specifies where to retrieve the request data T from.
-	// Defaults to Body. See docs/source-types.md.
+	// SourceType specifies where to retrieve the request data T from (router.SourceType).
+	// Defaults to router.Body. See docs/source-types.md.
 	SourceType SourceType
 
 	// SourceKey is used when SourceType is not Body (e.g., query or path parameter name).
 	SourceKey string
-
-	// --- Deprecated/Removed Fields (Example - check current source) ---
-	// CacheResponse, CacheKeyPrefix
 }
 ```
 
 ## `AuthLevel` (Enum)
 
-Defines the authentication requirement levels.
+Defines the authentication requirement levels (defined in `pkg/router/config.go`).
 
 ```go
-package router
+package router // Defined in pkg/router/config.go
 
 type AuthLevel int
 
@@ -283,17 +281,17 @@ const (
 )
 
 // Ptr returns a pointer to an AuthLevel value (helper for config).
-func Ptr(level AuthLevel) *AuthLevel {
+func Ptr(level AuthLevel) *AuthLevel { // Defined in pkg/router/config.go
 	return &level
 }
 ```
 
 ## `SourceType` (Enum)
 
-Defines where generic request data is retrieved from.
+Defines where generic request data is retrieved from (defined in `pkg/router/config.go`).
 
 ```go
-package router
+package router // Defined in pkg/router/config.go
 
 type SourceType int
 

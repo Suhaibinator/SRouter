@@ -6,7 +6,7 @@ This is controlled by the `SourceType` and `SourceKey` fields in the `RouteConfi
 
 ## Available Source Types
 
-SRouter defines constants for the available source types in the `router` package:
+SRouter defines constants for the available source types in the `pkg/router` package:
 
 1.  **`router.Body`** (Default):
     *   Retrieves data directly from the `http.Request.Body`.
@@ -15,10 +15,12 @@ SRouter defines constants for the available source types in the `router` package
     *   Example: Standard POST/PUT requests with JSON/Proto payloads.
 
     ```go
+    import "github.com/Suhaibinator/SRouter/pkg/router"
+
     router.RouteConfig[MyRequest, MyResponse]{
         // ... Path, Methods, Handler ...
         Codec: codec.NewJSONCodec[MyRequest, MyResponse](),
-        // SourceType defaults to Body if omitted
+        // SourceType defaults to router.Body if omitted
     }
     ```
 
@@ -29,6 +31,8 @@ SRouter defines constants for the available source types in the `router` package
     *   Example: Sending complex data via GET requests where the data is encoded to fit in the URL.
 
     ```go
+    import "github.com/Suhaibinator/SRouter/pkg/router"
+
     router.RouteConfig[MyRequest, MyResponse]{
         Path:       "/data/from/query",
         Methods:    []router.HttpMethod{router.MethodGet},
@@ -45,6 +49,8 @@ SRouter defines constants for the available source types in the `router` package
     *   The value is Base62-decoded, and the bytes are passed to the `Codec`'s `DecodeBytes` method.
 
     ```go
+    import "github.com/Suhaibinator/SRouter/pkg/router"
+
     router.RouteConfig[MyRequest, MyResponse]{
         // ... Path, Methods, Handler, Codec ...
         SourceType: router.Base62QueryParameter,
@@ -59,6 +65,8 @@ SRouter defines constants for the available source types in the `router` package
     *   The parameter value is Base64-decoded, and the bytes are passed to the `Codec`'s `DecodeBytes` method.
 
     ```go
+    import "github.com/Suhaibinator/SRouter/pkg/router"
+
     router.RouteConfig[MyRequest, MyResponse]{
         Path:       "/data/from/path/:payload", // Define path parameter
         Methods:    []router.HttpMethod{router.MethodGet},
@@ -75,6 +83,8 @@ SRouter defines constants for the available source types in the `router` package
     *   The parameter value is Base62-decoded, and the bytes are passed to the `Codec`'s `DecodeBytes` method.
 
     ```go
+    import "github.com/Suhaibinator/SRouter/pkg/router"
+
     router.RouteConfig[MyRequest, MyResponse]{
         Path:       "/data/b62/:p", // Define path parameter
         Methods:    []router.HttpMethod{router.MethodGet},

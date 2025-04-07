@@ -23,14 +23,18 @@ router.RouteConfigBase{
 
 ## Accessing Path Parameters
 
-SRouter provides helper functions to easily access the values of these parameters from the `http.Request` object within your handlers. The parameters are stored in the request's context.
+SRouter provides helper functions (in the `pkg/router` package) to easily access the values of these parameters from the `http.Request` object within your handlers. The parameters are stored in the request's context.
 
 ### `router.GetParam`
 
 Retrieves the value of a single named parameter.
 
 ```go
-import "github.com/Suhaibinator/SRouter/pkg/router"
+import (
+	"fmt"
+	"net/http"
+	"github.com/Suhaibinator/SRouter/pkg/router"
+)
 
 func GetUserHandler(w http.ResponseWriter, r *http.Request) {
     // Get the value of the 'id' parameter from the path /users/:id
@@ -49,7 +53,7 @@ func GetUserHandler(w http.ResponseWriter, r *http.Request) {
 
 ### `router.GetParams`
 
-Retrieves all path parameters captured for the request as `httprouter.Params`, which is a slice of `httprouter.Param`. Each `Param` struct has `Key` and `Value` fields.
+Retrieves all path parameters captured for the request as `httprouter.Params` (from the underlying `julienschmidt/httprouter` package), which is a slice of `httprouter.Param`. Each `Param` struct has `Key` and `Value` fields.
 
 ```go
 import (
@@ -60,7 +64,7 @@ import (
 )
 
 func GetArticleHandler(w http.ResponseWriter, r *http.Request) {
-    params := router.GetParams(r)
+    params := router.GetParams(r) // Get the httprouter.Params slice
 
     var category, slug string
     for _, p := range params {
@@ -102,5 +106,5 @@ Generally, `router.GetParam` is more convenient when you know the specific param
 
 ## Path Parameter Reference
 
--   **`router.GetParam(r *http.Request, name string) string`**: Retrieves a specific parameter by name from the request context. Returns an empty string if the parameter is not found.
--   **`router.GetParams(r *http.Request) httprouter.Params`**: Retrieves all parameters from the request context as an `httprouter.Params` slice.
+-   **`router.GetParam(r *http.Request, name string) string`**: Retrieves a specific parameter by name from the request context (defined in `pkg/router`). Returns an empty string if the parameter is not found.
+-   **`router.GetParams(r *http.Request) httprouter.Params`**: Retrieves all parameters from the request context as an `httprouter.Params` slice (defined in `pkg/router`).

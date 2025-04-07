@@ -149,18 +149,25 @@ Middleware defined earlier in a slice generally runs *before* middleware defined
 
 ## Middleware Reference
 
-SRouter provides several built-in middleware functions, typically located in the `pkg/middleware` package. Refer to the source code or specific examples for their exact signatures and usage. Common examples include:
+SRouter provides several built-in middleware functions and constructors in the `pkg/middleware` package.
 
--   **`Logging(logger *zap.Logger, logInfoLevelForSuccess bool)`**: Logs request details (method, path, status, duration, IP, trace ID).
-    -   By default (`logInfoLevelForSuccess = false`), successful requests (2xx status, < 1s duration) are logged at `Debug` level to reduce noise. Errors (5xx) are logged at `Error`, client errors (4xx) and slow requests (> 1s) at `Warn`.
-    -   If `logInfoLevelForSuccess` is set to `true`, successful requests will be logged at `Info` level instead of `Debug`.
-    -   Example: `middleware.Logging(logger, true)` // Log successful requests at Info level.
--   **`Recovery`**: Recovers from panics in handlers/middleware and logs them, usually returning a 500 error. (SRouter often applies this internally).
--   **`TraceMiddleware`**: Adds a unique trace ID to the request context.
--   **Authentication Middleware**: (e.g., `NewBasicAuthMiddleware`, `NewBearerTokenMiddleware`, `NewAPIKeyMiddleware`) Handles specific authentication schemes.
--   **`RateLimiterMiddleware`**: Applies rate limiting based on configuration. (Often applied internally based on config).
--   **`CORS`**: Adds Cross-Origin Resource Sharing headers.  It takes a `CORSOptions` struct as an argument to configure the allowed origins, methods, and headers.
+-   **`Recovery(logger *zap.Logger) Middleware`**: Recovers from panics, logs them, and returns a 500 error. Exposed via `middleware.Recovery` variable. Note: SRouter applies its own recovery internally, so direct use might be unnecessary.
+-   **Authentication Middleware**: Constructors for various schemes (see `pkg/middleware/auth.go`):
+    -   `NewBearerTokenMiddleware[T, U](...)`
+    -   `NewBearerTokenWithUserMiddleware[T, U](...)`
+    -   `NewAPIKeyMiddleware[T, U](...)`
+    -   `NewAPIKeyWithUserMiddleware[T, U](...)`
+    -   Basic Auth is handled via `AuthenticationWithProvider` / `AuthenticationWithUserProvider` using a `BasicAuthProvider` / `BasicUserAuthProvider` (implementations likely in `pkg/middleware/auth_provider.go` or similar).
+-   **`MaxBodySize(maxSize int64) Middleware`**: Limits request body size. Exposed via `middleware.MaxBodySize` variable. (Note: Usually configured via router config).
+-   **`Timeout(timeout time.Duration) Middleware`**: Sets a request timeout. Exposed via `middleware.Timeout` variable. (Note: Usually configured via router config).
+-   **`CORS(corsConfig CORSOptions) Middleware`**: Adds CORS headers. Exposed via `middleware.CORS` variable. Takes `middleware.CORSOptions` struct.
+-   **`Chain(middlewares ...Middleware) Middleware`**: Chains multiple middlewares. (Located in `pkg/middleware/middleware.go`).
+-   **`CreateTraceMiddleware(generator *IDGenerator) Middleware`**: Adds trace ID to context using an efficient generator. (Located in `pkg/middleware/trace.go`).
+-   **Rate Limiting Middleware**: Constructed via `middleware.RateLimit[T, U](...)` or `middleware.CreateRateLimitMiddleware[T, U](...)`. (Located in `pkg/middleware/ratelimit.go`).
+-   **Client IP Middleware**: `middleware.ClientIPMiddleware[T, U](config *IPConfig)`. (Located in `pkg/middleware/ip.go`). Added automatically by `NewRouter`.
 
-Always check the specific package documentation or source code for the most up-to-date list and usage details of built-in middleware.
+**Note:** Logging is handled internally by SRouter based on the provided logger and configuration (like `EnableTraceLogging`), not typically via an exported `middleware.Logging` function.
 
-See the `examples/middleware` directory for runnable examples.
+Always check the specific package source code (`pkg/middleware/*.go`) for the most up-to-date list and usage details.
+
+See the `examples/middleware` directory for runnable examples demonstrating custom and potentially built-in middleware usage.

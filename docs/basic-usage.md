@@ -34,7 +34,7 @@ func main() {
 		GlobalMaxBodySize: 1 << 20, // 1 MB
 		// Middlewares can be added here globally
 		// Middlewares: []common.Middleware{
-		//  middleware.Logging(logger), // Example: Add logging middleware
+		//  // Example: middleware.MyCustomMiddleware(),
 		// },
 	}
 
