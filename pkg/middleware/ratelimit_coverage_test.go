@@ -1,14 +1,18 @@
 package middleware
 
 import (
-	"net/http" // Added import
-	"net/http/httptest"
+	"fmt"
+	"net/http"          // Added import
+	"net/http/httptest" // Added import
 	"testing"
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"   // Added import
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 // TestNewUberRateLimiter tests the NewUberRateLimiter function
@@ -181,4 +185,177 @@ func TestRateLimitWithUserStrategy_Coverage(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
 	}
+}
+
+// --- New Coverage Tests ---
+
+// TestUberRateLimiter_RemainingNegativeCoverage tests the case where remaining calculation might go negative
+func TestUberRateLimiter_RemainingNegativeCoverage(t *testing.T) {
+	limiter := NewUberRateLimiter()
+	key := "remaining-neg-test"
+	limit := 1            // Very low limit
+	window := time.Second // 1s window (RPS = 1)
+
+	// First call should succeed
+	allowed, remaining, _ := limiter.Allow(key, limit, window)
+	assert.True(t, allowed, "First call should be allowed")
+	assert.Equal(t, 0, remaining, "Remaining should be 0 after first call with limit 1") // Uber limiter might return 0 immediately
+
+	// Second call immediately after should be denied, and waitTime > window
+	// We need to simulate time passing slightly for Take() to potentially return a future time
+	time.Sleep(10 * time.Millisecond) // Small sleep
+	allowed, remaining, reset := limiter.Allow(key, limit, window)
+	assert.False(t, allowed, "Second call should be denied")
+	// Assert that remaining is capped at 0, covering the `if remaining < 0` block
+	assert.Equal(t, 0, remaining, "Remaining should be 0 when denied")
+	assert.Greater(t, reset.Nanoseconds(), int64(0), "Reset time should be positive when denied")
+}
+
+// TestRateLimit_NilLimiterPanic tests that RateLimit panics if the limiter is nil
+func TestRateLimit_NilLimiterPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("Expected RateLimit to panic with nil limiter, but it did not")
+		} else {
+			// Optionally check the panic message
+			assert.Contains(t, fmt.Sprintf("%v", r), "RateLimit middleware requires a non-nil RateLimiter")
+		}
+	}()
+
+	config := &common.RateLimitConfig[string, string]{
+		BucketName: "test",
+		Limit:      10,
+		Window:     time.Minute,
+		Strategy:   common.StrategyIP,
+	}
+	logger := zap.NewNop()
+
+	// Call RateLimit with nil limiter - this should panic
+	_ = RateLimit[string, string](config, nil, logger)
+}
+
+// TestRateLimit_NilLogger tests that RateLimit uses a Nop logger if nil is provided
+func TestRateLimit_NilLogger(t *testing.T) {
+	config := &common.RateLimitConfig[string, string]{
+		BucketName: "test",
+		Limit:      10,
+		Window:     time.Minute,
+		Strategy:   common.StrategyIP,
+	}
+	limiter := NewUberRateLimiter() // Use a real limiter
+
+	// Call RateLimit with nil logger - should not panic
+	middleware := RateLimit[string, string](config, limiter, nil) // Pass nil logger
+
+	// Create a simple handler and apply the middleware
+	handlerCalled := false
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlerCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+	wrappedHandler := middleware(testHandler)
+
+	// Make a request
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "127.0.0.1:1234" // Provide RemoteAddr for fallback
+	rr := httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(rr, req)
+
+	// Assert that the request was processed successfully
+	assert.True(t, handlerCalled, "Handler should have been called")
+	assert.Equal(t, http.StatusOK, rr.Code, "Expected status OK")
+}
+
+// TestRateLimit_UserStrategyFallback tests the fallback logic for StrategyUser when no user key is found
+func TestRateLimit_UserStrategyFallback(t *testing.T) {
+	limiter := NewUberRateLimiter()
+
+	// Sub-test 1: Fallback to ClientIP when available
+	t.Run("Fallback to ClientIP", func(t *testing.T) {
+		core, observedLogs := observer.New(zapcore.InfoLevel) // Capture Info level logs
+		logger := zap.New(core)
+
+		config := &common.RateLimitConfig[string, string]{
+			BucketName:     "user-fallback",
+			Limit:          10,
+			Window:         time.Minute,
+			Strategy:       common.StrategyUser,
+			UserIDToString: func(id string) string { return id }, // Need this for extractUserKey
+		}
+		middleware := RateLimit(config, limiter, logger)
+		handlerCalled := false
+		testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlerCalled = true
+			w.WriteHeader(http.StatusOK)
+		})
+		wrappedHandler := middleware(testHandler)
+
+		// Request without user context, but with ClientIP context
+		req := httptest.NewRequest("GET", "/", nil)
+		ctx := scontext.WithClientIP[string, string](req.Context(), "192.168.1.100")
+		req = req.WithContext(ctx)
+		rr := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(rr, req)
+
+		assert.True(t, handlerCalled, "Handler should have been called")
+		assert.Equal(t, http.StatusOK, rr.Code, "Expected status OK")
+
+		// Check logs for fallback message
+		logEntries := observedLogs.FilterMessage("User key not found, falling back to ClientIP from context for rate limiting.").All()
+		assert.Equal(t, 1, len(logEntries), "Expected one log entry for ClientIP fallback")
+		if len(logEntries) > 0 {
+			foundIP := false
+			for _, field := range logEntries[0].Context {
+				if field.Key == "client_ip" && field.String == "192.168.1.100" {
+					foundIP = true
+					break
+				}
+			}
+			assert.True(t, foundIP, "Expected log context to contain correct client_ip")
+		}
+	})
+
+	// Sub-test 2: Fallback to RemoteAddr when ClientIP is not available
+	t.Run("Fallback to RemoteAddr", func(t *testing.T) {
+		core, observedLogs := observer.New(zapcore.WarnLevel) // Capture Warn level logs
+		logger := zap.New(core)
+
+		config := &common.RateLimitConfig[string, string]{
+			BucketName:     "user-fallback",
+			Limit:          10,
+			Window:         time.Minute,
+			Strategy:       common.StrategyUser,
+			UserIDToString: func(id string) string { return id }, // Need this for extractUserKey
+		}
+		middleware := RateLimit(config, limiter, logger)
+		handlerCalled := false
+		testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlerCalled = true
+			w.WriteHeader(http.StatusOK)
+		})
+		wrappedHandler := middleware(testHandler)
+
+		// Request without user context and without ClientIP context
+		req := httptest.NewRequest("GET", "/", nil)
+		req.RemoteAddr = "10.0.0.1:54321" // Set RemoteAddr
+		rr := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(rr, req)
+
+		assert.True(t, handlerCalled, "Handler should have been called")
+		assert.Equal(t, http.StatusOK, rr.Code, "Expected status OK")
+
+		// Check logs for fallback message
+		logEntries := observedLogs.FilterMessage("User key not found, falling back to RemoteAddr for rate limiting.").All()
+		assert.Equal(t, 1, len(logEntries), "Expected one log entry for RemoteAddr fallback")
+		if len(logEntries) > 0 {
+			foundAddr := false
+			for _, field := range logEntries[0].Context {
+				if field.Key == "remote_addr" && field.String == "10.0.0.1:54321" {
+					foundAddr = true
+					break
+				}
+			}
+			assert.True(t, foundAddr, "Expected log context to contain correct remote_addr")
+		}
+	})
 }
