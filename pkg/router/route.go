@@ -3,11 +3,10 @@ package router
 import (
 	"errors"
 	"net/http"
-
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/Suhaibinator/SRouter/pkg/common" // Ensure common is imported
 )
 
 // RegisterRoute registers a route with the router.
@@ -17,6 +16,8 @@ func (r *Router[T, U]) RegisterRoute(route RouteConfigBase) {
 	// Get effective timeout, max body size, and rate limit for this route
 	timeout := r.getEffectiveTimeout(route.Timeout, 0)
 	maxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, 0)
+	// Pass the specific route config (which is *common.RateLimitConfig[any, any])
+	// to getEffectiveRateLimit. The conversion happens inside getEffectiveRateLimit.
 	rateLimit := r.getEffectiveRateLimit(route.RateLimit, nil)
 
 	// Create a handler with all middlewares applied
@@ -38,7 +39,7 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 	// Add effective settings calculated by the caller (e.g., RegisterGenericRouteOnSubRouter)
 	effectiveTimeout time.Duration,
 	effectiveMaxBodySize int64,
-	effectiveRateLimit *middleware.RateLimitConfig[UserID, User],
+	effectiveRateLimit *common.RateLimitConfig[UserID, User], // Use common.RateLimitConfig
 ) {
 	// Create a handler that uses the codec to decode the request and encode the response
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -236,7 +237,7 @@ func NewGenericRouteDefinition[Req any, Resp any, UserID comparable, User any](
 
 		// Combine middleware: sub-router + route-specific
 		// Note: Global middlewares are added later by wrapHandler
-		allMiddlewares := make([]Middleware, 0, len(sr.Middlewares)+len(route.Middlewares)) // Use Middleware alias
+		allMiddlewares := make([]common.Middleware, 0, len(sr.Middlewares)+len(route.Middlewares)) // Use common.Middleware
 		allMiddlewares = append(allMiddlewares, sr.Middlewares...)
 		allMiddlewares = append(allMiddlewares, route.Middlewares...)
 		finalRouteConfig.Middlewares = allMiddlewares // Overwrite middlewares in the config passed down
@@ -251,7 +252,9 @@ func NewGenericRouteDefinition[Req any, Resp any, UserID comparable, User any](
 		// Get effective timeout, max body size, rate limit considering overrides
 		effectiveTimeout := r.getEffectiveTimeout(route.Timeout, sr.TimeoutOverride)
 		effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, sr.MaxBodySizeOverride)
-		effectiveRateLimit := r.getEffectiveRateLimit(route.RateLimit, sr.RateLimitOverride) // This returns *RateLimitConfig[UserID, User]
+		// Pass the specific route config (which is *common.RateLimitConfig[any, any])
+		// to getEffectiveRateLimit. The conversion happens inside getEffectiveRateLimit.
+		effectiveRateLimit := r.getEffectiveRateLimit(route.RateLimit, sr.RateLimitOverride)
 
 		// Call the underlying generic registration function with the modified config and effective settings
 		RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)

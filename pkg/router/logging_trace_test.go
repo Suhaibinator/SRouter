@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Use centralized mocks
+	"github.com/Suhaibinator/SRouter/pkg/scontext"              // Added import
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -27,7 +27,8 @@ func TestTraceIDLogging(t *testing.T) {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest[string, string](req, traceID)
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 	logEntries := logs.All()
@@ -56,14 +57,15 @@ func TestTraceIDLogging(t *testing.T) {
 func TestTraceIDLoggingDisabled(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, TraceIDBufferSize: 0}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, TraceIDBufferSize: 0, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	r.RegisterRoute(RouteConfigBase{Path: "/test", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }}) // Use HttpMethod enum
 	req, err := http.NewRequest("GET", "/test", nil)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest[string, string](req, traceID)
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 	logEntries := logs.All()
@@ -97,7 +99,8 @@ func TestHandleErrorWithTraceID(t *testing.T) {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest[string, string](req, traceID)
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	r.handleError(rr, req, err, http.StatusInternalServerError, "Test error") // Pass err from NewRequest
 	logEntries := logs.All()
@@ -131,7 +134,8 @@ func TestHandleErrorWithoutTraceID(t *testing.T) {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest[string, string](req, traceID)
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	r.handleError(rr, req, err, http.StatusInternalServerError, "Test error") // Pass err from NewRequest
 	logEntries := logs.All()
@@ -167,7 +171,8 @@ func TestRecoveryMiddlewareWithTraceID(t *testing.T) {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest[string, string](req, traceID)
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)
 	logEntries := logs.All()
@@ -203,7 +208,8 @@ func TestRecoveryMiddlewareWithoutTraceID(t *testing.T) {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest[uint64, string](req, traceID)
+	ctxWithTrace := scontext.WithTraceID[uint64, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)
 	logEntries := logs.All()
@@ -233,7 +239,7 @@ func TestRecoveryMiddlewareWithoutTraceID(t *testing.T) {
 func TestSlowRequestLogging(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/slow",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
@@ -275,7 +281,7 @@ func TestErrorStatusLogging(t *testing.T) {
 	// Test server error (5xx)
 	coreErr, logsErr := observer.New(zap.ErrorLevel)
 	loggerErr := zap.New(coreErr)
-	rErr := NewRouter(RouterConfig{Logger: loggerErr, EnableMetrics: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	rErr := NewRouter(RouterConfig{Logger: loggerErr, EnableMetrics: true, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)                                                   // Added EnableTraceLogging
 	rErr.RegisterRoute(RouteConfigBase{Path: "/server-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusInternalServerError) }}) // Use HttpMethod enum
 	reqErr, _ := http.NewRequest("GET", "/server-error", nil)
 	rrErr := httptest.NewRecorder()
@@ -299,9 +305,9 @@ func TestErrorStatusLogging(t *testing.T) {
 	}
 
 	// Test client error (4xx)
-	coreWarn, logsWarn := observer.New(zap.WarnLevel)
+	coreWarn, logsWarn := observer.New(zap.InfoLevel)
 	loggerWarn := zap.New(coreWarn)
-	rWarn := NewRouter(RouterConfig{Logger: loggerWarn, EnableMetrics: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	rWarn := NewRouter(RouterConfig{Logger: loggerWarn, EnableMetrics: true, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)                                         // Added EnableTraceLogging
 	rWarn.RegisterRoute(RouteConfigBase{Path: "/client-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) }}) // Use HttpMethod enum
 	reqWarn, _ := http.NewRequest("GET", "/client-error", nil)
 	rrWarn := httptest.NewRecorder()

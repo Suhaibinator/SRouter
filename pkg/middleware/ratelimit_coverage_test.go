@@ -1,11 +1,13 @@
 package middleware
 
 import (
-	"net/http"
+	"net/http" // Added import
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/Suhaibinator/SRouter/pkg/common"   // Added import
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
 	"go.uber.org/zap"
 )
 
@@ -55,7 +57,7 @@ func TestCreateRateLimitMiddleware_Coverage(t *testing.T) {
 		"test-bucket",
 		10,
 		time.Minute,
-		StrategyIP,
+		common.StrategyIP, // Use common.StrategyIP
 		func(user string) string { return user },
 		func(userID string) string { return userID },
 		logger,
@@ -103,11 +105,11 @@ func TestRateLimitWithCustomKeyExtractor(t *testing.T) {
 	}
 
 	// Create a rate limit config with custom key extractor
-	config := &RateLimitConfig[string, string]{
+	config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 		BucketName:   "test-bucket",
 		Limit:        10,
 		Window:       time.Minute,
-		Strategy:     StrategyCustom,
+		Strategy:     common.StrategyCustom, // Use common.StrategyCustom
 		KeyExtractor: keyExtractor,
 	}
 
@@ -145,11 +147,11 @@ func TestRateLimitWithUserStrategy_Coverage(t *testing.T) {
 	limiter := NewUberRateLimiter()
 
 	// Create a rate limit config with user strategy
-	config := &RateLimitConfig[string, string]{
+	config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 		BucketName:     "test-bucket",
 		Limit:          10,
 		Window:         time.Minute,
-		Strategy:       StrategyUser,
+		Strategy:       common.StrategyUser, // Use common.StrategyUser
 		UserIDFromUser: func(user string) string { return user },
 		UserIDToString: func(userID string) string { return userID },
 	}
@@ -168,7 +170,7 @@ func TestRateLimitWithUserStrategy_Coverage(t *testing.T) {
 
 	// Create a test request with user in context
 	req := httptest.NewRequest("GET", "/", nil)
-	ctx := WithUserID[string, string](req.Context(), "user123")
+	ctx := scontext.WithUserID[string, string](req.Context(), "user123") // Use scontext
 	req = req.WithContext(ctx)
 
 	// Test the middleware with a simple case

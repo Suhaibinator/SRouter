@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Keep scontext
 	"go.uber.org/zap"
 )
 
@@ -51,7 +51,7 @@ func main() {
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Get the trace ID
-			traceID := middleware.GetTraceID[string, string](r)
+			traceID := scontext.GetTraceIDFromRequest[string, string](r) // Use scontext
 
 			// Log with trace ID
 			logger.Info("Processing request",
@@ -80,7 +80,7 @@ func main() {
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Get the trace ID
-			traceID := middleware.GetTraceID[string, string](r)
+			traceID := scontext.GetTraceIDFromRequest[string, string](r) // Use scontext
 
 			// Log with trace ID
 			logger.Info("Received request, calling downstream service",

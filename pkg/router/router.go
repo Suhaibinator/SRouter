@@ -15,7 +15,8 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/metrics"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/Suhaibinator/SRouter/pkg/middleware" // Keep for middleware implementations like UberRateLimiter, IDGenerator, CreateTraceMiddleware
+	"github.com/Suhaibinator/SRouter/pkg/scontext"   // Ensure scontext is imported
 	"github.com/julien040/go-ternary"
 	"github.com/julienschmidt/httprouter"
 	"go.uber.org/zap"
@@ -30,7 +31,7 @@ type Router[T comparable, U any] struct {
 	middlewares       []common.Middleware
 	authFunction      func(context.Context, string) (U, bool)
 	getUserIdFromUser func(U) T
-	rateLimiter       middleware.RateLimiter
+	rateLimiter       common.RateLimiter // Use common.RateLimiter
 	wg                sync.WaitGroup
 	shutdown          bool
 	shutdownMu        sync.RWMutex
@@ -92,13 +93,6 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 		r.middlewares = append([]common.Middleware{traceMW}, r.middlewares...)
 	}
 
-	// Add IP middleware as the first middleware (before any other middleware)
-	ipConfig := config.IPConfig
-	if ipConfig == nil {
-		ipConfig = middleware.DefaultIPConfig()
-	}
-	// Add IP middleware as the first middleware (before any other middleware)
-	r.middlewares = append([]common.Middleware{middleware.ClientIPMiddleware[T, U](ipConfig)}, r.middlewares...)
 	// Add metrics middleware if configured
 	if config.EnableMetrics {
 		var metricsMiddleware common.Middleware
@@ -210,7 +204,7 @@ func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler) httproute
 // wrapHandler wraps a handler with all the necessary middleware.
 // It applies authentication, timeout, body size limits, rate limiting, and other middleware
 // to create a complete request processing pipeline.
-func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLevel, timeout time.Duration, maxBodySize int64, rateLimit *middleware.RateLimitConfig[T, U], middlewares []Middleware) http.Handler {
+func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLevel, timeout time.Duration, maxBodySize int64, rateLimit *common.RateLimitConfig[T, U], middlewares []Middleware) http.Handler { // Use common.RateLimitConfig
 	// Create a base handler that only handles shutdown check and body size limit directly
 	// Timeout is now handled by timeoutMiddleware setting the context.
 	h := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -254,6 +248,8 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLeve
 
 	// 3. Rate Limiting
 	if rateLimit != nil {
+		// Ensure the rate limiter implementation is compatible
+		// Since r.rateLimiter is common.RateLimiter, this should work directly
 		chain = chain.Append(middleware.RateLimit(rateLimit, r.rateLimiter, r.logger))
 	}
 
@@ -326,7 +322,7 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 				return
 			case <-ctx.Done():
 				// Timeout occurred. Log it.
-				traceID := middleware.GetTraceID[T, U](req)
+				traceID := scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
 				fields := []zap.Field{
 					zap.String("method", req.Method),
 					zap.String("path", req.URL.Path),
@@ -395,12 +391,12 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 	// Determine effective settings using sub-router overrides if found
 	var subRouterTimeout time.Duration
 	var subRouterMaxBodySize int64
-	var subRouterRateLimit *middleware.RateLimitConfig[any, any]
+	var subRouterRateLimit *common.RateLimitConfig[any, any] // Use common type here
 	var subRouterMiddlewares []common.Middleware
 	if sr != nil {
 		subRouterTimeout = sr.TimeoutOverride
 		subRouterMaxBodySize = sr.MaxBodySizeOverride
-		subRouterRateLimit = sr.RateLimitOverride
+		subRouterRateLimit = sr.RateLimitOverride // This is already common.RateLimitConfig[any, any]
 		subRouterMiddlewares = sr.Middlewares
 	}
 
@@ -420,7 +416,7 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 	// Get effective timeout, max body size, rate limit considering overrides
 	effectiveTimeout := r.getEffectiveTimeout(route.Timeout, subRouterTimeout)
 	effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, subRouterMaxBodySize)
-	effectiveRateLimit := r.getEffectiveRateLimit(route.RateLimit, subRouterRateLimit) // This returns *RateLimitConfig[UserID, User]
+	effectiveRateLimit := r.getEffectiveRateLimit(route.RateLimit, subRouterRateLimit) // This returns *common.RateLimitConfig[UserID, User]
 
 	// Call the underlying generic registration function with the modified config
 	RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
@@ -435,6 +431,11 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Create a response writer that captures metrics
 	var rw http.ResponseWriter
 	var traceID string
+
+	// Apply ClientIpMiddleware to the request
+	clientIP := extractClientIP(req, r.config.IPConfig)
+	ctx := scontext.WithClientIP[T, U](req.Context(), clientIP) // Use scontext
+	req = req.WithContext(ctx)
 
 	// Apply metrics and tracing if enabled
 	if r.config.EnableMetrics || r.config.TraceIDBufferSize > 0 {
@@ -456,8 +457,8 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			duration := time.Since(mrw.startTime)
 
 			// Get updated trace ID from context
-			traceID = middleware.GetTraceID[T, U](req)
-			ip, _ := middleware.GetClientIPFromRequest[T, U](req)
+			traceID = scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
+			ip, _ := scontext.GetClientIPFromRequest[T, U](req) // Use scontext
 
 			// Log metrics
 			if r.config.EnableTraceLogging {
@@ -654,15 +655,15 @@ func (r *Router[T, U]) getEffectiveMaxBodySize(routeMaxBodySize, subRouterMaxBod
 
 // getEffectiveRateLimit returns the effective rate limit for a route.
 // It considers route-specific, sub-router, and global rate limit settings in that order of precedence.
-func (r *Router[T, U]) getEffectiveRateLimit(routeRateLimit, subRouterRateLimit *middleware.RateLimitConfig[any, any]) *middleware.RateLimitConfig[T, U] {
+func (r *Router[T, U]) getEffectiveRateLimit(routeRateLimit, subRouterRateLimit *common.RateLimitConfig[any, any]) *common.RateLimitConfig[T, U] { // Use common types
 	// Convert the rate limit config to the correct type
-	convertConfig := func(config *middleware.RateLimitConfig[any, any]) *middleware.RateLimitConfig[T, U] {
+	convertConfig := func(config *common.RateLimitConfig[any, any]) *common.RateLimitConfig[T, U] { // Use common types
 		if config == nil {
 			return nil
 		}
 
 		// Create a new config with the correct type parameters
-		return &middleware.RateLimitConfig[T, U]{
+		return &common.RateLimitConfig[T, U]{ // Use common.RateLimitConfig
 			BucketName:      config.BucketName,
 			Limit:           config.Limit,
 			Window:          config.Window,
@@ -688,7 +689,7 @@ func (r *Router[T, U]) getEffectiveRateLimit(routeRateLimit, subRouterRateLimit 
 // It also checks for context deadline exceeded errors.
 func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err error, statusCode int, message string) {
 	// Get trace ID from context
-	traceID := middleware.GetTraceID[T, U](req)
+	traceID := scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
 
 	// Create log fields
 	fields := []zap.Field{
@@ -807,7 +808,7 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				// Get trace ID from context
-				traceID := middleware.GetTraceID[T, U](req)
+				traceID := scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
 
 				// Create log fields
 				fields := []zap.Field{
@@ -852,7 +853,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 		authHeader := req.Header.Get("Authorization")
 		if authHeader == "" {
 			// Get updated trace ID from context
-			traceID = middleware.GetTraceID[T, U](req)
+			traceID = scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
 
 			// Create log fields
 			fields := []zap.Field{
@@ -879,20 +880,20 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 		// Try to authenticate using the authFunction
 		if user, valid := r.authFunction(req.Context(), token); valid {
 			id := r.getUserIdFromUser(user)
-			// Add the user ID to the request context using middleware package functions
+			// Add the user ID to the request context using scontext package functions
 			// First get the trace ID so we can preserve it
-			traceID = middleware.GetTraceID[T, U](req)
+			traceID = scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
 
 			// Add the user ID to the context
-			ctx := middleware.WithUserID[T, U](req.Context(), id)
+			ctx := scontext.WithUserID[T, U](req.Context(), id) // Use scontext
 
 			// If there was a trace ID, make sure it's preserved
 			if traceID != "" {
-				ctx = middleware.AddTraceIDToRequest[T, U](req.WithContext(ctx), traceID).Context()
+				ctx = scontext.WithTraceID[T, U](ctx, traceID) // Use scontext directly
 			}
 			req = req.WithContext(ctx)
 			// Get updated trace ID from context
-			traceID = middleware.GetTraceID[T, U](req)
+			traceID = scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
 
 			// Create log fields
 			fields := []zap.Field{
@@ -912,7 +913,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Get trace ID from context
-		traceID = middleware.GetTraceID[T, U](req)
+		traceID = scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
 
 		// Create log fields
 		fields := []zap.Field{
@@ -953,14 +954,14 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 			// Try to authenticate using the authFunction
 			if user, valid := r.authFunction(req.Context(), token); valid {
 				id := r.getUserIdFromUser(user)
-				// Add the user ID to the request context using middleware package functions
-				ctx := middleware.WithUserID[T, U](req.Context(), id)
+				// Add the user ID to the request context using scontext package functions
+				ctx := scontext.WithUserID[T, U](req.Context(), id) // Use scontext
 				if r.config.AddUserObjectToCtx {
-					ctx = middleware.WithUser[T](ctx, &user)
+					ctx = scontext.WithUser[T](ctx, &user) // Use scontext
 				}
 				req = req.WithContext(ctx)
 				// Get trace ID from context
-				traceID := middleware.GetTraceID[T, U](req)
+				traceID := scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
 
 				// Create log fields
 				fields := []zap.Field{

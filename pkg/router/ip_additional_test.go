@@ -1,9 +1,11 @@
-package middleware
+package router
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
 )
 
 // TestDefaultIPConfig tests the DefaultIPConfig function
@@ -30,7 +32,7 @@ func TestClientIPMiddleware(t *testing.T) {
 
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := ClientIP[uint64, any](r)
+		ip, _ := scontext.GetClientIPFromRequest[uint64, any](r) // Use scontext function
 		_, _ = w.Write([]byte(ip))
 	})
 

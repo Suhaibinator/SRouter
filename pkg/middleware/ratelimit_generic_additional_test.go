@@ -1,12 +1,15 @@
 package middleware
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv" // Added import
 	"testing"
 	"time"
 
+	"github.com/Suhaibinator/SRouter/pkg/common"   // Added import
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Import scontext
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
 
@@ -29,11 +32,11 @@ func TestExtractUser(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 		user := "testUser"
 		// Use the new context wrapper
-		ctx := WithUser[string](req.Context(), &user)
+		ctx := scontext.WithUser[string](req.Context(), &user) // Use scontext
 		req = req.WithContext(ctx)
 
 		// Create a config with UserIDFromUser function
-		config := &RateLimitConfig[string, string]{
+		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 			UserIDFromUser: func(u string) string {
 				return u
 			},
@@ -42,10 +45,13 @@ func TestExtractUser(t *testing.T) {
 			},
 		}
 
-		// Extract the user
-		userID := extractUser(req, config)
-		if userID != "testUser" {
-			t.Errorf("Expected user ID 'testUser', got '%s'", userID)
+		// Extract the user key
+		userKey, err := extractUserKey(req, config) // Use extractUserKey
+		if err != nil {
+			t.Fatalf("extractUserKey failed: %v", err)
+		}
+		if userKey != "testUser" {
+			t.Errorf("Expected user key 'testUser', got '%s'", userKey)
 		}
 	})
 
@@ -55,20 +61,22 @@ func TestExtractUser(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 		user := "testUser"
 		// Use the new context wrapper
-		ctx := WithUser[string](req.Context(), &user)
+		ctx := scontext.WithUser[string](req.Context(), &user) // Use scontext
 		req = req.WithContext(ctx)
 
 		// Create a config with UserIDFromUser function but no UserIDToString
-		config := &RateLimitConfig[string, string]{
+		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 			UserIDFromUser: func(u string) string {
 				return u + "-modified"
 			},
 		}
 
-		// Extract the user
-		userID := extractUser(req, config)
-		if userID != "testUser-modified" {
-			t.Errorf("Expected user ID 'testUser-modified', got '%s'", userID)
+		// Extract the user key - expect error because UserIDToString is missing
+		_, err := extractUserKey(req, config) // Use extractUserKey
+		if err == nil {
+			t.Error("Expected error when UserIDToString is missing, got nil")
+		} else {
+			assert.Contains(t, err.Error(), "UserIDToString function is required")
 		}
 	})
 
@@ -78,20 +86,25 @@ func TestExtractUser(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 		user := "testUser"
 		// Use the new context wrapper
-		ctx := WithUser[int](req.Context(), &user)
+		ctx := scontext.WithUser[int](req.Context(), &user) // Use scontext
 		req = req.WithContext(ctx)
 
 		// Create a config with UserIDFromUser function returning int
-		config := &RateLimitConfig[int, string]{
+		config := &common.RateLimitConfig[int, string]{ // Use common.RateLimitConfig
 			UserIDFromUser: func(u string) int {
 				return 42
 			},
 		}
 
-		// Extract the user
-		userID := extractUser(req, config)
-		if userID != "42" {
-			t.Errorf("Expected user ID '42', got '%s'", userID)
+		// Extract the user key
+		// Add UserIDToString for int
+		config.UserIDToString = func(id int) string { return strconv.Itoa(id) }
+		userKey, err := extractUserKey(req, config) // Use extractUserKey
+		if err != nil {
+			t.Fatalf("extractUserKey failed: %v", err)
+		}
+		if userKey != "42" {
+			t.Errorf("Expected user key '42', got '%s'", userKey)
 		}
 	})
 
@@ -101,24 +114,28 @@ func TestExtractUser(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 		user := "testUser"
 		// Use the new context wrapper
-		ctx := WithUser[CustomID](req.Context(), &user)
+		ctx := scontext.WithUser[CustomID](req.Context(), &user) // Use scontext
 		req = req.WithContext(ctx)
 
 		// Create a CustomID instance
 		customID := CustomID{id: "custom-id"}
 
 		// Create a config with UserIDFromUser function returning CustomID
-		config := &RateLimitConfig[CustomID, string]{
+		config := &common.RateLimitConfig[CustomID, string]{ // Use common.RateLimitConfig
 			UserIDFromUser: func(u string) CustomID {
 				return customID
 			},
 		}
 
-		// Extract the user
-		userID := extractUser(req, config)
-		// Since CustomID doesn't have a String method, it should use fmt.Sprint
-		if userID != fmt.Sprint(customID) {
-			t.Errorf("Expected user ID '%v', got '%s'", customID, userID)
+		// Extract the user key
+		// Add UserIDToString for CustomID
+		config.UserIDToString = func(id CustomID) string { return id.String() } // Use String() method
+		userKey, err := extractUserKey(req, config)                             // Use extractUserKey
+		if err != nil {
+			t.Fatalf("extractUserKey failed: %v", err)
+		}
+		if userKey != "custom-id" { // Expect the result of String()
+			t.Errorf("Expected user key 'custom-id', got '%s'", userKey)
 		}
 	})
 
@@ -127,20 +144,23 @@ func TestExtractUser(t *testing.T) {
 		// Create a request with a user ID in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		userID := "user123"
-		ctx := WithUserID[string, string](req.Context(), userID)
+		ctx := scontext.WithUserID[string, string](req.Context(), userID) // Use scontext
 		req = req.WithContext(ctx)
 
 		// Create a config with UserIDToString function
-		config := &RateLimitConfig[string, string]{
+		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 			UserIDToString: func(id string) string {
 				return id + "-suffix"
 			},
 		}
 
-		// Extract the user
-		extractedID := extractUser(req, config)
-		if extractedID != "user123-suffix" {
-			t.Errorf("Expected user ID 'user123-suffix', got '%s'", extractedID)
+		// Extract the user key
+		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
+		if err != nil {
+			t.Fatalf("extractUserKey failed: %v", err)
+		}
+		if extractedKey != "user123-suffix" {
+			t.Errorf("Expected user key 'user123-suffix', got '%s'", extractedKey)
 		}
 	})
 
@@ -149,16 +169,20 @@ func TestExtractUser(t *testing.T) {
 		// Create a request with a user ID in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		userID := "user123"
-		ctx := WithUserID[string, string](req.Context(), userID)
+		ctx := scontext.WithUserID[string, string](req.Context(), userID) // Use scontext
 		req = req.WithContext(ctx)
 
-		// Create a config without UserIDToString function
-		config := &RateLimitConfig[string, string]{}
+		// Create a config without UserIDToString function - this should error now
+		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
+			// Missing UserIDToString
+		}
 
-		// Extract the user
-		extractedID := extractUser(req, config)
-		if extractedID != "user123" {
-			t.Errorf("Expected user ID 'user123', got '%s'", extractedID)
+		// Extract the user key - expect error
+		_, err := extractUserKey(req, config) // Use extractUserKey
+		if err == nil {
+			t.Error("Expected error when UserIDToString is missing, got nil")
+		} else {
+			assert.Contains(t, err.Error(), "UserIDToString function is required")
 		}
 	})
 
@@ -167,16 +191,21 @@ func TestExtractUser(t *testing.T) {
 		// Create a request with an int user ID in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		userID := 42
-		ctx := WithUserID[int, string](req.Context(), userID)
+		ctx := scontext.WithUserID[int, string](req.Context(), userID) // Use scontext
 		req = req.WithContext(ctx)
 
-		// Create a config without UserIDToString function
-		config := &RateLimitConfig[int, string]{}
+		// Create a config with UserIDToString function for int
+		config := &common.RateLimitConfig[int, string]{ // Use common.RateLimitConfig
+			UserIDToString: func(id int) string { return strconv.Itoa(id) },
+		}
 
-		// Extract the user
-		extractedID := extractUser(req, config)
-		if extractedID != "42" {
-			t.Errorf("Expected user ID '42', got '%s'", extractedID)
+		// Extract the user key
+		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
+		if err != nil {
+			t.Fatalf("extractUserKey failed: %v", err)
+		}
+		if extractedKey != "42" {
+			t.Errorf("Expected user key '42', got '%s'", extractedKey)
 		}
 	})
 
@@ -185,16 +214,21 @@ func TestExtractUser(t *testing.T) {
 		// Create a request with a bool user ID in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		userID := true
-		ctx := WithUserID[bool, string](req.Context(), userID)
+		ctx := scontext.WithUserID[bool, string](req.Context(), userID) // Use scontext
 		req = req.WithContext(ctx)
 
-		// Create a config without UserIDToString function
-		config := &RateLimitConfig[bool, string]{}
+		// Create a config with UserIDToString function for bool
+		config := &common.RateLimitConfig[bool, string]{ // Use common.RateLimitConfig
+			UserIDToString: func(id bool) string { return strconv.FormatBool(id) },
+		}
 
-		// Extract the user
-		extractedID := extractUser(req, config)
-		if extractedID != "true" {
-			t.Errorf("Expected user ID 'true', got '%s'", extractedID)
+		// Extract the user key
+		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
+		if err != nil {
+			t.Fatalf("extractUserKey failed: %v", err)
+		}
+		if extractedKey != "true" {
+			t.Errorf("Expected user key 'true', got '%s'", extractedKey)
 		}
 	})
 
@@ -203,13 +237,18 @@ func TestExtractUser(t *testing.T) {
 		// Create a request without a user in the context
 		req := httptest.NewRequest("GET", "/", nil)
 
-		// Create a config
-		config := &RateLimitConfig[string, string]{}
+		// Create a config with UserIDToString
+		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
+			UserIDToString: func(id string) string { return id },
+		}
 
-		// Extract the user
-		extractedID := extractUser(req, config)
-		if extractedID != "" {
-			t.Errorf("Expected empty user ID, got '%s'", extractedID)
+		// Extract the user key
+		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
+		if err != nil {
+			t.Fatalf("extractUserKey failed: %v", err)
+		}
+		if extractedKey != "" {
+			t.Errorf("Expected empty user key, got '%s'", extractedKey)
 		}
 	})
 }
@@ -233,11 +272,11 @@ func TestRateLimit(t *testing.T) {
 	// Test case 1: IP strategy
 	t.Run("with IP strategy", func(t *testing.T) {
 		// Create a config with IP strategy
-		config := &RateLimitConfig[string, string]{
+		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 			BucketName: "bucket",
 			Limit:      10,
 			Window:     time.Duration(1000) * time.Millisecond,
-			Strategy:   StrategyIP,
+			Strategy:   common.StrategyIP, // Use common.StrategyIP
 		}
 
 		// Create the middleware
@@ -275,11 +314,11 @@ func TestRateLimit(t *testing.T) {
 	// Test case 2: User strategy with user ID in context
 	t.Run("with User strategy and user ID in context", func(t *testing.T) {
 		// Create a config with User strategy
-		config := &RateLimitConfig[string, string]{
+		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 			BucketName: "bucket",
 			Limit:      10,
 			Window:     time.Duration(1000) * time.Millisecond,
-			Strategy:   StrategyUser,
+			Strategy:   common.StrategyUser, // Use common.StrategyUser
 			UserIDToString: func(id string) string {
 				return id
 			},
@@ -301,7 +340,7 @@ func TestRateLimit(t *testing.T) {
 		// Create a request with a user ID in the context
 		req := httptest.NewRequest("GET", "/", nil)
 		userID := "user123"
-		ctx := WithUserID[string, string](req.Context(), userID)
+		ctx := scontext.WithUserID[string, string](req.Context(), userID) // Use scontext
 		req = req.WithContext(ctx)
 		rr := httptest.NewRecorder()
 
@@ -317,11 +356,12 @@ func TestRateLimit(t *testing.T) {
 	// Test case 3: User strategy with no user ID in context (falls back to IP)
 	t.Run("with User strategy and no user ID in context", func(t *testing.T) {
 		// Create a config with User strategy
-		config := &RateLimitConfig[string, string]{
+		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 			BucketName: "bucket",
 			Limit:      10,
 			Window:     time.Duration(1000) * time.Millisecond,
-			Strategy:   StrategyUser,
+			Strategy:   common.StrategyUser, // Use common.StrategyUser
+			// Missing UserIDToString - this should cause an error in extractUserKey
 		}
 
 		// Create the middleware
@@ -345,20 +385,23 @@ func TestRateLimit(t *testing.T) {
 		// Call the handler
 		handler.ServeHTTP(rr, req)
 
-		// Check that the handler was called
-		if !handlerCalled {
-			t.Error("Handler was not called")
+		// Check that the handler was NOT called and status is 500
+		if handlerCalled {
+			t.Error("Handler was called unexpectedly")
+		}
+		if rr.Code != http.StatusInternalServerError {
+			t.Errorf("Expected status code %d due to missing UserIDToString, got %d", http.StatusInternalServerError, rr.Code)
 		}
 	})
 
 	// Test case 4: Custom strategy with key extractor
 	t.Run("with Custom strategy and key extractor", func(t *testing.T) {
 		// Create a config with Custom strategy
-		config := &RateLimitConfig[string, string]{
+		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 			BucketName: "bucket",
 			Limit:      10,
 			Window:     time.Duration(1000) * time.Millisecond,
-			Strategy:   StrategyCustom,
+			Strategy:   common.StrategyCustom, // Use common.StrategyCustom
 			KeyExtractor: func(r *http.Request) (string, error) {
 				return "custom-key", nil
 			},
@@ -393,11 +436,12 @@ func TestRateLimit(t *testing.T) {
 	// Test case 5: Custom strategy without key extractor (falls back to IP)
 	t.Run("with Custom strategy and no key extractor", func(t *testing.T) {
 		// Create a config with Custom strategy but no key extractor
-		config := &RateLimitConfig[string, string]{
+		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 			BucketName: "bucket",
 			Limit:      10,
 			Window:     time.Duration(1000) * time.Millisecond,
-			Strategy:   StrategyCustom,
+			Strategy:   common.StrategyCustom, // Use common.StrategyCustom
+			// Missing KeyExtractor - this should cause an error
 		}
 
 		// Create the middleware
@@ -421,20 +465,23 @@ func TestRateLimit(t *testing.T) {
 		// Call the handler
 		handler.ServeHTTP(rr, req)
 
-		// Check that the handler was called
-		if !handlerCalled {
-			t.Error("Handler was not called")
+		// Check that the handler was NOT called and status is 500
+		if handlerCalled {
+			t.Error("Handler was called unexpectedly")
+		}
+		if rr.Code != http.StatusInternalServerError {
+			t.Errorf("Expected status code %d due to missing KeyExtractor, got %d", http.StatusInternalServerError, rr.Code)
 		}
 	})
 
 	// Test case 6: Rate limit exceeded
 	t.Run("with rate limit exceeded", func(t *testing.T) {
 		// Create a config that will trigger the rate limit
-		config := &RateLimitConfig[string, string]{
+		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 			BucketName: "bucket",
 			Limit:      10,
 			Window:     time.Duration(1000) * time.Millisecond,
-			Strategy:   StrategyIP,
+			Strategy:   common.StrategyIP, // Use common.StrategyIP
 		}
 
 		// Create the middleware
@@ -450,9 +497,11 @@ func TestRateLimit(t *testing.T) {
 		// Apply the middleware
 		handler := middleware(testHandler)
 
-		// Create a request that will be blocked
+		// Create a request and add the "blocked" IP to the context
 		req := httptest.NewRequest("GET", "/", nil)
-		req.Header.Set("X-Forwarded-For", "blocked")
+		// Simulate ClientIPMiddleware having run
+		ctx := scontext.WithClientIP[string, string](req.Context(), "blocked")
+		req = req.WithContext(ctx)
 		rr := httptest.NewRecorder()
 
 		// Call the handler
@@ -485,11 +534,11 @@ func TestRateLimit(t *testing.T) {
 		})
 
 		// Create a config that will trigger the rate limit
-		config := &RateLimitConfig[string, string]{
+		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 			BucketName:      "bucket",
 			Limit:           10,
 			Window:          time.Duration(1000) * time.Millisecond,
-			Strategy:        StrategyIP,
+			Strategy:        common.StrategyIP, // Use common.StrategyIP
 			ExceededHandler: customHandler,
 		}
 
@@ -506,9 +555,11 @@ func TestRateLimit(t *testing.T) {
 		// Apply the middleware
 		handler := middleware(testHandler)
 
-		// Create a request that will be blocked
+		// Create a request and add the "blocked" IP to the context
 		req := httptest.NewRequest("GET", "/", nil)
-		req.Header.Set("X-Forwarded-For", "blocked")
+		// Simulate ClientIPMiddleware having run
+		ctx := scontext.WithClientIP[string, string](req.Context(), "blocked")
+		req = req.WithContext(ctx)
 		rr := httptest.NewRecorder()
 
 		// Call the handler

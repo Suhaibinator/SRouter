@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Import scontext
 	"github.com/stretchr/testify/assert"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger" // Import GORM logger
@@ -79,7 +80,7 @@ func TestGormTransactionWrapper(t *testing.T) {
 	// --- Test Case 3: Interface Satisfaction ---
 	// This is implicitly tested by the compile-time check in db.go and usage above.
 	t.Run("InterfaceSatisfaction", func(t *testing.T) {
-		var dbTx DatabaseTransaction = NewGormTransactionWrapper(&gorm.DB{}) // Can still use basic DB here
+		var dbTx scontext.DatabaseTransaction = NewGormTransactionWrapper(&gorm.DB{}) // Use scontext.DatabaseTransaction
 		assert.NotNil(dbTx, "Wrapper should satisfy DatabaseTransaction interface")
 	})
 }

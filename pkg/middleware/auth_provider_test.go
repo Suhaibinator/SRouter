@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
 	"go.uber.org/zap"
 )
 
@@ -178,7 +179,7 @@ func TestAuthenticationWithProvider(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := GetUserIDFromRequest[string, any](r)
+		userID, ok := scontext.GetUserIDFromRequest[string, any](r) // Use scontext
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}
@@ -236,7 +237,7 @@ func TestNewBearerTokenMiddleware(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := GetUserIDFromRequest[string, any](r)
+		userID, ok := scontext.GetUserIDFromRequest[string, any](r) // Use scontext
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}
@@ -278,7 +279,7 @@ func TestNewBearerTokenValidatorMiddleware(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := GetUserIDFromRequest[string, any](r)
+		userID, ok := scontext.GetUserIDFromRequest[string, any](r) // Use scontext
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}
@@ -322,7 +323,7 @@ func TestNewAPIKeyMiddleware(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := GetUserIDFromRequest[string, any](r)
+		userID, ok := scontext.GetUserIDFromRequest[string, any](r) // Use scontext
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}

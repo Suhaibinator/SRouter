@@ -19,9 +19,9 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks"
-	"github.com/stretchr/testify/assert" // Using testify for assertions
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Ensure scontext is imported
+	"github.com/stretchr/testify/assert"           // Using testify for assertions
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"          // Import zapcore
 	"go.uber.org/zap/zaptest/observer" // Import observer
@@ -494,7 +494,7 @@ func TestSimpleErrorCoverage(t *testing.T) { // Renamed to avoid conflict
 // TestEffectiveSettings tests the getEffectiveTimeout, getEffectiveMaxBodySize, and getEffectiveRateLimit functions
 func TestEffectiveSettingsCoverage(t *testing.T) { // Renamed to avoid conflict
 	logger := zap.NewNop()
-	globalRateLimit := &middleware.RateLimitConfig[any, any]{BucketName: "global", Limit: 10, Window: time.Minute}
+	globalRateLimit := &common.RateLimitConfig[any, any]{BucketName: "global", Limit: 10, Window: time.Minute} // Use common.RateLimitConfig
 	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 5 * time.Second, GlobalMaxBodySize: 1024, GlobalRateLimit: globalRateLimit}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	timeout := r.getEffectiveTimeout(0, 0)
 	if timeout != 5*time.Second {
@@ -524,12 +524,12 @@ func TestEffectiveSettingsCoverage(t *testing.T) { // Renamed to avoid conflict
 	if rateLimit == nil || rateLimit.BucketName != "global" {
 		t.Errorf("Expected global rate limit, got %v", rateLimit)
 	}
-	subRouterRateLimit := &middleware.RateLimitConfig[any, any]{BucketName: "subrouter", Limit: 20, Window: time.Minute}
+	subRouterRateLimit := &common.RateLimitConfig[any, any]{BucketName: "subrouter", Limit: 20, Window: time.Minute} // Use common.RateLimitConfig
 	rateLimit = r.getEffectiveRateLimit(nil, subRouterRateLimit)
 	if rateLimit == nil || rateLimit.BucketName != "subrouter" {
 		t.Errorf("Expected subrouter rate limit, got %v", rateLimit)
 	}
-	routeRateLimit := &middleware.RateLimitConfig[any, any]{BucketName: "route", Limit: 30, Window: time.Minute}
+	routeRateLimit := &common.RateLimitConfig[any, any]{BucketName: "route", Limit: 30, Window: time.Minute} // Use common.RateLimitConfig
 	rateLimit = r.getEffectiveRateLimit(routeRateLimit, subRouterRateLimit)
 	if rateLimit == nil || rateLimit.BucketName != "route" {
 		t.Errorf("Expected route rate limit, got %v", rateLimit)
@@ -1539,7 +1539,7 @@ func TestAuthRequiredMiddleware_OptionsBypass(t *testing.T) {
 	// Simple handler that checks for user ID if not OPTIONS
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodOptions {
-			userID, ok := middleware.GetUserIDFromRequest[string, string](req) // Use correct types
+			userID, ok := scontext.GetUserIDFromRequest[string, string](req) // Use scontext
 			if !ok {
 				t.Error("Expected user ID in context for non-OPTIONS request")
 				return // Return immediately after reporting the test error
@@ -1604,7 +1604,7 @@ func TestAuthOptionalMiddleware_OptionsBypass(t *testing.T) {
 	// Simple handler that checks for user ID if present (and method is not OPTIONS)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodOptions {
-			userID, ok := middleware.GetUserIDFromRequest[string, string](req) // Use correct types
+			userID, ok := scontext.GetUserIDFromRequest[string, string](req) // Use scontext
 			authHeader := req.Header.Get("Authorization")
 			token := strings.TrimPrefix(authHeader, "Bearer ")
 
@@ -1869,9 +1869,10 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 
 	// 2. Configure router with tracing, metrics, and observer logger
 	routerConfig := RouterConfig{
-		Logger:            observedLogger,
-		TraceIDBufferSize: 10,   // Enable tracing
-		EnableMetrics:     true, // Enable metrics logging
+		Logger:             observedLogger,
+		TraceIDBufferSize:  10,   // Enable tracing
+		EnableMetrics:      true, // Enable metrics logging
+		EnableTraceLogging: true, // <<< ADD THIS LINE to enable the "Request metrics" log block
 	}
 	r := NewRouter(routerConfig, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
@@ -1907,8 +1908,9 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 	// Simulate the trace middleware adding the trace ID to the request context
 	// before ServeHTTP is called internally by the server.
 	// This mimics the state *before* the defer captures `req`.
-	initialTraceID := "initial-context-trace-id" // This is what the defer will capture
-	req = middleware.AddTraceIDToRequest[string, string](req, initialTraceID)
+	initialTraceID := "initial-context-trace-id"                                        // This is what the defer will capture
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), initialTraceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                                 // Apply the context with trace ID
 
 	r.ServeHTTP(rr, req) // Call ServeHTTP directly
 

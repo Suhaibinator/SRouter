@@ -11,6 +11,7 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
 	"go.uber.org/zap"
 )
 
@@ -25,7 +26,7 @@ type User struct {
 // Protected resource that requires authentication and uses the user object
 func protectedUserHandler(w http.ResponseWriter, r *http.Request) {
 	// Get the user from the context
-	user, ok := middleware.GetUserFromRequest[*User, User](r)
+	user, ok := scontext.GetUserFromRequest[*User, User](r) // Use scontext
 	if !ok || user == nil {
 		http.Error(w, "User not found in context", http.StatusInternalServerError)
 		return
@@ -166,7 +167,7 @@ func main() {
 						Path:      "/custom",
 						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.AuthRequired), // Changed
-						Middlewares: []router.Middleware{
+						Middlewares: []router.Middleware{ // Uncommented middleware
 							middleware.AuthenticationWithUser[*User, User](customUserAuth),
 						},
 						Handler: protectedUserHandler,
@@ -175,7 +176,7 @@ func main() {
 						Path:      "/bearer",
 						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.AuthRequired), // Changed
-						Middlewares: []router.Middleware{
+						Middlewares: []router.Middleware{ // Uncommented middleware
 							middleware.NewBearerTokenWithUserMiddleware[*User, User](bearerTokenUserAuth, logger),
 						},
 						Handler: protectedUserHandler,

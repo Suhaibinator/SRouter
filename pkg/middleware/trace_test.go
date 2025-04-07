@@ -8,8 +8,18 @@ import (
 	"testing"
 	"time" // Ensure time is imported
 
-	"github.com/stretchr/testify/assert" // Using testify for assertions
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
+	"github.com/stretchr/testify/assert"           // Using testify for assertions
 )
+
+// AddTraceIDToRequest adds a trace ID to the request context.
+// This is useful for testing or for manually setting a trace ID.
+// Copied here temporarily as it was removed from trace.go but needed for tests.
+// TODO: Consider if tests should directly use scontext.WithTraceID instead.
+func AddTraceIDToRequest[T comparable, U any](r *http.Request, traceID string) *http.Request {
+	ctx := scontext.WithTraceID[T, U](r.Context(), traceID)
+	return r.WithContext(ctx)
+}
 
 // TestAddTraceIDToRequest tests that AddTraceIDToRequest adds a trace ID to the request context
 func TestAddTraceIDToRequest(t *testing.T) {
@@ -20,16 +30,16 @@ func TestAddTraceIDToRequest(t *testing.T) {
 	}
 
 	// Verify no trace ID initially
-	if traceID := GetTraceID[uint64, string](req); traceID != "" {
+	if traceID := scontext.GetTraceIDFromRequest[uint64, string](req); traceID != "" { // Use scontext
 		t.Errorf("Expected trace ID to be empty initially, got %q", traceID)
 	}
 
-	// Add a trace ID to the request
+	// Add a trace ID to the request using the local helper
 	expectedTraceID := "test-trace-id-123"
-	req = AddTraceIDToRequest[uint64, string](req, expectedTraceID)
+	req = AddTraceIDToRequest[uint64, string](req, expectedTraceID) // Use local helper
 
 	// Verify the trace ID was added
-	if traceID := GetTraceID[uint64, string](req); traceID != expectedTraceID {
+	if traceID := scontext.GetTraceIDFromRequest[uint64, string](req); traceID != expectedTraceID { // Use scontext
 		t.Errorf("Expected trace ID to be %q after adding, got %q", expectedTraceID, traceID)
 	}
 }
@@ -84,7 +94,7 @@ func TestIDGeneratorBatchFill(t *testing.T) {
 	}
 }
 
-// TestGetTraceID tests that GetTraceID returns the trace ID from the request context
+// TestGetTraceID tests that GetTraceIDFromRequest returns the trace ID from the request context
 func TestGetTraceID(t *testing.T) {
 	// Create a request
 	req, err := http.NewRequest("GET", "/test", nil)
@@ -93,40 +103,40 @@ func TestGetTraceID(t *testing.T) {
 	}
 
 	// Test with no trace ID
-	if traceID := GetTraceID[uint64, string](req); traceID != "" {
+	if traceID := scontext.GetTraceIDFromRequest[uint64, string](req); traceID != "" { // Use scontext
 		t.Errorf("Expected trace ID to be empty, got %q", traceID)
 	}
 
-	// Add a trace ID to the context using the new method
+	// Add a trace ID to the context using the helper
 	expectedTraceID := "test-trace-id"
-	req = AddTraceIDToRequest[uint64, string](req, expectedTraceID)
+	req = AddTraceIDToRequest[uint64, string](req, expectedTraceID) // Use local helper
 
 	// Test with trace ID
-	if traceID := GetTraceID[uint64, string](req); traceID != expectedTraceID {
+	if traceID := scontext.GetTraceIDFromRequest[uint64, string](req); traceID != expectedTraceID { // Use scontext
 		t.Errorf("Expected trace ID to be %q, got %q", expectedTraceID, traceID)
 	}
 }
 
-// TestWithTraceID_AlreadySet tests that WithTraceID doesn't overwrite an existing trace ID
+// TestWithTraceID_AlreadySet tests that scontext.WithTraceID doesn't overwrite an existing trace ID
 func TestWithTraceID_AlreadySet(t *testing.T) {
 	ctx := context.Background()
 	initialTraceID := "initial-trace-id"
 	secondTraceID := "second-trace-id"
 
 	// Set the first trace ID
-	ctx = WithTraceID[uint64, string](ctx, initialTraceID)
+	ctx = scontext.WithTraceID[uint64, string](ctx, initialTraceID) // Use scontext
 
 	// Attempt to set a second trace ID
-	ctx = WithTraceID[uint64, string](ctx, secondTraceID)
+	ctx = scontext.WithTraceID[uint64, string](ctx, secondTraceID) // Use scontext
 
 	// Verify that the initial trace ID is still the one present
-	finalTraceID := GetTraceIDFromContext[uint64, string](ctx)
+	finalTraceID := scontext.GetTraceIDFromContext[uint64, string](ctx) // Use scontext
 	if finalTraceID != initialTraceID {
 		t.Errorf("Expected trace ID to remain %q after second call, but got %q", initialTraceID, finalTraceID)
 	}
 
 	// Double-check the SRouterContext directly
-	rc, ok := GetSRouterContext[uint64, string](ctx)
+	rc, ok := scontext.GetSRouterContext[uint64, string](ctx) // Use scontext
 	if !ok {
 		t.Fatal("SRouterContext not found in context")
 	}
@@ -146,7 +156,8 @@ func TestCreateTraceMiddleware_WithExistingHeader(t *testing.T) {
 	// Create a handler that checks the trace ID in the context
 	var handlerTraceID string
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handlerTraceID = GetTraceID[uint64, string](r) // Get trace ID from context
+		// Use the same generic types as the middleware [string, any]
+		handlerTraceID = scontext.GetTraceIDFromRequest[string, any](r) // Use scontext
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -177,22 +188,22 @@ func TestCreateTraceMiddleware_WithExistingHeader(t *testing.T) {
 	}
 }
 
-// TestGetTraceIDFromContext tests that GetTraceIDFromContext returns the trace ID from the context
+// TestGetTraceIDFromContext tests that scontext.GetTraceIDFromContext returns the trace ID from the context
 func TestGetTraceIDFromContext(t *testing.T) {
 	// Create a context
 	ctx := context.Background()
 
 	// Test with no trace ID
-	if traceID := GetTraceIDFromContext[uint64, string](ctx); traceID != "" {
+	if traceID := scontext.GetTraceIDFromContext[uint64, string](ctx); traceID != "" { // Use scontext
 		t.Errorf("Expected trace ID to be empty, got %q", traceID)
 	}
 
 	// Add a trace ID to the context using the new approach
 	expectedTraceID := "test-trace-id"
-	ctx = WithTraceID[uint64, string](ctx, expectedTraceID)
+	ctx = scontext.WithTraceID[uint64, string](ctx, expectedTraceID) // Use scontext
 
 	// Test with trace ID
-	if traceID := GetTraceIDFromContext[uint64, string](ctx); traceID != expectedTraceID {
+	if traceID := scontext.GetTraceIDFromContext[uint64, string](ctx); traceID != expectedTraceID { // Use scontext
 		t.Errorf("Expected trace ID to be %q, got %q", expectedTraceID, traceID)
 	}
 }
