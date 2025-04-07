@@ -21,7 +21,7 @@ package router
 import (
 	"time"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	// "github.com/Suhaibinator/SRouter/pkg/middleware" // No longer needed for core config structs
 	"go.uber.org/zap"
 )
 
@@ -38,29 +38,38 @@ type RouterConfig struct {
 	GlobalMaxBodySize int64
 
 	// GlobalRateLimit specifies the default rate limit configuration for all routes.
-	// Can be overridden. Nil means no global rate limit.
-	GlobalRateLimit *middleware.RateLimitConfig[any, any]
+	// Uses common.RateLimitConfig. Can be overridden. Nil means no global rate limit.
+	GlobalRateLimit *common.RateLimitConfig[any, any]
 
 	// IPConfig defines how client IP addresses are extracted.
 	// See docs/ip-configuration.md. Nil uses default (RemoteAddr, no proxy trust).
-	IPConfig *middleware.IPConfig
+	IPConfig *IPConfig // Defined in router package
 
 	// EnableMetrics globally enables or disables the metrics collection system.
 	EnableMetrics bool
 
-	// EnableTracing enables distributed tracing support (Note: Actual implementation
-	// might be via specific tracing middleware rather than just this flag).
-	EnableTracing bool // Check if still relevant or handled by middleware
+	// EnableTraceLogging enables detailed request/response logging including timing, status, etc.
+	// Often used in conjunction with TraceIDBufferSize > 0.
+	EnableTraceLogging bool
 
-	// EnableTraceID enables automatic trace ID generation and injection into context
-	// and logs. Can also be achieved using middleware.TraceMiddleware().
-	EnableTraceID bool
+	// TraceLoggingUseInfo controls the log level for trace logging.
+	// If true, logs at Info level; otherwise, logs at Debug level.
+	TraceLoggingUseInfo bool
 
-	// MetricsConfig holds detailed configuration for the metrics system when EnableMetrics is true.
+	// TraceIDBufferSize sets the buffer size for the background trace ID generator.
+	// If > 0, trace IDs are automatically generated and added to request context and logs.
+	// Setting to 0 disables automatic trace ID generation. See docs/trace-logging.md.
+	TraceIDBufferSize int
+
+	// PrometheusConfig holds configuration for the older Prometheus metrics system.
+	// Deprecated: Use MetricsConfig instead. Kept for backward compatibility reference.
+	PrometheusConfig *PrometheusConfig // Deprecated
+
+	// MetricsConfig holds detailed configuration for the v2 metrics system when EnableMetrics is true.
 	// See MetricsConfig section below and docs/metrics.md.
 	MetricsConfig *MetricsConfig
 
-	// SubRouters is a slice of SubRouterConfig structs defining sub-routers.
+	// SubRouters is a slice of SubRouterConfig structs defining sub-routers. Required.
 	SubRouters []SubRouterConfig
 
 	// Middlewares is a slice of global middlewares applied to all routes.
@@ -130,7 +139,7 @@ package router
 import (
 	"time"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	// "github.com/Suhaibinator/SRouter/pkg/middleware" // No longer needed for core config structs
 )
 
 type SubRouterConfig struct {
@@ -147,11 +156,14 @@ type SubRouterConfig struct {
 	MaxBodySizeOverride int64
 
 	// RateLimitOverride overrides the global or parent's rate limit config.
-	// Nil inherits.
-	RateLimitOverride *middleware.RateLimitConfig[any, any]
+	// Uses common.RateLimitConfig. Nil inherits.
+	RateLimitOverride *common.RateLimitConfig[any, any]
 
-	// Routes is a slice containing route definitions. Can hold:
-	// - RouteConfigBase (for standard http.HandlerFunc routes)
+	// Routes is a slice containing route definitions. Must contain RouteConfigBase
+	// or GenericRouteRegistrationFunc types. Required.
+	Routes []any
+
+	// Middlewares is a slice of middlewares applied only to routes within this
 	// - GenericRouteDefinition (for generic routes, created via NewGenericRouteDefinition)
 	Routes []any
 
@@ -182,15 +194,15 @@ import (
 	"net/http"
 	"time"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	// "github.com/Suhaibinator/SRouter/pkg/middleware" // No longer needed for core config structs
 )
 
 type RouteConfigBase struct {
 	// Path is the route path relative to any parent sub-router prefixes (e.g., "/users/:id"). Required.
 	Path string
 
-	// Methods is a slice of HTTP methods this route handles (e.g., []string{"GET", "POST"}). Required.
-	Methods []string
+	// Methods is a slice of HTTP methods this route handles (e.g., []HttpMethod{MethodGet, MethodPost}). Required.
+	Methods []HttpMethod // Use router.HttpMethod type
 
 	// AuthLevel specifies the authentication requirement for this route.
 	// Nil inherits from parent sub-router or defaults to NoAuth.
@@ -202,8 +214,9 @@ type RouteConfigBase struct {
 	// MaxBodySize overrides the max body size specifically for this route. Zero inherits. Negative means no limit.
 	MaxBodySize int64
 
-	// RateLimit overrides the rate limit specifically for this route. Nil inherits.
-	RateLimit *middleware.RateLimitConfig[any, any]
+	// RateLimit overrides the rate limit specifically for this route.
+	// Uses common.RateLimitConfig. Nil inherits.
+	RateLimit *common.RateLimitConfig[any, any]
 
 	// Handler is the standard Go HTTP handler function. Required.
 	Handler http.HandlerFunc
@@ -225,7 +238,7 @@ import (
 	"net/http"
 	"time"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	// "github.com/Suhaibinator/SRouter/pkg/middleware" // No longer needed for core config structs
 )
 
 // GenericHandler is the function signature for generic route handlers.
@@ -236,7 +249,7 @@ type RouteConfig[T any, U any] struct {
 	Path string
 
 	// Methods is a slice of HTTP methods this route handles. Required.
-	Methods []string
+	Methods []HttpMethod // Use router.HttpMethod type
 
 	// AuthLevel specifies the authentication requirement for this route.
 	// Nil inherits.
@@ -248,11 +261,12 @@ type RouteConfig[T any, U any] struct {
 	// MaxBodySize overrides the max body size specifically for this route. Zero inherits. Negative means no limit.
 	MaxBodySize int64
 
-	// RateLimit overrides the rate limit specifically for this route. Nil inherits.
-	RateLimit *middleware.RateLimitConfig[any, any]
+	// RateLimit overrides the rate limit specifically for this route.
+	// Uses common.RateLimitConfig. Nil inherits.
+	RateLimit *common.RateLimitConfig[any, any]
 
 	// Codec is the encoder/decoder implementation for types T and U. Required.
-	// Must implement the Codec[T, U] interface.
+	// Must implement the router.Codec[T, U] interface.
 	Codec Codec[T, U]
 
 	// Handler is the generic handler function. Required.
@@ -317,4 +331,6 @@ const (
 	Base64PathParameter
 	// Base62PathParameter retrieves data from a base62-encoded path parameter.
 	Base62PathParameter
+	// Empty does not decode anything. Acts as a no-op for decoding.
+	Empty
 )

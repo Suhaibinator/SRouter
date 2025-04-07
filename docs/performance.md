@@ -10,11 +10,21 @@ SRouter inherits the high-performance path matching capabilities of `julienschmi
 
 While middleware is powerful, each layer adds some overhead to the request processing time. Be mindful of the number of middleware functions applied globally or to frequently accessed routes.
 
-The order in which middleware is applied matters. SRouter generally applies middleware in this sequence (wrapping the handler from outside-in):
+The order in which middleware is applied matters. SRouter applies middleware by wrapping the final handler. The effective order, from outermost (runs first) to innermost (runs last before handler), based on the internal `wrapHandler` and `registerSubRouter` logic, is:
 
-`Internal Timeout/BodySize -> Global Middleware -> Sub-Router Middleware -> Route Middleware -> Handler`
+1.  **Timeout Middleware** (Applied first if `timeout > 0`)
+2.  **Global Middlewares** (`RouterConfig.Middlewares`, including Trace if enabled)
+3.  **Sub-Router Middlewares** (`SubRouterConfig.Middlewares` for the relevant sub-router)
+4.  **Route-Specific Middlewares** (`RouteConfig.Middlewares`)
+5.  **Rate Limiting Middleware** (Applied internally if `rateLimit` config exists)
+6.  **Authentication Middleware** (Applied internally if `AuthLevel` is `AuthRequired` or `AuthOptional`)
+7.  **Recovery Middleware** (Applied internally)
+8.  **Base Handler Logic** (Internal shutdown check, Max Body Size check)
+9.  **Your Actual Handler** (`http.HandlerFunc` or `GenericHandler`)
 
-Internal middleware (like recovery, authentication checks based on `AuthLevel`, rate limiting checks) are interleaved within this chain. Consult the `router.wrapHandler` (or similar) internal function for the precise execution order if necessary. Middleware defined earlier in a configuration slice (e.g., `RouterConfig.Middlewares`) typically executes *before* middleware defined later in the same slice.
+Note: The `registerSubRouter` function combines sub-router and route-specific middleware before passing the combined list to `wrapHandler`. `wrapHandler` then applies global middleware before this combined list.
+
+Middleware within the *same slice* (e.g., `RouterConfig.Middlewares`) are applied in the order they appear in the slice; the first one in the slice becomes the outermost wrapper. Placing frequently used but potentially short-circuiting middleware (like authentication or rate limiting, though these are often handled internally) earlier in the *effective* chain can improve performance by avoiding unnecessary work in later middleware or the handler itself.
 
 ## Memory Allocation
 

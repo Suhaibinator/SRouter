@@ -27,19 +27,42 @@ func main() {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
-	// Create a router configuration
+	// Define a simple route configuration
+	helloRoute := router.RouteConfigBase{
+		Path:    "/hello", // Path relative to sub-router prefix (root in this case)
+		Methods: []router.HttpMethod{router.MethodGet},
+		Handler: func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"message":"Hello, World!"}`))
+		},
+		// AuthLevel: nil, // Defaults to NoAuth
+	}
+
+	// Create a router configuration, including sub-routers and routes
 	routerConfig := router.RouterConfig{
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
-		// Middlewares can be added here globally
+		// Define sub-routers. Even top-level routes belong to a sub-router (e.g., with an empty prefix).
+		SubRouters: []router.SubRouterConfig{
+			{
+				PathPrefix: "", // Root-level routes
+				Routes: []any{ // Use 'any' slice to hold different route config types
+					helloRoute,
+					// Add more RouteConfigBase or GenericRouteRegistrationFunc here
+				},
+				// Middlewares specific to this sub-router can be added here
+			},
+			// Add more sub-routers here (e.g., { PathPrefix: "/api/v1", Routes: [...] })
+		},
+		// Global middlewares can be added here
 		// Middlewares: []common.Middleware{
 		//  middleware.Logging(logger), // Example: Add logging middleware
 		// },
 	}
 
-	// Define a simple auth function (replace with your actual logic)
-	// This function is passed to NewRouter.
+	// Define the authentication function (replace with your actual logic)
+	// This function is required by NewRouter, even if AuthLevel is NoAuth everywhere.
 	authFunction := func(ctx context.Context, token string) (string, bool) {
 		// Example: Check if token is "valid-token"
 		if token == "valid-token" {
@@ -54,21 +77,11 @@ func main() {
 		return user
 	}
 
-	// Create a router. Authentication logic is provided via functions.
+	// Create the router. Routes are defined within the routerConfig.
 	// The type parameters define the UserID type (string) and User object type (string).
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
-	// Register a simple route
-	r.RegisterRoute(router.RouteConfigBase{
-		Path:    "/hello",
-		Methods: []router.HttpMethod{router.MethodGet},
-		Handler: func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"message":"Hello, World!"}`))
-		},
-	})
-
-	// Start the server
+	// Start the server using the created router as the handler
 	fmt.Println("Server listening on :8080")
 	log.Fatal(http.ListenAndServe(":8080", r))
 }
@@ -77,9 +90,10 @@ func main() {
 Key components:
 
 -   **`RouterConfig`**: Holds global settings like logger, timeouts, body size limits, and global middleware.
--   **`authFunction`**: A function `func(ctx context.Context, token string) (UserIDType, bool)` that validates an authentication token (or other credential) and returns the user ID and a boolean indicating success.
--   **`userIdFromUserFunction`**: A function `func(user UserObjectType) UserIDType` that extracts the comparable User ID from the user object returned by authentication middleware (if applicable).
--   **`NewRouter[UserIDType, UserObjectType]`**: The constructor for the router. The type parameters define the type used for user IDs (`UserIDType`, must be comparable) and the type used for the user object (`UserObjectType`, can be any type) stored in the context after successful authentication.
--   **`RegisterRoute`**: Used to register standard `http.HandlerFunc` routes using `RouteConfigBase`.
+-   **`authFunction`**: A function `func(ctx context.Context, token string) (UserObjectType, bool)` that validates an authentication token (currently expects Bearer token) and returns the user object and a boolean indicating success. Used by the built-in middleware when `AuthLevel` is set.
+-   **`userIdFromUserFunction`**: A function `func(user UserObjectType) UserIDType` that extracts the comparable User ID from the user object returned by `authFunction`. Used by the built-in middleware.
+-   **`NewRouter[UserIDType, UserObjectType]`**: The constructor for the router. The type parameters define the type used for user IDs (`UserIDType`, must be comparable) and the type used for the user object (`UserObjectType`, can be any type) potentially stored in the context.
+-   **`RouterConfig.SubRouters`**: A slice of `SubRouterConfig` where routes are defined. Each `SubRouterConfig` has a `PathPrefix` and a `Routes` slice.
+-   **`RouteConfigBase` / `RouteConfig[T, U]`**: Structs used within the `SubRouterConfig.Routes` slice to define individual routes, their paths (relative to the sub-router prefix), methods, handlers, authentication levels, etc.
 
 See the [Authentication](./authentication.md) and [Configuration Reference](./configuration.md) sections for more details on these components.

@@ -83,9 +83,18 @@ func GetUserHandler(r *http.Request, req GetUserReq) (GetUserResp, error) {
 
 When `NewHTTPError` is returned:
 
-1.  SRouter logs the error message at the appropriate level (Warn for 4xx, Error for 5xx).
+1.  SRouter logs the error message at the appropriate level (Warn for 4xx, Error for 5xx) via the `handleError` method.
 2.  It sets the HTTP response status code to `HTTPError.StatusCode`.
-3.  It writes the `HTTPError.Message` as the response body (often plain text, unless your codec or error handling middleware modifies it).
+3.  It sets the `Content-Type` header to `application/json; charset=utf-8`.
+4.  It writes a JSON response body containing the error message and trace ID (if enabled):
+    ```json
+    {
+      "error": {
+        "message": "Your HTTPError.Message here",
+        "trace_id": "generated-trace-id-if-enabled"
+      }
+    }
+    ```
 
 ## Error Handling Reference
 

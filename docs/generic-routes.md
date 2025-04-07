@@ -20,12 +20,12 @@ type CreateUserResp struct {
 }
 
 // Define a generic handler function
-// It takes the http.Request and the decoded request object (type T)
+ // It takes the http.Request and the decoded request object (type T)
  // It returns the response object (type U) and an error
  func CreateUserHandler(r *http.Request, req CreateUserReq) (CreateUserResp, error) {
   // Access request context if needed, e.g., for UserID, Transaction, etc.
-  // userID, ok := middleware.GetUserIDFromRequest[string, string](r) // Replace types as needed
-  // txInterface, txOK := middleware.GetTransactionFromRequest[string, string](r)
+  // userID, ok := scontext.GetUserIDFromRequest[string, string](r) // Use scontext, replace types as needed
+  // txInterface, txOK := scontext.GetTransactionFromRequest[string, string](r) // Use scontext
   // if txOK { gormTx := txInterface.GetDB() /* use gormTx */ }
 
   fmt.Printf("Received request to create user: Name=%s, Email=%s\n", req.Name, req.Email)
@@ -59,48 +59,50 @@ createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
 
 ## Registering Generic Routes
 
-There are two main ways to register generic routes:
+The **preferred and recommended** way to register generic routes is declaratively within a `SubRouterConfig` using the `NewGenericRouteDefinition` helper function. This ensures that path prefixes, middleware, and configuration overrides (timeout, max body size, rate limit) are correctly applied.
 
-1.  **Declaratively within `SubRouterConfig`:** This is the preferred method for routes belonging to a sub-router. Use the `NewGenericRouteDefinition` helper function.
+```go
+// Define the route configuration (as shown previously)
+createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{ /* ... */ }
 
-    ```go
-    // Inside a SubRouterConfig's Routes slice:
-    apiV1SubRouter := router.SubRouterConfig{
-        PathPrefix: "/api/v1",
-        Routes: []any{
-            // ... other routes
-            router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, string, string](createUserRoute), // Pass the RouteConfig
-        },
-        // ... other sub-router config
-    }
-    ```
-    The last two type parameters (`string, string` in this example) must match the `UserIDType` and `UserObjectType` of your `router.NewRouter` instance.
+// Define the SubRouterConfig
+apiV1SubRouter := router.SubRouterConfig{
+    PathPrefix: "/api/v1",
+    // Middlewares specific to this sub-router can go here
+    Routes: []any{
+        // ... other routes (RouteConfigBase or other NewGenericRouteDefinition calls) ...
 
-2.  **Directly on the Router Instance:** Use this for routes that don't belong to a sub-router.
+        // Use NewGenericRouteDefinition to wrap the generic RouteConfig.
+        // The last two type parameters (string, string) must match the
+        // UserIDType and UserObjectType used in NewRouter[UserIDType, UserObjectType].
+        router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, string, string](createUserRoute),
+    },
+    // TimeoutOverride, MaxBodySizeOverride, RateLimitOverride can be set here
+}
 
-    ```go
-    // Assuming 'r' is your router.Router[string, string] instance
-    // Note: You need to provide effective settings (timeout, max body size, rate limit)
-    // which are usually the global defaults (0/nil) when registering directly.
-    err := router.RegisterGenericRoute[CreateUserReq, CreateUserResp, string, string](
-        r,
-        createUserRoute, // The RouteConfig defined earlier
-        r.Config.GlobalTimeout,     // Effective timeout
-        r.Config.GlobalMaxBodySize, // Effective max body size
-        r.Config.GlobalRateLimit,   // Effective rate limit
-    )
-    if err != nil {
-        log.Fatalf("Failed to register generic route: %v", err)
-    }
-    ```
-    Again, the last two type parameters (`string, string`) must match your router's types. The `RegisterGenericRoute` function requires the *effective* configuration values (timeout, max body size, rate limit) that apply to this route. When registering directly on the root router, these are typically the global defaults from the `RouterConfig`.
+// This SubRouterConfig is then included in the main RouterConfig.SubRouters slice
+// passed to router.NewRouter.
+routerConfig := router.RouterConfig{
+    // ... Logger, GlobalTimeout, etc. ...
+    SubRouters: []router.SubRouterConfig{
+        apiV1SubRouter,
+        // Potentially other sub-routers (e.g., for root path: { PathPrefix: "", Routes: [...] })
+    },
+    // ...
+}
+
+// Create the router
+// r := router.NewRouter[string, string](routerConfig, authFunc, userIDFunc)
+```
+
+**Note on Direct Registration:** While a `router.RegisterGenericRoute` function exists, it's primarily used internally by `NewGenericRouteDefinition`. Direct use is discouraged as it bypasses the sub-router configuration logic (path prefixing, middleware application, override calculation) and requires manual calculation and passing of effective settings, which can be error-prone. Always prefer the declarative approach using `NewGenericRouteDefinition` within `SubRouterConfig`.
 
 ## Key Components
 
 -   **`RouteConfig[T, U]`**: Defines the configuration for a generic route, including path, methods, auth level, codec, handler, and overrides.
 -   **`GenericHandler[T, U]`**: The function signature `func(*http.Request, T) (U, error)`. It receives the `http.Request` (for accessing context, headers, etc.) and the decoded request object `T`. It returns the response object `U` and an `error`. If the error is non-nil, SRouter handles sending the appropriate HTTP error response (using `router.HTTPError` for specific status codes).
 -   **`Codec[T, U]`**: An interface responsible for decoding the request (`T`) and encoding the response (`U`). See [Custom Codecs](./codecs.md).
--   **`NewGenericRouteDefinition`**: A helper function used within `SubRouterConfig.Routes` to wrap a `RouteConfig[T, U]` for declarative registration.
--   **`RegisterGenericRoute`**: Function to register a generic route directly on the router instance.
+-   **`NewGenericRouteDefinition`**: The **recommended** helper function used within `SubRouterConfig.Routes` to wrap a `RouteConfig[T, U]` for declarative registration, ensuring proper application of sub-router settings.
+-   **`RegisterGenericRoute`**: An internal function called by `NewGenericRouteDefinition`. Direct use is discouraged.
 
 Using generic routes significantly improves type safety and developer experience when dealing with structured request and response data.
