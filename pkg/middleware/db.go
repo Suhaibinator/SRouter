@@ -3,21 +3,11 @@ package middleware
 import (
 	"errors" // Import errors
 
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Import scontext
 	"gorm.io/gorm"
 )
 
-// DatabaseTransaction defines an interface for essential transaction control methods.
-// This allows mocking transaction behavior for testing purposes.
-type DatabaseTransaction interface {
-	Commit() error
-	Rollback() error
-	SavePoint(name string) error
-	RollbackTo(name string) error
-	// GetDB returns the underlying GORM DB instance for direct use when needed.
-	GetDB() *gorm.DB
-}
-
-// GormTransactionWrapper wraps a *gorm.DB instance to implement the DatabaseTransaction interface.
+// GormTransactionWrapper wraps a *gorm.DB instance to implement the scontext.DatabaseTransaction interface.
 // This is necessary because GORM's methods like Commit return *gorm.DB for chaining,
 // which doesn't match the interface signature aiming for simple error returns.
 type GormTransactionWrapper struct {
@@ -69,5 +59,5 @@ func (w *GormTransactionWrapper) GetDB() *gorm.DB {
 	return w.DB
 }
 
-// Ensure GormTransactionWrapper implements DatabaseTransaction (compile-time check).
-var _ DatabaseTransaction = (*GormTransactionWrapper)(nil)
+// Ensure GormTransactionWrapper implements scontext.DatabaseTransaction (compile-time check).
+var _ scontext.DatabaseTransaction = (*GormTransactionWrapper)(nil) // Use scontext.DatabaseTransaction

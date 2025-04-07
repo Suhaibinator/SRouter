@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	// Removed: "github.com/Suhaibinator/SRouter/pkg/middleware"
 	"go.uber.org/zap"
 )
 
@@ -119,18 +119,20 @@ type MetricsConfig struct {
 // RouterConfig defines the global configuration for the router.
 // It includes settings for logging, timeouts, metrics, and middleware.
 type RouterConfig struct {
-	Logger             *zap.Logger                           // Logger for all router operations
-	GlobalTimeout      time.Duration                         // Default response timeout for all routes
-	GlobalMaxBodySize  int64                                 // Default maximum request body size in bytes
-	GlobalRateLimit    *middleware.RateLimitConfig[any, any] // Default rate limit for all routes
-	IPConfig           *middleware.IPConfig                  // Configuration for client IP extraction
-	EnableMetrics      bool                                  // Enable metrics collection
-	TraceIDBufferSize  int                                   // Buffer size for trace ID generator (0 disables trace ID)
-	PrometheusConfig   *PrometheusConfig                     // Prometheus metrics configuration (optional, deprecated)
-	MetricsConfig      *MetricsConfig                        // Metrics configuration (optional)
-	SubRouters         []SubRouterConfig                     // Sub-routers with their own configurations
-	Middlewares        []common.Middleware                   // Global middlewares applied to all routes
-	AddUserObjectToCtx bool                                  // Add user object to context
+	Logger              *zap.Logger                       // Logger for all router operations
+	GlobalTimeout       time.Duration                     // Default response timeout for all routes
+	GlobalMaxBodySize   int64                             // Default maximum request body size in bytes
+	GlobalRateLimit     *common.RateLimitConfig[any, any] // Use common.RateLimitConfig // Default rate limit for all routes
+	IPConfig            *IPConfig                         // Configuration for client IP extraction
+	EnableMetrics       bool                              // Enable metrics collection
+	EnableTraceLogging  bool                              // Enable trace logging
+	TraceLoggingUseInfo bool                              // Use Info level for trace logging
+	TraceIDBufferSize   int                               // Buffer size for trace ID generator (0 disables trace ID)
+	PrometheusConfig    *PrometheusConfig                 // Prometheus metrics configuration (optional, deprecated)
+	MetricsConfig       *MetricsConfig                    // Metrics configuration (optional)
+	SubRouters          []SubRouterConfig                 // Sub-routers with their own configurations
+	Middlewares         []common.Middleware               // Global middlewares applied to all routes
+	AddUserObjectToCtx  bool                              // Add user object to context
 }
 
 // GenericRouteRegistrationFunc defines the function signature for registering a generic route declaratively.
@@ -141,12 +143,12 @@ type GenericRouteRegistrationFunc[T comparable, U any] func(r *Router[T, U], sr 
 // SubRouterConfig defines configuration for a group of routes with a common path prefix.
 // This allows for organizing routes into logical groups and applying shared configuration.
 type SubRouterConfig struct {
-	PathPrefix          string                                // Common path prefix for all routes in this sub-router
-	TimeoutOverride     time.Duration                         // Override global timeout for all routes in this sub-router
-	MaxBodySizeOverride int64                                 // Override global max body size for all routes in this sub-router
-	RateLimitOverride   *middleware.RateLimitConfig[any, any] // Override global rate limit for all routes in this sub-router
-	Routes              []any                                 // Routes in this sub-router. Can contain RouteConfigBase or GenericRouteRegistrationFunc.
-	Middlewares         []common.Middleware                   // Middlewares applied to all routes in this sub-router
+	PathPrefix          string                            // Common path prefix for all routes in this sub-router
+	TimeoutOverride     time.Duration                     // Override global timeout for all routes in this sub-router
+	MaxBodySizeOverride int64                             // Override global max body size for all routes in this sub-router
+	RateLimitOverride   *common.RateLimitConfig[any, any] // Use common.RateLimitConfig // Override global rate limit for all routes in this sub-router
+	Routes              []any                             // Routes in this sub-router. Can contain RouteConfigBase or GenericRouteRegistrationFunc.
+	Middlewares         []common.Middleware               // Middlewares applied to all routes in this sub-router
 	// SubRouters is a slice of nested sub-routers
 	// This allows for creating a hierarchy of sub-routers
 	SubRouters []SubRouterConfig // Nested sub-routers
@@ -156,31 +158,31 @@ type SubRouterConfig struct {
 // RouteConfigBase defines the base configuration for a route without generics.
 // It includes settings for path, HTTP methods, authentication, timeouts, and middleware.
 type RouteConfigBase struct {
-	Path        string                                // Route path (will be prefixed with sub-router path prefix if applicable)
-	Methods     []HttpMethod                          // HTTP methods this route handles (use constants like MethodGet)
-	AuthLevel   *AuthLevel                            // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired). If nil, inherits from sub-router or defaults to NoAuth.
-	Timeout     time.Duration                         // Override timeout for this specific route
-	MaxBodySize int64                                 // Override max body size for this specific route
-	RateLimit   *middleware.RateLimitConfig[any, any] // Rate limit for this specific route
-	Handler     http.HandlerFunc                      // Standard HTTP handler function
-	Middlewares []common.Middleware                   // Middlewares applied to this specific route
+	Path        string                            // Route path (will be prefixed with sub-router path prefix if applicable)
+	Methods     []HttpMethod                      // HTTP methods this route handles (use constants like MethodGet)
+	AuthLevel   *AuthLevel                        // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired). If nil, inherits from sub-router or defaults to NoAuth.
+	Timeout     time.Duration                     // Override timeout for this specific route
+	MaxBodySize int64                             // Override max body size for this specific route
+	RateLimit   *common.RateLimitConfig[any, any] // Use common.RateLimitConfig // Rate limit for this specific route
+	Handler     http.HandlerFunc                  // Standard HTTP handler function
+	Middlewares []common.Middleware               // Middlewares applied to this specific route
 }
 
 // RouteConfig defines a route with generic request and response types.
 // It extends RouteConfigBase with type parameters for request and response data,
 // allowing for strongly-typed handlers and automatic marshaling/unmarshaling.
 type RouteConfig[T any, U any] struct {
-	Path        string                                // Route path (will be prefixed with sub-router path prefix if applicable)
-	Methods     []HttpMethod                          // HTTP methods this route handles (use constants like MethodGet)
-	AuthLevel   *AuthLevel                            // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired). If nil, inherits from sub-router or defaults to NoAuth.
-	Timeout     time.Duration                         // Override timeout for this specific route
-	MaxBodySize int64                                 // Override max body size for this specific route
-	RateLimit   *middleware.RateLimitConfig[any, any] // Rate limit for this specific route
-	Codec       Codec[T, U]                           // Codec for marshaling/unmarshaling request and response
-	Handler     GenericHandler[T, U]                  // Generic handler function
-	Middlewares []common.Middleware                   // Middlewares applied to this specific route
-	SourceType  SourceType                            // How to retrieve request data (defaults to Body)
-	SourceKey   string                                // Query parameter name (only used for query parameters)
+	Path        string                            // Route path (will be prefixed with sub-router path prefix if applicable)
+	Methods     []HttpMethod                      // HTTP methods this route handles (use constants like MethodGet)
+	AuthLevel   *AuthLevel                        // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired). If nil, inherits from sub-router or defaults to NoAuth.
+	Timeout     time.Duration                     // Override timeout for this specific route
+	MaxBodySize int64                             // Override max body size for this specific route
+	RateLimit   *common.RateLimitConfig[any, any] // Use common.RateLimitConfig // Rate limit for this specific route
+	Codec       Codec[T, U]                       // Codec for marshaling/unmarshaling request and response
+	Handler     GenericHandler[T, U]              // Generic handler function
+	Middlewares []common.Middleware               // Middlewares applied to this specific route
+	SourceType  SourceType                        // How to retrieve request data (defaults to Body)
+	SourceKey   string                            // Query parameter name (only used for query parameters)
 }
 
 // Middleware is an alias for common.Middleware.

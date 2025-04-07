@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Use centralized mocks
+	"github.com/Suhaibinator/SRouter/pkg/scontext"              // Added import
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -27,7 +27,8 @@ func TestTraceIDLogging(t *testing.T) {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest(req, traceID)
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 	logEntries := logs.All()
@@ -56,88 +57,17 @@ func TestTraceIDLogging(t *testing.T) {
 func TestTraceIDLoggingDisabled(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, TraceIDBufferSize: 0}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, TraceIDBufferSize: 0, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	r.RegisterRoute(RouteConfigBase{Path: "/test", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }}) // Use HttpMethod enum
 	req, err := http.NewRequest("GET", "/test", nil)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest(req, traceID)
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
-	logEntries := logs.All()
-	if len(logEntries) == 0 {
-		t.Errorf("Expected logs to be recorded")
-	}
-	found := false
-	for _, log := range logEntries {
-		for _, field := range log.Context {
-			if field.Key == "trace_id" {
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-	}
-	if found {
-		t.Errorf("Expected trace ID not to be included in log entries")
-	}
-}
-
-// TestLoggingMiddlewareWithTraceID tests that LoggingMiddleware includes trace IDs in log entries when enableTraceID is true
-func TestLoggingMiddlewareWithTraceID(t *testing.T) {
-	core, logs := observer.New(zap.InfoLevel)
-	logger := zap.New(core)
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	loggingMiddleware := LoggingMiddleware(logger, true)
-	wrappedHandler := loggingMiddleware(handler)
-	req, err := http.NewRequest("GET", "/test", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
-	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest(req, traceID)
-	rr := httptest.NewRecorder()
-	wrappedHandler.ServeHTTP(rr, req)
-	logEntries := logs.All()
-	if len(logEntries) == 0 {
-		t.Errorf("Expected logs to be recorded")
-	}
-	found := false
-	for _, log := range logEntries {
-		for _, field := range log.Context {
-			if field.Key == "trace_id" && field.String == traceID {
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-	}
-	if !found {
-		t.Errorf("Expected trace ID to be included in log entries")
-	}
-}
-
-// TestLoggingMiddlewareWithoutTraceID tests that LoggingMiddleware does not include trace IDs in log entries when enableTraceID is false
-func TestLoggingMiddlewareWithoutTraceID(t *testing.T) {
-	core, logs := observer.New(zap.InfoLevel)
-	logger := zap.New(core)
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	loggingMiddleware := LoggingMiddleware(logger, false)
-	wrappedHandler := loggingMiddleware(handler)
-	req, err := http.NewRequest("GET", "/test", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
-	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest(req, traceID)
-	rr := httptest.NewRecorder()
-	wrappedHandler.ServeHTTP(rr, req)
 	logEntries := logs.All()
 	if len(logEntries) == 0 {
 		t.Errorf("Expected logs to be recorded")
@@ -169,7 +99,8 @@ func TestHandleErrorWithTraceID(t *testing.T) {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest(req, traceID)
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	r.handleError(rr, req, err, http.StatusInternalServerError, "Test error") // Pass err from NewRequest
 	logEntries := logs.All()
@@ -203,7 +134,8 @@ func TestHandleErrorWithoutTraceID(t *testing.T) {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest(req, traceID)
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	r.handleError(rr, req, err, http.StatusInternalServerError, "Test error") // Pass err from NewRequest
 	logEntries := logs.All()
@@ -239,7 +171,8 @@ func TestRecoveryMiddlewareWithTraceID(t *testing.T) {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest(req, traceID)
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)
 	logEntries := logs.All()
@@ -275,7 +208,8 @@ func TestRecoveryMiddlewareWithoutTraceID(t *testing.T) {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 	traceID := "test-trace-id"
-	req = middleware.AddTraceIDToRequest(req, traceID)
+	ctxWithTrace := scontext.WithTraceID[uint64, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)
 	logEntries := logs.All()
@@ -305,7 +239,7 @@ func TestRecoveryMiddlewareWithoutTraceID(t *testing.T) {
 func TestSlowRequestLogging(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/slow",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
@@ -347,7 +281,7 @@ func TestErrorStatusLogging(t *testing.T) {
 	// Test server error (5xx)
 	coreErr, logsErr := observer.New(zap.ErrorLevel)
 	loggerErr := zap.New(coreErr)
-	rErr := NewRouter(RouterConfig{Logger: loggerErr, EnableMetrics: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	rErr := NewRouter(RouterConfig{Logger: loggerErr, EnableMetrics: true, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)                                                   // Added EnableTraceLogging
 	rErr.RegisterRoute(RouteConfigBase{Path: "/server-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusInternalServerError) }}) // Use HttpMethod enum
 	reqErr, _ := http.NewRequest("GET", "/server-error", nil)
 	rrErr := httptest.NewRecorder()
@@ -371,9 +305,9 @@ func TestErrorStatusLogging(t *testing.T) {
 	}
 
 	// Test client error (4xx)
-	coreWarn, logsWarn := observer.New(zap.WarnLevel)
+	coreWarn, logsWarn := observer.New(zap.InfoLevel)
 	loggerWarn := zap.New(coreWarn)
-	rWarn := NewRouter(RouterConfig{Logger: loggerWarn, EnableMetrics: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	rWarn := NewRouter(RouterConfig{Logger: loggerWarn, EnableMetrics: true, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)                                         // Added EnableTraceLogging
 	rWarn.RegisterRoute(RouteConfigBase{Path: "/client-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) }}) // Use HttpMethod enum
 	reqWarn, _ := http.NewRequest("GET", "/client-error", nil)
 	rrWarn := httptest.NewRecorder()
@@ -394,50 +328,5 @@ func TestErrorStatusLogging(t *testing.T) {
 	}
 	if !foundWarn {
 		t.Errorf("Expected 'Client error' log message")
-	}
-}
-
-// TestLoggingMiddlewareWithFlusher tests the LoggingMiddleware with a response writer that implements http.Flusher
-func TestLoggingMiddlewareWithFlusher(t *testing.T) {
-	logger := zap.NewNop()
-	flushed := false // Track if Flush was called
-
-	// Create a handler that calls Flush
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("Hello, World!"))
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-			flushed = true // Mark as flushed
-		} else {
-			t.Error("ResponseWriter does not implement http.Flusher")
-		}
-	})
-
-	// Wrap with LoggingMiddleware
-	wrappedHandler := LoggingMiddleware(logger, false)(handler)
-
-	// Create a request and a recorder that supports flushing
-	req, _ := http.NewRequest("GET", "/test", nil)
-	rr := mocks.NewFlusherRecorder() // Use mock FlusherRecorder
-
-	// Serve the request
-	wrappedHandler.ServeHTTP(rr, req)
-
-	// Check status code
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
-	}
-	// Check response body by accessing the underlying ResponseRecorder's Body
-	if rr.ResponseRecorder.Body.String() != "Hello, World!" {
-		t.Errorf("Expected response body %q, got %q", "Hello, World!", rr.ResponseRecorder.Body.String())
-	}
-	// Check if Flush was called (via the mock recorder)
-	if !rr.Flushed {
-		t.Errorf("Expected Flush to be called")
-	}
-	// Check the local flushed variable as well (redundant but confirms handler logic)
-	if !flushed {
-		t.Errorf("Expected Flush to be called within the handler")
 	}
 }

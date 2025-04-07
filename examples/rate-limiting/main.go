@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/Suhaibinator/SRouter/pkg/common" // Added import
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"go.uber.org/zap"
 )
@@ -171,11 +171,11 @@ func main() {
 				Path:    "/login",
 				Methods: []router.HttpMethod{router.MethodPost},
 				// Strict rate limit for auth endpoints (shared bucket)
-				RateLimit: &middleware.RateLimitConfig[any, any]{
+				RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
 					BucketName:      "auth-endpoints",
 					Limit:           5,
 					Window:          time.Minute,
-					Strategy:        middleware.StrategyUser,
+					Strategy:        common.StrategyUser, // Use common.StrategyUser
 					ExceededHandler: http.HandlerFunc(rateLimitExceededHandler),
 				},
 				Handler: loginHandler,
@@ -191,11 +191,11 @@ func main() {
 				Path:    "/profile",
 				Methods: []router.HttpMethod{router.MethodGet},
 				// User-based rate limiting
-				RateLimit: &middleware.RateLimitConfig[any, any]{
+				RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
 					BucketName: "user-profile",
 					Limit:      10,
 					Window:     time.Minute,
-					Strategy:   middleware.StrategyUser,
+					Strategy:   common.StrategyUser, // Use common.StrategyUser
 				},
 				Middlewares: []router.Middleware{
 					authMiddleware,
@@ -206,11 +206,11 @@ func main() {
 				Path:    "/public",
 				Methods: []router.HttpMethod{router.MethodGet},
 				// IP-based rate limiting
-				RateLimit: &middleware.RateLimitConfig[any, any]{
+				RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
 					BucketName: "public-endpoints",
 					Limit:      20,
 					Window:     time.Minute,
-					Strategy:   middleware.StrategyIP,
+					Strategy:   common.StrategyIP, // Use common.StrategyIP
 				},
 				Handler: publicEndpointHandler,
 			},
@@ -221,15 +221,15 @@ func main() {
 	routerConfig := router.RouterConfig{
 		Logger: logger,
 		// Global rate limit (applies to all routes)
-		GlobalRateLimit: &middleware.RateLimitConfig[any, any]{
+		GlobalRateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
 			BucketName: "global",
 			Limit:      100,
 			Window:     time.Minute,
-			Strategy:   middleware.StrategyIP,
+			Strategy:   common.StrategyIP, // Use common.StrategyIP
 		},
 		// Configure IP extraction to use X-Forwarded-For header
-		IPConfig: &middleware.IPConfig{
-			Source:     middleware.IPSourceXForwardedFor,
+		IPConfig: &router.IPConfig{ // Use router.IPConfig
+			Source:     router.IPSourceXForwardedFor, // Use router.IPSourceXForwardedFor
 			TrustProxy: true,
 		},
 		// Add subrouters to the configuration

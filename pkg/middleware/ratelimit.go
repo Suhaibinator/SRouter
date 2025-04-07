@@ -2,71 +2,61 @@
 package middleware
 
 import (
+	"errors" // Added for error handling
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/Suhaibinator/SRouter/pkg/common"   // Import common for shared types
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Use scontext for context functions
 	"go.uber.org/ratelimit"
 	"go.uber.org/zap"
 )
 
-type RateLimitStrategy int
+// Note: RateLimitStrategy, RateLimiter, RateLimitConfig moved to pkg/common/types.go
 
-const (
-	// StrategyIP uses the client's IP address as the key for rate limiting
-	StrategyIP RateLimitStrategy = iota
-	// StrategyUser uses the authenticated user's ID as the key for rate limiting
-	StrategyUser
-	// StrategyCustom uses a custom key extractor function for rate limiting
-	StrategyCustom
-)
-
-// RateLimiter defines the interface for rate limiting algorithms
-type RateLimiter interface {
-	// Allow checks if a request is allowed based on the key and rate limit config
-	// Returns true if the request is allowed, false otherwise
-	// Also returns the number of remaining requests and time until reset
-	Allow(key string, limit int, window time.Duration) (bool, int, time.Duration)
-}
-
-// UberRateLimiter implements RateLimiter using Uber's ratelimit library
+// UberRateLimiter implements common.RateLimiter using Uber's ratelimit library (leaky bucket).
 type UberRateLimiter struct {
 	limiters sync.Map // map[string]ratelimit.Limiter
-	mu       sync.Mutex
 }
 
-// NewUberRateLimiter creates a new rate limiter using Uber's ratelimit library
+// NewUberRateLimiter creates a new rate limiter using Uber's ratelimit library.
 func NewUberRateLimiter() *UberRateLimiter {
 	return &UberRateLimiter{}
 }
 
-// getLimiter gets or creates a limiter for the given key and rate
+// getLimiter gets or creates a limiter for the given key and rate (requests per second).
+// It uses a composite key including the RPS to handle different rate limits for the same base key.
 func (u *UberRateLimiter) getLimiter(key string, rps int) ratelimit.Limiter {
-	if limiter, ok := u.limiters.Load(key); ok {
+	compositeKey := fmt.Sprintf("%s-%d", key, rps) // Combine key and rps
+
+	// Fast path: Check if limiter already exists.
+	if limiter, ok := u.limiters.Load(compositeKey); ok {
 		return limiter.(ratelimit.Limiter)
 	}
 
-	u.mu.Lock()
-	defer u.mu.Unlock()
+	// Slow path: Limiter doesn't exist, create a new one.
+	newLimiter := ratelimit.New(rps)
 
-	// Double-check after acquiring lock
-	if limiter, ok := u.limiters.Load(key); ok {
-		return limiter.(ratelimit.Limiter)
-	}
+	// Atomically load or store.
+	// - If compositeKey already exists (due to concurrent creation), LoadOrStore loads and returns the existing value.
+	// - If compositeKey doesn't exist, LoadOrStore stores newLimiter and returns it.
+	actualLimiter, _ := u.limiters.LoadOrStore(compositeKey, newLimiter)
 
-	// Create new limiter
-	limiter := ratelimit.New(rps)
-	u.limiters.Store(key, limiter)
-	return limiter
+	// Return the actual limiter stored in the map (either the existing one or the new one).
+	return actualLimiter.(ratelimit.Limiter)
 }
 
-// Allow checks if a request is allowed based on the key and rate limit config
-// This implementation uses only the leaky bucket algorithm for simplicity and efficiency
+// Ensure UberRateLimiter implements the common.RateLimiter interface.
+var _ common.RateLimiter = (*UberRateLimiter)(nil)
+
+// Allow checks if a request is allowed based on the key and rate limit config.
+// This implementation uses the leaky bucket algorithm.
 func (u *UberRateLimiter) Allow(key string, limit int, window time.Duration) (bool, int, time.Duration) {
-	// Convert limit and window to RPS
+	// Convert limit and window to Requests Per Second (RPS) for Uber's limiter.
+	// Ensure RPS is at least 1.
 	rps := int(float64(limit) / window.Seconds())
 	if rps < 1 {
 		rps = 1
@@ -74,103 +64,36 @@ func (u *UberRateLimiter) Allow(key string, limit int, window time.Duration) (bo
 
 	limiter := u.getLimiter(key, rps)
 
-	// Take from the limiter
+	// Take() blocks until a token is available or returns immediately if available.
+	// It returns the time when the next token will be available.
 	now := time.Now()
-	next := limiter.Take()
+	nextAvailable := limiter.Take()
+	waitTime := nextAvailable.Sub(now)
 
-	// Calculate remaining based on time until next permit
-	remaining := int(float64(limit) * (1 - next.Sub(now).Seconds()/window.Seconds()))
+	// Estimate remaining tokens based on the wait time relative to the window.
+	// This is an approximation for leaky bucket.
+	remaining := int(float64(limit) * (1 - waitTime.Seconds()/window.Seconds()))
 	if remaining < 0 {
 		remaining = 0
 	}
 
-	// If the wait is too long, deny the request
-	if next.Sub(now) > time.Second {
-		return false, remaining, next.Sub(now)
+	// If the wait time is significant (e.g., > 1ms, indicating actual rate limiting), deny.
+	// Uber's Take() might return a time slightly in the future even if not strictly limited.
+	// A small threshold helps distinguish actual limiting from minor clock differences.
+	// If waitTime is 0 or very small, the request is allowed.
+	allowed := waitTime <= time.Millisecond // Allow if wait time is negligible
+
+	// Reset time is the duration until the next token is available.
+	resetDuration := waitTime
+	if resetDuration < 0 {
+		resetDuration = 0 // Cannot reset in the past
 	}
 
-	return true, remaining, window
+	return allowed, remaining, resetDuration
 }
 
-// extractIP extracts the client IP address from the request context
-// If the IP is not in the context, it falls back to the old method
-func extractIP[T comparable, U any](r *http.Request, logger *zap.Logger) string {
-	// Try to get the IP from the context first (set by ClientIPMiddleware)
-	if ip := ClientIP[T, U](r); ip != "" {
-		return ip
-	}
-
-	// Log a warning that we're using the fallback mechanism
-	if logger != nil {
-		logger.Warn("IP middleware not properly configured or applied before rate limiting",
-			zap.String("method", r.Method),
-			zap.String("path", r.URL.Path),
-			zap.String("remote_addr", r.RemoteAddr),
-		)
-	}
-
-	// Fall back to the old method for backward compatibility
-	// This should not be needed if ClientIPMiddleware is properly configured
-	// Try X-Forwarded-For header first
-	ip := r.Header.Get("X-Forwarded-For")
-	if ip != "" {
-		// The leftmost IP is the original client
-		ips := strings.Split(ip, ",")
-		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
-		}
-	}
-
-	// Try X-Real-IP header next
-	ip = r.Header.Get("X-Real-IP")
-	if ip != "" {
-		return ip
-	}
-
-	// Fall back to RemoteAddr
-	return r.RemoteAddr
-}
-
-// RateLimitConfig defines configuration for rate limiting with generic type parameters
-// The type parameter T represents the user ID type, which can be any comparable type.
-// The type parameter U represents the user type, which can be any type.
-type RateLimitConfig[T comparable, U any] struct {
-	// Unique identifier for this rate limit bucket
-	// If multiple routes/subrouters share the same BucketName, they share the same rate limit
-	BucketName string
-
-	// Maximum number of requests allowed in the time window
-	Limit int
-
-	// Time window for the rate limit (e.g., 1 minute, 1 hour)
-	Window time.Duration
-
-	// Strategy for identifying clients (IP, User, Custom)
-	// - "ip": Use client IP address
-	// - "user": Use authenticated user ID
-	// - "custom": Use a custom key extractor
-	Strategy RateLimitStrategy
-
-	// Function to extract user ID from user object (only used when Strategy is StrategyUser)
-	// This allows for efficient user ID extraction without trying multiple types
-	UserIDFromUser func(U) T
-
-	// Function to convert user ID to string (only used when Strategy is StrategyUser)
-	// This allows for efficient user ID conversion without type assertions
-	UserIDToString func(T) string
-
-	// Custom key extractor function (used when Strategy is "custom")
-	// This allows for complex rate limiting scenarios
-	KeyExtractor func(*http.Request) (string, error)
-
-	// Response to send when rate limit is exceeded
-	// If nil, a default 429 Too Many Requests response is sent
-	ExceededHandler http.Handler
-}
-
-// convertUserIDToString converts a user ID of any comparable type to a string
+// convertUserIDToString provides default conversions for common comparable types to string.
 func convertUserIDToString[T comparable](userID T) string {
-	// Use type assertion to convert the user ID to a string
 	switch v := any(userID).(type) {
 	case string:
 		return v
@@ -178,164 +101,238 @@ func convertUserIDToString[T comparable](userID T) string {
 		return strconv.Itoa(v)
 	case int64:
 		return strconv.FormatInt(v, 10)
-	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64)
-	case bool:
-		return strconv.FormatBool(v)
+	// Add other common types as needed (e.g., uint, uint64)
 	default:
-		// For other types, use the String() method if available
-		if stringer, ok := any(userID).(interface{ String() string }); ok {
+		// Fallback for types implementing fmt.Stringer or using fmt.Sprint
+		if stringer, ok := any(userID).(fmt.Stringer); ok {
 			return stringer.String()
 		}
 		return fmt.Sprint(userID)
 	}
 }
 
-// extractUser extracts the user ID from the request context using generic type parameters
-func extractUser[T comparable, U any](r *http.Request, config *RateLimitConfig[T, U]) string {
-	// Get the user from the context
-	user, userOk := GetUserFromRequest[T, U](r)
-	if !userOk || user == nil {
-		// If no user is found, try to get the user ID directly
-		userID, ok := GetUserIDFromRequest[T, U](r)
-		if !ok {
-			return ""
-		}
-
-		// Convert the user ID to string using the provided function
-		if config.UserIDToString != nil {
-			return config.UserIDToString(userID)
-		}
-
-		// Fall back to default conversion
-		return convertUserIDToString(userID)
+// extractUserKey extracts the user-based key (as a string) from the request context.
+// It prioritizes the user object if UserIDFromUser is provided, otherwise uses the user ID directly.
+// Returns an empty string if no user information is found or conversion fails.
+func extractUserKey[T comparable, U any](r *http.Request, config *common.RateLimitConfig[T, U]) (string, error) { // Use common.RateLimitConfig
+	if config.UserIDToString == nil {
+		return "", errors.New("UserIDToString function is required for StrategyUser")
 	}
 
-	// Extract the user ID from the user object using the provided function
-	if config.UserIDFromUser != nil {
-		userID := config.UserIDFromUser(*user)
-
-		// Convert the user ID to string using the provided function
-		if config.UserIDToString != nil {
-			return config.UserIDToString(userID)
+	// Try getting the full user object first
+	user, userOk := scontext.GetUserFromRequest[T, U](r) // Use scontext
+	if userOk && user != nil {
+		if config.UserIDFromUser == nil {
+			// Cannot extract ID from user object without UserIDFromUser function
+			// Try falling back to UserID directly
+		} else {
+			userID := config.UserIDFromUser(*user)
+			return config.UserIDToString(userID), nil
 		}
-
-		// Fall back to default conversion
-		return convertUserIDToString(userID)
 	}
 
-	// If no user ID extraction function is provided, return an empty string
-	return ""
+	// Fallback: Try getting the user ID directly from context
+	userID, idOk := scontext.GetUserIDFromRequest[T, U](r) // Use scontext
+	if idOk {
+		// Use the provided conversion function
+		return config.UserIDToString(userID), nil
+	}
+
+	// No user information found in context
+	return "", nil // Return empty key, let the caller decide how to handle (e.g., fallback to IP)
 }
 
-// RateLimit creates a middleware that enforces rate limits using generic type parameters
-// The type parameter T represents the user ID type, which can be any comparable type.
-// The type parameter U represents the user type, which can be any type.
-func RateLimit[T comparable, U any](config *RateLimitConfig[T, U], limiter RateLimiter, logger *zap.Logger) func(http.Handler) http.Handler {
+// RateLimit creates a middleware that enforces rate limits based on the provided configuration.
+// T is the User ID type (comparable).
+// U is the User object type (any).
+//
+// IMPORTANT: When using common.StrategyIP, ensure that router.ClientIPMiddleware is applied *before* this middleware in the chain.
+func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limiter common.RateLimiter, logger *zap.Logger) common.Middleware { // Use common types and common.Middleware
+	// Input validation
+	if config == nil {
+		// Return a no-op middleware if config is nil
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				next.ServeHTTP(w, r)
+			})
+		}
+	}
+	if limiter == nil {
+		panic("RateLimit middleware requires a non-nil RateLimiter") // Or return an error-logging middleware
+	}
+	if logger == nil {
+		logger = zap.NewNop() // Use a no-op logger if none provided
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip rate limiting if config is nil
-			if config == nil {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			// Extract key based on strategy
 			var key string
 			var err error
+			var strategyUsed string // For logging
 
 			switch config.Strategy {
-			case StrategyIP:
-				key = extractIP[T, U](r, logger)
-			case StrategyUser:
-				key = extractUser(r, config)
-				// If no user is found and strategy is user, fall back to IP
-				if key == "" {
-					key = extractIP[T, U](r, logger)
-				}
-			case StrategyCustom:
-				if config.KeyExtractor != nil {
-					key, err = config.KeyExtractor(r)
-					if err != nil {
-						logger.Error("Failed to extract rate limit key",
-							zap.Error(err),
-							zap.String("method", r.Method),
-							zap.String("path", r.URL.Path),
-						)
-						http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-						return
-					}
+			case common.StrategyIP: // Use common.StrategyIP
+				strategyUsed = "IP"
+				// Get IP from context (must be set by router.ClientIPMiddleware)
+				ip, ipFound := scontext.GetClientIP[T, U](r.Context()) // Use scontext
+				if !ipFound || ip == "" {
+					logger.Error("Client IP not found in context for StrategyIP rate limiting. Ensure router.ClientIPMiddleware is applied first.",
+						zap.String("method", r.Method),
+						zap.String("path", r.URL.Path),
+					)
+					// Decide how to handle: block, allow, or use RemoteAddr as unsafe fallback?
+					// Using RemoteAddr might be okay for basic DoS protection but not accurate behind proxies.
+					// For now, let's use RemoteAddr as a fallback but log prominently.
+					key = r.RemoteAddr // Unsafe fallback
+					logger.Warn("Falling back to RemoteAddr for StrategyIP rate limiting.", zap.String("remote_addr", key))
 				} else {
-					// If no key extractor is provided, fall back to IP
-					key = extractIP[T, U](r, logger)
+					key = ip
 				}
+
+			case common.StrategyUser: // Use common.StrategyUser
+				strategyUsed = "User"
+				key, err = extractUserKey(r, config)
+				if err != nil {
+					logger.Error("Failed to extract user key for rate limiting",
+						zap.Error(err),
+						zap.String("method", r.Method),
+						zap.String("path", r.URL.Path),
+					)
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+					return
+				}
+				// If no user key found, fall back to IP strategy as a safety measure
+				if key == "" {
+					strategyUsed = "User (fallback to IP)"
+					ip, ipFound := scontext.GetClientIP[T, U](r.Context()) // Use scontext
+					if !ipFound || ip == "" {
+						key = r.RemoteAddr // Unsafe fallback
+						logger.Warn("User key not found, falling back to RemoteAddr for rate limiting.", zap.String("remote_addr", key))
+					} else {
+						key = ip
+						logger.Info("User key not found, falling back to ClientIP from context for rate limiting.", zap.String("client_ip", key))
+					}
+				}
+
+			case common.StrategyCustom: // Use common.StrategyCustom
+				strategyUsed = "Custom"
+				if config.KeyExtractor == nil {
+					logger.Error("KeyExtractor function is required for StrategyCustom rate limiting.",
+						zap.String("method", r.Method),
+						zap.String("path", r.URL.Path),
+					)
+					http.Error(w, "Internal Server Error: Rate limit configuration error", http.StatusInternalServerError)
+					return
+				}
+				key, err = config.KeyExtractor(r)
+				if err != nil {
+					logger.Error("Custom KeyExtractor failed",
+						zap.Error(err),
+						zap.String("method", r.Method),
+						zap.String("path", r.URL.Path),
+					)
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+					return
+				}
+				// If custom extractor returns empty key, maybe fallback? Or treat as error?
+				if key == "" {
+					logger.Error("Custom KeyExtractor returned an empty key.",
+						zap.String("method", r.Method),
+						zap.String("path", r.URL.Path),
+					)
+					http.Error(w, "Internal Server Error: Rate limit key error", http.StatusInternalServerError)
+					return
+				}
+
 			default:
-				key = extractIP[T, U](r, logger)
+				// Treat unknown strategy as IP-based, but log a warning
+				strategyUsed = "Unknown (defaulting to IP)"
+				logger.Warn("Unknown rate limit strategy specified, defaulting to IP.",
+					zap.Int("strategy_value", int(config.Strategy)),
+				)
+				ip, ipFound := scontext.GetClientIP[T, U](r.Context()) // Use scontext
+				if !ipFound || ip == "" {
+					key = r.RemoteAddr // Unsafe fallback
+					logger.Warn("Defaulting to RemoteAddr for rate limiting due to unknown strategy.", zap.String("remote_addr", key))
+				} else {
+					key = ip
+				}
 			}
 
-			// Combine bucket name and key to create a unique identifier
+			// Combine bucket name and key for the final limiter key
 			bucketKey := config.BucketName + ":" + key
 
 			// Check rate limit
 			allowed, remaining, reset := limiter.Allow(bucketKey, config.Limit, config.Window)
 
-			// Set rate limit headers
+			// Set rate limit headers regardless of outcome
 			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(config.Limit))
 			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
-			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(reset).Unix(), 10))
+			// Reset is duration until reset, convert to Unix timestamp
+			resetTimestamp := time.Now().Add(reset).Unix()
+			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetTimestamp, 10))
 
-			// If rate limit exceeded
-			if !allowed {
-				w.Header().Set("Retry-After", strconv.FormatInt(int64(reset.Seconds()), 10))
+			if allowed {
+				// Call the next handler if allowed
+				next.ServeHTTP(w, r)
+			} else {
+				// Rate limit exceeded
+				// Set Retry-After header (seconds)
+				retryAfterSeconds := int64(reset.Seconds())
+				if retryAfterSeconds < 1 {
+					retryAfterSeconds = 1 // Minimum 1 second
+				}
+				w.Header().Set("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
 
-				// Use custom handler if provided, otherwise return 429
+				logger.Warn("Rate limit exceeded",
+					zap.String("bucket", config.BucketName),
+					zap.String("key", key), // Log the actual key used (IP, user ID, custom)
+					zap.String("strategy", strategyUsed),
+					zap.Int("limit", config.Limit),
+					zap.Duration("window", config.Window),
+					zap.Int("remaining", remaining),
+					zap.Duration("reset_duration", reset),
+					zap.String("method", r.Method),
+					zap.String("path", r.URL.Path),
+				)
+
+				// Use custom handler or default 429 response
 				if config.ExceededHandler != nil {
 					config.ExceededHandler.ServeHTTP(w, r)
 				} else {
-					http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+					http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
 				}
-
-				logger.Warn("Rate limit exceeded",
-					zap.String("method", r.Method),
-					zap.String("path", r.URL.Path),
-					zap.String("key", key),
-					zap.Int("limit", config.Limit),
-					zap.Int("remaining", remaining),
-				)
-
-				return
+				// Do not call next handler
 			}
-
-			// Headers are already set above
-
-			// Call the next handler
-			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-// CreateRateLimitMiddleware is a helper function to create a rate limit middleware with generic type parameters
-// This function is useful when you want to create a rate limit middleware with a specific user ID type and user type
-// The type parameter T represents the user ID type, which can be any comparable type.
-// The type parameter U represents the user type, which can be any type.
+// CreateRateLimitMiddleware provides a simplified way to create a RateLimit middleware instance.
+// T is the User ID type (comparable).
+// U is the User object type (any).
+//
+// Deprecated: Prefer configuring common.RateLimitConfig directly and calling RateLimit for more clarity and flexibility.
 func CreateRateLimitMiddleware[T comparable, U any](
 	bucketName string,
 	limit int,
 	window time.Duration,
-	strategy RateLimitStrategy,
-	userIDFromUser func(U) T,
-	userIDToString func(T) string,
+	strategy common.RateLimitStrategy, // Use common.RateLimitStrategy
+	userIDFromUser func(U) T, // Optional, only for StrategyUser with user object
+	userIDToString func(T) string, // Required for StrategyUser
 	logger *zap.Logger,
-) func(http.Handler) http.Handler {
-	config := &RateLimitConfig[T, U]{
+) common.Middleware { // Use common.Middleware
+	config := &common.RateLimitConfig[T, U]{ // Use common.RateLimitConfig
 		BucketName:     bucketName,
 		Limit:          limit,
 		Window:         window,
 		Strategy:       strategy,
 		UserIDFromUser: userIDFromUser,
 		UserIDToString: userIDToString,
+		// KeyExtractor and ExceededHandler are left nil
 	}
 
+	// Use the default UberRateLimiter
 	limiter := NewUberRateLimiter()
 
 	return RateLimit(config, limiter, logger)

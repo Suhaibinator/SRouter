@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
 	"go.uber.org/zap"
 )
 
@@ -136,7 +137,7 @@ func AuthenticationWithProvider[T comparable, U any](
 			}
 
 			// Store the user ID in the SRouterContext
-			ctx := WithUserID[T, U](r.Context(), userID)
+			ctx := scontext.WithUserID[T, U](r.Context(), userID) // Use scontext
 
 			// Call next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -165,7 +166,7 @@ func Authentication[T comparable, U any](
 			}
 
 			// Store the user ID in the SRouterContext
-			ctx := WithUserID[T, U](r.Context(), userID)
+			ctx := scontext.WithUserID[T, U](r.Context(), userID) // Use scontext
 
 			// Call next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -195,7 +196,7 @@ func AuthenticationBool[T comparable, U any](
 			}
 
 			// Store the flag in the SRouterContext
-			ctx := WithFlag[T, U](r.Context(), flagName, true)
+			ctx := scontext.WithFlag[T, U](r.Context(), flagName, true) // Use scontext
 
 			// Call next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -353,7 +354,7 @@ func AuthenticationWithUserProvider[T comparable, U any](
 			}
 
 			// Store the user object in the SRouterContext
-			ctx := WithUser[T](r.Context(), user)
+			ctx := scontext.WithUser[T](r.Context(), user) // Use scontext
 
 			// Call next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -377,7 +378,7 @@ func AuthenticationWithUser[T comparable, U any](
 			}
 
 			// Store the user object in the SRouterContext
-			ctx := WithUser[T](r.Context(), user)
+			ctx := scontext.WithUser[T](r.Context(), user) // Use scontext
 
 			// Call next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))

@@ -1,12 +1,13 @@
-// Package middleware provides a collection of HTTP middleware components for the SRouter framework.
-package middleware
+package router
 
 import (
 	"net/http"
 	"strings"
+
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Updated import
 )
 
-// IPSourceType defines the source for client IP addresses
+// IPSourceType defines the source for client IP addresses.
 type IPSourceType string
 
 const (
@@ -23,9 +24,9 @@ const (
 	IPSourceCustomHeader IPSourceType = "custom_header"
 )
 
-// IPConfig defines configuration for IP extraction
+// IPConfig defines configuration for IP extraction.
 type IPConfig struct {
-	// Source specifies where to extract the client IP from
+	// Source specifies where to extract the client IP from.
 	Source IPSourceType
 
 	// CustomHeader is the name of the custom header to use when Source is IPSourceCustomHeader
@@ -36,55 +37,45 @@ type IPConfig struct {
 	TrustProxy bool
 }
 
-// DefaultIPConfig returns the default IP configuration
+// DefaultIPConfig returns the default IP configuration.
 func DefaultIPConfig() *IPConfig {
 	return &IPConfig{
-		Source:     IPSourceXForwardedFor,
-		TrustProxy: true,
+		Source:     IPSourceXForwardedFor, // Default to checking X-Forwarded-For
+		TrustProxy: true,                  // Trust proxy headers by default
 	}
-}
-
-// ClientIP extracts the client IP from the request context
-// First checks the SRouterContext, then falls back to the legacy context key
-func ClientIP[T comparable, U any](r *http.Request) string {
-	// First check if we have IP in the SRouterContext
-	if ip, ok := GetClientIPFromRequest[T, U](r); ok {
-		return ip
-	}
-
-	return ""
 }
 
 // ClientIPMiddleware creates a middleware that extracts the client IP from the request
-// and adds it to the SRouterContext with specific type parameters.
+// and adds it to the SRouterContext.
 // T is the User ID type (comparable), U is the User object type (any).
-//
-// This implementation uses the SRouterContext approach with specific type parameters, making it
-// useful when working with strongly typed middleware chains. It stores the IP address only
-// in the SRouterContext wrapper, avoiding context nesting issues.
+// It stores the IP address in the SRouterContext.
 func ClientIPMiddleware[T comparable, U any](config *IPConfig) func(http.Handler) http.Handler {
+	// Use default config if none provided
 	if config == nil {
 		config = DefaultIPConfig()
 	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Extract the client IP based on the configured source
+			// Extract the client IP based on the configuration
 			clientIP := extractClientIP(r, config)
 
-			// Add the client IP to the SRouterContext with proper type parameters
-			ctx := WithClientIP[T, U](r.Context(), clientIP)
+			// Add the client IP to the SRouterContext
+			ctx := scontext.WithClientIP[T, U](r.Context(), clientIP) // Use scontext
 
-			// Call the next handler with the updated request
+			// Call the next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-// extractClientIP extracts the client IP from the request based on the configuration
+// extractClientIP extracts the client IP address from the request based on the IPConfig.
 func extractClientIP(r *http.Request, config *IPConfig) string {
 	var ip string
-
+	if config == nil {
+		return cleanIP(r.RemoteAddr)
+	}
+	// Determine IP based on configured source
 	switch config.Source {
 	case IPSourceXForwardedFor:
 		ip = extractIPFromXForwardedFor(r)

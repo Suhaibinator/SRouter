@@ -1,45 +1,45 @@
-// Package middleware provides a collection of HTTP middleware components for the SRouter framework.
-package middleware
+package scontext
 
 import (
 	"context"
 	"net/http"
+
+	"gorm.io/gorm" // Needed for DatabaseTransaction
 )
 
 // sRouterContextKey is a private type for the context key to avoid collisions
 type sRouterContextKey struct{}
 
+// DatabaseTransaction defines an interface for essential transaction control methods.
+// This allows mocking transaction behavior for testing purposes.
+// Note: Moved from middleware/db.go to avoid import cycle if db needed context.
+// Consider if this interface truly belongs here or in a db-specific package. For now, placing here to resolve cycle.
+type DatabaseTransaction interface {
+	Commit() error
+	Rollback() error
+	SavePoint(name string) error
+	RollbackTo(name string) error
+	GetDB() *gorm.DB
+}
+
 // SRouterContext holds all values that SRouter adds to request contexts.
-// It allows storing multiple types of values with only a single level of context nesting,
-// solving the problem of deep context nesting which occurs when multiple middleware
-// components each add their own values to the context.
-//
 // T is the User ID type (comparable), U is the User object type (any).
-// This structure centralizes all context values that middleware components need to store
-// or access, providing a cleaner and more efficient approach than using multiple separate
-// context keys.
 type SRouterContext[T comparable, U any] struct {
-	// User ID and User object storage
 	UserID T
 	User   *U
 
-	// Trace ID for tracing
 	TraceID string
 
-	// Client IP address
 	ClientIP string
 
-	// Database transaction
 	Transaction DatabaseTransaction
 
-	// Track which fields are set
 	UserIDSet      bool
 	UserSet        bool
 	ClientIPSet    bool
 	TraceIDSet     bool
 	TransactionSet bool
 
-	// Additional flags
 	Flags map[string]bool
 }
 
@@ -183,4 +183,31 @@ func GetTransaction[T comparable, U any](ctx context.Context) (DatabaseTransacti
 // GetTransactionFromRequest is a convenience function to get the transaction from a request
 func GetTransactionFromRequest[T comparable, U any](r *http.Request) (DatabaseTransaction, bool) {
 	return GetTransaction[T, U](r.Context())
+}
+
+// WithTraceID adds a trace ID to the SRouterContext in the provided context.
+func WithTraceID[T comparable, U any](ctx context.Context, traceID string) context.Context {
+	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	// If TraceID is already set, do not overwrite it.
+	if rc.TraceIDSet {
+		return ctx
+	}
+	// Otherwise, set the trace ID and the flag.
+	rc.TraceID = traceID
+	rc.TraceIDSet = true
+	return ctx
+}
+
+// GetTraceIDFromContext extracts the trace ID from the SRouterContext within a context.
+func GetTraceIDFromContext[T comparable, U any](ctx context.Context) string {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok || !rc.TraceIDSet {
+		return ""
+	}
+	return rc.TraceID
+}
+
+// GetTraceIDFromRequest is a convenience function to get the trace ID from a request.
+func GetTraceIDFromRequest[T comparable, U any](r *http.Request) string {
+	return GetTraceIDFromContext[T, U](r.Context())
 }

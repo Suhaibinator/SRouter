@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
 	"go.uber.org/zap"
 )
 
@@ -72,7 +72,7 @@ func userHandler(req *http.Request, data UserRequest) (UserResponse, error) {
 // Generic handler for profile that accesses user information from the request context
 func profileHandler(req *http.Request, data ProfileRequest) (ProfileResponse, error) {
 	// Get the user ID from the request context
-	userID, loggedIn := middleware.GetUserIDFromRequest[string, string](req)
+	userID, loggedIn := scontext.GetUserIDFromRequest[string, string](req) // Use scontext
 
 	// Create a response with the user information
 	response := ProfileResponse{

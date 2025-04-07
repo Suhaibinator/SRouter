@@ -77,8 +77,11 @@ func TestMetrics(t *testing.T) {
 
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
-		Logger:        logger,
-		EnableMetrics: true,
+		Logger:              logger,
+		EnableMetrics:       true,
+		EnableTraceLogging:  true,
+		TraceLoggingUseInfo: true,
+		TraceIDBufferSize:   1000, // Enable trace ID with buffer size of 1000
 	}, authFunction, userIdFromUserFunction)
 
 	// Register a route
@@ -174,8 +177,10 @@ func TestTracing(t *testing.T) {
 
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
-		Logger:            logger,
-		TraceIDBufferSize: 1000, // Enable trace ID with buffer size of 1000
+		Logger:              logger,
+		TraceIDBufferSize:   1000, // Enable trace ID with buffer size of 1000
+		EnableTraceLogging:  true,
+		TraceLoggingUseInfo: true,
 	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser) // Use mock functions
 
 	// Register a route
@@ -232,8 +237,8 @@ func TestTracing(t *testing.T) {
 			if log.Context[1].Key != "path" || log.Context[1].String != "/test" {
 				t.Errorf("Expected path field to be %q, got %q", "/test", log.Context[1].String)
 			}
-			if log.Context[2].Key != "remote_addr" || log.Context[2].String != "127.0.0.1:1234" {
-				t.Errorf("Expected remote_addr field to be %q, got %q", "127.0.0.1:1234", log.Context[2].String)
+			if log.Context[2].Key != "ip" || log.Context[2].String != "127.0.0.1" {
+				t.Errorf("Expected ip field to be %q, got %q", "127.0.0.1", log.Context[2].String)
 			}
 			if log.Context[3].Key != "user_agent" || log.Context[3].String != "test-agent" {
 				t.Errorf("Expected user_agent field to be %q, got %q", "test-agent", log.Context[3].String)

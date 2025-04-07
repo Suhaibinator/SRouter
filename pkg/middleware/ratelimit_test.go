@@ -2,12 +2,15 @@ package middleware
 
 import (
 	"errors" // Need to import errors package
+	"fmt"
 	"io"
-	"net/http"
+	"net/http" // Import http
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/Suhaibinator/SRouter/pkg/common"   // Import common for RateLimitConfig etc.
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Import scontext
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -30,11 +33,17 @@ func TestUberRateLimiter(t *testing.T) {
 		t.Errorf("Expected remaining to be positive, got %d", remaining)
 	}
 
-	// Test that the limiter is reusing the same limiter for the same key
+	// Test that the limiter is reusing the same limiter for the same key and rps
 	limiter.Allow(key, limit, window)
-	_, exists := limiter.limiters.Load(key)
+	// Calculate expected RPS and composite key
+	rps1 := int(float64(limit) / window.Seconds())
+	if rps1 < 1 {
+		rps1 = 1
+	}
+	compositeKey1 := fmt.Sprintf("%s-%d", key, rps1)
+	_, exists := limiter.limiters.Load(compositeKey1)
 	if !exists {
-		t.Errorf("Expected limiter to be stored for key %s", key)
+		t.Errorf("Expected limiter to be stored for composite key %s", compositeKey1)
 	}
 
 	// Test with a different key
@@ -47,10 +56,16 @@ func TestUberRateLimiter(t *testing.T) {
 		t.Errorf("Expected remaining to be positive, got %d", remaining)
 	}
 
-	// Test that the limiter is storing different limiters for different keys
-	_, exists = limiter.limiters.Load(otherKey)
+	// Test that the limiter is storing different limiters for different keys (with the same rps)
+	// Calculate expected RPS and composite key for the other key
+	rps2 := int(float64(limit) / window.Seconds()) // Same limit/window as first test
+	if rps2 < 1 {
+		rps2 = 1
+	}
+	compositeKey2 := fmt.Sprintf("%s-%d", otherKey, rps2)
+	_, exists = limiter.limiters.Load(compositeKey2)
 	if !exists {
-		t.Errorf("Expected limiter to be stored for key %s", otherKey)
+		t.Errorf("Expected limiter to be stored for composite key %s", compositeKey2)
 	}
 
 	// Test with different limit and window
@@ -63,37 +78,26 @@ func TestUberRateLimiter(t *testing.T) {
 	if remaining <= 0 {
 		t.Errorf("Expected remaining to be positive, got %d", remaining)
 	}
+
+	// Also test that the new limiter with different rps is stored
+	rps3 := int(float64(differentLimit) / differentWindow.Seconds())
+	if rps3 < 1 {
+		rps3 = 1
+	}
+	compositeKey3 := fmt.Sprintf("%s-%d", key, rps3)
+	_, exists = limiter.limiters.Load(compositeKey3)
+	if !exists {
+		t.Errorf("Expected limiter to be stored for composite key %s (different limit/window)", compositeKey3)
+	}
 }
 
 func TestRateLimitExtractIP(t *testing.T) {
-	// Create a nil logger for testing
-	var logger *zap.Logger = nil
-
-	// Test with X-Forwarded-For header
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("X-Forwarded-For", "192.168.1.1, 10.0.0.1")
-	ip := extractIP[uint64, string](req, logger)
-	if ip != "192.168.1.1" {
-		t.Errorf("Expected IP to be 192.168.1.1, got %s", ip)
-	}
-
-	// Test with X-Real-IP header
-	req = httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("X-Real-IP", "192.168.1.2")
-	ip = extractIP[uint64, string](req, logger)
-	if ip != "192.168.1.2" {
-		t.Errorf("Expected IP to be 192.168.1.2, got %s", ip)
-	}
-
-	// Test with RemoteAddr
-	req = httptest.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "192.168.1.3:1234"
-	ip = extractIP[uint64, string](req, logger)
-	if ip != "192.168.1.3:1234" {
-		t.Errorf("Expected IP to be 192.168.1.3:1234, got %s", ip)
-	}
+	// Note: The internal extractIP function was removed from ratelimit.go.
+	// Testing IP extraction logic should be done in pkg/router/ip_test.go.
+	// This test is removed as it tested an internal, now removed, function.
 }
 
+// TestConvertUserIDToString tests the internal helper function (still present in ratelimit.go)
 func TestConvertUserIDToString(t *testing.T) {
 	// Test with string
 	str := convertUserIDToString("user123")
@@ -154,12 +158,12 @@ func TestRateLimitMiddleware(t *testing.T) {
 	// Create a mock rate limiter
 	mockLimiter := &TestRateLimiter{}
 
-	// Create a rate limit config with IP strategy
-	config := &RateLimitConfig[string, any]{
+	// Create a rate limit config with IP strategy (using common types)
+	config := &common.RateLimitConfig[string, any]{
 		BucketName: "test-bucket",
 		Limit:      2, // Set a low limit for testing
 		Window:     time.Second,
-		Strategy:   StrategyIP,
+		Strategy:   common.StrategyIP, // Use common.StrategyIP
 	}
 
 	// Create the middleware
@@ -230,12 +234,12 @@ func TestRateLimitMiddlewareCustomStrategySuccess(t *testing.T) {
 	// Define the custom key to be returned
 	customKey := "my-custom-key"
 
-	// Create a rate limit config with Custom strategy and a successful KeyExtractor
-	config := &RateLimitConfig[string, any]{
+	// Create a rate limit config with Custom strategy and a successful KeyExtractor (using common types)
+	config := &common.RateLimitConfig[string, any]{
 		BucketName: "test-bucket-custom-success",
 		Limit:      2, // Low limit for testing
 		Window:     time.Second,
-		Strategy:   StrategyCustom,
+		Strategy:   common.StrategyCustom, // Use common.StrategyCustom
 		KeyExtractor: func(r *http.Request) (string, error) {
 			return customKey, nil // Return the custom key successfully
 		},
@@ -296,19 +300,20 @@ func TestRateLimitMiddlewareCustomStrategySuccess(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareCustomStrategyNilExtractor(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewDevelopment()
+	// Create a logger with an observer to capture logs
+	core, observed := observer.New(zap.ErrorLevel) // Capture Error level logs
+	logger := zap.New(core)
 
-	// Create a mock rate limiter
-	mockLimiter := &TestRateLimiter{} // Reuse mock
+	// Create a mock rate limiter (it shouldn't be called)
+	mockLimiter := &TestRateLimiter{}
 
-	// Create a rate limit config with Custom strategy but nil KeyExtractor
-	config := &RateLimitConfig[string, any]{
+	// Create a rate limit config with Custom strategy but nil KeyExtractor (using common types)
+	config := &common.RateLimitConfig[string, any]{
 		BucketName:   "test-bucket-custom-nil",
 		Limit:        2, // Low limit for testing
 		Window:       time.Second,
-		Strategy:     StrategyCustom,
-		KeyExtractor: nil, // Explicitly nil
+		Strategy:     common.StrategyCustom, // Use common.StrategyCustom
+		KeyExtractor: nil,                   // Explicitly nil
 	}
 
 	// Create the middleware
@@ -326,42 +331,28 @@ func TestRateLimitMiddlewareCustomStrategyNilExtractor(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
-	// Make requests (should behave like IP strategy)
+	// Make a request (should fail immediately with 500)
 	client := &http.Client{}
-
-	// First request should succeed
 	resp, err := client.Get(server.URL)
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
-	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 
-	// Second request should succeed
-	resp, err = client.Get(server.URL)
-	if err != nil {
-		t.Fatalf("Failed to make request: %v", err)
+	// Verify the status code is Internal Server Error
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("Expected status code %d, got %d", http.StatusInternalServerError, resp.StatusCode)
 	}
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
-	}
-	resp.Body.Close()
 
-	// Third request should fail
-	resp, err = client.Get(server.URL)
-	if err != nil {
-		t.Fatalf("Failed to make request: %v", err)
+	// Verify the mock limiter was NOT called
+	if mockLimiter.allowCount != 0 {
+		t.Errorf("Expected Allow to be called 0 times, got %d", mockLimiter.allowCount)
 	}
-	if resp.StatusCode != http.StatusTooManyRequests {
-		t.Errorf("Expected status code %d, got %d", http.StatusTooManyRequests, resp.StatusCode)
-	}
-	resp.Body.Close()
 
-	// Verify the mock limiter was called 3 times
-	if mockLimiter.allowCount != 3 {
-		t.Errorf("Expected Allow to be called 3 times, got %d", mockLimiter.allowCount)
+	// Verify that the error was logged
+	logs := observed.FilterMessage("KeyExtractor function is required for StrategyCustom rate limiting.").All()
+	if len(logs) == 0 {
+		t.Errorf("Expected log message 'KeyExtractor function is required...' was not found")
 	}
 }
 
@@ -376,12 +367,12 @@ func TestRateLimitMiddlewareCustomStrategyError(t *testing.T) {
 	// Define the error to be returned by the key extractor
 	extractorError := errors.New("failed to extract key")
 
-	// Create a rate limit config with Custom strategy and an erroring KeyExtractor
-	config := &RateLimitConfig[string, any]{
+	// Create a rate limit config with Custom strategy and an erroring KeyExtractor (using common types)
+	config := &common.RateLimitConfig[string, any]{
 		BucketName: "test-bucket-custom-error",
 		Limit:      5,
 		Window:     time.Minute,
-		Strategy:   StrategyCustom,
+		Strategy:   common.StrategyCustom, // Use common.StrategyCustom
 		KeyExtractor: func(r *http.Request) (string, error) {
 			return "", extractorError // Always return an error
 		},
@@ -417,9 +408,9 @@ func TestRateLimitMiddlewareCustomStrategyError(t *testing.T) {
 	}
 
 	// Verify that the error was logged
-	logs := observed.FilterMessage("Failed to extract rate limit key").All()
+	logs := observed.FilterMessage("Custom KeyExtractor failed").All() // Corrected log message
 	if len(logs) == 0 {
-		t.Errorf("Expected log message 'Failed to extract rate limit key' was not found")
+		t.Errorf("Expected log message 'Custom KeyExtractor failed' was not found")
 	} else {
 		// Check if the logged error matches the expected error
 		foundError := false
@@ -453,12 +444,12 @@ func TestRateLimitMiddlewareWithCustomHandler(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error": "custom rate limit exceeded"}`))
 	})
 
-	// Create a rate limit config with IP strategy and custom handler
-	config := &RateLimitConfig[string, any]{
+	// Create a rate limit config with IP strategy and custom handler (using common types)
+	config := &common.RateLimitConfig[string, any]{
 		BucketName:      "test-bucket-custom",
 		Limit:           2, // Set a low limit for testing
 		Window:          time.Second,
-		Strategy:        StrategyIP,
+		Strategy:        common.StrategyIP, // Use common.StrategyIP
 		ExceededHandler: customHandler,
 	}
 
@@ -524,7 +515,7 @@ func TestRateLimitMiddlewareWithCustomHandler(t *testing.T) {
 	}
 }
 
-// TestUser type for testing
+// TestUser type for testing user strategy
 type TestUser struct {
 	ID   string
 	Name string
@@ -537,13 +528,14 @@ func TestRateLimitMiddlewareWithUserStrategy(t *testing.T) {
 	// Create a mock rate limiter
 	mockLimiter := &TestRateLimiter{}
 
-	// Create a rate limit config with User strategy
-	config := &RateLimitConfig[string, TestUser]{
+	// Create a rate limit config with User strategy (using common types)
+	config := &common.RateLimitConfig[string, TestUser]{
 		BucketName:     "test-bucket-user",
 		Limit:          2, // Set a low limit for testing
 		Window:         time.Second,
-		Strategy:       StrategyUser,
+		Strategy:       common.StrategyUser, // Use common.StrategyUser
 		UserIDFromUser: func(u TestUser) string { return u.ID },
+		UserIDToString: func(id string) string { return id }, // Need UserIDToString for StrategyUser
 	}
 
 	// Create the middleware
@@ -557,13 +549,10 @@ func TestRateLimitMiddlewareWithUserStrategy(t *testing.T) {
 	// Wrap the test handler with the middleware
 	handler := middleware(testHandler)
 
-	// Create a test server
+	// Create a test server that adds the user to the context before calling the handler
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Add the user to the context using the new wrapper
 		user := TestUser{ID: "test-user", Name: "Test User"}
-		ctx := WithUser[string](r.Context(), &user)
-
-		// Call the handler with the updated context
+		ctx := scontext.WithUser[string](r.Context(), &user) // Use scontext
 		handler.ServeHTTP(w, r.WithContext(ctx))
 	}))
 	defer server.Close()
@@ -603,14 +592,14 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 	// Create a logger
 	logger, _ := zap.NewDevelopment()
 
-	// Create a rate limit middleware using the helper function
+	// Create a rate limit middleware using the helper function (using common types)
 	middleware := CreateRateLimitMiddleware(
 		"test-bucket-create",
 		2, // Set a low limit for testing
 		time.Second,
-		StrategyUser,
+		common.StrategyUser, // Use common.StrategyUser
 		func(u TestUser) string { return u.ID },
-		nil, // Use default string conversion
+		func(id string) string { return id }, // Provide UserIDToString
 		logger,
 	)
 
@@ -622,13 +611,10 @@ func TestCreateRateLimitMiddleware(t *testing.T) {
 	// Wrap the test handler with the middleware
 	handler := middleware(testHandler)
 
-	// Create a test server
+	// Create a test server that adds the user to the context
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Add the user to the context using the new wrapper
 		user := TestUser{ID: "test-user", Name: "Test User"}
-		ctx := WithUser[string](r.Context(), &user)
-
-		// Call the handler with the updated context
+		ctx := scontext.WithUser[string](r.Context(), &user) // Use scontext
 		handler.ServeHTTP(w, r.WithContext(ctx))
 	}))
 	defer server.Close()
@@ -656,12 +642,12 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 	// Create a mock rate limiter
 	mockLimiter := &TestRateLimiter{}
 
-	// Create a rate limit config with IP strategy
-	config := &RateLimitConfig[uint64, any]{
+	// Create a rate limit config with IP strategy (using common types)
+	config := &common.RateLimitConfig[uint64, any]{
 		BucketName: "test-bucket-ip",
 		Limit:      2, // Set a low limit for testing
 		Window:     time.Second,
-		Strategy:   StrategyIP,
+		Strategy:   common.StrategyIP, // Use common.StrategyIP
 	}
 
 	// Create the rate limit middleware
@@ -672,12 +658,18 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Create a chain of middleware with IP middleware first, then rate limiting
-	ipConfig := DefaultIPConfig()
-	ipMiddleware := ClientIPMiddleware[uint64, any](ipConfig) // Use the variable
+	// Simulate IP Middleware by adding IP to context directly
+	simulatedIPMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Manually add a dummy IP to the context using scontext
+			// In a real scenario, router.ClientIPMiddleware would extract the real IP
+			ctx := scontext.WithClientIP[uint64, any](r.Context(), "192.168.1.100")
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 
-	// Apply the middleware chain: IP middleware -> Rate limit middleware -> Handler
-	handler := ipMiddleware(rateLimitMiddleware(testHandler))
+	// Apply the middleware chain: Simulated IP middleware -> Rate limit middleware -> Handler
+	handler := simulatedIPMiddleware(rateLimitMiddleware(testHandler))
 
 	// Create a test server
 	server := httptest.NewServer(handler)
@@ -721,28 +713,30 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 		}
 	}
 
-	// Now test without IP middleware to verify the warning is logged
+	// Now test without IP middleware to verify the error is logged
+	// Reset observer and mock limiter for the second part
+	observed.TakeAll()
+	mockLimiter.allowCount = 0
+
 	// Create a new test server with only rate limiting middleware
 	serverWithoutIP := httptest.NewServer(rateLimitMiddleware(testHandler))
 	defer serverWithoutIP.Close()
 
 	// Make a request
-	_, err = client.Get(serverWithoutIP.URL)
+	resp, err = client.Get(serverWithoutIP.URL) // Reuse resp variable
 	if err != nil {
-		t.Fatalf("Failed to make request: %v", err)
+		t.Fatalf("Failed to make request to serverWithoutIP: %v", err)
 	}
+	// The request should still pass the limiter initially, but log an error
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status OK even without IP middleware (limiter allows first), got %d", resp.StatusCode)
+	}
+	resp.Body.Close() // Close body
 
-	// Verify that a warning log was generated about IP middleware not being configured
-	logs = observed.All()
-	found := false
-	for _, log := range logs {
-		if log.Message == "IP middleware not properly configured or applied before rate limiting" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("Expected warning log about IP middleware not being configured")
+	// Verify that an error log was generated about IP middleware not being configured
+	errorLogs := observed.FilterMessage("Client IP not found in context for StrategyIP rate limiting. Ensure router.ClientIPMiddleware is applied first.").All()
+	if len(errorLogs) == 0 {
+		t.Errorf("Expected error log about missing Client IP in context")
 	}
 }
 
@@ -753,9 +747,9 @@ func TestRateLimitMiddlewareDefaultStrategy(t *testing.T) {
 	// Create a mock rate limiter
 	mockLimiter := &TestRateLimiter{} // Reuse the mock from other tests
 
-	// Create a rate limit config with an invalid strategy to trigger the default case
-	invalidStrategy := RateLimitStrategy(99) // Use a value not defined in the enum
-	config := &RateLimitConfig[string, any]{
+	// Create a rate limit config with an invalid strategy to trigger the default case (using common types)
+	invalidStrategy := common.RateLimitStrategy(99) // Use a value not defined in the enum
+	config := &common.RateLimitConfig[string, any]{
 		BucketName: "test-bucket-default",
 		Limit:      2, // Set a low limit for testing
 		Window:     time.Second,

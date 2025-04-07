@@ -7,8 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/Suhaibinator/SRouter/pkg/middleware" // Keep for AuthenticationWithUser
 	"github.com/Suhaibinator/SRouter/pkg/router"
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
 	"go.uber.org/zap"
 )
 
@@ -31,7 +32,7 @@ func optionalAuthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Try to get the user from the context
-	user, ok := middleware.GetUserFromRequest[*User, User](r)
+	user, ok := scontext.GetUserFromRequest[*User, User](r) // Use scontext
 	if ok && user != nil {
 		// User is authenticated
 		fmt.Fprintf(w, `{"message":"Hello, %s! This route has optional authentication", "authenticated":true}`, user.Name)
@@ -46,7 +47,7 @@ func requiredAuthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Get the user from the context
-	user, ok := middleware.GetUserFromRequest[*User, User](r)
+	user, ok := scontext.GetUserFromRequest[*User, User](r) // Use scontext
 	if !ok || user == nil {
 		// This should not happen since the middleware should have rejected the request
 		http.Error(w, "User not found in context", http.StatusInternalServerError)

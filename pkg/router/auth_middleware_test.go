@@ -6,8 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	mw "github.com/Suhaibinator/SRouter/pkg/middleware"         // Re-add missing import
+	// Keep middleware alias if needed for other types
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Use centralized mocks
+	"github.com/Suhaibinator/SRouter/pkg/scontext"              // Added scontext import
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -56,14 +57,14 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 		// Special handler to check context
 		validTokenHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			handlerCalled = true
-			userID, ok := mw.GetUserIDFromRequest[string, string](r)
+			userID, ok := scontext.GetUserIDFromRequest[string, string](r) // Use scontext
 			if !ok {
 				t.Error("Expected user ID in context, but not found")
 			} else if userID != "user123" {
 				t.Errorf("Expected user ID 'user123', got '%s'", userID)
 			}
 			// Check for user object as well since AddUserObjectToCtx is true
-			userObj, ok := mw.GetUserFromRequest[string, string](r)
+			userObj, ok := scontext.GetUserFromRequest[string, string](r) // Use scontext
 			if !ok {
 				t.Error("Expected user object in context, but not found")
 			} else if userObj == nil || *userObj != "user123" {
@@ -97,7 +98,7 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 			t.Errorf("Expected response body %q, got %q", "OK", rr.Body.String())
 		}
 		// Check context - should not have user ID
-		_, ok := mw.GetUserIDFromRequest[string, string](req)
+		_, ok := scontext.GetUserIDFromRequest[string, string](req) // Use scontext
 		if ok {
 			t.Error("Expected user ID not to be in context, but found")
 		}
@@ -117,7 +118,7 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 			t.Errorf("Expected response body %q, got %q", "OK", rr.Body.String())
 		}
 		// Check context - should not have user ID
-		_, ok := mw.GetUserIDFromRequest[string, string](req)
+		_, ok := scontext.GetUserIDFromRequest[string, string](req) // Use scontext
 		if ok {
 			t.Error("Expected user ID not to be in context, but found")
 		}
@@ -133,7 +134,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := mw.GetUserIDFromRequest[string, string](r)
+		userID, ok := scontext.GetUserIDFromRequest[string, string](r) // Use scontext
 		if !ok {
 			t.Error("Expected user ID to be in context")
 		}
@@ -256,7 +257,9 @@ func TestAuthRequiredMiddlewareWithTraceID(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/test", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
 	traceID := "test-trace-id-required"
-	req = mw.AddTraceIDToRequest(req, traceID) // Add trace ID using middleware package
+	// Replace mw.AddTraceIDToRequest with scontext.WithTraceID
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
+	req = req.WithContext(ctxWithTrace)                                          // Apply the context with trace ID
 
 	rr := httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)
