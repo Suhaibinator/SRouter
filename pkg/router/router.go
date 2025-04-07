@@ -608,6 +608,11 @@ func (rw *metricsResponseWriter[T, U]) Flush() {
 // Shutdown gracefully shuts down the router.
 // It stops accepting new requests and waits for existing requests to complete.
 func (r *Router[T, U]) Shutdown(ctx context.Context) error {
+	// Check if context is already done before proceeding
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	// Mark the router as shutting down
 	r.shutdownMu.Lock()
 	r.shutdown = true
