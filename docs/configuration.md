@@ -1,3 +1,12 @@
+	// EnableTracing enables distributed tracing support (Note: Actual implementation
+	// might be via specific tracing middleware rather than just this flag).
+	EnableTracing bool // Check if still relevant or handled by middleware
+
+	// EnableTraceID enables automatic trace ID generation and injection into the request context.
+	// If true, the router handles trace ID setup internally. Alternatively, set this to false
+	// and explicitly add middleware.TraceMiddleware() to the Middlewares slice.
+	// See docs/trace-logging.md for details.
+	EnableTraceID bool
 # Configuration Reference
 
 This section details the configuration structs used by SRouter.

@@ -20,8 +20,8 @@ SRouter is a high-performance HTTP router for Go that wraps [julienschmidt/httpr
 - **Path Parameters**: Easy access to path parameters via request context
 - **Graceful Shutdown**: Properly handle in-flight requests during shutdown
 - **Flexible Metrics System**: Support for multiple metric formats, custom collectors, and dependency injection
-- **Intelligent Logging**: Appropriate log levels for different types of events
-- **Trace ID Logging**: Automatically generate and include a unique trace ID for each request in all log entries
+- **Intelligent Logging**: Structured logging using `zap` with appropriate log levels for different types of events. Requires a logger instance in config.
+- **Trace ID Logging**: Automatically generate and include a unique trace ID for each request in context and log entries.
 - **Flexible Request Data Sources**: Support for retrieving request data from various sources including request body, query parameters, and path parameters with automatic decoding
 - **Nested SubRouters**: Create hierarchical routing structures.
 - **Declarative Generic Routes**: Define generic routes directly within `SubRouterConfig` for improved clarity.
@@ -60,45 +60,42 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/router"
+	"github.com/Suhaibinator/SRouter/pkg/common" // Import common types
+	"github.com/Suhaibinator/SRouter/pkg/middleware" // Import middleware package
 	"go.uber.org/zap"
-	// "github.com/Suhaibinator/SRouter/pkg/common" // Import if adding specific middleware
-	// "github.com/Suhaibinator/SRouter/pkg/middleware" // Import if adding specific middleware
 )
 
 func main() {
-	// Create a logger
+	// Create a logger (Must provide one)
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
 	// Create a router configuration
 	routerConfig := router.RouterConfig{
-		Logger:            logger,
+		Logger:            logger, // Required
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
-		// Middlewares can be added here globally
-		// Middlewares: []common.Middleware{
-		//  middleware.Logging(logger), // Example: Add logging middleware
-		// },
+		EnableTraceID:     true,    // Enable trace ID logging (recommended)
+		Middlewares: []common.Middleware{
+		 // Add logging middleware if desired (uses the configured logger)
+		 middleware.Logging(logger, false),
+		},
 	}
 
-	// Define a simple auth function (replace with your actual logic)
-	// This function is passed to NewRouter.
+	// Define a simple auth function (replace with your actual logic or use auth middleware)
 	authFunction := func(ctx context.Context, token string) (string, bool) {
-		// Example: Check if token is "valid-token"
 		if token == "valid-token" {
-			return "user-id-from-token", true // Return user ID and true if valid
+			return "user-id-from-token", true
 		}
-		return "", false // Return empty string and false if invalid
+		return "", false
 	}
 
-	// Define a function to extract a comparable UserID from the User object (returned by authFunction)
-	// In this case, the User object is just a string (the user ID itself).
+	// Define a function to extract a comparable UserID from the User object
 	userIdFromUserFunction := func(user string) string {
 		return user
 	}
 
-	// Create a router. Authentication logic is provided via functions.
-	// The type parameters define the UserID type (string) and User object type (string).
+	// Create a router.
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
 	// Register a simple route
@@ -106,6 +103,10 @@ func main() {
 		Path:    "/hello",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
+			// Access trace ID if needed
+			traceID := middleware.GetTraceID(r)
+			logger.Info("Handling /hello", zap.String("trace_id", traceID))
+
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"message":"Hello, World!"}`))
 		},
@@ -166,7 +167,7 @@ apiV2SubRouter := router.SubRouterConfig{
 
 // Create a router with sub-routers
 routerConfig := router.RouterConfig{
-	Logger:            logger,
+	Logger:            logger, // Required
 	GlobalTimeout:     2 * time.Second,
 	GlobalMaxBodySize: 1 << 20, // 1 MB
 	SubRouters: []router.SubRouterConfig{apiV1SubRouter, apiV2SubRouter},
@@ -208,7 +209,7 @@ apiSubRouter := router.SubRouterConfig{
 }
 
 // Register top-level sub-router during NewRouter
-routerConfig := router.RouterConfig{ SubRouters: []router.SubRouterConfig{apiSubRouter}, ... }
+routerConfig := router.RouterConfig{ Logger: logger, SubRouters: []router.SubRouterConfig{apiSubRouter}, ... }
 r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
 // Routes are now registered:
@@ -250,13 +251,13 @@ func CreateUserHandler(r *http.Request, req CreateUserReq) (CreateUserResp, erro
 router.RegisterGenericRoute[CreateUserReq, CreateUserResp, string, string](r, router.RouteConfig[CreateUserReq, CreateUserResp]{
  Path:        "/standalone/users",
  Methods:     []router.HttpMethod{router.MethodPost},
- AuthLevel:   router.AuthRequired,
+ AuthLevel:   router.Ptr(router.AuthRequired), // Use Ptr helper
  Codec:       codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
  Handler:     CreateUserHandler,
 }, time.Duration(0), int64(0), nil) // Pass zero/nil for effective settings
 ```
 
-Note that the `RegisterGenericRoute` function takes five type parameters: the request type, the response type, the user ID type, and the user object type. The last two should match the type parameters of your router. It also requires effective timeout, max body size, and rate limit values, which are typically zero/nil when registering directly on the root router. Use `RegisterGenericRouteOnSubRouter` for routes belonging to sub-routers.
+Note that the `RegisterGenericRoute` function takes five type parameters: the request type, the response type, the user ID type, and the user object type. The last two should match the type parameters of your router. It also requires effective timeout, max body size, and rate limit values, which are typically zero/nil when registering directly on the root router. Use `NewGenericRouteDefinition` within `SubRouterConfig.Routes` for routes belonging to sub-routers.
 
 ### Using Path Parameters
 
@@ -268,60 +269,62 @@ func GetUserHandler(w http.ResponseWriter, r *http.Request) {
  id := router.GetParam(r, "id")
 
  // Use the ID to fetch the user
- user := fetchUser(id)
+ // user := fetchUser(id)
 
  // Return the user as JSON
  w.Header().Set("Content-Type", "application/json")
- json.NewEncoder(w).Encode(user)
+ // json.NewEncoder(w).Encode(user)
+ fmt.Fprintf(w, `{"id": "%s"}`, id) // Example response
 }
 ```
 
 ### Trace ID Logging
 
-SRouter provides built-in support for trace ID logging, which allows you to correlate log entries across different parts of your application for a single request. Each request is assigned a unique trace ID (UUID) that is automatically included in all log entries related to that request.
+SRouter provides built-in support for trace ID logging, which allows you to correlate log entries across different parts of your application for a single request. Each request is assigned a unique trace ID (UUID) that is automatically included in all log entries related to that request if logging middleware is used.
 
 #### Enabling Trace ID Logging
 
-There are two ways to enable trace ID logging:
+Trace ID generation and injection into the context can be enabled in one of two ways (using both is redundant):
 
-1. Using the `EnableTraceID` configuration option:
+1. **Via `RouterConfig` (Recommended):** Set `EnableTraceID: true`.
 
 ```go
 // Create a router with trace ID logging enabled
 routerConfig := router.RouterConfig{
-    Logger:        logger,
-    EnableTraceID: true, // Enable trace ID logging
+    Logger:        logger, // Required
+    EnableTraceID: true,   // Enable trace ID generation and context injection
     // Other configuration...
 }
-
 r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 ```
 
-2. Using the `TraceMiddleware`:
+2. **Via `TraceMiddleware` (Explicit):** Add `middleware.TraceMiddleware()` to your global middleware chain (usually first).
 
 ```go
 // Create a router with trace middleware
 routerConfig := router.RouterConfig{
+    Logger: logger, // Required
     Middlewares: []common.Middleware{
         middleware.TraceMiddleware(), // Add this as the first middleware
+        middleware.Logging(logger, false), // Logging middleware will pick up the trace ID
         // Other middleware...
     },
     // Other configuration...
 }
-
 r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 ```
 
 #### Accessing the Trace ID
 
-You can access the trace ID in your handlers and middleware:
+You can access the trace ID in your handlers and middleware using helpers from `pkg/middleware`:
 
 ```go
 func myHandler(w http.ResponseWriter, r *http.Request) {
     // Get the trace ID
     traceID := middleware.GetTraceID(r)
 
-    // Use the trace ID
+    // Use the trace ID in logs or downstream requests
+    logger.Info("Processing request", zap.String("trace_id", traceID))
     fmt.Printf("Processing request with trace ID: %s\n", traceID)
 
     // ...
@@ -330,7 +333,7 @@ func myHandler(w http.ResponseWriter, r *http.Request) {
 
 #### Propagating the Trace ID to Downstream Services
 
-If your application calls other services, you can propagate the trace ID to maintain the request trace across service boundaries:
+If your application calls other services, you should propagate the trace ID to maintain the request trace across service boundaries:
 
 ```go
 func callDownstreamService(r *http.Request) {
@@ -338,10 +341,12 @@ func callDownstreamService(r *http.Request) {
     traceID := middleware.GetTraceID(r)
 
     // Create a new request to the downstream service
-    req, _ := http.NewRequest("GET", "https://api.example.com/data", nil)
+    req, _ := http.NewRequestWithContext(r.Context(), "GET", "https://api.example.com/data", nil)
 
-    // Add the trace ID to the request headers
-    req.Header.Set("X-Trace-ID", traceID)
+    // Add the trace ID to the request headers (e.g., X-Trace-ID)
+    if traceID != "" {
+        req.Header.Set("X-Trace-ID", traceID)
+    }
 
     // Make the request
     client := &http.Client{}
@@ -374,6 +379,7 @@ See the `examples/trace-logging` directory for a complete example of trace ID lo
 SRouter provides a `Shutdown` method for graceful shutdown:
 
 ```go
+// Assume 'r' is your configured SRouter instance
 // Create a server
 srv := &http.Server{
  Addr:    ":8080",
@@ -387,24 +393,26 @@ go func() {
  }
 }()
 
-// Wait for interrupt signal
+// Wait for interrupt signal (Ctrl+C or SIGTERM)
 quit := make(chan os.Signal, 1)
-signal.Notify(quit, os.Interrupt)
+signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 <-quit
+log.Println("Shutting down server...")
 
 // Create a deadline to wait for
 ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 defer cancel()
 
-// Shut down the router
+// Shut down the router first (signals internal components like rate limiter)
 if err := r.Shutdown(ctx); err != nil {
- log.Fatalf("Router shutdown failed: %v", err)
+ log.Printf("SRouter shutdown failed: %v\n", err)
 }
 
-// Shut down the server
+// Shut down the HTTP server (stops accepting new connections, waits for active requests)
 if err := srv.Shutdown(ctx); err != nil {
  log.Fatalf("Server shutdown failed: %v", err)
 }
+log.Println("Server exited gracefully")
 ```
 
 See the `examples/graceful-shutdown` directory for a complete example of graceful shutdown.
@@ -421,7 +429,7 @@ routerConfig := router.RouterConfig{
     // ... other config
     IPConfig: &middleware.IPConfig{
         Source:     middleware.IPSourceXForwardedFor,
-        TrustProxy: true,
+        TrustProxy: true, // Only if your proxy reliably sets this header
     },
 }
 ```
@@ -441,7 +449,7 @@ routerConfig := router.RouterConfig{
     // ... other config
     IPConfig: &middleware.IPConfig{
         Source:       middleware.IPSourceCustomHeader,
-        CustomHeader: "X-Client-IP",
+        CustomHeader: "CF-Connecting-IP", // Example: Cloudflare header
         TrustProxy:   true,
     },
 }
@@ -451,8 +459,8 @@ routerConfig := router.RouterConfig{
 
 The `TrustProxy` setting determines whether to trust proxy headers:
 
-- If `true`, the specified source will be used to extract the client IP
-- If `false` or if the specified source doesn't contain an IP, the request's RemoteAddr will be used as a fallback
+- If `true`, the specified source will be used to extract the client IP.
+- If `false` or if the specified source doesn't contain an IP, the request's RemoteAddr will be used as a fallback.
 
 This is important for security, as malicious clients could potentially spoof headers if your application blindly trusts them.
 
@@ -469,21 +477,21 @@ SRouter provides a flexible rate limiting system that can be configured at the g
 routerConfig := router.RouterConfig{
     // ... other config
     GlobalRateLimit: &middleware.RateLimitConfig[any, any]{ // Use [any, any] for global/sub-router config
-        BucketName: "global",
-        Limit:      100,
-        Window:     time.Minute,
+        BucketName: "global_ip_limit",
+        Limit:      100, // requests
+        Window:     time.Minute, // per minute
         Strategy:   middleware.RateLimitStrategyIP, // Use constants
     },
 }
 
-// Create a sub-router with rate limiting
+// Create a sub-router with rate limiting override
 subRouter := router.SubRouterConfig{
     PathPrefix: "/api/v1",
     RateLimitOverride: &middleware.RateLimitConfig[any, any]{ // Use [any, any]
-        BucketName: "api-v1",
+        BucketName: "api_v1_user_limit",
         Limit:      50,
-        Window:     time.Minute,
-        Strategy:   middleware.RateLimitStrategyIP,
+        Window:     time.Hour,
+        Strategy:   middleware.RateLimitStrategyUser, // Requires auth middleware first
     },
     // ... other config
 }
@@ -493,7 +501,7 @@ route := router.RouteConfig[MyReq, MyResp]{ // Use specific types for route conf
     Path:    "/users",
     Methods: []router.HttpMethod{router.MethodPost},
     RateLimit: &middleware.RateLimitConfig[any, any]{ // Use [any, any] here too
-        BucketName: "create-user",
+        BucketName: "create_user_ip_limit",
         Limit:      10,
         Window:     time.Minute,
         Strategy:   middleware.RateLimitStrategyIP,
@@ -532,19 +540,19 @@ RateLimit: &middleware.RateLimitConfig[any, any]{
 
 ```go
 RateLimit: &middleware.RateLimitConfig[any, any]{
-    BucketName: "custom",
+    BucketName: "custom_api_key",
     Limit:      20,
     Window:     time.Minute,
     Strategy:   middleware.RateLimitStrategyCustom,
     KeyExtractor: func(r *http.Request) (string, error) {
-        // Extract API key from query parameter
-        apiKey := r.URL.Query().Get("api_key")
+        // Extract API key from header
+        apiKey := r.Header.Get("X-API-Key")
         if apiKey == "" {
             // Fall back to IP if no API key is provided
             ip, _ := middleware.GetClientIPFromRequest[string, string](r) // Adjust types as needed
-            return ip, nil
+            return "ip:"+ip, nil // Prefix to avoid collisions
         }
-        return apiKey, nil
+        return "key:"+apiKey, nil // Prefix to avoid collisions
     },
 }
 ```
@@ -559,7 +567,7 @@ loginRoute := router.RouteConfigBase{
     Path:    "/login",
     Methods: []router.HttpMethod{router.MethodPost},
     RateLimit: &middleware.RateLimitConfig[any, any]{
-        BucketName: "auth-endpoints", // Shared bucket name
+        BucketName: "auth_ip_limit", // Shared bucket name
         Limit:      5,
         Window:     time.Minute,
         Strategy:   middleware.RateLimitStrategyIP,
@@ -572,8 +580,8 @@ registerRoute := router.RouteConfigBase{
     Path:    "/register",
     Methods: []router.HttpMethod{router.MethodPost},
     RateLimit: &middleware.RateLimitConfig[any, any]{
-        BucketName: "auth-endpoints", // Same bucket name as login
-        Limit:      5,
+        BucketName: "auth_ip_limit", // Same bucket name as login
+        Limit:      5, // Limit applies to combined requests for this bucket
         Window:     time.Minute,
         Strategy:   middleware.RateLimitStrategyIP,
     },
@@ -587,13 +595,14 @@ You can customize the response sent when a rate limit is exceeded:
 
 ```go
 RateLimit: &middleware.RateLimitConfig[any, any]{
-    BucketName: "custom-response",
+    BucketName: "custom_response_limit",
     Limit:      10,
     Window:     time.Minute,
     Strategy:   middleware.RateLimitStrategyIP,
     ExceededHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Content-Type", "application/json")
-        w.WriteHeader(http.StatusTooManyRequests)
+        w.Header().Set("X-Retry-After", "60") // Example custom header
+        w.WriteHeader(http.StatusTooManyRequests) // 429
         w.Write([]byte(`{"error":"Rate limit exceeded","message":"Please try again later"}`))
     }),
 }
@@ -615,9 +624,9 @@ SRouter supports three authentication levels, specified in `RouteConfig` or `Rou
 
 ```go
 // Example route configurations
-routePublic := router.RouteConfigBase{ AuthLevel: router.NoAuth, ... }
-routeOptional := router.RouteConfigBase{ AuthLevel: router.AuthOptional, ... }
-routeProtected := router.RouteConfigBase{ AuthLevel: router.AuthRequired, ... }
+routePublic := router.RouteConfigBase{ AuthLevel: router.Ptr(router.NoAuth), ... }
+routeOptional := router.RouteConfigBase{ AuthLevel: router.Ptr(router.AuthOptional), ... }
+routeProtected := router.RouteConfigBase{ AuthLevel: router.Ptr(router.AuthRequired), ... }
 ```
 
 #### Authentication Middleware
@@ -654,8 +663,12 @@ func MyAuthMiddleware(authService MyAuthService) common.Middleware {
                 // A simpler approach is to apply this middleware only to routes where it's needed.
                 // Or, the router's internal auth middleware (if used) handles the AuthLevel check.
                 // If implementing purely custom middleware, you might apply it conditionally or handle levels internally.
-                http.Error(w, "Unauthorized", http.StatusUnauthorized)
-                return
+                // For this example, assume it's applied only where required or optional handling is needed.
+                // If AuthRequired was intended, reject here:
+                // http.Error(w, "Unauthorized", http.StatusUnauthorized)
+                // return
+                // If AuthOptional, just proceed without user context:
+                next.ServeHTTP(w, r)
             }
         })
     }
@@ -663,6 +676,7 @@ func MyAuthMiddleware(authService MyAuthService) common.Middleware {
 
 // Apply middleware globally or per-route/sub-router
 routerConfig := router.RouterConfig{
+    Logger: logger, // Required
     Middlewares: []common.Middleware{ MyAuthMiddleware(myService) },
     // ...
 }
@@ -684,7 +698,7 @@ The `SRouterContext` wrapper is a generic type that holds all values that SRoute
 type SRouterContext[T comparable, U any] struct {
     // User ID and User object storage
     UserID T
-    User   *U
+    User   *U // Pointer to user object
 
     // Client IP address
     ClientIP string
@@ -702,8 +716,8 @@ type SRouterContext[T comparable, U any] struct {
     TraceIDSet     bool
     TransactionSet bool
 
-    // Additional flags
-    Flags map[string]bool // Note: Docs mention map[string]any, code shows map[string]bool. Check consistency.
+    // Additional flags (flexible storage)
+    Flags map[string]any
 }
 
 // DatabaseTransaction interface (pkg/middleware/db.go)
@@ -731,7 +745,7 @@ The SRouterContext approach offers several advantages:
    ```go
    ctx = context.WithValue(context.WithValue(r.Context(), userIDKey, userID), userKey, user)
    ```
-   SRouter uses a single context wrapper:
+   SRouter uses a single context wrapper, updated via helper functions:
    ```go
    ctx := middleware.WithUserID[T, U](r.Context(), userID)
    ctx = middleware.WithUser[T, U](ctx, user)
@@ -739,7 +753,7 @@ The SRouterContext approach offers several advantages:
 
 2. **Type Safety**: The generic type parameters ensure proper type handling without the need for type assertions.
 
-3. **Extensibility**: New fields can be added to the `SRouterContext` struct without creating more nested contexts.
+3. **Extensibility**: New fields can be added to the `SRouterContext` struct without creating more nested contexts. The `Flags` map allows custom middleware to add values.
 
 4. **Organization**: Related context values are grouped logically, making the code more maintainable.
 
@@ -749,16 +763,16 @@ SRouter provides several helper functions in the `pkg/middleware` package for ac
 
 ```go
 // Get the user ID from the request
-userID, ok := middleware.GetUserIDFromRequest[string, User](r)
+userID, ok := middleware.GetUserIDFromRequest[string, User](r) // Replace T, U
 
-// Get the user object from the request
-user, ok := middleware.GetUserFromRequest[string, User](r)
+// Get the user object (pointer) from the request
+user, ok := middleware.GetUserFromRequest[string, User](r) // Replace T, U
 
 // Get the client IP from the request
-ip, ok := middleware.GetClientIPFromRequest[string, User](r)
+ip, ok := middleware.GetClientIPFromRequest[string, User](r) // Replace T, U
 
 // Get a flag from the request
-flagValue, ok := middleware.GetFlagFromRequest[string, User](r, "flagName")
+flagValue, ok := middleware.GetFlagFromRequest[string, User](r, "flagName") // Replace T, U
 
 // Get the trace ID from the request
 traceID := middleware.GetTraceID(r) // Shortcut function
@@ -794,18 +808,16 @@ func GetUserHandler(r *http.Request, req GetUserReq) (GetUserResp, error) {
  id := req.ID
 
  // Try to find the user
- user, found := findUser(id)
+ // user, found := findUser(id)
+ found := false // Example
  if !found {
   // Return a custom error
   return GetUserResp{}, NotFoundError("User", id)
  }
 
  // Return the user
- return GetUserResp{
-  ID:    user.ID,
-  Name:  user.Name,
-  Email: user.Email,
- }, nil
+ // return GetUserResp{ ID: user.ID, Name: user.Name, Email: user.Email, }, nil
+ return GetUserResp{}, nil // Placeholder
 }
 ```
 
@@ -822,7 +834,8 @@ func RequestIDMiddleware() common.Middleware {
    requestID := uuid.New().String()
 
    // Add it to the context using the SRouterContext flags
-   ctx := middleware.WithFlag[string, string](r.Context(), "request_id", requestID) // Assuming string/string router types
+   // Replace string, string with your router's T, U types
+   ctx := middleware.WithFlag[string, string](r.Context(), "request_id", requestID)
 
    // Add it to the response headers
    w.Header().Set("X-Request-ID", requestID)
@@ -835,10 +848,11 @@ func RequestIDMiddleware() common.Middleware {
 
 // Apply the middleware to the router
 routerConfig := router.RouterConfig{
+ Logger: logger, // Required
  // ...
  Middlewares: []common.Middleware{
   RequestIDMiddleware(),
-  middleware.Logging(logger),
+  middleware.Logging(logger, false), // Example logging middleware
  },
  // ...
 }
@@ -857,52 +871,62 @@ SRouter supports the following source types (defined as constants in the `router
 1. **Body** (default): Retrieves data from the request body.
 
    ```go
-   router.RegisterGenericRoute[UserRequest, UserResponse, string, string](r, router.RouteConfig[UserRequest, UserResponse]{
-       // ...
-       // SourceType defaults to Body if not specified
-   }, ...)
+   router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
+       router.RouteConfig[UserRequest, UserResponse]{
+           // ...
+           // SourceType defaults to Body if not specified
+       },
+   )
    ```
 
 2. **Base64QueryParameter**: Retrieves data from a base64-encoded query parameter.
 
    ```go
-   router.RegisterGenericRoute[UserRequest, UserResponse, string, string](r, router.RouteConfig[UserRequest, UserResponse]{
-       // ...
-       SourceType: router.Base64QueryParameter,
-       SourceKey:  "data", // Will look for ?data=base64encodedstring
-   }, ...)
+   router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
+       router.RouteConfig[UserRequest, UserResponse]{
+           // ...
+           SourceType: router.Base64QueryParameter,
+           SourceKey:  "data", // Will look for ?data=base64encodedstring
+       },
+   )
    ```
 
 3. **Base62QueryParameter**: Retrieves data from a base62-encoded query parameter.
 
    ```go
-   router.RegisterGenericRoute[UserRequest, UserResponse, string, string](r, router.RouteConfig[UserRequest, UserResponse]{
-       // ...
-       SourceType: router.Base62QueryParameter,
-       SourceKey:  "data", // Will look for ?data=base62encodedstring
-   }, ...)
+   router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
+       router.RouteConfig[UserRequest, UserResponse]{
+           // ...
+           SourceType: router.Base62QueryParameter,
+           SourceKey:  "data", // Will look for ?data=base62encodedstring
+       },
+   )
    ```
 
 4. **Base64PathParameter**: Retrieves data from a base64-encoded path parameter.
 
    ```go
-   router.RegisterGenericRoute[UserRequest, UserResponse, string, string](r, router.RouteConfig[UserRequest, UserResponse]{
-       Path:       "/users/:data",
-       // ...
-       SourceType: router.Base64PathParameter,
-       SourceKey:  "data", // Will use the :data path parameter
-   }, ...)
+   router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
+       router.RouteConfig[UserRequest, UserResponse]{
+           Path:       "/users/:data",
+           // ...
+           SourceType: router.Base64PathParameter,
+           SourceKey:  "data", // Will use the :data path parameter
+       },
+   )
    ```
 
 5. **Base62PathParameter**: Retrieves data from a base62-encoded path parameter.
 
    ```go
-   router.RegisterGenericRoute[UserRequest, UserResponse, string, string](r, router.RouteConfig[UserRequest, UserResponse]{
-       Path:       "/users/:data",
-       // ...
-       SourceType: router.Base62PathParameter,
-       SourceKey:  "data", // Will use the :data path parameter
-   }, ...)
+   router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
+       router.RouteConfig[UserRequest, UserResponse]{
+           Path:       "/users/:data",
+           // ...
+           SourceType: router.Base62PathParameter,
+           SourceKey:  "data", // Will use the :data path parameter
+       },
+   )
    ```
 
 See the `examples/source-types` directory for a complete example.
@@ -915,53 +939,54 @@ You can create custom codecs for different data formats:
 // Create a custom XML codec
 type XMLCodec[T any, U any] struct{}
 
-func (c *XMLCodec[T, U]) Decode(r *http.Request) (T, error) {
- var data T
-
- // Read the request body
- body, err := io.ReadAll(r.Body)
- if err != nil {
-  return data, err
- }
- defer r.Body.Close()
-
- // Unmarshal the XML
- err = xml.Unmarshal(body, &data)
- if err != nil {
-  return data, err
- }
-
- return data, nil
+// NewRequest creates a zero-value instance of the request type T.
+func (c *XMLCodec[T, U]) NewRequest() T {
+	var data T
+	return data
 }
 
+// Decode reads from the request body and unmarshals XML.
+func (c *XMLCodec[T, U]) Decode(r *http.Request) (T, error) {
+ var data T
+ body, err := io.ReadAll(r.Body)
+ if err != nil { return data, err }
+ defer r.Body.Close()
+ err = xml.Unmarshal(body, &data)
+ return data, err
+}
+
+// DecodeBytes unmarshals XML from a byte slice.
+func (c *XMLCodec[T, U]) DecodeBytes(dataBytes []byte) (T, error) {
+	var data T
+	err := xml.Unmarshal(dataBytes, &data)
+	return data, err
+}
+
+// Encode marshals the response to XML and writes it to the response writer.
 func (c *XMLCodec[T, U]) Encode(w http.ResponseWriter, resp U) error {
- // Set the content type
  w.Header().Set("Content-Type", "application/xml")
-
- // Marshal the response
  body, err := xml.Marshal(resp)
- if err != nil {
-  return err
- }
-
- // Write the response
+ if err != nil { return err }
  _, err = w.Write(body)
  return err
 }
 
-// Create a new XML codec
+// Create a new XML codec instance
 func NewXMLCodec[T any, U any]() *XMLCodec[T, U] {
  return &XMLCodec[T, U]{}
 }
 
-// Use the XML codec with a generic route
-router.RegisterGenericRoute[CreateUserReq, CreateUserResp, string, string](r, router.RouteConfig[CreateUserReq, CreateUserResp]{
- Path:        "/api/users",
- Methods:     []router.HttpMethod{router.MethodPost},
- AuthLevel:   router.NoAuth, // No authentication required
- Codec:       NewXMLCodec[CreateUserReq, CreateUserResp](),
- Handler:     CreateUserHandler,
-}, time.Duration(0), int64(0), nil) // Added effective settings
+// Use the XML codec with a generic route definition within SubRouterConfig.Routes
+xmlRouteDef := router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, string, string](
+    router.RouteConfig[CreateUserReq, CreateUserResp]{
+        Path:        "/api/users",
+        Methods:     []router.HttpMethod{router.MethodPost},
+        AuthLevel:   router.Ptr(router.NoAuth), // Use Ptr helper
+        Codec:       NewXMLCodec[CreateUserReq, CreateUserResp](),
+        Handler:     CreateUserHandler, // Assume handler exists
+    },
+)
+// Add xmlRouteDef to SubRouterConfig.Routes
 ```
 
 ### Metrics
@@ -975,7 +1000,7 @@ To enable metrics, set `EnableMetrics: true` in your `RouterConfig`. You can fur
 ```go
 // Example: Configure metrics using MetricsConfig
 routerConfig := router.RouterConfig{
-    Logger:            logger,
+    Logger:            logger, // Required
     GlobalTimeout:     2 * time.Second,
     GlobalMaxBodySize: 1 << 20, // 1 MB
     EnableMetrics:     true,      // Enable metrics collection
@@ -1001,7 +1026,7 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 
 // If your Exporter provides an HTTP handler (e.g., for Prometheus /metrics)
 var metricsHandler http.Handler
-if exporter, ok := myMetricsExporter.(metrics.Exporter); ok {
+if exporter, ok := myMetricsExporter.(metrics.HTTPExporter); ok { // Check for specific HTTPExporter interface if defined
     metricsHandler = exporter.Handler()
 } else {
     metricsHandler = http.NotFoundHandler() // Or handle appropriately
@@ -1013,7 +1038,7 @@ mux.Handle("/metrics", metricsHandler)
 mux.Handle("/", r)
 
 // Start the server
-http.ListenAndServe(":8080", mux)
+// log.Fatal(http.ListenAndServe(":8080", mux))
 
 ```
 
@@ -1071,14 +1096,14 @@ Each example includes a complete, runnable application that demonstrates a speci
 
 ```go
 type RouterConfig struct {
- Logger             *zap.Logger                           // Logger for all router operations
+ Logger             *zap.Logger                           // Logger for all router operations. Required.
  GlobalTimeout      time.Duration                         // Default response timeout for all routes
  GlobalMaxBodySize  int64                                 // Default maximum request body size in bytes
  GlobalRateLimit    *middleware.RateLimitConfig[any, any] // Default rate limit for all routes
  IPConfig           *middleware.IPConfig                  // Configuration for client IP extraction
  EnableMetrics      bool                                  // Enable metrics collection
  EnableTracing      bool                                  // Enable distributed tracing (Note: Implementation might be via middleware)
- EnableTraceID      bool                                  // Enable trace ID logging (can also be done via TraceMiddleware)
+ EnableTraceID      bool                                  // Enable automatic trace ID generation and injection. Alternatively, use TraceMiddleware explicitly. See docs/trace-logging.md.
  MetricsConfig      *MetricsConfig                        // Metrics configuration (optional)
  SubRouters         []SubRouterConfig                     // Sub-routers with their own configurations
  Middlewares        []common.Middleware                   // Global middlewares applied to all routes
@@ -1092,15 +1117,15 @@ type RouterConfig struct {
 ```go
 type MetricsConfig struct {
  // Collector is the metrics collector to use.
- // If nil, a default collector will be used if metrics are enabled.
+ // Must implement metrics.Collector. Required if EnableMetrics is true.
  Collector any // metrics.Collector
 
  // Exporter is the metrics exporter to use.
- // If nil, a default exporter will be used if metrics are enabled.
+ // Optional. Might implement metrics.Exporter or metrics.HTTPExporter.
  Exporter any // metrics.Exporter
 
  // MiddlewareFactory is the factory for creating metrics middleware.
- // If nil, a default middleware factory will be used if metrics are enabled.
+ // Optional. If nil, SRouter likely uses a default factory. Must implement metrics.MiddlewareFactory.
  MiddlewareFactory any // metrics.MiddlewareFactory
 
  // Namespace for metrics.
@@ -1131,10 +1156,10 @@ type SubRouterConfig struct {
  TimeoutOverride     time.Duration                         // Override global timeout for all routes in this sub-router
  MaxBodySizeOverride int64                                 // Override global max body size for all routes in this sub-router
  RateLimitOverride   *middleware.RateLimitConfig[any, any] // Override global rate limit for all routes in this sub-router
- Routes              []any                                 // Routes (RouteConfigBase or GenericRouteRegistrationFunc)
+ Routes              []any                                 // Routes (RouteConfigBase or GenericRouteDefinition)
  Middlewares         []common.Middleware                   // Middlewares applied to all routes in this sub-router
  SubRouters          []SubRouterConfig                     // Nested sub-routers
- AuthLevel           *AuthLevel                            // Default auth level for routes in this sub-router
+ AuthLevel           *AuthLevel                            // Default auth level for routes in this sub-router (nil inherits)
  // CacheResponse, CacheKeyPrefix removed - implement caching via middleware if needed
 }
 ```
@@ -1146,9 +1171,9 @@ type RouteConfigBase struct {
  Path        string                                // Route path (will be prefixed with sub-router path prefix if applicable)
  Methods     []string                              // HTTP methods this route handles
  AuthLevel   *AuthLevel                            // Authentication level (nil uses sub-router default)
- Timeout     time.Duration                         // Override timeout for this specific route
- MaxBodySize int64                                 // Override max body size for this specific route
- RateLimit   *middleware.RateLimitConfig[any, any] // Rate limit for this specific route
+ Timeout     time.Duration                         // Override timeout for this specific route (0 inherits)
+ MaxBodySize int64                                 // Override max body size for this specific route (0 inherits, negative = no limit)
+ RateLimit   *middleware.RateLimitConfig[any, any] // Rate limit for this specific route (nil inherits)
  Handler     http.HandlerFunc                      // Standard HTTP handler function
  Middlewares []common.Middleware                   // Middlewares applied to this specific route
 }
@@ -1161,14 +1186,14 @@ type RouteConfig[T any, U any] struct {
  Path        string                                // Route path (will be prefixed with sub-router path prefix if applicable)
  Methods     []string                              // HTTP methods this route handles
  AuthLevel   *AuthLevel                            // Authentication level (nil uses sub-router default)
- Timeout     time.Duration                         // Override timeout for this specific route
- MaxBodySize int64                                 // Override max body size for this specific route
- RateLimit   *middleware.RateLimitConfig[any, any] // Rate limit for this specific route
- Codec       Codec[T, U]                           // Codec for marshaling/unmarshaling request and response
- Handler     GenericHandler[T, U]                  // Generic handler function
+ Timeout     time.Duration                         // Override timeout for this specific route (0 inherits)
+ MaxBodySize int64                                 // Override max body size for this specific route (0 inherits, negative = no limit)
+ RateLimit   *middleware.RateLimitConfig[any, any] // Rate limit for this specific route (nil inherits)
+ Codec       Codec[T, U]                           // Codec for marshaling/unmarshaling request and response. Required.
+ Handler     GenericHandler[T, U]                  // Generic handler function. Required.
  Middlewares []common.Middleware                   // Middlewares applied to this specific route
  SourceType  SourceType                            // How to retrieve request data (defaults to Body)
- SourceKey   string                                // Parameter name for query or path parameters
+ SourceKey   string                                // Parameter name for query or path parameters (if SourceType != Body)
  // CacheResponse, CacheKeyPrefix removed - implement caching via middleware if needed
 }
 ```
@@ -1179,7 +1204,7 @@ type RouteConfig[T any, U any] struct {
 type AuthLevel int
 
 const (
- // NoAuth indicates that no authentication is required for the route.
+ // NoAuth indicates that no authentication is required for the route. (Default)
  NoAuth AuthLevel = iota
 
  // AuthOptional indicates that authentication is optional for the route.
@@ -1219,23 +1244,24 @@ SRouter provides several built-in middleware functions in the `pkg/middleware` p
 
 ### Logging
 
-Logs requests with method, path, status code, and duration:
+Logs request details (method, path, status, duration, IP, trace ID). Requires the `zap.Logger` provided in `RouterConfig`. Automatically picks up trace ID if enabled.
 
 ```go
-middleware.Logging(logger *zap.Logger) Middleware
+middleware.Logging(logger *zap.Logger, logInfoLevelForSuccess bool) Middleware
 ```
+(See `docs/middleware.md` for log level details)
 
 ### Recovery
 
-Recovers from panics and returns a 500 Internal Server Error:
+Recovers from panics and returns a 500 Internal Server Error. Logs the panic using the configured logger. (Applied internally by the router).
 
 ```go
-middleware.Recovery(logger *zap.Logger) Middleware // Note: Router applies its own recovery internally
+// Applied internally, no need to add manually unless customizing recovery.
 ```
 
 ### Authentication
 
-SRouter provides several authentication middleware options in `pkg/middleware`:
+SRouter provides several authentication middleware options in `pkg/middleware`. See `docs/authentication.md`.
 
 #### Basic Authentication
 
@@ -1260,43 +1286,43 @@ middleware.NewAPIKeyWithUserMiddleware[U any](validator func(string) (*U, error)
 
 ### MaxBodySize
 
-Limits the size of the request body (Note: Router applies this internally based on config):
+Limits the size of the request body (Applied internally based on config).
 
 ```go
-// Typically configured via RouterConfig/SubRouterConfig/RouteConfig
+// Configured via RouterConfig/SubRouterConfig/RouteConfig
 ```
 
 ### Timeout
 
-Sets a timeout for the request (Note: Router applies this internally based on config):
+Sets a timeout for the request (Applied internally based on config).
 
 ```go
-// Typically configured via RouterConfig/SubRouterConfig/RouteConfig
+// Configured via RouterConfig/SubRouterConfig/RouteConfig
 ```
 
 ### CORS
 
-Adds CORS headers to the response:
+Adds CORS headers to the response.
 
 ```go
-middleware.CORS(origins []string, methods []string, headers []string) Middleware
+middleware.CORS(options middleware.CORSOptions) Middleware // Takes CORSOptions struct
 ```
 
 ### Chain
 
-Chains multiple middlewares together (Note: Router uses `pkg/common.MiddlewareChain` internally):
+Chains multiple middlewares together (Used internally by the router).
 
 ```go
-// Use common.NewMiddlewareChain().Append(...).Then(...)
+// Use common.NewMiddlewareChain().Append(...).Then(...) if needed manually
 ```
 
 ### Metrics Middleware
 
-See Metrics section.
+See Metrics section and `docs/metrics.md`.
 
 ### TraceMiddleware
 
-Adds trace ID to the request context:
+Adds trace ID to the request context. Essential for log correlation. Recommended to enable via `RouterConfig.EnableTraceID` or add this middleware explicitly early in the chain. See `docs/trace-logging.md`.
 
 ```go
 middleware.TraceMiddleware() Middleware
@@ -1321,10 +1347,10 @@ Uses Protocol Buffers for marshaling and unmarshaling. Requires a factory functi
 
 ```go
 // Define a factory function for your specific proto message type (e.g., *MyProto)
-myProtoFactory := func() *MyProto { return &MyProto{} }
+myProtoFactory := func() *pb.MyProto { return &pb.MyProto{} } // Use generated type
 
 // Pass the factory to the constructor
-codec.NewProtoCodec[T, U](myProtoFactory) *codec.ProtoCodec[T, U]
+codec.NewProtoCodec[T, U](myProtoFactory) *codec.ProtoCodec[T, U] // T must match factory return type
 ```
 
 ### Codec Interface
@@ -1374,7 +1400,7 @@ The SRouter framework uses a structured approach for retrieving information from
 // Get the user ID from the request
 userID, ok := middleware.GetUserIDFromRequest[T, U](r) // Replace T, U with router's types
 
-// Get the user object from the request
+// Get the user object (pointer) from the request
 user, ok := middleware.GetUserFromRequest[T, U](r) // Replace T, U with router's types
 
 // Get the client IP from the request
@@ -1425,7 +1451,7 @@ SRouter uses julienschmidt/httprouter's O(1) or O(log n) path matching algorithm
 
 ### Middleware Ordering
 
-The order of middlewares matters. Middlewares applied via `RouterConfig` or `SubRouterConfig` are executed before route-specific middleware. The internal `wrapHandler` applies middleware in a specific order (see source code for details, generally: recovery, auth, rate limit, route, sub-router, global, timeout, body limit, shutdown).
+The order of middlewares matters. Middlewares applied via `RouterConfig` or `SubRouterConfig` are executed before route-specific middleware. The internal `wrapHandler` applies middleware in a specific order (see source code for details, generally: timeout, body limit, global, sub-router, route, handler, with internal middleware like recovery, auth, rate limiting interleaved).
 
 ### Memory Allocation
 
@@ -1451,33 +1477,30 @@ Setting appropriate body size limits is important for security and performance:
 
 ## Logging
 
-SRouter uses intelligent logging with appropriate log levels to provide useful information without creating log spam:
+SRouter uses structured logging via the `zap` library. A `*zap.Logger` instance **must** be provided in `RouterConfig`. The built-in `middleware.Logging` uses this logger and automatically includes contextual information like `trace_id` (if enabled). Appropriate log levels are used internally:
 
-- **Error**: For server errors (status code 500+), timeouts, panics, and other exceptional conditions
-- **Warn**: For client errors (status code 400-499), slow requests (>1s), and potentially harmful situations
-- **Info**: For important operational information (used sparingly)
-- **Debug**: For detailed request metrics, tracing information, and other development-related data
+- **Error**: For server errors (status code 500+), timeouts, panics, and other exceptional conditions.
+- **Warn**: For client errors (status code 400-499), slow requests (>1s), and potentially harmful situations.
+- **Info**: For important operational information (used sparingly).
+- **Debug**: For detailed request metrics, tracing information, and other development-related data (including successful request logs by default via `middleware.Logging`).
 
-This approach ensures that your logs contain the right information at the right level:
-
-- Critical issues are immediately visible at the Error level
-- Potential problems are highlighted at the Warn level
-- Normal operations are logged at the Debug level to avoid log spam
-
-You can configure the log level of your zap.Logger to control the verbosity of the logs:
+This approach ensures that your logs contain the right information at the right level. You can configure the log level of your `zap.Logger` instance passed to `RouterConfig` to control the verbosity.
 
 ```go
-// Production: only show Error and above
-logger, _ := zap.NewProduction()
-
-// Development: show Debug and above
-logger, _ := zap.NewDevelopment()
-
-// Custom: show Info and above
+// Production: only show Info and above (adjust as needed)
 config := zap.NewProductionConfig()
 config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
 logger, _ := config.Build()
+defer logger.Sync()
+
+// Development: show Debug and above
+devLogger, _ := zap.NewDevelopment()
+defer devLogger.Sync()
+
+// Pass the chosen logger to SRouter
+routerConfig := router.RouterConfig{ Logger: logger, ... }
 ```
+See `docs/logging.md` for more details.
 
 ## License
 

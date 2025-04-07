@@ -10,9 +10,9 @@ When enabled, SRouter automatically assigns a unique trace ID (a UUID) to each i
 
 ## Enabling Trace ID Logging
 
-You can enable trace ID logging in two ways:
+Trace ID generation and injection into the context can be enabled in one of two ways. Using both methods simultaneously is redundant; choose the one that best fits your configuration style.
 
-1.  **Via `RouterConfig`:** Set the `EnableTraceID` flag to `true`.
+1.  **Via `RouterConfig` (Recommended for simplicity):** Set the `EnableTraceID` flag to `true`. This internally adds the necessary logic to generate and inject the trace ID.
 
     ```go
     routerConfig := router.RouterConfig{
@@ -23,7 +23,7 @@ You can enable trace ID logging in two ways:
     r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction) // Assume auth funcs exist
     ```
 
-2.  **Via `TraceMiddleware`:** Add `middleware.TraceMiddleware()` to your middleware chain (usually as the first middleware). This approach offers slightly more control, such as configuring the buffer size for UUID generation if needed.
+2.  **Via `TraceMiddleware` (Explicit Control):** Add `middleware.TraceMiddleware()` to your global middleware chain (usually as the first middleware). This approach makes the trace ID handling explicit in your middleware setup and offers slightly more control, such as configuring the buffer size for UUID generation if needed via `TraceMiddlewareWithConfig`.
 
     ```go
     import "github.com/Suhaibinator/SRouter/pkg/middleware"
@@ -32,7 +32,7 @@ You can enable trace ID logging in two ways:
     routerConfig := router.RouterConfig{
         Logger: logger, // Assume logger exists
         Middlewares: []common.Middleware{
-            middleware.TraceMiddleware(), // Add trace middleware
+            middleware.TraceMiddleware(), // Add trace middleware explicitly
             // Other middleware...
             middleware.Logging(logger), // Logging middleware will pick up the trace ID
         },
@@ -41,18 +41,19 @@ You can enable trace ID logging in two ways:
     r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction) // Assume auth funcs exist
     ```
 
-    Using both `EnableTraceID: true` and `TraceMiddleware` is redundant; choose one method. Using the middleware explicitly is often clearer.
-
 ## Accessing the Trace ID
 
 Once enabled, you can retrieve the trace ID within your handlers or other middleware using helper functions from the `pkg/middleware` package.
 
 ### `middleware.GetTraceID`
 
-This function retrieves the trace ID directly from the `http.Request` object.
+This function retrieves the trace ID directly from the `http.Request` object's context.
 
 ```go
 import "github.com/Suhaibinator/SRouter/pkg/middleware"
+import "fmt" // Added for fmt.Printf
+import "net/http" // Added for http.ResponseWriter, r *http.Request
+// import "go.uber.org/zap" // Uncomment if using zap logger example
 
 func myHandler(w http.ResponseWriter, r *http.Request) {
     // Get the trace ID associated with this request
@@ -77,6 +78,8 @@ If you only have access to the `context.Context` (e.g., in a function called by 
 import (
     "context"
     "log"
+    "net/http" // Added for http.ResponseWriter, r *http.Request
+    "fmt" // Added for fmt.Printf
     "github.com/Suhaibinator/SRouter/pkg/middleware"
 )
 

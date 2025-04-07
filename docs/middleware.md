@@ -104,9 +104,10 @@ Middleware can be applied at three levels:
 routerConfig := router.RouterConfig{
     // ... logger, etc.
     Middlewares: []common.Middleware{
-        middleware.TraceMiddleware(),        // Global: Runs first
-        middleware.Recovery(logger),         // Global: Recovers panics
+        middleware.TraceMiddleware(),        // Global: Runs first (or enable via RouterConfig.EnableTraceID)
+        middleware.Recovery(logger),         // Global: Recovers panics (often applied internally)
         mymiddleware.AddHeaderMiddleware("X-Global", "true"), // Global
+        middleware.Logging(logger, false),   // Global: Logs requests
     },
     SubRouters: []router.SubRouterConfig{
         {
@@ -123,7 +124,7 @@ routerConfig := router.RouterConfig{
                         mymiddleware.LogUserIDMiddleware(logger), // Route: Runs last before handler
                     },
                     Handler: GetUsersHandler,
-                    AuthLevel: router.AuthRequired, // Example: Requires authentication
+                    AuthLevel: router.Ptr(router.AuthRequired), // Example: Requires authentication
                 },
                 // ... other v1 routes
             },
@@ -151,15 +152,15 @@ Middleware defined earlier in a slice generally runs *before* middleware defined
 
 SRouter provides several built-in middleware functions, typically located in the `pkg/middleware` package. Refer to the source code or specific examples for their exact signatures and usage. Common examples include:
 
--   **`Logging(logger *zap.Logger, logInfoLevelForSuccess bool)`**: Logs request details (method, path, status, duration, IP, trace ID).
+-   **`Logging(logger *zap.Logger, logInfoLevelForSuccess bool)`**: Logs request details (method, path, status, duration, IP, trace ID). Requires the `zap.Logger` provided in `RouterConfig`. It automatically picks up the trace ID if trace logging is enabled.
     -   By default (`logInfoLevelForSuccess = false`), successful requests (2xx status, < 1s duration) are logged at `Debug` level to reduce noise. Errors (5xx) are logged at `Error`, client errors (4xx) and slow requests (> 1s) at `Warn`.
     -   If `logInfoLevelForSuccess` is set to `true`, successful requests will be logged at `Info` level instead of `Debug`.
     -   Example: `middleware.Logging(logger, true)` // Log successful requests at Info level.
--   **`Recovery`**: Recovers from panics in handlers/middleware and logs them, usually returning a 500 error. (SRouter often applies this internally).
--   **`TraceMiddleware`**: Adds a unique trace ID to the request context.
--   **Authentication Middleware**: (e.g., `NewBasicAuthMiddleware`, `NewBearerTokenMiddleware`, `NewAPIKeyMiddleware`) Handles specific authentication schemes.
--   **`RateLimiterMiddleware`**: Applies rate limiting based on configuration. (Often applied internally based on config).
--   **`CORS`**: Adds Cross-Origin Resource Sharing headers.  It takes a `CORSOptions` struct as an argument to configure the allowed origins, methods, and headers.
+-   **`Recovery`**: Recovers from panics in handlers/middleware and logs them using the configured logger, usually returning a 500 error. (SRouter often applies this internally).
+-   **`TraceMiddleware()` / `TraceMiddlewareWithConfig(bufferSize int)`**: Adds a unique trace ID (UUID) to the request context. This is essential for request correlation in logs. It's recommended to place this early in the middleware chain if used explicitly. Alternatively, enable trace IDs via `RouterConfig.EnableTraceID`. See [Trace ID Logging](./trace-logging.md) for details.
+-   **Authentication Middleware**: (e.g., `NewBasicAuthMiddleware`, `NewBearerTokenMiddleware`, `NewAPIKeyMiddleware`) Handles specific authentication schemes. See [Authentication](./authentication.md).
+-   **`RateLimiterMiddleware`**: Applies rate limiting based on configuration. (Often applied internally based on config). See [Rate Limiting](./rate-limiting.md).
+-   **`CORS`**: Adds Cross-Origin Resource Sharing headers. It takes a `CORSOptions` struct as an argument to configure the allowed origins, methods, and headers.
 
 Always check the specific package documentation or source code for the most up-to-date list and usage details of built-in middleware.
 
