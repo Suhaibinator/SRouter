@@ -234,21 +234,39 @@ func TestTracing(t *testing.T) {
 	for _, log := range logEntries {
 		if log.Message == "Request trace" {
 			found = true
-			// Check that the log contains the expected fields
-			if log.Context[0].Key != "method" || log.Context[0].String != "GET" {
-				t.Errorf("Expected method field to be %q, got %q", "GET", log.Context[0].String)
+			// Check that the log contains the expected fields by key, not index
+			expectedFields := map[string]any{
+				"method":     "GET",
+				"path":       "/test",
+				"ip":         "127.0.0.1",
+				"user_agent": "test-agent",
+				"status":     int64(http.StatusOK),
 			}
-			if log.Context[1].Key != "path" || log.Context[1].String != "/test" {
-				t.Errorf("Expected path field to be %q, got %q", "/test", log.Context[1].String)
+			foundFields := make(map[string]bool)
+
+			for _, field := range log.Context {
+				if expectedValue, ok := expectedFields[field.Key]; ok {
+					foundFields[field.Key] = true
+					switch expectedValue := expectedValue.(type) {
+					case string:
+						if field.String != expectedValue {
+							t.Errorf("Expected %s field to be %q, got %q", field.Key, expectedValue, field.String)
+						}
+					case int64:
+						if field.Integer != expectedValue {
+							t.Errorf("Expected %s field to be %d, got %d", field.Key, expectedValue, field.Integer)
+						}
+					default:
+						t.Errorf("Unexpected type for field %s", field.Key)
+					}
+				}
 			}
-			if log.Context[2].Key != "ip" || log.Context[2].String != "127.0.0.1" {
-				t.Errorf("Expected ip field to be %q, got %q", "127.0.0.1", log.Context[2].String)
-			}
-			if log.Context[3].Key != "user_agent" || log.Context[3].String != "test-agent" {
-				t.Errorf("Expected user_agent field to be %q, got %q", "test-agent", log.Context[3].String)
-			}
-			if log.Context[4].Key != "status" || log.Context[4].Integer != int64(http.StatusOK) {
-				t.Errorf("Expected status field to be %d, got %d", http.StatusOK, log.Context[4].Integer)
+
+			// Check if all expected fields were found
+			for key := range expectedFields {
+				if !foundFields[key] {
+					t.Errorf("Expected field %q not found in log context", key)
+				}
 			}
 			// Duration field is also logged, but we don't check it here
 			break
