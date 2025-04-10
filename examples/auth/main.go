@@ -100,20 +100,24 @@ func main() {
 		},
 	}
 
-	// Define the auth function that takes a context and token and returns a string and a boolean
-	authFunction := func(ctx context.Context, token string) (string, bool) {
+	// Define the auth function that takes a context and token and returns a *string and a boolean
+	authFunction := func(ctx context.Context, token string) (*string, bool) {
 		// Check if the token is valid
 		userID, ok := bearerTokens[token]
 		if ok {
-			return fmt.Sprintf("%d", userID), true
+			userStr := fmt.Sprintf("%d", userID)
+			return &userStr, true // Return pointer to user ID string
 		}
-		return "", false
+		return nil, false // Return nil pointer for user
 	}
 
-	// Define the function to get the user ID from a string
-	userIdFromUserFunction := func(user string) string {
+	// Define the function to get the user ID from a *string
+	userIdFromUserFunction := func(user *string) string {
 		// In this example, we're using the string itself as the ID
-		return user
+		if user == nil {
+			return "" // Handle nil pointer case
+		}
+		return *user // Dereference pointer
 	}
 
 	// Create a router with string as both the user ID and user type

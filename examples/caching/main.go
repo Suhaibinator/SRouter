@@ -131,12 +131,13 @@ func main() {
 				},
 			},
 		},
-		func(ctx context.Context, token string) (any, bool) {
+		func(ctx context.Context, token string) (*any, bool) {
 			// No authentication for this example
+			// Return nil pointer for user and true for validity
 			return nil, true
 		},
-		func(user any) int {
-			// No user ID for this example
+		func(user *any) int {
+			// No user ID for this example, accept pointer but return 0
 			return 0
 		},
 	)

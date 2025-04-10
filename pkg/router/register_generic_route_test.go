@@ -181,7 +181,7 @@ func TestRegisterGenericRouteWithUnsupportedSourceType(t *testing.T) {
 func TestRegisterGenericRouteWithAuthRequired(t *testing.T) {
 	logger := zap.NewNop()
 	// Auth function always returns true
-	authFunc := func(ctx context.Context, token string) (string, bool) { return "user123", true }
+	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user123"; return &user, true }
 	r := NewRouter(RouterConfig{Logger: logger}, authFunc, mocks.MockUserIDFromUser)
 
 	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
@@ -219,7 +219,7 @@ func TestRegisterGenericRouteWithAuthRequired(t *testing.T) {
 func TestRegisterGenericRouteWithAuthOptional(t *testing.T) {
 	logger := zap.NewNop()
 	// Auth function always returns true
-	authFunc := func(ctx context.Context, token string) (string, bool) { return "user123", true }
+	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user123"; return &user, true }
 	r := NewRouter(RouterConfig{Logger: logger}, authFunc, mocks.MockUserIDFromUser)
 
 	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{

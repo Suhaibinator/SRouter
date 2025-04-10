@@ -706,8 +706,13 @@ func TestFindSubRouterConfig(t *testing.T) {
 // TestRegisterGenericRouteOnSubRouter tests the functional registration method
 func TestRegisterGenericRouteOnSubRouter(t *testing.T) {
 	logger := zap.NewNop()
-	authFunc := func(ctx context.Context, token string) (string, bool) { return "user", true }
-	userIDFunc := func(user string) string { return user }
+	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user"; return &user, true }
+	userIDFunc := func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}
 
 	// Define sub-routers first
 	usersV1SR := SubRouterConfig{PathPrefix: "/api/v1/users"}
@@ -1529,10 +1534,19 @@ func TestRegisterSubRouter_UnsupportedRouteType(t *testing.T) {
 // TestAuthRequiredMiddleware_OptionsBypass tests that OPTIONS requests bypass authRequiredMiddleware
 func TestAuthRequiredMiddleware_OptionsBypass(t *testing.T) {
 	logger := zap.NewNop()
-	mockAuth := func(ctx context.Context, token string) (string, bool) {
-		return "user123", token == "valid-token"
+	mockAuth := func(ctx context.Context, token string) (*string, bool) {
+		if token == "valid-token" {
+			user := "user123"
+			return &user, true
+		}
+		return nil, false
 	}
-	mockUserID := func(user string) string { return user }
+	mockUserID := func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}
 
 	r := NewRouter(RouterConfig{Logger: logger}, mockAuth, mockUserID)
 
@@ -1594,10 +1608,19 @@ func TestAuthRequiredMiddleware_OptionsBypass(t *testing.T) {
 // TestAuthOptionalMiddleware_OptionsBypass tests that OPTIONS requests bypass authOptionalMiddleware
 func TestAuthOptionalMiddleware_OptionsBypass(t *testing.T) {
 	logger := zap.NewNop()
-	mockAuth := func(ctx context.Context, token string) (string, bool) {
-		return "user123", token == "valid-token"
+	mockAuth := func(ctx context.Context, token string) (*string, bool) {
+		if token == "valid-token" {
+			user := "user123"
+			return &user, true
+		}
+		return nil, false
 	}
-	mockUserID := func(user string) string { return user }
+	mockUserID := func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}
 
 	r := NewRouter(RouterConfig{Logger: logger}, mockAuth, mockUserID)
 
@@ -1690,8 +1713,13 @@ func TestConcurrentRequests(t *testing.T) {
 	t.Parallel() // Allow this test to run in parallel with others
 
 	logger := zap.NewNop() // Use Nop logger for less noise during concurrent test
-	authFunc := func(ctx context.Context, token string) (string, bool) { return "user", true }
-	userIDFunc := func(user string) string { return user }
+	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user"; return &user, true }
+	userIDFunc := func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}
 
 	// Middleware for testing
 	addHeaderMiddleware := func(name, value string) common.Middleware {

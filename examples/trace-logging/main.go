@@ -30,16 +30,20 @@ func main() {
 	}
 
 	// Define the auth function
-	authFunction := func(ctx context.Context, token string) (string, bool) {
+	authFunction := func(ctx context.Context, token string) (*string, bool) {
 		if token != "" {
-			return token, true
+			// Return pointer to token as user object
+			return &token, true
 		}
-		return "", false
+		return nil, false
 	}
 
-	// Define the function to get the user ID from a string
-	userIdFromUserFunction := func(user string) string {
-		return user
+	// Define the function to get the user ID from a *string
+	userIdFromUserFunction := func(user *string) string {
+		if user == nil {
+			return "" // Handle nil pointer case
+		}
+		return *user // Dereference pointer
 	}
 
 	// Create a router

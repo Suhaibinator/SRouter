@@ -20,12 +20,16 @@ import (
 
 // --- Helpers ---
 
-func nopAuthFunc(_ context.Context, _ string) (string, bool) {
-	return "user", true // Always authenticate as "user"
+func nopAuthFunc(_ context.Context, _ string) (*string, bool) {
+	user := "user"
+	return &user, true // Always authenticate as "user"
 }
 
-func userIDFromString(user string) string {
-	return user
+func userIDFromString(user *string) string {
+	if user == nil {
+		return "" // Handle nil pointer case
+	}
+	return *user // Dereference the pointer
 }
 
 func simpleHandler(w http.ResponseWriter, r *http.Request) {

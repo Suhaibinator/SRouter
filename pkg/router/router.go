@@ -29,8 +29,8 @@ type Router[T comparable, U any] struct {
 	router            *httprouter.Router
 	logger            *zap.Logger
 	middlewares       []common.Middleware
-	authFunction      func(context.Context, string) (U, bool)
-	getUserIdFromUser func(U) T
+	authFunction      func(context.Context, string) (*U, bool)
+	getUserIdFromUser func(*U) T
 	rateLimiter       common.RateLimiter // Use common.RateLimiter
 	wg                sync.WaitGroup
 	shutdown          bool
@@ -48,7 +48,7 @@ func RegisterSubRouterWithSubRouter(parent *SubRouterConfig, child SubRouterConf
 
 // NewRouter creates a new Router with the given configuration.
 // It initializes the underlying httprouter, sets up logging, and registers routes from sub-routers.
-func NewRouter[T comparable, U any](config RouterConfig, authFunction func(context.Context, string) (U, bool), userIdFromuserFunction func(U) T) *Router[T, U] {
+func NewRouter[T comparable, U any](config RouterConfig, authFunction func(context.Context, string) (*U, bool), userIdFromuserFunction func(*U) T) *Router[T, U] {
 	// Initialize the httprouter
 	hr := httprouter.New()
 
@@ -962,7 +962,7 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 				// Add the user ID to the request context using scontext package functions
 				ctx := scontext.WithUserID[T, U](req.Context(), id) // Use scontext
 				if r.config.AddUserObjectToCtx {
-					ctx = scontext.WithUser[T](ctx, &user) // Use scontext
+					ctx = scontext.WithUser[T](ctx, user) // Use scontext
 				}
 				req = req.WithContext(ctx)
 				// Get trace ID from context

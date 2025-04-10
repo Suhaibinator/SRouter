@@ -57,12 +57,15 @@ func TestSubRouterIntegration(t *testing.T) {
 		},
 	},
 		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (string, bool) {
-			return "", false
+		func(ctx context.Context, token string) (*string, bool) {
+			return nil, false // Return nil pointer for user
 		},
 		// Mock user ID function that returns the string itself
-		func(user string) string {
-			return user
+		func(user *string) string {
+			if user == nil {
+				return "" // Handle nil pointer case
+			}
+			return *user // Dereference pointer
 		})
 
 	// Test the first sub-router
@@ -134,12 +137,15 @@ func TestPathParameters(t *testing.T) {
 		},
 	},
 		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (string, bool) {
-			return "", false
+		func(ctx context.Context, token string) (*string, bool) {
+			return nil, false // Return nil pointer for user
 		},
 		// Mock user ID function that returns the string itself
-		func(user string) string {
-			return user
+		func(user *string) string {
+			if user == nil {
+				return "" // Handle nil pointer case
+			}
+			return *user // Dereference pointer
 		})
 
 	// Test the first route
@@ -221,12 +227,15 @@ func TestTimeoutOverrides(t *testing.T) {
 		},
 	},
 		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (string, bool) {
-			return "", false
+		func(ctx context.Context, token string) (*string, bool) {
+			return nil, false // Return nil pointer for user
 		},
 		// Mock user ID function that returns the string itself
-		func(user string) string {
-			return user
+		func(user *string) string {
+			if user == nil {
+				return "" // Handle nil pointer case
+			}
+			return *user // Dereference pointer
 		})
 
 	// Test the fast route
@@ -306,12 +315,15 @@ func TestMaxBodySizeOverrides(t *testing.T) {
 		},
 	},
 		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (string, bool) {
-			return "", false
+		func(ctx context.Context, token string) (*string, bool) {
+			return nil, false // Return nil pointer for user
 		},
 		// Mock user ID function that returns the string itself
-		func(user string) string {
-			return user
+		func(user *string) string {
+			if user == nil {
+				return "" // Handle nil pointer case
+			}
+			return *user // Dereference pointer
 		})
 
 	// Test the small route with a small body
@@ -365,12 +377,15 @@ func TestGenericRouteIntegration(t *testing.T) {
 		Logger: logger,
 	},
 		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (string, bool) {
-			return "", false
+		func(ctx context.Context, token string) (*string, bool) {
+			return nil, false // Return nil pointer for user
 		},
 		// Mock user ID function that returns the string itself
-		func(user string) string {
-			return user
+		func(user *string) string {
+			if user == nil {
+				return "" // Handle nil pointer case
+			}
+			return *user // Dereference pointer
 		})
 
 	// Register a generic route
@@ -467,12 +482,15 @@ func TestMiddlewareIntegration(t *testing.T) {
 		},
 	},
 		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (string, bool) {
-			return "", false
+		func(ctx context.Context, token string) (*string, bool) {
+			return nil, false // Return nil pointer for user
 		},
 		// Mock user ID function that returns the string itself
-		func(user string) string {
-			return user
+		func(user *string) string {
+			if user == nil {
+				return "" // Handle nil pointer case
+			}
+			return *user // Dereference pointer
 		})
 
 	// Create a request
@@ -516,12 +534,15 @@ func TestGracefulShutdown(t *testing.T) {
 		Logger: logger,
 	},
 		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (string, bool) {
-			return "", false
+		func(ctx context.Context, token string) (*string, bool) {
+			return nil, false // Return nil pointer for user
 		},
 		// Mock user ID function that returns the string itself
-		func(user string) string {
-			return user
+		func(user *string) string {
+			if user == nil {
+				return "" // Handle nil pointer case
+			}
+			return *user // Dereference pointer
 		})
 
 	// Register a route that sleeps
@@ -599,12 +620,15 @@ func TestEdgeCases(t *testing.T) {
 		Logger: logger,
 	},
 		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (string, bool) {
-			return "", false
+		func(ctx context.Context, token string) (*string, bool) {
+			return nil, false // Return nil pointer for user
 		},
 		// Mock user ID function that returns the string itself
-		func(user string) string {
-			return user
+		func(user *string) string {
+			if user == nil {
+				return "" // Handle nil pointer case
+			}
+			return *user // Dereference pointer
 		})
 
 	// Register a route with a root path

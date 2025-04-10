@@ -150,32 +150,32 @@ func main() {
 		},
 	}
 
-	// Define the auth function that takes a context and token and returns a User and a boolean
-	authFunction := func(ctx context.Context, token string) (User, bool) {
+	// Define the auth function that takes a context and token and returns a *User and a boolean
+	authFunction := func(ctx context.Context, token string) (*User, bool) {
 		// Look up the username for this token
 		username, exists := tokens[token]
 		if !exists {
-			return User{}, false
+			return nil, false // Return nil pointer for user
 		}
 
 		// Look up the user
 		user, exists := users[username]
 		if !exists {
-			return User{}, false
+			return nil, false // Return nil pointer for user
 		}
 
-		return user, true
+		// Return a pointer to the user struct
+		return &user, true
 	}
 
-	// Define the function to get the user ID from a User
-	userIdFromUserFunction := func(user User) *User {
-		// In this example, we're using a pointer to the user as the ID
-		// In a real application, you might use a string or int ID
-		userCopy := user // Create a copy to avoid returning a pointer to a loop variable
-		return &userCopy
+	// Define the function to get the user ID (*User) from a *User
+	userIdFromUserFunction := func(user *User) *User {
+		// In this example, the user object pointer itself is the ID (T = *User)
+		// If user is nil, we return nil, otherwise return the pointer itself.
+		return user
 	}
 
-	// Create a router with *User as the user ID type and User as the user type
+	// Create a router with *User as the user ID type (T) and User as the user type (U)
 	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
 
 	// Start the server
