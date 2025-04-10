@@ -25,15 +25,19 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 	}
 
 	// Auth function that accepts "valid-token" and returns user ID 123
-	authFunction := func(ctx context.Context, token string) (string, bool) {
+	authFunction := func(ctx context.Context, token string) (*string, bool) {
 		if token == "valid-token" {
-			return "user123", true
+			user := "user123"
+			return &user, true
 		}
-		return "", false
+		return nil, false
 	}
 
-	getUserIDFromUser := func(user string) string {
-		return user
+	getUserIDFromUser := func(user *string) string {
+		if user == nil {
+			return "nil_user_pointer" // Or handle appropriately
+		}
+		return *user
 	}
 
 	router := NewRouter(config, authFunction, getUserIDFromUser)
@@ -64,11 +68,13 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 				t.Errorf("Expected user ID 'user123', got '%s'", userID)
 			}
 			// Check for user object as well since AddUserObjectToCtx is true
-			userObj, ok := scontext.GetUserFromRequest[string, string](r) // Use scontext
+			userObjPtr, ok := scontext.GetUserFromRequest[string, string](r) // Use scontext, gets a pointer
 			if !ok {
-				t.Error("Expected user object in context, but not found")
-			} else if userObj == nil || *userObj != "user123" {
-				t.Errorf("Expected user object 'user123', got '%v'", userObj)
+				t.Error("Expected user object pointer in context, but not found")
+			} else if userObjPtr == nil {
+				t.Error("Expected non-nil user object pointer, got nil")
+			} else if *userObjPtr != "user123" { // Dereference the pointer to check the value
+				t.Errorf("Expected user object 'user123', got '%v'", *userObjPtr)
 			}
 
 			w.WriteHeader(http.StatusOK)

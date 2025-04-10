@@ -60,19 +60,23 @@ func TestMetrics(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
-	// Define the auth function that takes a token and returns a string and a boolean
-	authFunction := func(ctx context.Context, token string) (string, bool) {
+	// Define the auth function that takes a token and returns a *string and a boolean
+	authFunction := func(ctx context.Context, token string) (*string, bool) {
 		// This is a simple example, so we'll just validate that the token is not empty
 		if token != "" {
-			return token, true
+			// Return a pointer to the token string
+			return &token, true
 		}
-		return "", false
+		return nil, false
 	}
 
-	// Define the function to get the user ID from a string
-	userIdFromUserFunction := func(user string) string {
+	// Define the function to get the user ID from a *string
+	userIdFromUserFunction := func(user *string) string {
 		// In this example, we're using the string itself as the ID
-		return user
+		if user == nil {
+			return "" // Handle nil pointer case
+		}
+		return *user // Dereference the pointer
 	}
 
 	// Create a router with string as both the user ID and user type

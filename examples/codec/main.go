@@ -33,18 +33,22 @@ func handleCreateUser(r *http.Request, reqUser *pb.User) (*pb.User, error) {
 }
 
 // Placeholder auth function matching [string, string] for T and U
-func placeholderAuth(ctx context.Context, token string) (string, bool) {
+func placeholderAuth(ctx context.Context, token string) (*string, bool) {
 	// No actual auth, just return placeholder user ID and true
 	// In a real app, you'd validate the token and return user context/ID
 	log.Printf("Placeholder Auth called with token: %s", token) // Added log for visibility
-	return "placeholder-user-id", true
+	user := "placeholder-user-id"
+	return &user, true
 }
 
 // Placeholder user ID extractor matching [string, string] for T and U
-func placeholderGetUserID(user string) string {
+func placeholderGetUserID(user *string) string {
 	// User object is just the ID string itself in this placeholder
-	log.Printf("Placeholder GetUserID called with user: %s", user) // Added log for visibility
-	return user
+	log.Printf("Placeholder GetUserID called with user: %v", user) // Added log for visibility
+	if user == nil {
+		return "" // Handle nil pointer case
+	}
+	return *user // Dereference the pointer
 }
 
 func main() {

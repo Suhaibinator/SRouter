@@ -239,31 +239,35 @@ func main() {
 		},
 	}
 
-	// Define the auth function that takes a context and token and returns a User and a boolean
-	authFunction := func(ctx context.Context, token string) (User, bool) {
+	// Define the auth function that takes a context and token and returns a *User and a boolean
+	authFunction := func(ctx context.Context, token string) (*User, bool) {
 		// Validate the token
 		userID, ok := tokens[token]
 		if !ok {
-			return User{}, false
+			return nil, false // Return nil pointer for user
 		}
 
 		// Get the user from the database
 		user, ok := users[userID]
 		if !ok {
-			return User{}, false
+			return nil, false // Return nil pointer for user
 		}
 
-		return user, true
+		// Return pointer to the user struct
+		return &user, true
 	}
 
-	// Define the function to get the user ID from a User
-	userIdFromUserFunction := func(user User) User {
-		// In this example, we're using the User itself as the ID
-		return user
+	// Define the function to get the user ID (string) from a *User
+	userIdFromUserFunction := func(user *User) string {
+		// In this example, we're using the User's ID field as the ID (T = string)
+		if user == nil {
+			return "" // Handle nil pointer case
+		}
+		return user.ID // Return the ID field (string)
 	}
 
-	// Create a router with User as both the user ID and user type
-	r := router.NewRouter[User, User](routerConfig, authFunction, userIdFromUserFunction)
+	// Create a router with string as the user ID type (T) and User as the user type (U)
+	r := router.NewRouter[string, User](routerConfig, authFunction, userIdFromUserFunction)
 
 	// Start the server
 	fmt.Println("Server listening on :8080")

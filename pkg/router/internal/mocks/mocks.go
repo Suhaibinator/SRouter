@@ -156,16 +156,23 @@ func (fr *FlusherRecorder) Flush() {
 }
 
 // MockAuthFunction is a simple mock auth function for testing
-func MockAuthFunction(ctx context.Context, token string) (string, bool) {
+func MockAuthFunction(ctx context.Context, token string) (*string, bool) {
 	if token == "valid-token" {
-		return "user123", true
+		user := "user123"
+		return &user, true
 	}
-	return "", false
+	return nil, false
 }
 
 // MockUserIDFromUser is a simple mock function to get user ID from user object
-func MockUserIDFromUser(user string) string {
-	return user
+func MockUserIDFromUser(user *string) string {
+	if user == nil {
+		// Handle nil pointer case if necessary, maybe return a default or panic
+		// Depending on how your application expects this to behave.
+		// For this mock, let's return an empty string or a specific indicator.
+		return "nil_user_pointer"
+	}
+	return *user // Dereference the pointer to get the string value
 }
 
 // MockGenericRouteRegistrar is a mock implementation of GenericRouteRegistrar for testing
