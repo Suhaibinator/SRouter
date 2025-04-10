@@ -87,8 +87,8 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 	// Initialize trace ID generator if trace ID is enabled
 	if config.TraceIDBufferSize > 0 {
 		r.traceIDGenerator = middleware.NewIDGenerator(config.TraceIDBufferSize)
-		// Create trace middleware using the router's generator
-		traceMW := middleware.CreateTraceMiddleware(r.traceIDGenerator)
+		// Create trace middleware using the router's generator, providing the router's T and U types
+		traceMW := middleware.CreateTraceMiddleware[T, U](r.traceIDGenerator)
 		// Add trace middleware as the first middleware (before any other middleware)
 		r.middlewares = append([]common.Middleware{traceMW}, r.middlewares...)
 	}
@@ -192,12 +192,14 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 // It stores the route parameters in the request context so they can be accessed by handlers.
 func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler) httprouter.Handle {
 	return func(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
-		// Store the params in the request context
-		ctx := context.WithValue(req.Context(), ParamsKey, ps)
-		req = req.WithContext(ctx)
+		// Add params to the *existing* context from the middleware chain
+		// Do NOT replace the context, just add the value.
+		ctxWithParams := context.WithValue(req.Context(), ParamsKey, ps)
+		// Update the request object to use the context that now includes params.
+		reqWithParams := req.WithContext(ctxWithParams)
 
-		// Call the handler
-		handler.ServeHTTP(w, req)
+		// Call the handler with the updated request object
+		handler.ServeHTTP(w, reqWithParams)
 	}
 }
 
@@ -897,6 +899,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 				ctx = scontext.WithTraceID[T, U](ctx, traceID) // Use scontext directly
 			}
 			req = req.WithContext(ctx)
+
 			// Get updated trace ID from context
 			traceID = scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
 

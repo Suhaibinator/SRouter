@@ -151,7 +151,8 @@ func TestWithTraceID_AlreadySet(t *testing.T) {
 // TestCreateTraceMiddleware_WithExistingHeader tests that the middleware uses an existing X-Trace-ID header
 func TestCreateTraceMiddleware_WithExistingHeader(t *testing.T) {
 	generator := NewIDGenerator(10) // Generator needed, but shouldn't be used in this path
-	middleware := CreateTraceMiddleware(generator)
+	// Provide default types for the generic middleware call in the test
+	middleware := CreateTraceMiddleware[string, any](generator)
 
 	// Create a handler that checks the trace ID in the context
 	var handlerTraceID string

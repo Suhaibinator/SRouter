@@ -134,7 +134,8 @@ func (g *IDGenerator) GetIDNonBlocking() string {
 // This is the core implementation used by both traceMiddleware and traceMiddlewareWithConfig.
 // It checks for an existing trace ID in the request headers before generating a new one,
 // which allows for trace ID propagation across service calls.
-func CreateTraceMiddleware(generator *IDGenerator) common.Middleware {
+// It's now generic to accept the UserID (T) and User (U) types from the router.
+func CreateTraceMiddleware[T comparable, U any](generator *IDGenerator) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var traceID string
@@ -149,8 +150,8 @@ func CreateTraceMiddleware(generator *IDGenerator) common.Middleware {
 				traceID = generator.GetIDNonBlocking()
 			}
 
-			// Add the trace ID to the request context using the new wrapper
-			ctx := scontext.WithTraceID[string, any](r.Context(), traceID) // Use scontext
+			// Add the trace ID to the request context using the correct generic types
+			ctx := scontext.WithTraceID[T, U](r.Context(), traceID) // Use scontext with router's T and U
 
 			// Add trace ID to the headers for logging or tracing
 			w.Header().Set("X-Trace-ID", traceID)
