@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http" // Ensure net/http is imported
+	"strings"
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
@@ -241,6 +242,25 @@ func ErrorHandler(r *http.Request, req EmptyRequest) (ErrorResponse, error) {
 	return ErrorResponse{}, errors.New("this is a deliberate error")
 }
 
+// Example Sanitizer for CreateUserRequest
+func SanitizeCreateUserRequest(req CreateUserRequest) (CreateUserRequest, error) {
+
+	// Example: Trim whitespace from name and email
+	req.Name = strings.TrimSpace(req.Name)
+	req.Email = strings.TrimSpace(req.Email)
+
+	// Example: Basic validation (could return router.NewHTTPError for specific status)
+	if req.Name == "" {
+		return req, errors.New("sanitized name cannot be empty")
+	}
+	if req.Email == "" {
+		return req, errors.New("sanitized email cannot be empty")
+	}
+
+	fmt.Printf("Sanitizer applied: Name='%s', Email='%s'\n", req.Name, req.Email)
+	return req, nil // Return the modified request and nil error
+}
+
 func main() {
 	// Create a logger
 	logger, err := zap.NewProduction()
@@ -286,10 +306,11 @@ func main() {
 
 	// Register generic routes
 	router.RegisterGenericRoute(r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
-		Path:    "/users",
-		Methods: []router.HttpMethod{router.MethodPost}, // Use string literal or http.MethodPost constant
-		Codec:   codec.NewJSONCodec[CreateUserRequest, CreateUserResponse](),
-		Handler: CreateUserHandler,
+		Path:      "/users",
+		Methods:   []router.HttpMethod{router.MethodPost}, // Use string literal or http.MethodPost constant
+		Codec:     codec.NewJSONCodec[CreateUserRequest, CreateUserResponse](),
+		Handler:   CreateUserHandler,
+		Sanitizer: SanitizeCreateUserRequest, // Add the sanitizer function here
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	router.RegisterGenericRoute(r, router.RouteConfig[GetUserRequest, GetUserResponse]{
@@ -337,7 +358,7 @@ func main() {
 	fmt.Println("  - GET /users (list users)")
 	fmt.Println("  - GET /error (trigger an error)")
 	fmt.Println("\nExample curl commands:")
-	fmt.Println("  curl -X POST -H \"Content-Type: application/json\" -d '{\"name\":\"Alice\", \"email\":\"alice@example.com\"}' http://localhost:8080/users")
+	fmt.Println("  curl -X POST -H \"Content-Type: application/json\" -d '{\"name\":\"  Alice  \", \"email\":\"  alice@example.com  \"}' http://localhost:8080/users  (Note: Sanitizer trims whitespace)")
 	fmt.Println("  curl http://localhost:8080/users/1")
 	fmt.Println("  curl -X PUT -H \"Content-Type: application/json\" -d '{\"name\":\"Alice Updated\", \"email\":\"alice@example.com\"}' http://localhost:8080/users/1")
 	fmt.Println("  curl -X DELETE http://localhost:8080/users/1")

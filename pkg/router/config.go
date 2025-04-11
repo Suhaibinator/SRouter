@@ -183,6 +183,7 @@ type RouteConfig[T any, U any] struct {
 	Middlewares []common.Middleware               // Middlewares applied to this specific route
 	SourceType  SourceType                        // How to retrieve request data (defaults to Body)
 	SourceKey   string                            // Query parameter name (only used for query parameters)
+	Sanitizer   func(T) (T, error)                // Optional sanitizer function applied after decoding
 }
 
 // Middleware is an alias for common.Middleware.

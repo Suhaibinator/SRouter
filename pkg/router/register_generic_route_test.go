@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -149,6 +150,98 @@ func TestRegisterGenericRouteWithBody(t *testing.T) {
 	}
 	if resp.Message != "Hello, John!" {
 		t.Errorf("Expected message %q, got %q", "Hello, John!", resp.Message)
+	}
+}
+
+// --- Sanitizer Tests ---
+
+// Sanitizer that modifies the name
+func nameSanitizer(req RequestType) (RequestType, error) {
+	sanitized := req // Make a copy
+	sanitized.Name = "Sanitized " + sanitized.Name
+	return sanitized, nil
+}
+
+// Sanitizer that returns an error
+func errorSanitizer(req RequestType) (RequestType, error) {
+	return req, errors.New("sanitizer error")
+}
+
+// TestRegisterGenericRouteWithSanitizerSuccess tests successful sanitization
+func TestRegisterGenericRouteWithSanitizerSuccess(t *testing.T) {
+	logger := zap.NewNop()
+	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+		Path:       "/test-sanitize-success",
+		Methods:    []HttpMethod{MethodPost},
+		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
+		Handler:    testGenericHandler[RequestType, ResponseType], // Handler should receive sanitized data
+		SourceType: Body,
+		Sanitizer:  nameSanitizer, // Add the successful sanitizer
+	}, time.Duration(0), int64(0), nil)
+
+	reqBody := RequestType{ID: "sanitize1", Name: "Original"}
+	reqBytes, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/test-sanitize-success", strings.NewReader(string(reqBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d. Body: %s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	var resp ResponseType
+	err := json.Unmarshal(rr.Body.Bytes(), &resp)
+	if err != nil {
+		t.Errorf("Failed to unmarshal response: %v", err)
+	}
+	// The handler should receive the sanitized name and include it in the response
+	expectedMessage := "Hello, Sanitized Original!"
+	if resp.Message != expectedMessage {
+		t.Errorf("Expected message %q, got %q", expectedMessage, resp.Message)
+	}
+	if resp.Name != "Sanitized Original" {
+		t.Errorf("Expected sanitized name %q in response, got %q", "Sanitized Original", resp.Name)
+	}
+	if resp.ID != "sanitize1" {
+		t.Errorf("Expected ID %q, got %q", "sanitize1", resp.ID)
+	}
+}
+
+// TestRegisterGenericRouteWithSanitizerError tests sanitizer returning an error
+func TestRegisterGenericRouteWithSanitizerError(t *testing.T) {
+	logger := zap.NewNop()
+	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+		Path:       "/test-sanitize-error",
+		Methods:    []HttpMethod{MethodPost},
+		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
+		Handler:    testGenericHandler[RequestType, ResponseType],
+		SourceType: Body,
+		Sanitizer:  errorSanitizer, // Add the erroring sanitizer
+	}, time.Duration(0), int64(0), nil)
+
+	reqBody := RequestType{ID: "sanitize2", Name: "ErrorCase"}
+	reqBytes, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "/test-sanitize-error", strings.NewReader(string(reqBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("Expected status code %d, got %d", http.StatusBadRequest, rr.Code)
+	}
+
+	// Check error message in response body
+	var errResp map[string]map[string]string
+	err := json.Unmarshal(rr.Body.Bytes(), &errResp)
+	if err != nil {
+		t.Fatalf("Failed to unmarshal error response: %v", err)
+	}
+	if errMsg, ok := errResp["error"]["message"]; !ok || errMsg != "Sanitization failed" {
+		t.Errorf("Expected error message 'Sanitization failed', got '%s'", errMsg)
 	}
 }
 

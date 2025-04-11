@@ -54,6 +54,14 @@ createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
  Codec:       codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Specify the codec
  Handler:     CreateUserHandler, // Assign the generic handler
  // Middlewares, Timeout, MaxBodySize, RateLimit can be set here too
+ Sanitizer: func(req CreateUserReq) (CreateUserReq, error) { // Optional: Sanitize data after decoding
+  if req.Name == "invalid" {
+   return CreateUserReq{}, router.NewHTTPError(http.StatusBadRequest, "Invalid name provided")
+  }
+  // Example: Trim spaces
+  req.Name = strings.TrimSpace(req.Name)
+  return req, nil // Return the modified request (or original if no changes) and nil error
+ },
 }
 ```
 
@@ -99,8 +107,9 @@ routerConfig := router.RouterConfig{
 
 ## Key Components
 
--   **`RouteConfig[T, U]`**: Defines the configuration for a generic route, including path, methods, auth level, codec, handler, and overrides.
--   **`GenericHandler[T, U]`**: The function signature `func(*http.Request, T) (U, error)`. It receives the `http.Request` (for accessing context, headers, etc.) and the decoded request object `T`. It returns the response object `U` and an `error`. If the error is non-nil, SRouter handles sending the appropriate HTTP error response (using `router.HTTPError` for specific status codes).
+-   **`RouteConfig[T, U]`**: Defines the configuration for a generic route, including path, methods, auth level, codec, handler, **sanitizer**, and overrides.
+-   **`GenericHandler[T, U]`**: The function signature `func(*http.Request, T) (U, error)`. It receives the `http.Request` (for accessing context, headers, etc.) and the *potentially sanitized* decoded request object `T`. It returns the response object `U` and an `error`. If the error is non-nil, SRouter handles sending the appropriate HTTP error response (using `router.HTTPError` for specific status codes).
+-   **`Sanitizer func(*T) (*T, error)`**: An optional function that runs *after* the request data `T` is successfully decoded by the `Codec` but *before* the `GenericHandler` is called. It receives a pointer to the decoded data (`*T`) and can modify it in place or return a new pointer (`*T`). If it returns a non-nil error, the request processing stops, and a `400 Bad Request` (or the error specified if it's an `HTTPError`) is returned. If it returns a non-nil `*T` and a nil error, the returned data replaces the original decoded data before being passed to the `GenericHandler`. If it returns `nil, nil`, the original decoded data is used.
 -   **`Codec[T, U]`**: An interface responsible for decoding the request (`T`) and encoding the response (`U`). See [Custom Codecs](./codecs.md).
 -   **`NewGenericRouteDefinition`**: The **recommended** helper function used within `SubRouterConfig.Routes` to wrap a `RouteConfig[T, U]` for declarative registration, ensuring proper application of sub-router settings.
 -   **`RegisterGenericRoute`**: An internal function called by `NewGenericRouteDefinition`. Direct use is discouraged.
