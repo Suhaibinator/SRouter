@@ -54,9 +54,9 @@ createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
  Codec:       codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Specify the codec
  Handler:     CreateUserHandler, // Assign the generic handler
  // Middlewares, Timeout, MaxBodySize, RateLimit can be set here too
- Sanitizer: func(req *CreateUserReq) (*CreateUserReq, error) { // Optional: Sanitize data after decoding
+ Sanitizer: func(req CreateUserReq) (CreateUserReq, error) { // Optional: Sanitize data after decoding
   if req.Name == "invalid" {
-   return nil, router.NewHTTPError(http.StatusBadRequest, "Invalid name provided")
+   return CreateUserReq{}, router.NewHTTPError(http.StatusBadRequest, "Invalid name provided")
   }
   // Example: Trim spaces
   req.Name = strings.TrimSpace(req.Name)
