@@ -197,6 +197,16 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 			return
 		}
 
+		// Apply sanitizer if provided
+		if route.Sanitizer != nil {
+			sanitizedData, err := route.Sanitizer(data)
+			if err != nil {
+				r.handleError(w, req, err, http.StatusBadRequest, "Sanitization failed")
+				return
+			}
+			data = sanitizedData
+		}
+
 		// Call the handler
 		resp, err := route.Handler(req, data)
 		if err != nil {
