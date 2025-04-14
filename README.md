@@ -1107,14 +1107,12 @@ type RouterConfig struct {
  GlobalRateLimit    *common.RateLimitConfig[any, any] // Default rate limit for all routes (uses common.RateLimitConfig)
  IPConfig           *router.IPConfig                  // Configuration for client IP extraction (uses router.IPConfig)
  EnableMetrics      bool                              // Enable metrics collection
- // EnableTracing is deprecated/removed; tracing is often handled via middleware or dedicated libraries.
  TraceIDBufferSize  int                               // Buffer size for trace ID generator (0 disables trace ID generation)
  MetricsConfig      *router.MetricsConfig             // Metrics configuration (optional, uses router.MetricsConfig)
  SubRouters         []SubRouterConfig                 // Sub-routers with their own configurations
  Middlewares        []common.Middleware               // Global middlewares applied to all routes (uses common.Middleware)
  AddUserObjectToCtx bool                              // Add user object to context (used by built-in auth middleware)
  // CacheGet, CacheSet, CacheKeyPrefix removed - implement caching via middleware if needed
- // EnableTraceID is deprecated; use TraceIDBufferSize > 0 instead.
  // EnableTraceLogging and TraceLoggingUseInfo control logging behavior, see Logging section.
 }
 ```

@@ -307,33 +307,3 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 		})
 	}
 }
-
-// CreateRateLimitMiddleware provides a simplified way to create a RateLimit middleware instance.
-// T is the User ID type (comparable).
-// U is the User object type (any).
-//
-// Deprecated: Prefer configuring common.RateLimitConfig directly and calling RateLimit for more clarity and flexibility.
-func CreateRateLimitMiddleware[T comparable, U any](
-	bucketName string,
-	limit int,
-	window time.Duration,
-	strategy common.RateLimitStrategy, // Use common.RateLimitStrategy
-	userIDFromUser func(U) T, // Optional, only for StrategyUser with user object
-	userIDToString func(T) string, // Required for StrategyUser
-	logger *zap.Logger,
-) common.Middleware { // Use common.Middleware
-	config := &common.RateLimitConfig[T, U]{ // Use common.RateLimitConfig
-		BucketName:     bucketName,
-		Limit:          limit,
-		Window:         window,
-		Strategy:       strategy,
-		UserIDFromUser: userIDFromUser,
-		UserIDToString: userIDToString,
-		// KeyExtractor and ExceededHandler are left nil
-	}
-
-	// Use the default UberRateLimiter
-	limiter := NewUberRateLimiter()
-
-	return RateLimit(config, limiter, logger)
-}
