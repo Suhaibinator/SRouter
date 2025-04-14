@@ -22,6 +22,7 @@ func main() {
 
 	// Create a router configuration with trace middleware
 	routerConfig := router.RouterConfig{
+		ServiceName:       "trace-logging-service", // Added ServiceName
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB

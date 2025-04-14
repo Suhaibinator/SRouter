@@ -115,6 +115,7 @@ type MetricsConfig struct {
 // RouterConfig defines the global configuration for the router.
 // It includes settings for logging, timeouts, metrics, and middleware.
 type RouterConfig struct {
+	ServiceName         string                            // Name of the service, used for metrics tagging etc.
 	Logger              *zap.Logger                       // Logger for all router operations
 	GlobalTimeout       time.Duration                     // Default response timeout for all routes
 	GlobalMaxBodySize   int64                             // Default maximum request body size in bytes

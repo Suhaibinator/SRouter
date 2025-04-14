@@ -200,6 +200,7 @@ func main() {
 
 	// Create a router with string as both the user ID and user type
 	r := router.NewRouter(router.RouterConfig{
+		ServiceName:   "nested-subrouters-service", // Added ServiceName
 		Logger:        logger,
 		GlobalTimeout: 5 * time.Second,
 		SubRouters:    []router.SubRouterConfig{apiSubRouter}, // Register only the top-level sub-router

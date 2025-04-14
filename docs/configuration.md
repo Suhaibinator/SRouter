@@ -26,6 +26,10 @@ import (
 )
 
 type RouterConfig struct {
+	// ServiceName identifies the service (e.g., "user-api", "auth-service").
+	// This name is used for tagging metrics and potentially other identification purposes. Required.
+	ServiceName string
+
 	// Logger instance for all router operations. Required.
 	Logger *zap.Logger
 

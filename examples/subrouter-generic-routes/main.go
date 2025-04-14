@@ -142,6 +142,7 @@ func main() {
 	// Create a router with string as both the user ID and user type
 	// Register the sub-routers declaratively
 	r := router.NewRouter[string, string](router.RouterConfig{
+		ServiceName:   "subrouter-generic-service", // Added ServiceName
 		Logger:        logger,
 		GlobalTimeout: 5 * time.Second,
 		SubRouters:    []router.SubRouterConfig{apiV1SubRouter, apiV2SubRouter}, // Register sub-routers
