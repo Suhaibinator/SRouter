@@ -32,11 +32,12 @@ routerConfig := router.RouterConfig{
 
         // Provide your implementation of metrics.MetricsMiddleware. Optional.
         // If nil, SRouter uses metrics.NewMetricsMiddleware(Collector, config) internally.
-        MiddlewareFactory: myMiddlewareFactory, // Must implement metrics.MetricsMiddleware if provided
+        MiddlewareFactory: myMiddlewareFactory, // Must implement metrics.MetricsMiddleware
 
-        // Configure metric details (namespace, subsystem, which metrics to enable)
-        Namespace:        "myapp",
-        Subsystem:        "api",
+        // Configure which default metrics the built-in middleware should collect
+        // if MiddlewareFactory is nil. These flags are used by metrics.NewMetricsMiddleware.
+        // Note: Namespace and Subsystem are typically configured within your MetricsRegistry implementation,
+        // not directly in this config struct.
         EnableLatency:    true,  // Collect request latency histogram/summary
         EnableThroughput: true,  // Collect request/response size histogram/summary
         EnableQPS:        true,  // Collect request counter (requests_total)
@@ -84,10 +85,20 @@ serveMux.Handle("/", r)                     // Handle all other requests with SR
 
 The system is built around dependency injection using these key interfaces defined in `pkg/metrics/metrics.go`:
 
-1.  **`MetricsRegistry`**: The core interface responsible for creating and managing individual metric instruments (Counters, Gauges, Histograms, Summaries) via builder methods (`NewCounter`, `NewGauge`, etc.). Your implementation will wrap your chosen metrics library (e.g., `prometheus.NewRegistry`, `prometheus.NewCounterVec`). This is the interface expected by the `MetricsConfig.Collector` field.
-2.  **`MetricsExporter`** (Optional): An interface for components that expose collected metrics. It includes methods like `Export(MetricsSnapshot)`, `Start()`, `Stop()`, and crucially `Handler() http.Handler` for providing an HTTP endpoint (like `/metrics`). SRouter does not use this internally during request handling, but you use it to set up the scraping endpoint.
-3.  **`MetricsMiddleware`** (Optional Interface, used by `MiddlewareFactory`): Defines the interface for the metrics middleware itself, primarily the `Handler(name string, handler http.Handler) http.Handler` method. The `MetricsConfig.MiddlewareFactory` field expects an object implementing this interface. If `MiddlewareFactory` is `nil` in the config, SRouter internally creates an instance of `metrics.MetricsMiddlewareImpl` using the provided `MetricsRegistry` (Collector) and the `Enable*` flags from `MetricsConfig`.
-4.  **Metric Types** (`Counter`, `Gauge`, `Histogram`, `Summary`) and **Builders** (`CounterBuilder`, etc.): Interfaces defining the individual metric instruments and how they are constructed. Your `MetricsRegistry` implementation will return builders that create objects satisfying these metric interfaces.
+1.  **`MetricsRegistry`**: The core interface responsible for managing the lifecycle of metrics within the system. It provides methods to `Register`, `Get`, `Unregister`, and `Clear` metrics. It also offers builder methods (`NewCounter`, `NewGauge`, `NewHistogram`, `NewSummary`) that return specific *builder* interfaces (e.g., `CounterBuilder`). These builders are used to configure and finally `.Build()` the individual metric instruments (Counters, Gauges, etc.). The registry can also provide a `Snapshot()` of current metrics (returning a `MetricsSnapshot`) and be scoped `WithTags(Tags)`. Your implementation will wrap your chosen metrics library (e.g., `prometheus.NewRegistry`). This is the interface expected by the `MetricsConfig.Collector` field.
+2.  **`MetricsExporter`** (Optional): An interface for components that expose collected metrics, often to a backend or via an HTTP endpoint. Key methods include `Export(snapshot MetricsSnapshot) error` to send metrics data, `Start()` and `Stop()` for managing the exporter's lifecycle, and crucially `Handler() http.Handler`. The `Handler()` method is used to provide an HTTP handler (e.g., `promhttp.Handler()` for Prometheus) typically served on a `/metrics` endpoint for scraping. SRouter does not use the exporter internally during request handling, but you configure and use it to make metrics available externally.
+3.  **`MetricsMiddleware`**: Defines the interface for the metrics middleware itself. Its primary method is `Handler(name string, handler http.Handler) http.Handler`, which wraps an existing HTTP handler to collect metrics. Additionally, the interface provides methods for post-creation configuration (`Configure(config MetricsMiddlewareConfig)`), adding request filtering logic (`WithFilter(filter MetricsFilter)`), and adding request sampling logic (`WithSampler(sampler MetricsSampler)`). The `MetricsConfig.MiddlewareFactory` field expects an object implementing this interface. If `MiddlewareFactory` is `nil` in the config, SRouter internally creates an instance of `metrics.MetricsMiddlewareImpl` using the provided `MetricsRegistry` (Collector) and the `Enable*` flags from `MetricsConfig`.
+4.  **Metric Types** (`Counter`, `Gauge`, `Histogram`, `Summary`) and **Builders** (`CounterBuilder`, etc.): Interfaces defining the individual metric instruments and how they are constructed. Your `MetricsRegistry` implementation will return builders that create objects satisfying these metric interfaces. The base `Metric` interface provides common methods like `Name()`, `Description()`, `Type()`, `Tags()`, and `WithTags(Tags)`. Builders typically offer fluent methods like `.Name()`, `.Description()`, `.Tag()`, and specific configuration (e.g., `.Buckets()`) before calling `.Build()`.
+
+5.  **`MetricsSnapshot`**: An interface representing a point-in-time snapshot of all metrics held by a `MetricsRegistry`. It provides methods like `Counters()`, `Gauges()`, etc. This is used by the `MetricsExporter`.
+
+## Middleware Filtering and Sampling
+
+The `MetricsMiddleware` interface supports filtering and sampling to control which requests generate metrics:
+
+-   **`MetricsFilter`**: An interface with a `Filter(r *http.Request) bool` method. If implemented and added via `WithFilter`, the middleware will only collect metrics for requests where `Filter` returns `true`.
+-   **`MetricsSampler`**: An interface with a `Sample() bool` method. If implemented and added via `WithSampler`, the middleware will only collect metrics for a fraction of requests based on the sampler's logic (e.g., random sampling). The code provides a basic `RandomSampler`.
+-   These allow for fine-grained control over metric collection, potentially reducing overhead or focusing on specific request types.
 
 ## Default Collected Metrics
 
