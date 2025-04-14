@@ -136,11 +136,6 @@ func (r *MockMetricsRegistry) Unregister(name string) bool {
 func (r *MockMetricsRegistry) Clear() {
 }
 
-// Snapshot gets a snapshot of all metrics
-func (r *MockMetricsRegistry) Snapshot() MetricsSnapshot {
-	return nil
-}
-
 // WithTags creates a new registry with the given tags
 func (r *MockMetricsRegistry) WithTags(tags Tags) MetricsRegistry {
 	return r

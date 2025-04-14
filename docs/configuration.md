@@ -61,10 +61,6 @@ type RouterConfig struct {
 	// Setting to 0 disables automatic trace ID generation. See docs/trace-logging.md.
 	TraceIDBufferSize int
 
-	// PrometheusConfig holds configuration for the older Prometheus metrics system.
-	// Deprecated: Use MetricsConfig instead. Kept for backward compatibility reference.
-	PrometheusConfig *PrometheusConfig // Deprecated
-
 	// MetricsConfig holds detailed configuration for the v2 metrics system when EnableMetrics is true.
 	// See MetricsConfig section below and docs/metrics.md.
 	MetricsConfig *MetricsConfig
@@ -81,9 +77,6 @@ type RouterConfig struct {
 	// (if used) should attempt to add the full user object (U) to the context,
 	// in addition to the user ID (T). Often true if U provides useful info.
 	AddUserObjectToCtx bool
-
-	// --- Deprecated/Removed Fields (Example - check current source) ---
-	// CacheGet, CacheSet, CacheKeyPrefix (Caching should now be implemented via middleware)
 }
 ```
 
@@ -98,12 +91,8 @@ import "github.com/Suhaibinator/SRouter/pkg/metrics" // Assuming interfaces are 
 
 type MetricsConfig struct {
 	// Collector provides the implementation for creating and managing metric instruments.
-	// Must implement metrics.Collector. Required if EnableMetrics is true.
-	Collector any // Typically metrics.Collector
-
-	// Exporter provides the implementation for exposing metrics (e.g., HTTP handler).
-	// Optional. Might implement metrics.Exporter or metrics.HTTPExporter.
-	Exporter any
+	// Must implement metrics.MetricsRegistry. Required if EnableMetrics is true.
+	Collector any // Typically metrics.MetricsRegistry
 
 	// MiddlewareFactory creates the metrics middleware.
 	// Optional. If nil, SRouter likely uses a default factory. Must implement metrics.MiddlewareFactory.
@@ -177,9 +166,6 @@ type SubRouterConfig struct {
 	// AuthLevel sets the default authentication level for routes in this sub-router
 	// if the route itself doesn't specify one. Nil inherits from parent or defaults to NoAuth.
 	AuthLevel *AuthLevel
-
-	// --- Deprecated/Removed Fields (Example - check current source) ---
-	// CacheResponse, CacheKeyPrefix
 }
 ```
 
@@ -281,9 +267,6 @@ type RouteConfig[T any, U any] struct {
 
 	// SourceKey is used when SourceType is not Body (e.g., query or path parameter name).
 	SourceKey string
-
-	// --- Deprecated/Removed Fields (Example - check current source) ---
-	// CacheResponse, CacheKeyPrefix
 }
 ```
 

@@ -16,7 +16,6 @@ func (r *MockMetricsRegistry) Register(metric metrics.Metric) error             
 func (r *MockMetricsRegistry) Get(name string) (metrics.Metric, bool)             { return nil, false }
 func (r *MockMetricsRegistry) Unregister(name string) bool                        { return true }
 func (r *MockMetricsRegistry) Clear()                                             {}
-func (r *MockMetricsRegistry) Snapshot() metrics.MetricsSnapshot                  { return nil }
 func (r *MockMetricsRegistry) WithTags(tags metrics.Tags) metrics.MetricsRegistry { return r }
 func (r *MockMetricsRegistry) NewCounter() metrics.CounterBuilder                 { return &MockCounterBuilder{} }
 func (r *MockMetricsRegistry) NewGauge() metrics.GaugeBuilder                     { return &MockGaugeBuilder{} }
@@ -109,14 +108,6 @@ func (s *MockSummary) Tags() metrics.Tags                        { return metric
 func (s *MockSummary) WithTags(tags metrics.Tags) metrics.Metric { return s }
 func (s *MockSummary) Observe(value float64)                     {}
 func (s *MockSummary) Objectives() map[float64]float64           { return map[float64]float64{} }
-
-// MockMetricsExporter is a mock implementation of metrics.MetricsExporter for testing
-type MockMetricsExporter struct{}
-
-func (e *MockMetricsExporter) Export(snapshot metrics.MetricsSnapshot) error { return nil }
-func (e *MockMetricsExporter) Start() error                                  { return nil }
-func (e *MockMetricsExporter) Stop() error                                   { return nil }
-func (e *MockMetricsExporter) Handler() http.Handler                         { return http.NotFoundHandler() }
 
 // FlusherRecorder is a test response recorder that implements http.Flusher
 type FlusherRecorder struct {

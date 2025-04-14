@@ -100,50 +100,6 @@ func TestGetLimiter_Coverage(t *testing.T) {
 	assert.Equal(t, 1, count, "Expected exactly one limiter instance for the key/rps")
 }
 
-// TestCreateRateLimitMiddleware_Coverage tests the CreateRateLimitMiddleware function
-func TestCreateRateLimitMiddleware_Coverage(t *testing.T) {
-	// Create a logger
-	logger := zap.NewNop()
-
-	// Create a rate limit middleware
-	middleware := CreateRateLimitMiddleware(
-		"test-bucket",
-		10,
-		time.Minute,
-		common.StrategyIP, // Use common.StrategyIP
-		func(user string) string { return user },
-		func(userID string) string { return userID },
-		logger,
-	)
-
-	// Verify that the middleware is not nil
-	if middleware == nil {
-		t.Errorf("Expected middleware to be non-nil")
-	}
-
-	// Create a test handler
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("OK"))
-	})
-
-	// Wrap the handler with the middleware
-	wrappedHandler := middleware(handler)
-
-	// Create a test request
-	req := httptest.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "192.168.1.1:1234"
-
-	// Test the middleware with a simple case
-	w := httptest.NewRecorder()
-	wrappedHandler.ServeHTTP(w, req)
-
-	// Verify that the request was allowed
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
-	}
-}
-
 // TestRateLimitWithCustomKeyExtractor tests the RateLimit function with a custom key extractor
 func TestRateLimitWithCustomKeyExtractor(t *testing.T) {
 	// Create a logger

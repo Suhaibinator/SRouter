@@ -26,8 +26,7 @@ Here's a brief overview of the available examples (refer to the source code and 
 -   **`/examples/trace-logging`**: Demonstrates enabling and using trace IDs for correlating logs within a request lifecycle.
 -   **`/examples/source-types`**: Shows how to use different `SourceType` options (Body, Base64QueryParameter, Base64PathParameter, etc.) for generic routes.
 -   **`/examples/codec`**: Illustrates using different codecs, particularly `JSONCodec` and `ProtoCodec` (including the required factory function for proto).
--   **`/examples/prometheus`**: Example of integrating SRouter's metrics system with Prometheus by providing Prometheus-based implementations of the `metrics.Collector` and `metrics.Exporter` interfaces.
--   **`/examples/custom-metrics`**: Demonstrates implementing custom logic or integrating with a different backend using the `metrics` package interfaces.
--   **`/examples/caching`**: (Note: Built-in caching config might be removed). This example likely demonstrates implementing response caching using custom middleware, as direct caching configuration in the router might be deprecated. Check the example's README.
+-   **`/examples/prometheus`**: Example of integrating SRouter's metrics system with Prometheus by providing a Prometheus-based implementation of the `metrics.MetricsRegistry` interface and showing how the application can expose the metrics via an HTTP handler.
+-   **`/examples/custom-metrics`**: Demonstrates implementing a custom `metrics.MetricsRegistry` or `metrics.MetricsMiddleware`.
 
 Exploring these examples is highly recommended to understand how to effectively use SRouter's various features.

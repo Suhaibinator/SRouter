@@ -588,50 +588,6 @@ func TestRateLimitMiddlewareWithUserStrategy(t *testing.T) {
 	}
 }
 
-func TestCreateRateLimitMiddleware(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewDevelopment()
-
-	// Create a rate limit middleware using the helper function (using common types)
-	middleware := CreateRateLimitMiddleware(
-		"test-bucket-create",
-		2, // Set a low limit for testing
-		time.Second,
-		common.StrategyUser, // Use common.StrategyUser
-		func(u TestUser) string { return u.ID },
-		func(id string) string { return id }, // Provide UserIDToString
-		logger,
-	)
-
-	// Create a test handler that returns 200 OK
-	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	// Wrap the test handler with the middleware
-	handler := middleware(testHandler)
-
-	// Create a test server that adds the user to the context
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user := TestUser{ID: "test-user", Name: "Test User"}
-		ctx := scontext.WithUser[string](r.Context(), &user) // Use scontext
-		handler.ServeHTTP(w, r.WithContext(ctx))
-	}))
-	defer server.Close()
-
-	// Make requests to test rate limiting
-	client := &http.Client{}
-
-	// First request should succeed
-	resp, err := client.Get(server.URL)
-	if err != nil {
-		t.Fatalf("Failed to make request: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
-	}
-}
-
 // TestRateLimitWithIPMiddleware tests that rate limiting by IP works correctly
 // when the IP middleware is applied before the rate limiting middleware
 func TestRateLimitWithIPMiddleware(t *testing.T) {

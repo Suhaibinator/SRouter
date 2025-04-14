@@ -17,15 +17,11 @@ func TestMetricsConfig(t *testing.T) {
 	// Create a mock registry
 	registry := &mocks.MockMetricsRegistry{}
 
-	// Create a mock exporter
-	exporter := &mocks.MockMetricsExporter{}
-
 	// Create a router with metrics config and string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		EnableMetrics: true,
 		MetricsConfig: &MetricsConfig{
 			Collector:        registry,
-			Exporter:         exporter,
 			Namespace:        "test",
 			Subsystem:        "router",
 			EnableLatency:    true,

@@ -89,10 +89,6 @@ type MetricsConfig struct {
 	// If nil, a default collector will be used if metrics are enabled.
 	Collector any // metrics.Collector
 
-	// Exporter is the metrics exporter to use.
-	// If nil, a default exporter will be used if metrics are enabled.
-	Exporter any // metrics.Exporter
-
 	// MiddlewareFactory is the factory for creating metrics middleware.
 	// If nil, a default middleware factory will be used if metrics are enabled.
 	MiddlewareFactory any // metrics.MiddlewareFactory
@@ -128,7 +124,6 @@ type RouterConfig struct {
 	EnableTraceLogging  bool                              // Enable trace logging
 	TraceLoggingUseInfo bool                              // Use Info level for trace logging
 	TraceIDBufferSize   int                               // Buffer size for trace ID generator (0 disables trace ID)
-	PrometheusConfig    *PrometheusConfig                 // Prometheus metrics configuration (optional, deprecated)
 	MetricsConfig       *MetricsConfig                    // Metrics configuration (optional)
 	SubRouters          []SubRouterConfig                 // Sub-routers with their own configurations
 	Middlewares         []common.Middleware               // Global middlewares applied to all routes
