@@ -7,6 +7,38 @@ SRouter is a high-performance HTTP router for Go that wraps [julienschmidt/httpr
 [![Tests](https://github.com/Suhaibinator/SRouter/actions/workflows/tests.yml/badge.svg)](https://github.com/Suhaibinator/SRouter/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/Suhaibinator/SRouter/graph/badge.svg?token=NNIYO5HKX7)](https://codecov.io/gh/Suhaibinator/SRouter)
 
+## Table of Contents
+
+- **Getting Started**
+  - [Installation & Requirements](./docs/installation.md)
+  - [Basic Usage](./docs/basic-usage.md)
+  - [Sub-Routers](./docs/subrouters.md)
+  - [Generic Routes](./docs/generic-routes.md)
+  - [Path Parameters](./docs/path-parameters.md)
+  - [Trace ID Logging](./docs/trace-logging.md)
+  - [Graceful Shutdown](./docs/graceful-shutdown.md)
+- **Advanced Features**
+  - [IP Configuration](./docs/ip-configuration.md)
+  - [Rate Limiting](./docs/rate-limiting.md)
+  - [Authentication](./docs/authentication.md)
+  - [Context Management](./docs/context-management.md)
+  - [Custom Error Handling](./docs/error-handling.md)
+  - [Custom Middleware](./docs/middleware.md)
+  - [Source Types](./docs/source-types.md)
+  - [Custom Codecs](./docs/codecs.md)
+  - [Metrics](./docs/metrics.md)
+- **Reference**
+  - [Configuration Reference](./docs/configuration.md)
+  - [Middleware Reference](./docs/middleware.md#middleware-reference)
+  - [Codec Reference](./docs/codecs.md#codec-reference)
+  - [Path Parameter Reference](./docs/path-parameters.md#path-parameter-reference)
+  - [Error Handling Reference](./docs/error-handling.md#error-handling-reference)
+- **Other**
+  - [Performance Considerations](./docs/performance.md)
+  - [Logging](./docs/logging.md)
+  - [Examples](./docs/examples.md)
+  - [License](./LICENSE)
+
 ## Features
 
 - **High Performance**: Built on top of julienschmidt/httprouter for blazing-fast O(1) path matching
