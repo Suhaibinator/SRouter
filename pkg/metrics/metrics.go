@@ -43,9 +43,6 @@ type Metric interface {
 
 	// Tags returns the metric tags.
 	Tags() Tags
-
-	// WithTags returns a new metric with the given tags.
-	WithTags(tags Tags) Metric
 }
 
 // Counter is a metric that represents a monotonically increasing value.
@@ -57,9 +54,6 @@ type Counter interface {
 
 	// Add adds the given value to the counter.
 	Add(value float64)
-
-	// Value returns the current value of the counter.
-	Value() float64
 }
 
 // Gauge is a metric that represents a value that can go up and down.
@@ -80,9 +74,6 @@ type Gauge interface {
 
 	// Sub subtracts the given value from the gauge.
 	Sub(value float64)
-
-	// Value returns the current value of the gauge.
-	Value() float64
 }
 
 // Histogram is a metric that samples observations and counts them in configurable buckets.
@@ -91,9 +82,6 @@ type Histogram interface {
 
 	// Observe adds a single observation to the histogram.
 	Observe(value float64)
-
-	// Buckets returns the bucket boundaries.
-	Buckets() []float64
 }
 
 // Summary is a metric that samples observations and calculates quantiles over a sliding time window.
@@ -102,9 +90,6 @@ type Summary interface {
 
 	// Observe adds a single observation to the summary.
 	Observe(value float64)
-
-	// Objectives returns the quantile objectives.
-	Objectives() map[float64]float64
 }
 
 // CounterBuilder is a builder for creating counters.
@@ -183,18 +168,6 @@ type SummaryBuilder interface {
 type MetricsRegistry interface {
 	// Register a metric with the registry.
 	Register(metric Metric) error
-
-	// Get a metric by name.
-	Get(name string) (Metric, bool)
-
-	// Unregister a metric from the registry.
-	Unregister(name string) bool
-
-	// Clear all metrics from the registry.
-	Clear()
-
-	// Create a new registry with the given tags.
-	WithTags(tags Tags) MetricsRegistry
 
 	// Create a new counter builder.
 	NewCounter() CounterBuilder
