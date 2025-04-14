@@ -193,9 +193,6 @@ type MetricsRegistry interface {
 	// Clear all metrics from the registry.
 	Clear()
 
-	// Get a snapshot of all metrics.
-	Snapshot() MetricsSnapshot
-
 	// Create a new registry with the given tags.
 	WithTags(tags Tags) MetricsRegistry
 
@@ -210,36 +207,6 @@ type MetricsRegistry interface {
 
 	// Create a new summary builder.
 	NewSummary() SummaryBuilder
-}
-
-// MetricsSnapshot is a snapshot of all metrics in a registry.
-type MetricsSnapshot interface {
-	// Counters returns all counters in the snapshot.
-	Counters() []Counter
-
-	// Gauges returns all gauges in the snapshot.
-	Gauges() []Gauge
-
-	// Histograms returns all histograms in the snapshot.
-	Histograms() []Histogram
-
-	// Summaries returns all summaries in the snapshot.
-	Summaries() []Summary
-}
-
-// MetricsExporter is an exporter for metrics.
-type MetricsExporter interface {
-	// Export metrics to the backend.
-	Export(snapshot MetricsSnapshot) error
-
-	// Start the exporter.
-	Start() error
-
-	// Stop the exporter.
-	Stop() error
-
-	// Return an HTTP handler for exposing metrics.
-	Handler() http.Handler
 }
 
 // MetricsMiddleware is a middleware for collecting metrics.

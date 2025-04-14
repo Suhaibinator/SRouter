@@ -91,12 +91,8 @@ import "github.com/Suhaibinator/SRouter/pkg/metrics" // Assuming interfaces are 
 
 type MetricsConfig struct {
 	// Collector provides the implementation for creating and managing metric instruments.
-	// Must implement metrics.Collector. Required if EnableMetrics is true.
-	Collector any // Typically metrics.Collector
-
-	// Exporter provides the implementation for exposing metrics (e.g., HTTP handler).
-	// Optional. Might implement metrics.Exporter or metrics.HTTPExporter.
-	Exporter any
+	// Must implement metrics.MetricsRegistry. Required if EnableMetrics is true.
+	Collector any // Typically metrics.MetricsRegistry
 
 	// MiddlewareFactory creates the metrics middleware.
 	// Optional. If nil, SRouter likely uses a default factory. Must implement metrics.MiddlewareFactory.

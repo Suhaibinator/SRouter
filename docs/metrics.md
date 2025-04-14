@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"github.com/Suhaibinator/SRouter/pkg/metrics" // Import metrics package
-	// Assume myMetricsCollector, myMetricsExporter, myMiddlewareFactory are your implementations
+	// Assume myMetricsCollector, myMiddlewareFactory are your implementations
 	// Assume logger, authFunction, userIdFromUserFunction exist
 )
 
@@ -25,10 +25,6 @@ routerConfig := router.RouterConfig{
         // Provide your implementations of metrics interfaces.
         // Provide your implementation of the metrics.MetricsRegistry interface. Required if EnableMetrics is true.
         Collector:        myMetricsRegistry, // Must implement metrics.MetricsRegistry
-
-        // Provide your implementation of metrics.MetricsExporter. Optional.
-        // SRouter itself doesn't use this directly, but you might use it to expose a /metrics endpoint.
-        Exporter:         myMetricsExporter,
 
         // Provide your implementation of metrics.MetricsMiddleware. Optional.
         // If nil, SRouter uses metrics.NewMetricsMiddleware(Collector, config) internally.
@@ -48,36 +44,48 @@ routerConfig := router.RouterConfig{
 
 r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
-// --- Serving the /metrics endpoint (Example for Prometheus) ---
-
-// --- Serving the /metrics endpoint (Example using the Exporter) ---
-
-// Check if the provided Exporter implementation has an HTTP handler method
-var metricsHandler http.Handler = http.NotFoundHandler() // Default to Not Found
-if myMetricsExporter != nil {
-	// Assuming MetricsExporter interface has a Handler() method
-    if handler := myMetricsExporter.Handler(); handler != nil {
-		metricsHandler = handler // Get the handler (e.g., promhttp.Handler())
-	} else {
-		// Handle case where exporter exists but doesn't provide an HTTP handler
-		// logger.Warn("Metrics exporter does not provide an HTTP handler")
-	}
-} else {
-    metricsHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        http.Error(w, "Metrics endpoint not available", http.StatusNotFound)
-    })
-    // logger.Warn("Metrics exporter does not provide an HTTP handler")
-}
-
-// Serve metrics endpoint separately from your main API router
-// (Common practice to avoid applying API middleware to the /metrics endpoint)
-serveMux := http.NewServeMux()
-serveMux.Handle("/metrics", metricsHandler) // Expose metrics at /metrics
-serveMux.Handle("/", r)                     // Handle all other requests with SRouter
-
-// Start the server with the ServeMux
-// log.Println("Starting server with API on / and metrics on /metrics")
-// log.Fatal(http.ListenAndServe(":8080", serveMux))
+// --- Application-Level Metrics Endpoint ---
+// Serving a /metrics endpoint (e.g., for Prometheus scraping) is the responsibility
+// of the application using SRouter, not SRouter itself.
+//
+// You would typically:
+// 1. Instantiate your chosen MetricsExporter implementation.
+// 2. If it provides an HTTP handler (via the Handler() method), retrieve it.
+// 3. Create your main HTTP server (e.g., using http.ListenAndServe).
+// 4. Register the metrics handler on a specific path (e.g., "/metrics")
+//    using your server's mux (e.g., http.DefaultServeMux or a custom one).
+// 5. Register the SRouter instance ('r' in this example) to handle other paths (e.g., "/").
+//
+// Example structure (conceptual):
+//
+// func main() {
+//   // ... (Setup logger, config, myMetricsRegistry implementation)
+//
+//   routerConfig := router.RouterConfig{ /* ... SRouter config ... */ }
+//   srouterInstance := router.NewRouter[string, string](routerConfig, ...)
+//
+//   // Get handler from the MetricsRegistry implementation (if it provides one)
+//   var metricsHandler http.Handler
+//   // Type assert myMetricsRegistry to see if it has a Handler() method
+//   // (This depends on your specific registry implementation)
+//   if registryWithHandler, ok := myMetricsRegistry.(interface{ Handler() http.Handler }); ok {
+// 	  metricsHandler = registryWithHandler.Handler()
+//   }
+//   if metricsHandler == nil {
+//       // Handle case where registry doesn't provide a handler
+//       metricsHandler = http.NotFoundHandler() // Or log an error, etc.
+//   }
+//
+//   // Setup application's main ServeMux
+//   appMux := http.NewServeMux()
+//   appMux.Handle("/metrics", metricsHandler) // Expose metrics
+//   appMux.Handle("/", srouterInstance)      // Handle API requests via SRouter
+//
+//   // Start the application server
+//   log.Println("Starting server...")
+//   log.Fatal(http.ListenAndServe(":8080", appMux))
+// }
+//
 
 ```
 
@@ -85,12 +93,9 @@ serveMux.Handle("/", r)                     // Handle all other requests with SR
 
 The system is built around dependency injection using these key interfaces defined in `pkg/metrics/metrics.go`:
 
-1.  **`MetricsRegistry`**: The core interface responsible for managing the lifecycle of metrics within the system. It provides methods to `Register`, `Get`, `Unregister`, and `Clear` metrics. It also offers builder methods (`NewCounter`, `NewGauge`, `NewHistogram`, `NewSummary`) that return specific *builder* interfaces (e.g., `CounterBuilder`). These builders are used to configure and finally `.Build()` the individual metric instruments (Counters, Gauges, etc.). The registry can also provide a `Snapshot()` of current metrics (returning a `MetricsSnapshot`) and be scoped `WithTags(Tags)`. Your implementation will wrap your chosen metrics library (e.g., `prometheus.NewRegistry`). This is the interface expected by the `MetricsConfig.Collector` field.
-2.  **`MetricsExporter`** (Optional): An interface for components that expose collected metrics, often to a backend or via an HTTP endpoint. Key methods include `Export(snapshot MetricsSnapshot) error` to send metrics data, `Start()` and `Stop()` for managing the exporter's lifecycle, and crucially `Handler() http.Handler`. The `Handler()` method is used to provide an HTTP handler (e.g., `promhttp.Handler()` for Prometheus) typically served on a `/metrics` endpoint for scraping. SRouter does not use the exporter internally during request handling, but you configure and use it to make metrics available externally.
-3.  **`MetricsMiddleware`**: Defines the interface for the metrics middleware itself. Its primary method is `Handler(name string, handler http.Handler) http.Handler`, which wraps an existing HTTP handler to collect metrics. Additionally, the interface provides methods for post-creation configuration (`Configure(config MetricsMiddlewareConfig)`), adding request filtering logic (`WithFilter(filter MetricsFilter)`), and adding request sampling logic (`WithSampler(sampler MetricsSampler)`). The `MetricsConfig.MiddlewareFactory` field expects an object implementing this interface. If `MiddlewareFactory` is `nil` in the config, SRouter internally creates an instance of `metrics.MetricsMiddlewareImpl` using the provided `MetricsRegistry` (Collector) and the `Enable*` flags from `MetricsConfig`.
-4.  **Metric Types** (`Counter`, `Gauge`, `Histogram`, `Summary`) and **Builders** (`CounterBuilder`, etc.): Interfaces defining the individual metric instruments and how they are constructed. Your `MetricsRegistry` implementation will return builders that create objects satisfying these metric interfaces. The base `Metric` interface provides common methods like `Name()`, `Description()`, `Type()`, `Tags()`, and `WithTags(Tags)`. Builders typically offer fluent methods like `.Name()`, `.Description()`, `.Tag()`, and specific configuration (e.g., `.Buckets()`) before calling `.Build()`.
-
-5.  **`MetricsSnapshot`**: An interface representing a point-in-time snapshot of all metrics held by a `MetricsRegistry`. It provides methods like `Counters()`, `Gauges()`, etc. This is used by the `MetricsExporter`.
+1.  **`MetricsRegistry`**: The core interface responsible for managing the lifecycle of metrics within the system. It provides methods to `Register`, `Get`, `Unregister`, and `Clear` metrics. It also offers builder methods (`NewCounter`, `NewGauge`, `NewHistogram`, `NewSummary`) that return specific *builder* interfaces (e.g., `CounterBuilder`). These builders are used to configure and finally `.Build()` the individual metric instruments (Counters, Gauges, etc.). The registry can also be scoped `WithTags(Tags)`. Your implementation will wrap your chosen metrics library (e.g., `prometheus.NewRegistry`). This is the interface expected by the `MetricsConfig.Collector` field.
+2.  **`MetricsMiddleware`**: Defines the interface for the metrics middleware itself. Its primary method is `Handler(name string, handler http.Handler) http.Handler`, which wraps an existing HTTP handler to collect metrics. Additionally, the interface provides methods for post-creation configuration (`Configure(config MetricsMiddlewareConfig)`), adding request filtering logic (`WithFilter(filter MetricsFilter)`), and adding request sampling logic (`WithSampler(sampler MetricsSampler)`). The `MetricsConfig.MiddlewareFactory` field expects an object implementing this interface. If `MiddlewareFactory` is `nil` in the config, SRouter internally creates an instance of `metrics.MetricsMiddlewareImpl` using the provided `MetricsRegistry` (Collector) and the `Enable*` flags from `MetricsConfig`.
+3.  **Metric Types** (`Counter`, `Gauge`, `Histogram`, `Summary`) and **Builders** (`CounterBuilder`, etc.): Interfaces defining the individual metric instruments and how they are constructed. Your `MetricsRegistry` implementation will return builders that create objects satisfying these metric interfaces. The base `Metric` interface provides common methods like `Name()`, `Description()`, `Type()`, `Tags()`, and `WithTags(Tags)`. Builders typically offer fluent methods like `.Name()`, `.Description()`, `.Tag()`, and specific configuration (e.g., `.Buckets()`) before calling `.Build()`.
 
 ## Middleware Filtering and Sampling
 
@@ -117,9 +122,8 @@ To integrate a different metrics system (e.g., OpenTelemetry, StatsD):
 
 1.  Choose your Go metrics library (e.g., `go.opentelemetry.io/otel/metric`, `prometheus/client_golang`, a StatsD client).
 2.  Create a struct that implements the `metrics.MetricsRegistry` interface. Its methods (`NewCounter`, `NewGauge`, etc.) will typically wrap the functions from your chosen library to create and register metrics.
-3.  Optionally, create a struct that implements `metrics.MetricsExporter` if you need to expose metrics (e.g., via HTTP).
-4.  Optionally, create a struct that implements `metrics.MetricsMiddleware` if you need highly custom middleware logic beyond what the default `MetricsMiddlewareImpl` provides.
-5.  Instantiate your custom implementations.
-6.  Pass your `MetricsRegistry` instance to `MetricsConfig.Collector`. Pass your optional `MetricsExporter` to `MetricsConfig.Exporter` (for your own use) and your optional custom `MetricsMiddleware` to `MetricsConfig.MiddlewareFactory`.
+3.  Optionally, create a struct that implements `metrics.MetricsMiddleware` if you need highly custom middleware logic beyond what the default `MetricsMiddlewareImpl` provides.
+4.  Instantiate your custom implementations.
+5.  Pass your `MetricsRegistry` instance to `MetricsConfig.Collector`. If you created a custom `MetricsMiddleware`, pass it to `MetricsConfig.MiddlewareFactory`.
 
 See the `examples/prometheus` and `examples/custom-metrics` directories for potentially more detailed examples. Ensure these examples align with the current interface-based approach described here.

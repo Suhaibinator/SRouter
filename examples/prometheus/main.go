@@ -49,12 +49,6 @@ func (r *PrometheusRegistry) Clear() {
 	// This is not directly supported by Prometheus
 }
 
-// Snapshot gets a snapshot of all metrics.
-func (r *PrometheusRegistry) Snapshot() metrics.MetricsSnapshot {
-	// This is not directly supported by Prometheus
-	return nil
-}
-
 // WithTags creates a new registry with the given tags.
 func (r *PrometheusRegistry) WithTags(tags metrics.Tags) metrics.MetricsRegistry {
 	// Create a new registry with the same underlying Prometheus registry

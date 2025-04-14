@@ -1010,13 +1010,14 @@ routerConfig := router.RouterConfig{
     GlobalMaxBodySize: 1 << 20, // 1 MB
     EnableMetrics:     true,      // Enable metrics collection
     MetricsConfig: &router.MetricsConfig{
-        // Provide your implementations of metrics interfaces (Collector, Exporter, MiddlewareFactory)
+        // Provide your implementations of metrics interfaces (Collector, MiddlewareFactory)
         // If nil, SRouter might use default implementations if available.
-        Collector:        myMetricsCollector, // Must implement metrics.Collector
-        Exporter:         myMetricsExporter,  // Optional: Must implement metrics.Exporter if needed (e.g., for /metrics endpoint)
-        MiddlewareFactory: myMiddlewareFactory, // Optional: Must implement metrics.MiddlewareFactory
+        Collector:        myMetricsCollector, // Must implement metrics.MetricsRegistry
+        MiddlewareFactory: myMiddlewareFactory, // Optional: Must implement metrics.MetricsMiddleware
 
-        // Configure metric details
+        // Configure which default metrics the built-in middleware should collect
+        // if MiddlewareFactory is nil. These flags are used by metrics.NewMetricsMiddleware.
+        // Note: Namespace and Subsystem are typically configured within your MetricsRegistry implementation.
         Namespace:        "myapp",
         Subsystem:        "api",
         EnableLatency:    true,  // Collect request latency
@@ -1029,15 +1030,17 @@ routerConfig := router.RouterConfig{
 
 r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
-// If your Exporter provides an HTTP handler (e.g., for Prometheus /metrics)
+// Serving a /metrics endpoint is the application's responsibility.
+// Get the handler from your MetricsRegistry implementation if it provides one.
 var metricsHandler http.Handler
-if exporter, ok := myMetricsExporter.(metrics.HTTPExporter); ok { // Check for specific HTTPExporter interface if defined
-    metricsHandler = exporter.Handler()
+// Type assert myMetricsCollector (which should implement metrics.MetricsRegistry)
+if registryWithHandler, ok := myMetricsCollector.(interface{ Handler() http.Handler }); ok {
+	metricsHandler = registryWithHandler.Handler()
 } else {
-    metricsHandler = http.NotFoundHandler() // Or handle appropriately
+	metricsHandler = http.NotFoundHandler() // Or handle appropriately
 }
 
-// Serve metrics endpoint alongside your API
+// Serve metrics endpoint alongside your API (Example)
 mux := http.NewServeMux()
 mux.Handle("/metrics", metricsHandler)
 mux.Handle("/", r)
@@ -1051,9 +1054,8 @@ mux.Handle("/", r)
 
 The system revolves around these key interfaces (you'll need to provide implementations):
 
-1.  **`Collector`**: Responsible for creating and managing individual metric types (Counters, Gauges, Histograms, Summaries). Your implementation will interact with your chosen metrics library (e.g., `prometheus.NewCounterVec`).
-2.  **`Exporter`** (Optional): Responsible for exposing collected metrics. A common use case is providing an `http.Handler` for a `/metrics` endpoint (like `promhttp.Handler()`).
-3.  **`MiddlewareFactory`** (Optional): Creates the actual `http.Handler` middleware that intercepts requests, records metrics using the `Collector`, and passes the request down the chain. SRouter likely provides a default factory if this is nil in the config.
+1.  **`Collector`** (implements `metrics.MetricsRegistry`): Responsible for creating and managing individual metric types (Counters, Gauges, Histograms, Summaries). Your implementation will interact with your chosen metrics library (e.g., `prometheus.NewCounterVec`).
+2.  **`MiddlewareFactory`** (Optional, implements `metrics.MetricsMiddleware`): Creates the actual `http.Handler` middleware that intercepts requests, records metrics using the `Collector`, and passes the request down the chain. SRouter likely provides a default factory if this is nil in the config.
 
 #### Collected Metrics
 
@@ -1067,8 +1069,8 @@ When enabled via `MetricsConfig`, the default middleware typically collects:
 #### Implementing Your Own Metrics Backend
 
 1.  Choose your metrics library (e.g., `prometheus/client_golang`).
-2.  Create structs that implement the `metrics.Collector`, `metrics.Exporter` (if needed), and potentially `metrics.MiddlewareFactory` interfaces from `pkg/metrics`.
-3.  Instantiate your implementations and pass them into the `MetricsConfig` when creating the router.
+2.  Create structs that implement the `metrics.MetricsRegistry` and potentially `metrics.MetricsMiddleware` interfaces from `pkg/metrics`.
+3.  Instantiate your implementations and pass them into the `MetricsConfig` when creating the router (`Collector` and optionally `MiddlewareFactory`).
 
 See the `examples/prometheus` and `examples/custom-metrics` directories for potentially more detailed examples of implementing and using the metrics system. *Note: Ensure these examples reflect the latest interface-based approach.*
 
@@ -1112,8 +1114,6 @@ type RouterConfig struct {
  SubRouters         []SubRouterConfig                 // Sub-routers with their own configurations
  Middlewares        []common.Middleware               // Global middlewares applied to all routes (uses common.Middleware)
  AddUserObjectToCtx bool                              // Add user object to context (used by built-in auth middleware)
- // CacheGet, CacheSet, CacheKeyPrefix removed - implement caching via middleware if needed
- // EnableTraceLogging and TraceLoggingUseInfo control logging behavior, see Logging section.
 }
 ```
 
@@ -1122,12 +1122,8 @@ type RouterConfig struct {
 ```go
 type MetricsConfig struct {
  // Collector is the metrics collector to use.
- // Must implement metrics.Collector. Required if EnableMetrics is true.
- Collector any // metrics.Collector
-
- // Exporter is the metrics exporter to use.
- // Optional. Might implement metrics.Exporter or metrics.HTTPExporter.
- Exporter any // metrics.Exporter
+ // Must implement metrics.MetricsRegistry. Required if EnableMetrics is true.
+ Collector any // metrics.MetricsRegistry
 
  // MiddlewareFactory is the factory for creating metrics middleware.
  // Optional. If nil, SRouter likely uses a default factory. Must implement metrics.MiddlewareFactory.

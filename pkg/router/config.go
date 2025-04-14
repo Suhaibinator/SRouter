@@ -89,10 +89,6 @@ type MetricsConfig struct {
 	// If nil, a default collector will be used if metrics are enabled.
 	Collector any // metrics.Collector
 
-	// Exporter is the metrics exporter to use.
-	// If nil, a default exporter will be used if metrics are enabled.
-	Exporter any // metrics.Exporter
-
 	// MiddlewareFactory is the factory for creating metrics middleware.
 	// If nil, a default middleware factory will be used if metrics are enabled.
 	MiddlewareFactory any // metrics.MiddlewareFactory
