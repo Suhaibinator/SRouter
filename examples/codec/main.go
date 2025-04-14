@@ -8,6 +8,7 @@ import (
 	pb "github.com/Suhaibinator/SRouter/examples/codec/proto_models"
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/router"
+	"go.uber.org/zap" // Added import for logger
 )
 
 // handleCreateUser is a GenericHandler that processes a decoded User request
@@ -52,9 +53,16 @@ func placeholderGetUserID(user *string) string {
 }
 
 func main() {
+	// Create a logger
+	logger, _ := zap.NewProduction() // Use zap logger
+	defer logger.Sync()
+
 	// Create a new router instance with default config and placeholder context functions
 	// Using [string, string] for UserID (T) and User (U) types.
-	r := router.NewRouter(router.RouterConfig{}, placeholderAuth, placeholderGetUserID)
+	r := router.NewRouter(router.RouterConfig{
+		ServiceName: "codec-service", // Added ServiceName
+		Logger:      logger,          // Added Logger
+	}, placeholderAuth, placeholderGetUserID)
 
 	// Instantiate the ProtoCodec (can be done once outside the handler if reused)
 	// Create a factory function for User messages

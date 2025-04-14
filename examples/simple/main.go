@@ -49,6 +49,7 @@ func main() {
 
 	// Create a router configuration
 	routerConfig := router.RouterConfig{
+		ServiceName:       "simple-service", // Added ServiceName
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB

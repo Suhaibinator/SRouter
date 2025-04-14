@@ -133,6 +133,7 @@ func main() {
 
 	// Create a router configuration with sub-routers
 	routerConfig := router.RouterConfig{
+		ServiceName:       "subrouters-service", // Added ServiceName
 		Logger:            logger,
 		GlobalTimeout:     5 * time.Second,
 		GlobalMaxBodySize: 2 << 20, // 2 MB

@@ -528,6 +528,7 @@ func main() {
 
 	// Create a router configuration with metrics enabled
 	routerConfig := router.RouterConfig{
+		ServiceName:       "prometheus-service", // Added ServiceName
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB

@@ -113,7 +113,8 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 				})
 				// Create an adapter function that converts the middleware.Handler method to a common.Middleware
 				metricsMiddleware = func(next http.Handler) http.Handler {
-					return metricsMiddlewareImpl.Handler("", next)
+					// Use the ServiceName from the config for the application name
+					return metricsMiddlewareImpl.Handler(config.ServiceName, next)
 				}
 			}
 		}
