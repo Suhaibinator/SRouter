@@ -11,16 +11,25 @@ import (
 
 // --- SRouter MetricsRegistry Adapter ---
 
-// SRouterPrometheusRegistry adapts the Prometheus registry to SRouter's MetricsRegistry interface.
+// SRouterPrometheusRegistry adapts a Prometheus Registerer/Gatherer to SRouter's MetricsRegistry interface.
 type SRouterPrometheusRegistry struct {
-	registry  *prometheus.Registry
+	// Use the Registerer interface for broader compatibility and easier testing.
+	// Note: For Gather() functionality (if needed later), the underlying type
+	// would likely need to also implement prometheus.Gatherer.
+	registry  prometheus.Registerer
 	namespace string
 	subsystem string
 	tags      srouter_metrics.Tags // Prometheus doesn't directly support arbitrary tags in the same way, use const labels
 }
 
-// NewSRouterPrometheusRegistry creates a new adapter.
-func NewSRouterPrometheusRegistry(registry *prometheus.Registry, namespace, subsystem string) *SRouterPrometheusRegistry {
+// NewSRouterPrometheusRegistry creates a new adapter using a prometheus.Registerer.
+func NewSRouterPrometheusRegistry(registry prometheus.Registerer, namespace, subsystem string) *SRouterPrometheusRegistry {
+	if registry == nil {
+		// Default to a new standard registry if nil is provided? Or panic?
+		// For now, let's assume a valid registry is required.
+		// Consider adding error handling or defaulting if needed.
+		panic("prometheus registry cannot be nil")
+	}
 	return &SRouterPrometheusRegistry{
 		registry:  registry,
 		namespace: namespace,
