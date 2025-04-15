@@ -596,4 +596,87 @@ func TestPrometheusAdapterSpecifics(t *testing.T) {
 		Build()
 
 	assert.NotNil(t, summaryWithBufCap)
+
+	// Test AlreadyRegisteredError handling for CounterVec
+	// Manually register a counter vec first
+	manualCounterVec := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: promRegistry.namespace,
+			Subsystem: promRegistry.subsystem,
+			Name:      "already_registered_counter_vec",
+			Help:      "Manual counter vec",
+		},
+		[]string{"status"},
+	)
+	err := registry.Register(manualCounterVec)
+	require.NoError(t, err, "Manual registration should succeed")
+
+	// Now try to build the same counter vec via the adapter
+	adapterCounterBuilderInterface := promRegistry.NewCounter()
+	adapterCounterBuilder := adapterCounterBuilderInterface.(*PrometheusCounterBuilder) // Cast to concrete type
+	adapterCounterBuilder.Name("already_registered_counter_vec")
+	adapterCounterBuilder.Description("Manual counter vec") // Help must match
+	adapterCounterBuilder.LabelNames("status")              // Call LabelNames on concrete type
+	adapterCounter := adapterCounterBuilder.Build()
+
+	// Build should succeed by reusing the existing collector
+	assert.NotNil(t, adapterCounter, "Build should succeed even if already registered")
+
+	// Verify it's the same underlying collector (optional, based on Prometheus client internals)
+	// This part might be brittle depending on Prometheus client implementation details
+	promCounterAdapter, ok := adapterCounter.(*PrometheusCounter)
+	require.True(t, ok)
+	assert.Equal(t, manualCounterVec, promCounterAdapter.metricVec, "Should reuse the manually registered vec")
+
+	// Test AlreadyRegisteredError handling for other metric types (similar pattern)
+	// GaugeVec
+	manualGaugeVec := prometheus.NewGaugeVec(prometheus.GaugeOpts{Namespace: "test", Subsystem: "router", Name: "already_reg_gauge_vec"}, []string{"type"})
+	registry.MustRegister(manualGaugeVec)
+	adapterGaugeBuilderInterface := promRegistry.NewGauge()
+	adapterGaugeBuilder := adapterGaugeBuilderInterface.(*PrometheusGaugeBuilder) // Cast to concrete type
+	adapterGaugeBuilder.Name("already_reg_gauge_vec")
+	adapterGaugeBuilder.LabelNames("type") // Call LabelNames on concrete type
+	adapterGauge := adapterGaugeBuilder.Build()
+	assert.NotNil(t, adapterGauge)
+	promGaugeAdapter, ok := adapterGauge.(*PrometheusGauge)
+	require.True(t, ok)
+	assert.Equal(t, manualGaugeVec, promGaugeAdapter.metricVec)
+
+	// HistogramVec
+	manualHistoVec := prometheus.NewHistogramVec(prometheus.HistogramOpts{Namespace: "test", Subsystem: "router", Name: "already_reg_histo_vec"}, []string{"code"})
+	registry.MustRegister(manualHistoVec)
+	adapterHistoBuilderInterface := promRegistry.NewHistogram()
+	adapterHistoBuilder := adapterHistoBuilderInterface.(*PrometheusHistogramBuilder) // Cast to concrete type
+	adapterHistoBuilder.Name("already_reg_histo_vec")
+	adapterHistoBuilder.LabelNames("code") // Call LabelNames on concrete type
+	adapterHisto := adapterHistoBuilder.Build()
+	assert.NotNil(t, adapterHisto)
+	promHistoAdapter, ok := adapterHisto.(*PrometheusHistogram)
+	require.True(t, ok)
+	assert.Equal(t, manualHistoVec, promHistoAdapter.metricVec)
+
+	// SummaryVec
+	manualSummaryVec := prometheus.NewSummaryVec(prometheus.SummaryOpts{Namespace: "test", Subsystem: "router", Name: "already_reg_summary_vec"}, []string{"path"})
+	registry.MustRegister(manualSummaryVec)
+	adapterSummaryBuilderInterface := promRegistry.NewSummary()
+	adapterSummaryBuilder := adapterSummaryBuilderInterface.(*PrometheusSummaryBuilder) // Cast to concrete type
+	adapterSummaryBuilder.Name("already_reg_summary_vec")
+	adapterSummaryBuilder.LabelNames("path") // Call LabelNames on concrete type
+	adapterSummary := adapterSummaryBuilder.Build()
+	assert.NotNil(t, adapterSummary)
+	promSummaryAdapter, ok := adapterSummary.(*PrometheusSummary)
+	require.True(t, ok)
+	assert.Equal(t, manualSummaryVec, promSummaryAdapter.metricVec)
+
+	// Test AlreadyRegisteredError for non-vector metrics
+	manualCounter := prometheus.NewCounter(prometheus.CounterOpts{Namespace: "test", Subsystem: "router", Name: "already_reg_counter"})
+	registry.MustRegister(manualCounter)
+	adapterCounterNonVec := promRegistry.NewCounter().Name("already_reg_counter").Build()
+	assert.NotNil(t, adapterCounterNonVec)
+	promCounterAdapterNonVec, ok := adapterCounterNonVec.(*PrometheusCounter)
+	require.True(t, ok)
+	assert.Equal(t, manualCounter, promCounterAdapterNonVec.metric)
+
+	// Note: Testing the 'else' path where err is not AlreadyRegisteredError is difficult
+	// as MustRegister usually panics on other errors. We rely on Prometheus's behavior here.
 }
