@@ -413,6 +413,119 @@ func TestRandomValuesAndEdgeCases(t *testing.T) {
 	assert.GreaterOrEqual(t, len(manyTagsCounter.Tags()), 8)
 }
 
+// Test CounterVecNoOp verifies that counter operations on a vec-based counter
+// without labels are properly handled as no-ops.
+func TestCounterVecNoOp(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	promRegistry := NewSRouterPrometheusRegistry(registry, "test", "router")
+
+	// Setup counter vec
+	counterBuilderInterface := promRegistry.NewCounter()
+	counterBuilder := counterBuilderInterface.(*PrometheusCounterBuilder)
+	counterBuilder.Name("vec_noop_counter")
+	counterBuilder.LabelNames("label") // This forces it to be a vec
+	counterVec := counterBuilder.Build()
+
+	// Before operations, gather metrics to capture the initial state
+	metricFamiliesBefore, err := registry.Gather()
+	require.NoError(t, err)
+
+	// Test Inc - should be a no-op on vec without labels
+	counterVec.Inc()
+
+	// After Inc, gather metrics to see if anything changed
+	metricFamiliesAfter, err := registry.Gather()
+	require.NoError(t, err)
+
+	// The metrics should be identical before and after the no-op Inc
+	assert.Equal(t, metricFamiliesBefore, metricFamiliesAfter,
+		"Metrics should be identical before and after no-op Inc on counter vec")
+
+	// Test Add - should be a no-op on vec without labels
+	counterVec.Add(10.0)
+
+	// After Add, gather metrics to see if anything changed
+	metricFamiliesAfter, err = registry.Gather()
+	require.NoError(t, err)
+
+	// The metrics should be identical
+	assert.Equal(t, metricFamiliesBefore, metricFamiliesAfter,
+		"Metrics should be identical before and after no-op Add on counter vec")
+}
+
+// Test GaugeVecNoOp verifies that gauge operations on a vec-based gauge
+// without labels are properly handled as no-ops.
+func TestGaugeVecNoOp(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	promRegistry := NewSRouterPrometheusRegistry(registry, "test", "router")
+
+	// Setup gauge vec
+	gaugeBuilderInterface := promRegistry.NewGauge()
+	gaugeBuilder := gaugeBuilderInterface.(*PrometheusGaugeBuilder)
+	gaugeBuilder.Name("vec_noop_gauge")
+	gaugeBuilder.LabelNames("label") // This forces it to be a vec
+	gaugeVec := gaugeBuilder.Build()
+
+	// Before operations, gather metrics to capture the initial state
+	metricFamiliesBefore, err := registry.Gather()
+	require.NoError(t, err)
+
+	// Test Set - should be a no-op on vec without labels
+	gaugeVec.Set(42.0)
+
+	// After Set, gather metrics to see if anything changed
+	metricFamiliesAfter, err := registry.Gather()
+	require.NoError(t, err)
+
+	// The metrics should be identical before and after the no-op Set
+	assert.Equal(t, metricFamiliesBefore, metricFamiliesAfter,
+		"Metrics should be identical before and after no-op Set on gauge vec")
+
+	// Test Inc - should be a no-op on vec without labels
+	gaugeVec.Inc()
+
+	// After Inc, gather metrics to see if anything changed
+	metricFamiliesAfter, err = registry.Gather()
+	require.NoError(t, err)
+
+	// The metrics should be identical
+	assert.Equal(t, metricFamiliesBefore, metricFamiliesAfter,
+		"Metrics should be identical before and after no-op Inc on gauge vec")
+
+	// Test Dec - should be a no-op on vec without labels
+	gaugeVec.Dec()
+
+	// After Dec, gather metrics to see if anything changed
+	metricFamiliesAfter, err = registry.Gather()
+	require.NoError(t, err)
+
+	// The metrics should be identical
+	assert.Equal(t, metricFamiliesBefore, metricFamiliesAfter,
+		"Metrics should be identical before and after no-op Dec on gauge vec")
+
+	// Test Add - should be a no-op on vec without labels
+	gaugeVec.Add(10.0)
+
+	// After Add, gather metrics to see if anything changed
+	metricFamiliesAfter, err = registry.Gather()
+	require.NoError(t, err)
+
+	// The metrics should be identical
+	assert.Equal(t, metricFamiliesBefore, metricFamiliesAfter,
+		"Metrics should be identical before and after no-op Add on gauge vec")
+
+	// Test Sub - should be a no-op on vec without labels
+	gaugeVec.Sub(5.0)
+
+	// After Sub, gather metrics to see if anything changed
+	metricFamiliesAfter, err = registry.Gather()
+	require.NoError(t, err)
+
+	// The metrics should be identical
+	assert.Equal(t, metricFamiliesBefore, metricFamiliesAfter,
+		"Metrics should be identical before and after no-op Sub on gauge vec")
+}
+
 // Test VecObserveNoOp verifies that calling Observe directly on a vec-based
 // histogram or summary (which would require labels) is a no-op.
 func TestVecObserveNoOp(t *testing.T) {
@@ -597,6 +710,134 @@ func TestPrometheusAdapterSpecifics(t *testing.T) {
 	promCounterAdapterNonVec, ok := adapterCounterNonVec.(*PrometheusCounter)
 	require.True(t, ok)
 	assert.Equal(t, manualCounter, promCounterAdapterNonVec.metric)
+}
+
+// Test for registry tags being applied correctly when not overridden by builder tags
+func TestRegistryConstLabelsApplied(t *testing.T) {
+	registry := prometheus.NewRegistry()
+
+	// Create a registry with predefined tags
+	promRegistry := NewSRouterPrometheusRegistry(registry, "test", "router")
+	promRegistry.tags = srouter_metrics.Tags{
+		"registry_tag1": "registry_value1",
+		"common_tag":    "registry_value", // This one will be overridden by builder
+	}
+
+	// Create a counter with some tags that overlap and some that don't
+	counter := promRegistry.NewCounter().
+		Name("const_label_test").
+		Tag("builder_tag1", "builder_value1").
+		Tag("common_tag", "builder_value"). // This should take precedence
+		Build()
+
+	// Verify the tags contain both registry and builder tags, with builder taking precedence for common keys
+	expectedTags := srouter_metrics.Tags{
+		"registry_tag1": "registry_value1", // From registry
+		"builder_tag1":  "builder_value1",  // From builder
+		"common_tag":    "builder_value",   // Builder value overrides registry
+	}
+	assert.Equal(t, expectedTags, counter.Tags())
+
+	// Verify the same behavior for other metric types
+	gauge := promRegistry.NewGauge().
+		Name("const_label_gauge_test").
+		Tag("builder_tag1", "builder_value1").
+		Tag("common_tag", "builder_value").
+		Build()
+	assert.Equal(t, expectedTags, gauge.Tags())
+
+	histogram := promRegistry.NewHistogram().
+		Name("const_label_histo_test").
+		Tag("builder_tag1", "builder_value1").
+		Tag("common_tag", "builder_value").
+		Build()
+	assert.Equal(t, expectedTags, histogram.Tags())
+
+	summary := promRegistry.NewSummary().
+		Name("const_label_summary_test").
+		Tag("builder_tag1", "builder_value1").
+		Tag("common_tag", "builder_value").
+		Build()
+	assert.Equal(t, expectedTags, summary.Tags())
+}
+
+// Test for proper conversion of ConstLabels to Tags
+func TestConstLabelsToTagsConversion(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	promRegistry := NewSRouterPrometheusRegistry(registry, "test", "router")
+
+	// Test with Counter
+	counterBuilder := promRegistry.NewCounter().(*PrometheusCounterBuilder)
+	// Set const labels directly on the opts
+	if counterBuilder.opts.ConstLabels == nil {
+		counterBuilder.opts.ConstLabels = make(prometheus.Labels)
+	}
+	counterBuilder.opts.ConstLabels["direct_label"] = "direct_value"
+	counterBuilder.Name("conversion_counter")
+	counter := counterBuilder.Build()
+
+	// Verify the direct label was converted to a tag
+	assert.Equal(t, "direct_value", counter.Tags()["direct_label"])
+
+	// Test with Gauge
+	gaugeBuilder := promRegistry.NewGauge().(*PrometheusGaugeBuilder)
+	if gaugeBuilder.opts.ConstLabels == nil {
+		gaugeBuilder.opts.ConstLabels = make(prometheus.Labels)
+	}
+	gaugeBuilder.opts.ConstLabels["direct_label"] = "direct_value"
+	gaugeBuilder.Name("conversion_gauge")
+	gauge := gaugeBuilder.Build()
+	assert.Equal(t, "direct_value", gauge.Tags()["direct_label"])
+
+	// Test with Histogram
+	histoBuilder := promRegistry.NewHistogram().(*PrometheusHistogramBuilder)
+	if histoBuilder.opts.ConstLabels == nil {
+		histoBuilder.opts.ConstLabels = make(prometheus.Labels)
+	}
+	histoBuilder.opts.ConstLabels["direct_label"] = "direct_value"
+	histoBuilder.Name("conversion_histogram")
+	histogram := histoBuilder.Build()
+	assert.Equal(t, "direct_value", histogram.Tags()["direct_label"])
+
+	// Test with Summary
+	summaryBuilder := promRegistry.NewSummary().(*PrometheusSummaryBuilder)
+	if summaryBuilder.opts.ConstLabels == nil {
+		summaryBuilder.opts.ConstLabels = make(prometheus.Labels)
+	}
+	summaryBuilder.opts.ConstLabels["direct_label"] = "direct_value"
+	summaryBuilder.Name("conversion_summary")
+	summary := summaryBuilder.Build()
+	assert.Equal(t, "direct_value", summary.Tags()["direct_label"])
+}
+
+// Test for handling negative AgeBuckets value
+func TestNegativeAgeBuckets(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	promRegistry := NewSRouterPrometheusRegistry(registry, "test", "router")
+
+	// Create a summary builder and set a negative AgeBuckets value
+	summaryBuilder := promRegistry.NewSummary().(*PrometheusSummaryBuilder)
+	summaryBuilder.Name("negative_agebuckets_summary")
+	summaryBuilder.AgeBuckets(-5) // Negative value should be converted to 0
+
+	// Build the summary and verify it was created successfully
+	summary := summaryBuilder.Build()
+	assert.NotNil(t, summary)
+
+	// We can't directly test the AgeBuckets value as it's internal to the Prometheus client
+	// But we can verify the Summary was created without error
+	metricFamilies, err := registry.Gather()
+	require.NoError(t, err)
+
+	// Find our summary in the metrics
+	var found bool
+	for _, mf := range metricFamilies {
+		if mf.GetName() == "test_router_negative_agebuckets_summary" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "Summary with negative AgeBuckets should be registered successfully")
 }
 
 // --- New Test for Panic Paths (using Mock Registerer) ---
