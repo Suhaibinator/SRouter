@@ -106,9 +106,7 @@ func (b *PrometheusCounterBuilder) Build() srouter_metrics.Counter {
 		}
 		// Convert prometheus.Labels to srouter_metrics.Tags
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
-		for k, v := range b.opts.ConstLabels {
-			tags[k] = v
-		}
+		maps.Copy(tags, b.opts.ConstLabels)
 		return &PrometheusCounter{registry: b.registry, metricVec: counterVec, name: b.opts.Name, description: b.opts.Help, tags: tags, labelNames: b.labels}
 	} else {
 		// For non-vector counter
