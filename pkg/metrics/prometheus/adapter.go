@@ -548,12 +548,8 @@ func (s *PrometheusSummary) Tags() srouter_metrics.Tags       { return s.tags }
 func (s *PrometheusSummary) Objectives() map[float64]float64  { return s.objectives } // Implement Objectives method
 func (s *PrometheusSummary) WithTags(tags srouter_metrics.Tags) srouter_metrics.Metric {
 	newTags := make(srouter_metrics.Tags)
-	for k, v := range s.tags {
-		newTags[k] = v
-	}
-	for k, v := range tags {
-		newTags[k] = v
-	}
+	maps.Copy(newTags, s.tags)
+	maps.Copy(newTags, tags)
 	return &PrometheusSummary{
 		registry:    s.registry,
 		metric:      s.metric,
