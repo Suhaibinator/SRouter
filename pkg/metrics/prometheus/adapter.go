@@ -257,9 +257,7 @@ func (b *PrometheusHistogramBuilder) Build() srouter_metrics.Histogram {
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
-		for k, v := range b.opts.ConstLabels {
-			tags[k] = v
-		}
+		maps.Copy(tags, b.opts.ConstLabels)
 		return &PrometheusHistogram{registry: b.registry, metricVec: histoVec, name: b.opts.Name, description: b.opts.Help, tags: tags, labelNames: b.labels, buckets: b.opts.Buckets}
 	} else {
 		promHisto := prometheus.NewHistogram(b.opts)
@@ -271,9 +269,7 @@ func (b *PrometheusHistogramBuilder) Build() srouter_metrics.Histogram {
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
-		for k, v := range b.opts.ConstLabels {
-			tags[k] = v
-		}
+		maps.Copy(tags, b.opts.ConstLabels)
 		return &PrometheusHistogram{registry: b.registry, metric: promHisto, name: b.opts.Name, description: b.opts.Help, tags: tags, buckets: b.opts.Buckets}
 	}
 }
@@ -355,9 +351,7 @@ func (b *PrometheusSummaryBuilder) Build() srouter_metrics.Summary {
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
-		for k, v := range b.opts.ConstLabels {
-			tags[k] = v
-		}
+		maps.Copy(tags, b.opts.ConstLabels)
 		return &PrometheusSummary{registry: b.registry, metricVec: summaryVec, name: b.opts.Name, description: b.opts.Help, tags: tags, labelNames: b.labels, objectives: b.opts.Objectives}
 	} else {
 		promSummary := prometheus.NewSummary(b.opts)
@@ -476,12 +470,8 @@ func (g *PrometheusGauge) Tags() srouter_metrics.Tags       { return g.tags }
 
 func (g *PrometheusGauge) WithTags(tags srouter_metrics.Tags) srouter_metrics.Metric {
 	newTags := make(srouter_metrics.Tags)
-	for k, v := range g.tags {
-		newTags[k] = v
-	}
-	for k, v := range tags {
-		newTags[k] = v
-	}
+	maps.Copy(newTags, g.tags)
+	maps.Copy(newTags, tags)
 	return &PrometheusGauge{
 		registry:    g.registry,
 		metric:      g.metric,
@@ -520,12 +510,8 @@ func (h *PrometheusHistogram) Type() srouter_metrics.MetricType { return srouter
 func (h *PrometheusHistogram) Tags() srouter_metrics.Tags       { return h.tags }
 func (h *PrometheusHistogram) WithTags(tags srouter_metrics.Tags) srouter_metrics.Metric {
 	newTags := make(srouter_metrics.Tags)
-	for k, v := range h.tags {
-		newTags[k] = v
-	}
-	for k, v := range tags {
-		newTags[k] = v
-	}
+	maps.Copy(newTags, h.tags)
+	maps.Copy(newTags, tags)
 	return &PrometheusHistogram{
 		registry:    h.registry,
 		metric:      h.metric,
@@ -673,13 +659,9 @@ func (s *SRouterPrometheusRegistry) Clear() {
 func (s *SRouterPrometheusRegistry) WithTags(tags srouter_metrics.Tags) srouter_metrics.MetricsRegistry {
 	newTags := make(srouter_metrics.Tags)
 	// Copy existing tags
-	for k, v := range s.tags {
-		newTags[k] = v
-	}
+	maps.Copy(newTags, s.tags)
 	// Add/overwrite with new tags
-	for k, v := range tags {
-		newTags[k] = v
-	}
+	maps.Copy(newTags, tags)
 	return &SRouterPrometheusRegistry{
 		registry:  s.registry,
 		namespace: s.namespace,
