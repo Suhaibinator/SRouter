@@ -413,6 +413,57 @@ func TestRandomValuesAndEdgeCases(t *testing.T) {
 	assert.GreaterOrEqual(t, len(manyTagsCounter.Tags()), 8)
 }
 
+// Test VecObserveNoOp verifies that calling Observe directly on a vec-based
+// histogram or summary (which would require labels) is a no-op.
+func TestVecObserveNoOp(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	promRegistry := NewSRouterPrometheusRegistry(registry, "test", "router")
+
+	// Setup histogram vec
+	histoBuilderInterface := promRegistry.NewHistogram()
+	histoBuilder := histoBuilderInterface.(*PrometheusHistogramBuilder)
+	histoBuilder.Name("vec_noop_histogram")
+	histoBuilder.LabelNames("label") // This forces it to be a vec
+	histogramVec := histoBuilder.Build()
+
+	// Before observation, gather metrics to capture the initial state
+	metricFamiliesBefore, err := registry.Gather()
+	require.NoError(t, err)
+
+	// Call Observe directly on the vec-based histogram (should be a no-op)
+	histogramVec.Observe(42.0)
+
+	// After observation, gather metrics to see if anything changed
+	metricFamiliesAfter, err := registry.Gather()
+	require.NoError(t, err)
+
+	// The metrics should be identical before and after the no-op observation
+	assert.Equal(t, metricFamiliesBefore, metricFamiliesAfter,
+		"Metrics should be identical before and after no-op Observe on histogram vec")
+
+	// Setup summary vec
+	summaryBuilderInterface := promRegistry.NewSummary()
+	summaryBuilder := summaryBuilderInterface.(*PrometheusSummaryBuilder)
+	summaryBuilder.Name("vec_noop_summary")
+	summaryBuilder.LabelNames("label") // This forces it to be a vec
+	summaryVec := summaryBuilder.Build()
+
+	// Before observation, gather metrics again
+	metricFamiliesBefore, err = registry.Gather()
+	require.NoError(t, err)
+
+	// Call Observe directly on the vec-based summary (should be a no-op)
+	summaryVec.Observe(42.0)
+
+	// After observation, gather metrics to see if anything changed
+	metricFamiliesAfter, err = registry.Gather()
+	require.NoError(t, err)
+
+	// The metrics should be identical before and after the no-op observation
+	assert.Equal(t, metricFamiliesBefore, metricFamiliesAfter,
+		"Metrics should be identical before and after no-op Observe on summary vec")
+}
+
 // Test adapter-specific implementation features (using real registry where needed)
 func TestPrometheusAdapterSpecifics(t *testing.T) {
 	registry := prometheus.NewRegistry()
