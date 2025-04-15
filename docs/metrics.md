@@ -125,5 +125,6 @@ To integrate a different metrics system (e.g., OpenTelemetry, StatsD):
 3.  Optionally, create a struct that implements `metrics.MetricsMiddleware` if you need highly custom middleware logic beyond what the default `MetricsMiddlewareImpl` provides.
 4.  Instantiate your custom implementations.
 5.  Pass your `MetricsRegistry` instance to `MetricsConfig.Collector`. If you created a custom `MetricsMiddleware`, pass it to `MetricsConfig.MiddlewareFactory`.
+6.  **Prometheus Adapter**: SRouter provides a ready-to-use Prometheus adapter located in `pkg/metrics/prometheus`. This adapter implements the `metrics.MetricsRegistry` interface using the `prometheus/client_golang` library. You can instantiate `prometheus.NewSRouterPrometheusRegistry` and pass it to `MetricsConfig.Collector`. You will still need to expose the Prometheus metrics endpoint (e.g., `/metrics`) in your application, typically using the handler provided by the Prometheus client library registry.
 
 See the `examples/prometheus` and `examples/custom-metrics` directories for potentially more detailed examples. Ensure these examples align with the current interface-based approach described here.
