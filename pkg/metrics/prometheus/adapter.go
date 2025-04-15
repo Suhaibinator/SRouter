@@ -11,8 +11,8 @@ import (
 
 // --- SRouter MetricsRegistry Adapter ---
 
-// SRouterPrometheusRegistry adapts a Prometheus Registerer/Gatherer to SRouter's MetricsRegistry interface.
-type SRouterPrometheusRegistry struct {
+// PrometheusRegistry adapts a Prometheus Registerer/Gatherer to SRouter's MetricsRegistry interface.
+type PrometheusRegistry struct {
 	// Use the Registerer interface for broader compatibility and easier testing.
 	// Note: For Gather() functionality (if needed later), the underlying type
 	// would likely need to also implement prometheus.Gatherer.
@@ -22,15 +22,15 @@ type SRouterPrometheusRegistry struct {
 	tags      srouter_metrics.Tags // Prometheus doesn't directly support arbitrary tags in the same way, use const labels
 }
 
-// NewSRouterPrometheusRegistry creates a new adapter using a prometheus.Registerer.
-func NewSRouterPrometheusRegistry(registry prometheus.Registerer, namespace, subsystem string) *SRouterPrometheusRegistry {
+// NewPrometheusRegistry creates a new adapter using a prometheus.Registerer.
+func NewPrometheusRegistry(registry prometheus.Registerer, namespace, subsystem string) *PrometheusRegistry {
 	if registry == nil {
 		// Default to a new standard registry if nil is provided? Or panic?
 		// For now, let's assume a valid registry is required.
 		// Consider adding error handling or defaulting if needed.
 		panic("prometheus registry cannot be nil")
 	}
-	return &SRouterPrometheusRegistry{
+	return &PrometheusRegistry{
 		registry:  registry,
 		namespace: namespace,
 		subsystem: subsystem,
@@ -39,7 +39,7 @@ func NewSRouterPrometheusRegistry(registry prometheus.Registerer, namespace, sub
 }
 
 // Helper to convert SRouter tags to Prometheus const labels
-func (s *SRouterPrometheusRegistry) constLabels() prometheus.Labels {
+func (s *PrometheusRegistry) constLabels() prometheus.Labels {
 	labels := prometheus.Labels{}
 	maps.Copy(labels, s.tags)
 	return labels
@@ -49,7 +49,7 @@ func (s *SRouterPrometheusRegistry) constLabels() prometheus.Labels {
 
 // PrometheusCounterBuilder adapts Prometheus counter creation.
 type PrometheusCounterBuilder struct {
-	registry *SRouterPrometheusRegistry
+	registry *PrometheusRegistry
 	opts     prometheus.CounterOpts
 	labels   []string
 }
@@ -127,7 +127,7 @@ func (b *PrometheusCounterBuilder) Build() srouter_metrics.Counter {
 
 // PrometheusGaugeBuilder adapts Prometheus gauge creation.
 type PrometheusGaugeBuilder struct {
-	registry *SRouterPrometheusRegistry
+	registry *PrometheusRegistry
 	opts     prometheus.GaugeOpts
 	labels   []string
 }
@@ -195,7 +195,7 @@ func (b *PrometheusGaugeBuilder) Build() srouter_metrics.Gauge {
 
 // PrometheusHistogramBuilder adapts Prometheus histogram creation.
 type PrometheusHistogramBuilder struct {
-	registry *SRouterPrometheusRegistry
+	registry *PrometheusRegistry
 	opts     prometheus.HistogramOpts
 	labels   []string
 }
@@ -270,7 +270,7 @@ func (b *PrometheusHistogramBuilder) Build() srouter_metrics.Histogram {
 
 // PrometheusSummaryBuilder adapts Prometheus summary creation.
 type PrometheusSummaryBuilder struct {
-	registry *SRouterPrometheusRegistry
+	registry *PrometheusRegistry
 	opts     prometheus.SummaryOpts
 	labels   []string
 }
@@ -368,7 +368,7 @@ func (b *PrometheusSummaryBuilder) Build() srouter_metrics.Summary {
 
 // PrometheusCounter adapts prometheus.Counter/CounterVec to srouter_metrics.Counter.
 type PrometheusCounter struct {
-	registry    *SRouterPrometheusRegistry // Keep registry reference if needed for WithTags logic
+	registry    *PrometheusRegistry // Keep registry reference if needed for WithTags logic
 	metric      prometheus.Counter
 	metricVec   *prometheus.CounterVec
 	name        string
@@ -403,7 +403,7 @@ func (c *PrometheusCounter) Tags() srouter_metrics.Tags       { return c.tags }
 
 // PrometheusGauge adapts prometheus.Gauge/GaugeVec to srouter_metrics.Gauge.
 type PrometheusGauge struct {
-	registry    *SRouterPrometheusRegistry
+	registry    *PrometheusRegistry
 	metric      prometheus.Gauge
 	metricVec   *prometheus.GaugeVec
 	name        string
@@ -479,7 +479,7 @@ func (g *PrometheusGauge) WithTags(tags srouter_metrics.Tags) srouter_metrics.Me
 
 // PrometheusHistogram adapts prometheus.Histogram/HistogramVec to srouter_metrics.Histogram.
 type PrometheusHistogram struct {
-	registry    *SRouterPrometheusRegistry
+	registry    *PrometheusRegistry
 	metric      prometheus.Histogram
 	metricVec   *prometheus.HistogramVec
 	name        string
@@ -520,7 +520,7 @@ func (h *PrometheusHistogram) WithTags(tags srouter_metrics.Tags) srouter_metric
 
 // PrometheusSummary adapts prometheus.Summary/SummaryVec to srouter_metrics.Summary.
 type PrometheusSummary struct {
-	registry    *SRouterPrometheusRegistry
+	registry    *PrometheusRegistry
 	metric      prometheus.Summary
 	metricVec   *prometheus.SummaryVec
 	name        string
@@ -562,7 +562,7 @@ func (s *PrometheusSummary) WithTags(tags srouter_metrics.Tags) srouter_metrics.
 
 // --- MetricsRegistry Implementation ---
 
-func (s *SRouterPrometheusRegistry) NewCounter() srouter_metrics.CounterBuilder {
+func (s *PrometheusRegistry) NewCounter() srouter_metrics.CounterBuilder {
 	return &PrometheusCounterBuilder{
 		registry: s,
 		opts: prometheus.CounterOpts{
@@ -573,7 +573,7 @@ func (s *SRouterPrometheusRegistry) NewCounter() srouter_metrics.CounterBuilder 
 	}
 }
 
-func (s *SRouterPrometheusRegistry) NewGauge() srouter_metrics.GaugeBuilder {
+func (s *PrometheusRegistry) NewGauge() srouter_metrics.GaugeBuilder {
 	return &PrometheusGaugeBuilder{
 		registry: s,
 		opts: prometheus.GaugeOpts{
@@ -583,7 +583,7 @@ func (s *SRouterPrometheusRegistry) NewGauge() srouter_metrics.GaugeBuilder {
 	}
 }
 
-func (s *SRouterPrometheusRegistry) NewHistogram() srouter_metrics.HistogramBuilder {
+func (s *PrometheusRegistry) NewHistogram() srouter_metrics.HistogramBuilder {
 	return &PrometheusHistogramBuilder{
 		registry: s,
 		opts: prometheus.HistogramOpts{
@@ -593,7 +593,7 @@ func (s *SRouterPrometheusRegistry) NewHistogram() srouter_metrics.HistogramBuil
 	}
 }
 
-func (s *SRouterPrometheusRegistry) NewSummary() srouter_metrics.SummaryBuilder {
+func (s *PrometheusRegistry) NewSummary() srouter_metrics.SummaryBuilder {
 	return &PrometheusSummaryBuilder{
 		registry: s,
 		opts: prometheus.SummaryOpts{
@@ -604,7 +604,7 @@ func (s *SRouterPrometheusRegistry) NewSummary() srouter_metrics.SummaryBuilder 
 }
 
 // Register is handled implicitly by the Build methods using registry.Register
-func (s *SRouterPrometheusRegistry) Register(m srouter_metrics.Metric) error {
+func (s *PrometheusRegistry) Register(m srouter_metrics.Metric) error {
 	// In this Prometheus adapter, registration happens during Build().
 	// This method could potentially be used to register pre-built collectors
 	// if the underlying metric implements prometheus.Collector.
@@ -616,7 +616,7 @@ func (s *SRouterPrometheusRegistry) Register(m srouter_metrics.Metric) error {
 // support this easily, especially differentiating between metrics with the same
 // name but different labels/tags or types. This implementation returns nil, false.
 // The application should retain references to the metrics it builds.
-func (s *SRouterPrometheusRegistry) Get(name string) (srouter_metrics.Metric, bool) {
+func (s *PrometheusRegistry) Get(name string) (srouter_metrics.Metric, bool) {
 	// Prometheus client doesn't provide a reliable Get by name that aligns
 	// perfectly with this interface's expectation (especially considering tags/labels
 	// and potential type conflicts). Returning not found.
@@ -627,7 +627,7 @@ func (s *SRouterPrometheusRegistry) Get(name string) (srouter_metrics.Metric, bo
 // NOTE: Prometheus client library makes unregistering by name difficult and potentially unsafe
 // if multiple metrics share the same name (e.g., different labels). This implementation
 // currently cannot reliably unregister by name only. It's effectively a no-op.
-func (s *SRouterPrometheusRegistry) Unregister(name string) bool {
+func (s *PrometheusRegistry) Unregister(name string) bool {
 	// Prometheus client requires the actual Collector instance to unregister.
 	// Finding the collector solely by name is not directly supported and error-prone.
 	// Returning false as we cannot guarantee unregistration by name.
@@ -638,7 +638,7 @@ func (s *SRouterPrometheusRegistry) Unregister(name string) bool {
 
 // Clear attempts to unregister all metrics. Prometheus registry doesn't have a ClearAll.
 // We can iterate and unregister, but it's not atomic.
-func (s *SRouterPrometheusRegistry) Clear() {
+func (s *PrometheusRegistry) Clear() {
 	// Prometheus registry doesn't have a simple ClearAll.
 	// Unregistering all requires iterating through registered metrics, which isn't
 	// directly exposed. This is generally not a common operation with Prometheus.
@@ -646,13 +646,13 @@ func (s *SRouterPrometheusRegistry) Clear() {
 }
 
 // WithTags creates a new registry instance scoped with additional tags (const labels).
-func (s *SRouterPrometheusRegistry) WithTags(tags srouter_metrics.Tags) srouter_metrics.MetricsRegistry {
+func (s *PrometheusRegistry) WithTags(tags srouter_metrics.Tags) srouter_metrics.MetricsRegistry {
 	newTags := make(srouter_metrics.Tags)
 	// Copy existing tags
 	maps.Copy(newTags, s.tags)
 	// Add/overwrite with new tags
 	maps.Copy(newTags, tags)
-	return &SRouterPrometheusRegistry{
+	return &PrometheusRegistry{
 		registry:  s.registry,
 		namespace: s.namespace,
 		subsystem: s.subsystem,
