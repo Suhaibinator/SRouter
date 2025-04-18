@@ -101,17 +101,18 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 		if config.MetricsConfig != nil {
 			// Check if the collector is a metrics registry
 			if registry, ok := config.MetricsConfig.Collector.(metrics.MetricsRegistry); ok {
-				// Create a middleware using the registry
-				metricsMiddlewareImpl := metrics.NewMetricsMiddleware(registry, metrics.MetricsMiddlewareConfig{
+				// Create the generic middleware implementation using the router's T and U types
+				metricsMiddlewareImpl := metrics.NewMetricsMiddleware[T, U](registry, metrics.MetricsMiddlewareConfig{
 					EnableLatency:    config.MetricsConfig.EnableLatency,
 					EnableThroughput: config.MetricsConfig.EnableThroughput,
 					EnableQPS:        config.MetricsConfig.EnableQPS,
 					EnableErrors:     config.MetricsConfig.EnableErrors,
 					DefaultTags: metrics.Tags{
-						"service": config.MetricsConfig.Namespace,
+						"service": config.MetricsConfig.Namespace, // Assuming Namespace is intended for service tag
 					},
 				})
-				// Create an adapter function that converts the middleware.Handler method to a common.Middleware
+				// The middleware instance itself is now generic, but its Handler method
+				// returns a standard http.Handler, so the adapter function remains the same.
 				metricsMiddleware = func(next http.Handler) http.Handler {
 					// Use the ServiceName from the config for the application name
 					return metricsMiddlewareImpl.Handler(config.ServiceName, next)

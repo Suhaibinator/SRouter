@@ -640,8 +640,8 @@ func TestNewMetricsMiddleware(t *testing.T) {
 		},
 	}
 
-	// Create a middleware
-	middleware := NewMetricsMiddleware(registry, config)
+	// Create a middleware with placeholder types [string, any]
+	middleware := NewMetricsMiddleware[string, any](registry, config)
 
 	// Check that the middleware was created with the correct registry and config
 	if middleware.registry != registry {
@@ -675,8 +675,8 @@ func TestMetricsMiddlewareImpl_Configure(t *testing.T) {
 	// Create a mock registry
 	registry := NewMockMetricsRegistry()
 
-	// Create a middleware
-	middleware := NewMetricsMiddleware(registry, MetricsMiddlewareConfig{})
+	// Create a middleware with placeholder types [string, any]
+	middleware := NewMetricsMiddleware[string, any](registry, MetricsMiddlewareConfig{})
 
 	// Create a new config
 	config := MetricsMiddlewareConfig{
@@ -726,8 +726,8 @@ func TestMetricsMiddlewareImpl_WithFilter(t *testing.T) {
 	// Create a mock registry
 	registry := NewMockMetricsRegistry()
 
-	// Create a middleware
-	middleware := NewMetricsMiddleware(registry, MetricsMiddlewareConfig{})
+	// Create a middleware with placeholder types [string, any]
+	middleware := NewMetricsMiddleware[string, any](registry, MetricsMiddlewareConfig{})
 
 	// Create a mock filter
 	filter := NewMockMetricsFilter(func(r *http.Request) bool {
@@ -751,8 +751,8 @@ func TestMetricsMiddlewareImpl_WithSampler(t *testing.T) {
 	// Create a mock registry
 	registry := NewMockMetricsRegistry()
 
-	// Create a middleware
-	middleware := NewMetricsMiddleware(registry, MetricsMiddlewareConfig{})
+	// Create a middleware with placeholder types [string, any]
+	middleware := NewMetricsMiddleware[string, any](registry, MetricsMiddlewareConfig{})
 
 	// Create a sampler
 	sampler := NewRandomSampler(0.5)
@@ -806,8 +806,8 @@ func TestMetricsMiddlewareImpl_Handler(t *testing.T) {
 	// Create a mock registry
 	registry := NewMockMetricsRegistry()
 
-	// Create a middleware with all metrics enabled
-	middleware := NewMetricsMiddleware(registry, MetricsMiddlewareConfig{
+	// Create a middleware with all metrics enabled, using placeholder types [string, any]
+	middleware := NewMetricsMiddleware[string, any](registry, MetricsMiddlewareConfig{
 		EnableLatency:    true,
 		EnableThroughput: true,
 		EnableQPS:        true,
@@ -849,8 +849,8 @@ func TestMetricsMiddlewareImpl_Handler_WithFilter(t *testing.T) {
 	// Create a mock registry
 	registry := NewMockMetricsRegistry()
 
-	// Create a middleware with all metrics enabled
-	middleware := NewMetricsMiddleware(registry, MetricsMiddlewareConfig{
+	// Create a middleware with all metrics enabled, using placeholder types [string, any]
+	middleware := NewMetricsMiddleware[string, any](registry, MetricsMiddlewareConfig{
 		EnableLatency:    true,
 		EnableThroughput: true,
 		EnableQPS:        true,
@@ -907,8 +907,8 @@ func TestMetricsMiddlewareImpl_Handler_WithSampler(t *testing.T) {
 	// Create a mock registry
 	registry := NewMockMetricsRegistry()
 
-	// Create a middleware with all metrics enabled
-	middleware := NewMetricsMiddleware(registry, MetricsMiddlewareConfig{
+	// Create a middleware with all metrics enabled, using placeholder types [string, any]
+	middleware := NewMetricsMiddleware[string, any](registry, MetricsMiddlewareConfig{
 		EnableLatency:    true,
 		EnableThroughput: true,
 		EnableQPS:        true,
@@ -963,8 +963,8 @@ func TestMetricsMiddlewareImpl_Handler_WithRouteTemplate(t *testing.T) {
 	// Create a mock registry to track metric creation
 	registry := NewMockMetricsRegistry()
 
-	// Create a middleware with all metrics enabled
-	middleware := NewMetricsMiddleware(registry, MetricsMiddlewareConfig{
+	// Create a middleware with all metrics enabled, using placeholder types [string, any]
+	middleware := NewMetricsMiddleware[string, any](registry, MetricsMiddlewareConfig{
 		EnableLatency:    true,
 		EnableThroughput: true,
 		EnableQPS:        true,
@@ -1093,8 +1093,8 @@ func TestMetricsMiddlewareImpl_Handler_Error(t *testing.T) {
 	// Create a mock registry
 	registry := NewMockMetricsRegistry()
 
-	// Create a middleware with all metrics enabled
-	middleware := NewMetricsMiddleware(registry, MetricsMiddlewareConfig{
+	// Create a middleware with all metrics enabled, using placeholder types [string, any]
+	middleware := NewMetricsMiddleware[string, any](registry, MetricsMiddlewareConfig{
 		EnableLatency:    true,
 		EnableThroughput: true,
 		EnableQPS:        true,
@@ -1131,40 +1131,7 @@ func TestMetricsMiddlewareImpl_Handler_Error(t *testing.T) {
 	}
 }
 
-// TestGetRouteTemplateFromRequest tests the getRouteTemplateFromRequest function
-func TestGetRouteTemplateFromRequest(t *testing.T) {
-	// Create a test request
-	req, err := http.NewRequest("GET", "/users/123", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
-
-	// Case 1: No route template in context
-	template, ok := getRouteTemplateFromRequest(req)
-	if ok {
-		t.Errorf("Expected no route template to be found, but got %q", template)
-	}
-	if template != "" {
-		t.Errorf("Expected empty template string, got %q", template)
-	}
-
-	// Case 2: With route template in context
-	// Add a route template to the context using scontext
-	expectedTemplate := "/users/:id"
-	ctx := req.Context()
-	// Use string and interface{} as generic placeholders, matching what getRouteTemplateFromRequest uses
-	ctx = scontext.WithRouteInfo[string, interface{}](ctx, nil, expectedTemplate)
-	req = req.WithContext(ctx)
-
-	// Now try to get the route template
-	template, ok = getRouteTemplateFromRequest(req)
-	if !ok {
-		t.Error("Expected route template to be found, but none was")
-	}
-	if template != expectedTemplate {
-		t.Errorf("Expected template %q, got %q", expectedTemplate, template)
-	}
-}
+// Removed TestGetRouteTemplateFromRequest as the helper function was removed.
 
 // TestResponseWriter tests the responseWriter struct
 func TestResponseWriter(t *testing.T) {

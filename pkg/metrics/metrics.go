@@ -182,22 +182,25 @@ type MetricsRegistry interface {
 	NewSummary() SummaryBuilder
 }
 
-// MetricsMiddleware is a middleware for collecting metrics.
-type MetricsMiddleware interface {
+// MetricsMiddleware is a generic middleware for collecting metrics.
+// T is the UserID type (comparable), U is the User object type (any).
+type MetricsMiddleware[T comparable, U any] interface {
 	// Wrap an HTTP handler with metrics collection.
 	Handler(name string, handler http.Handler) http.Handler
 
 	// Configure the middleware.
-	Configure(config MetricsMiddlewareConfig) MetricsMiddleware
+	Configure(config MetricsMiddlewareConfig) MetricsMiddleware[T, U]
 
 	// Add a filter to the middleware.
-	WithFilter(filter MetricsFilter) MetricsMiddleware
+	WithFilter(filter MetricsFilter) MetricsMiddleware[T, U]
 
 	// Add a sampler to the middleware.
-	WithSampler(sampler MetricsSampler) MetricsMiddleware
+	WithSampler(sampler MetricsSampler) MetricsMiddleware[T, U]
 }
 
 // MetricsMiddlewareConfig is the configuration for metrics middleware.
+// This config itself doesn't need to be generic, as the T and U types
+// are relevant to the middleware instance, not the configuration values.
 type MetricsMiddlewareConfig struct {
 	// EnableLatency enables latency metrics.
 	EnableLatency bool
@@ -247,36 +250,41 @@ func (s *RandomSampler) Sample() bool {
 	return s.rate >= 1.0
 }
 
-// MetricsMiddlewareImpl is a concrete implementation of the MetricsMiddleware interface.
-type MetricsMiddlewareImpl struct {
+// MetricsMiddlewareImpl is a concrete generic implementation of the MetricsMiddleware interface.
+// T is the UserID type (comparable), U is the User object type (any).
+type MetricsMiddlewareImpl[T comparable, U any] struct {
 	registry MetricsRegistry
 	config   MetricsMiddlewareConfig
 	filter   MetricsFilter
 	sampler  MetricsSampler
 }
 
-// NewMetricsMiddleware creates a new MetricsMiddlewareImpl.
-func NewMetricsMiddleware(registry MetricsRegistry, config MetricsMiddlewareConfig) *MetricsMiddlewareImpl {
-	return &MetricsMiddlewareImpl{
+// NewMetricsMiddleware creates a new generic MetricsMiddlewareImpl.
+// T is the UserID type (comparable), U is the User object type (any).
+func NewMetricsMiddleware[T comparable, U any](registry MetricsRegistry, config MetricsMiddlewareConfig) *MetricsMiddlewareImpl[T, U] {
+	return &MetricsMiddlewareImpl[T, U]{
 		registry: registry,
 		config:   config,
 	}
 }
 
 // Configure configures the middleware.
-func (m *MetricsMiddlewareImpl) Configure(config MetricsMiddlewareConfig) MetricsMiddleware {
+func (m *MetricsMiddlewareImpl[T, U]) Configure(config MetricsMiddlewareConfig) MetricsMiddleware[T, U] {
 	m.config = config
 	return m
 }
 
 // WithFilter adds a filter to the middleware.
-func (m *MetricsMiddlewareImpl) WithFilter(filter MetricsFilter) MetricsMiddleware {
+func (m *MetricsMiddlewareImpl[T, U]) WithFilter(filter MetricsFilter) MetricsMiddleware[T, U] {
 	m.filter = filter
 	return m
 }
 
 // WithSampler adds a sampler to the middleware.
-func (m *MetricsMiddlewareImpl) WithSampler(sampler MetricsSampler) MetricsMiddleware {
+func (m *MetricsMiddlewareImpl[T, U]) WithSampler(sampler MetricsSampler) MetricsMiddleware[T, U] {
 	m.sampler = sampler
 	return m
 }
+
+// Handler method needs to be moved to handler_method.go as it's part of the implementation.
+// We will update it there to use the generic types T and U.

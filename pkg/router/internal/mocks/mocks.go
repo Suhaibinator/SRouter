@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/metrics"
+	"github.com/Suhaibinator/SRouter/pkg/metrics" // Ensure this import is present
 )
 
 // MockMetricsRegistry is a mock implementation of metrics.MetricsRegistry for testing

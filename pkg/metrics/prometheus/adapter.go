@@ -2,11 +2,12 @@ package prometheus
 
 import (
 	"maps"
+	"math"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	srouter_metrics "github.com/Suhaibinator/SRouter/pkg/metrics"
+	srouter_metrics "github.com/Suhaibinator/SRouter/pkg/metrics" // Ensure this import is present
 )
 
 // --- SRouter MetricsRegistry Adapter ---
@@ -309,6 +310,9 @@ func (b *PrometheusSummaryBuilder) AgeBuckets(buckets int) srouter_metrics.Summa
 	if buckets < 0 {
 		// Handle invalid input, maybe log or default? Defaulting to 0 for now.
 		b.opts.AgeBuckets = 0
+	} else if buckets > math.MaxUint32 {
+		// Handle overflow, maybe log or default to max uint32? Defaulting to max for now.
+		b.opts.AgeBuckets = math.MaxUint32
 	} else {
 		b.opts.AgeBuckets = uint32(buckets)
 	}
