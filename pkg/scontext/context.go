@@ -4,7 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"gorm.io/gorm" // Needed for DatabaseTransaction
+	"github.com/julienschmidt/httprouter" // Import for Params type
+	"gorm.io/gorm"                        // Needed for DatabaseTransaction
 )
 
 // sRouterContextKey is a private type for the context key to avoid collisions
@@ -34,11 +35,16 @@ type SRouterContext[T comparable, U any] struct {
 
 	Transaction DatabaseTransaction
 
-	UserIDSet      bool
-	UserSet        bool
-	ClientIPSet    bool
-	TraceIDSet     bool
-	TransactionSet bool
+	// Route information
+	RouteTemplate string
+	PathParams    httprouter.Params
+
+	UserIDSet        bool
+	UserSet          bool
+	ClientIPSet      bool
+	TraceIDSet       bool
+	TransactionSet   bool
+	RouteTemplateSet bool
 
 	Flags map[string]bool
 }
@@ -210,4 +216,42 @@ func GetTraceIDFromContext[T comparable, U any](ctx context.Context) string {
 // GetTraceIDFromRequest is a convenience function to get the trace ID from a request.
 func GetTraceIDFromRequest[T comparable, U any](r *http.Request) string {
 	return GetTraceIDFromContext[T, U](r.Context())
+}
+
+// WithRouteInfo adds route information (path parameters and route template) to the context.
+// This is called by the router when a route is matched.
+func WithRouteInfo[T comparable, U any](ctx context.Context, params httprouter.Params, routeTemplate string) context.Context {
+	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.PathParams = params
+	rc.RouteTemplate = routeTemplate
+	rc.RouteTemplateSet = true
+	return ctx
+}
+
+// GetRouteTemplateFromContext extracts the route template from the SRouterContext within a context.
+func GetRouteTemplateFromContext[T comparable, U any](ctx context.Context) (string, bool) {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok || !rc.RouteTemplateSet {
+		return "", false
+	}
+	return rc.RouteTemplate, true
+}
+
+// GetRouteTemplateFromRequest is a convenience function to get the route template from a request.
+func GetRouteTemplateFromRequest[T comparable, U any](r *http.Request) (string, bool) {
+	return GetRouteTemplateFromContext[T, U](r.Context())
+}
+
+// GetPathParamsFromContext extracts the path parameters from the SRouterContext within a context.
+func GetPathParamsFromContext[T comparable, U any](ctx context.Context) (httprouter.Params, bool) {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok || !rc.RouteTemplateSet { // Use RouteTemplateSet as indicator that params are also set
+		return nil, false
+	}
+	return rc.PathParams, true
+}
+
+// GetPathParamsFromRequest is a convenience function to get the path parameters from a request.
+func GetPathParamsFromRequest[T comparable, U any](r *http.Request) (httprouter.Params, bool) {
+	return GetPathParamsFromContext[T, U](r.Context())
 }

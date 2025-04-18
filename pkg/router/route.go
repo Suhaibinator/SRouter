@@ -25,7 +25,7 @@ func (r *Router[T, U]) RegisterRoute(route RouteConfigBase) {
 
 	// Register the route with httprouter
 	for _, method := range route.Methods {
-		r.router.Handle(string(method), route.Path, r.convertToHTTPRouterHandle(handler)) // Convert HttpMethod to string
+		r.router.Handle(string(method), route.Path, r.convertToHTTPRouterHandle(handler, route.Path)) // Convert HttpMethod to string
 	}
 }
 
@@ -228,7 +228,7 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 
 	// Register the route with httprouter
 	for _, method := range route.Methods {
-		r.router.Handle(string(method), route.Path, r.convertToHTTPRouterHandle(wrappedHandler)) // Convert HttpMethod to string
+		r.router.Handle(string(method), route.Path, r.convertToHTTPRouterHandle(wrappedHandler, route.Path)) // Convert HttpMethod to string
 	}
 }
 

@@ -109,10 +109,54 @@ The `MetricsMiddleware` interface supports filtering and sampling to control whi
 
 When enabled via `MetricsConfig` fields (`EnableLatency`, `EnableQPS`, etc.), the default SRouter metrics middleware (`metrics.MetricsMiddlewareImpl`) collects:
 
--   **Latency**: Request duration (often as a Histogram or Summary). Labels might include method, path, status code.
--   **Throughput**: Request and response sizes (often as a Histogram or Summary). Labels might include method, path.
--   **QPS/Request Count**: Total number of requests (often as a Counter). Labels might include method, path, status code.
--   **Errors**: Count of requests resulting in different HTTP error status codes (often as a Counter). Labels usually include method, path, and status code.
+-   **Latency**: Request duration (often as a Histogram or Summary). Labeled with route template, status code, and other dimensions.
+-   **Throughput**: Request and response sizes (often as a Histogram or Summary). Labeled with route template and other dimensions.
+-   **QPS/Request Count**: Total number of requests (often as a Counter). Labeled with route template, status code, and other dimensions.
+-   **Errors**: Count of requests resulting in different HTTP error status codes (often as a Counter). Labeled with route template, status code, and other dimensions.
+
+### Route Template Tagging and Global Metrics
+
+The metrics system provides both route-specific metrics and global totals across all routes:
+
+#### Route-Specific Metrics
+
+Metrics are tagged with the route template rather than the literal path, providing more meaningful aggregation for routes with path parameters. For example, a route like `/users/:id` will be tagged as `/users/:id` rather than `/users/123`, allowing metrics to be properly aggregated across all users.
+
+This feature is automatically enabled when using SRouter. The metrics middleware extracts the route template from the request context and uses it as a tag value. If the route template is not available (for example, when handling non-SRouter requests), the middleware falls back to using the handler name provided when the middleware was created.
+
+Example metrics with route template tags:
+
+```
+# Latency metrics use route templates for better aggregation
+request_latency_seconds{route="/users/:id"} 0.032
+
+# QPS metrics use route templates as well
+requests_total{route="/users/:id"} 1205
+
+# Error metrics include both route template and status code
+request_errors_total{route="/users/:id",status_code="Not Found"} 12
+```
+
+#### Global Metrics
+
+In addition to route-specific metrics, the middleware also emits global metrics that aggregate across all routes:
+
+```
+# Global latency metrics (across all routes)
+request_latency_seconds_total 0.045
+
+# Global requests counter
+all_requests_total 3250
+
+# Global error counter by status code
+all_request_errors_total{status_code="Not Found"} 37
+all_request_errors_total{status_code="Internal Server Error"} 5
+
+# Global throughput 
+request_throughput_bytes_total 1458792
+```
+
+These global metrics are useful for high-level monitoring and alerting, while the route-specific metrics provide detailed insight for specific endpoints.
 
 The exact metric names and labels depend on the specific implementation within `metrics.MetricsMiddlewareImpl` and your provided `MetricsRegistry`.
 

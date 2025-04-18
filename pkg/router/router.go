@@ -161,7 +161,7 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 
 			// Register the route with httprouter
 			for _, method := range route.Methods {
-				r.router.Handle(string(method), fullPath, r.convertToHTTPRouterHandle(handler)) // Convert HttpMethod to string
+				r.router.Handle(string(method), fullPath, r.convertToHTTPRouterHandle(handler, fullPath)) // Convert HttpMethod to string
 			}
 
 		case GenericRouteRegistrationFunc[T, U]:
@@ -190,14 +190,17 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 }
 
 // convertToHTTPRouterHandle converts an http.Handler to an httprouter.Handle.
-// It stores the route parameters in the request context so they can be accessed by handlers.
-func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler) httprouter.Handle {
+// It stores the route parameters and route template in the request context so they can be accessed by handlers.
+func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler, routeTemplate string) httprouter.Handle {
 	return func(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
-		// Add params to the *existing* context from the middleware chain
-		// Do NOT replace the context, just add the value.
-		ctxWithParams := context.WithValue(req.Context(), ParamsKey, ps)
-		// Update the request object to use the context that now includes params.
-		reqWithParams := req.WithContext(ctxWithParams)
+		// Add both path params and route template to the SRouterContext
+		ctx := scontext.WithRouteInfo[T, U](req.Context(), ps, routeTemplate)
+
+		// For backwards compatibility, also store params at the ParamsKey for existing code
+		ctx = context.WithValue(ctx, ParamsKey, ps)
+
+		// Update the request object with the new context
+		reqWithParams := req.WithContext(ctx)
 
 		// Call the handler with the updated request object
 		handler.ServeHTTP(w, reqWithParams)

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 )
 
 // TestRandomSampler tests the RandomSampler
@@ -956,6 +958,136 @@ func TestMetricsMiddlewareImpl_Handler_WithSampler(t *testing.T) {
 	}
 }
 
+// TestMetricsMiddlewareImpl_Handler_WithRouteTemplate tests that route templates are used when available
+func TestMetricsMiddlewareImpl_Handler_WithRouteTemplate(t *testing.T) {
+	// Create a mock registry to track metric creation
+	registry := NewMockMetricsRegistry()
+
+	// Create a middleware with all metrics enabled
+	middleware := NewMetricsMiddleware(registry, MetricsMiddlewareConfig{
+		EnableLatency:    true,
+		EnableThroughput: true,
+		EnableQPS:        true,
+		EnableErrors:     true,
+	})
+
+	// Create a test handler
+	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Hello, World!"))
+	})
+
+	// Wrap the handler with the middleware
+	wrappedHandler := middleware.Handler("fallback-name", testHandler)
+
+	// Create a test request with a route template in the context
+	req, err := http.NewRequest("GET", "/users/123", nil)
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+
+	// Add route template to context
+	expectedTemplate := "/users/:id"
+	ctx := req.Context()
+	ctx = scontext.WithRouteInfo[string, interface{}](ctx, nil, expectedTemplate)
+	req = req.WithContext(ctx)
+
+	// Set Content-Length to test throughput metrics
+	req.ContentLength = 100
+
+	// Create a mock response writer
+	rw := NewMockResponseWriter()
+
+	// Serve the request
+	wrappedHandler.ServeHTTP(rw, req)
+
+	// Verify that both route-specific and global metrics were created
+
+	// Check for route-specific latency metric
+	var foundRouteLatency bool
+	for _, histogram := range registry.histograms {
+		if histogram.Name() == "request_latency_seconds" {
+			if tags := histogram.Tags(); tags != nil {
+				if routeTag, ok := tags["route"]; ok && routeTag == expectedTemplate {
+					foundRouteLatency = true
+					break
+				}
+			}
+		}
+	}
+	if !foundRouteLatency {
+		t.Error("Route-specific latency metric not found")
+	}
+
+	// Check for global latency metric
+	var foundGlobalLatency bool
+	for _, histogram := range registry.histograms {
+		if histogram.Name() == "request_latency_seconds_total" {
+			foundGlobalLatency = true
+			break
+		}
+	}
+	if !foundGlobalLatency {
+		t.Error("Global latency metric not found")
+	}
+
+	// Check for route-specific QPS metric
+	var foundRouteQPS bool
+	for _, counter := range registry.counters {
+		if counter.Name() == "requests_total" {
+			if tags := counter.Tags(); tags != nil {
+				if routeTag, ok := tags["route"]; ok && routeTag == expectedTemplate {
+					foundRouteQPS = true
+					break
+				}
+			}
+		}
+	}
+	if !foundRouteQPS {
+		t.Error("Route-specific QPS metric not found")
+	}
+
+	// Check for global QPS metric
+	var foundGlobalQPS bool
+	for _, counter := range registry.counters {
+		if counter.Name() == "all_requests_total" {
+			foundGlobalQPS = true
+			break
+		}
+	}
+	if !foundGlobalQPS {
+		t.Error("Global QPS metric not found")
+	}
+
+	// Check for route-specific throughput metric
+	var foundRouteThroughput bool
+	for _, counter := range registry.counters {
+		if counter.Name() == "request_throughput_bytes" {
+			if tags := counter.Tags(); tags != nil {
+				if routeTag, ok := tags["route"]; ok && routeTag == expectedTemplate {
+					foundRouteThroughput = true
+					break
+				}
+			}
+		}
+	}
+	if !foundRouteThroughput {
+		t.Error("Route-specific throughput metric not found")
+	}
+
+	// Check for global throughput metric
+	var foundGlobalThroughput bool
+	for _, counter := range registry.counters {
+		if counter.Name() == "request_throughput_bytes_total" {
+			foundGlobalThroughput = true
+			break
+		}
+	}
+	if !foundGlobalThroughput {
+		t.Error("Global throughput metric not found")
+	}
+}
+
 // TestMetricsMiddlewareImpl_Handler_Error tests the Handler method with an error response
 func TestMetricsMiddlewareImpl_Handler_Error(t *testing.T) {
 	// Create a mock registry
@@ -996,6 +1128,41 @@ func TestMetricsMiddlewareImpl_Handler_Error(t *testing.T) {
 	}
 	if string(rw.writtenData) != "Internal Server Error" {
 		t.Errorf("Expected response body %q, got %q", "Internal Server Error", string(rw.writtenData))
+	}
+}
+
+// TestGetRouteTemplateFromRequest tests the getRouteTemplateFromRequest function
+func TestGetRouteTemplateFromRequest(t *testing.T) {
+	// Create a test request
+	req, err := http.NewRequest("GET", "/users/123", nil)
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+
+	// Case 1: No route template in context
+	template, ok := getRouteTemplateFromRequest(req)
+	if ok {
+		t.Errorf("Expected no route template to be found, but got %q", template)
+	}
+	if template != "" {
+		t.Errorf("Expected empty template string, got %q", template)
+	}
+
+	// Case 2: With route template in context
+	// Add a route template to the context using scontext
+	expectedTemplate := "/users/:id"
+	ctx := req.Context()
+	// Use string and interface{} as generic placeholders, matching what getRouteTemplateFromRequest uses
+	ctx = scontext.WithRouteInfo[string, interface{}](ctx, nil, expectedTemplate)
+	req = req.WithContext(ctx)
+
+	// Now try to get the route template
+	template, ok = getRouteTemplateFromRequest(req)
+	if !ok {
+		t.Error("Expected route template to be found, but none was")
+	}
+	if template != expectedTemplate {
+		t.Errorf("Expected template %q, got %q", expectedTemplate, template)
 	}
 }
 
