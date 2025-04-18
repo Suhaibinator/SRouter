@@ -4,14 +4,15 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/scontext"
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Keep scontext import
 )
 
 // Handler wraps an HTTP handler with metrics collection. It captures metrics such as
 // request latency, throughput, QPS, and errors based on the middleware configuration.
 // The metrics are collected using the registry provided to the middleware.
 // The 'name' parameter can be used as a fallback identifier if route template information is not available.
-func (m *MetricsMiddlewareImpl) Handler(name string, handler http.Handler) http.Handler {
+// This is now a method on the generic MetricsMiddlewareImpl[T, U].
+func (m *MetricsMiddlewareImpl[T, U]) Handler(name string, handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if we should collect metrics for this request
 		if m.filter != nil && !m.filter.Filter(r) {
@@ -37,9 +38,9 @@ func (m *MetricsMiddlewareImpl) Handler(name string, handler http.Handler) http.
 		// Calculate the duration
 		duration := time.Since(start)
 
-		// Get the route template from the context if available
+		// Get the route template from the context if available, using the correct generic types T and U
 		routeIdentifier := name // Default to the name parameter if no route template is found
-		routeTemplate, hasTemplate := getRouteTemplateFromRequest(r)
+		routeTemplate, hasTemplate := scontext.GetRouteTemplateFromRequest[T, U](r)
 		if hasTemplate {
 			routeIdentifier = routeTemplate
 		}
@@ -134,15 +135,7 @@ func (m *MetricsMiddlewareImpl) Handler(name string, handler http.Handler) http.
 	})
 }
 
-// getRouteTemplateFromRequest attempts to retrieve the route template from the request context.
-// It returns the template string and a boolean indicating whether it was found.
-func getRouteTemplateFromRequest(r *http.Request) (string, bool) {
-	// Since we can't know the actual type parameters for T and U at compile time,
-	// we'll use string and interface{} as generic placeholders.
-	// This is a simplification but works because Go's type erasure for generics
-	// means the runtime behavior is the same regardless of the type parameters.
-	return scontext.GetRouteTemplateFromRequest[string, interface{}](r)
-}
+// Removed the standalone getRouteTemplateFromRequest function as it's now handled directly within Handler using generics.
 
 // responseWriter is a wrapper around http.ResponseWriter that captures the status code.
 type responseWriter struct {

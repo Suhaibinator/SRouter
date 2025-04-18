@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/metrics"
+	"github.com/Suhaibinator/SRouter/pkg/metrics" // Ensure this import is present
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"

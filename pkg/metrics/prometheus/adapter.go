@@ -2,11 +2,13 @@ package prometheus
 
 import (
 	"maps"
+	"math"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"go.uber.org/zap"
 
-	srouter_metrics "github.com/Suhaibinator/SRouter/pkg/metrics"
+	srouter_metrics "github.com/Suhaibinator/SRouter/pkg/metrics" // Ensure this import is present
 )
 
 // --- SRouter MetricsRegistry Adapter ---
@@ -20,21 +22,28 @@ type PrometheusRegistry struct {
 	namespace string
 	subsystem string
 	tags      srouter_metrics.Tags // Prometheus doesn't directly support arbitrary tags in the same way, use const labels
+	logger    *zap.Logger          // Add logger field
 }
 
-// NewPrometheusRegistry creates a new adapter using a prometheus.Registerer.
-func NewPrometheusRegistry(registry prometheus.Registerer, namespace, subsystem string) *PrometheusRegistry {
+// NewPrometheusRegistry creates a new adapter using a prometheus.Registerer and a zap logger.
+func NewPrometheusRegistry(registry prometheus.Registerer, namespace, subsystem string, logger *zap.Logger) *PrometheusRegistry {
 	if registry == nil {
 		// Default to a new standard registry if nil is provided? Or panic?
 		// For now, let's assume a valid registry is required.
 		// Consider adding error handling or defaulting if needed.
+		// If registry is nil, panic is appropriate as it's fundamental.
 		panic("prometheus registry cannot be nil")
+	}
+	// Use provided logger or default to Nop if nil
+	if logger == nil {
+		logger = zap.NewNop()
 	}
 	return &PrometheusRegistry{
 		registry:  registry,
 		namespace: namespace,
 		subsystem: subsystem,
 		tags:      make(srouter_metrics.Tags),
+		logger:    logger.Named("prom_registry_adapter"), // Add a name to the logger
 	}
 }
 
@@ -270,7 +279,7 @@ func (b *PrometheusHistogramBuilder) Build() srouter_metrics.Histogram {
 
 // PrometheusSummaryBuilder adapts Prometheus summary creation.
 type PrometheusSummaryBuilder struct {
-	registry *PrometheusRegistry
+	registry *PrometheusRegistry // Keep registry reference to access logger
 	opts     prometheus.SummaryOpts
 	labels   []string
 }
@@ -307,8 +316,20 @@ func (b *PrometheusSummaryBuilder) MaxAge(age time.Duration) srouter_metrics.Sum
 func (b *PrometheusSummaryBuilder) AgeBuckets(buckets int) srouter_metrics.SummaryBuilder {
 	// Prometheus client uses uint32, cast carefully.
 	if buckets < 0 {
-		// Handle invalid input, maybe log or default? Defaulting to 0 for now.
+		// Log warning for invalid input and default to 0
+		b.registry.logger.Warn("Invalid negative value provided for AgeBuckets, defaulting to 0",
+			zap.Int("provided_buckets", buckets),
+			zap.String("metric_name", b.opts.Name), // Log metric name for context
+		)
 		b.opts.AgeBuckets = 0
+	} else if buckets > math.MaxUint32 {
+		// Log warning for overflow and default to MaxUint32
+		b.registry.logger.Warn("Value provided for AgeBuckets exceeds MaxUint32, clamping",
+			zap.Int("provided_buckets", buckets),
+			zap.Uint32("clamped_value", math.MaxUint32),
+			zap.String("metric_name", b.opts.Name), // Log metric name for context
+		)
+		b.opts.AgeBuckets = math.MaxUint32
 	} else {
 		b.opts.AgeBuckets = uint32(buckets)
 	}
@@ -594,6 +615,7 @@ func (s *PrometheusRegistry) NewHistogram() srouter_metrics.HistogramBuilder {
 }
 
 func (s *PrometheusRegistry) NewSummary() srouter_metrics.SummaryBuilder {
+	// Pass the registry (which contains the logger) to the builder
 	return &PrometheusSummaryBuilder{
 		registry: s,
 		opts: prometheus.SummaryOpts{
@@ -652,10 +674,12 @@ func (s *PrometheusRegistry) WithTags(tags srouter_metrics.Tags) srouter_metrics
 	maps.Copy(newTags, s.tags)
 	// Add/overwrite with new tags
 	maps.Copy(newTags, tags)
+	// Ensure the logger is carried over to the new instance
 	return &PrometheusRegistry{
 		registry:  s.registry,
 		namespace: s.namespace,
 		subsystem: s.subsystem,
 		tags:      newTags,
+		logger:    s.logger, // Carry over the logger
 	}
 }
