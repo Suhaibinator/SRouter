@@ -114,8 +114,8 @@ func TestPrometheusRegistry_New(t *testing.T) {
 	promRegistryNilLogger := NewPrometheusRegistry(registry, "test", "nil_logger", nil) // Pass nil logger
 	assert.NotNil(t, promRegistryNilLogger, "Registry should be created even with nil logger")
 	assert.NotNil(t, promRegistryNilLogger.logger, "Internal logger field should not be nil")
-	// Verify it's a Nop logger (checking if Core returns nil is a way to identify Nop)
-	assert.Nil(t, promRegistryNilLogger.logger.Core(), "Internal logger should be a Nop logger when nil is passed")
+	// Verify it's a Nop logger by checking if its core is enabled for a level (Nop core is never enabled)
+	assert.False(t, promRegistryNilLogger.logger.Core().Enabled(zap.DebugLevel), "Internal logger should be a Nop logger when nil is passed")
 }
 
 func TestPrometheusRegistry_constLabels(t *testing.T) {
