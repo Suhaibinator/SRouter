@@ -11,6 +11,7 @@ import (
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	srouter_metrics "github.com/Suhaibinator/SRouter/pkg/metrics"
 )
@@ -93,7 +94,7 @@ func (m *mockPrometheusRegisterer) Gather() ([]*dto.MetricFamily, error) {
 
 func TestPrometheusRegistry_New(t *testing.T) {
 	registry := prometheus.NewRegistry() // Real registry satisfies Registerer
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 
 	assert.NotNil(t, promRegistry)
 	// Cannot directly compare registry field as it's an interface now.
@@ -104,13 +105,13 @@ func TestPrometheusRegistry_New(t *testing.T) {
 
 	// Test nil registry panic
 	assert.Panics(t, func() {
-		NewPrometheusRegistry(nil, "test", "nil")
+		NewPrometheusRegistry(nil, "test", "nil", zap.NewNop())
 	}, "Should panic if registry is nil")
 }
 
 func TestPrometheusRegistry_constLabels(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 	promRegistry.tags = srouter_metrics.Tags{"env": "prod", "app": "test-app"}
 	labels := promRegistry.constLabels()
 	assert.Equal(t, prometheus.Labels{"env": "prod", "app": "test-app"}, labels)
@@ -118,7 +119,7 @@ func TestPrometheusRegistry_constLabels(t *testing.T) {
 
 func TestPrometheusRegistry_WithTags(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 	promRegistry.tags = srouter_metrics.Tags{"env": "prod"}
 
 	newRegistry := promRegistry.WithTags(srouter_metrics.Tags{"app": "test-app", "env": "staging"})
@@ -134,7 +135,7 @@ func TestPrometheusRegistry_WithTags(t *testing.T) {
 // Test Counter Builder and Counter
 func TestPrometheusCounterBuilder(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 	builder := promRegistry.NewCounter()
 
 	counter := builder.
@@ -187,7 +188,7 @@ func TestPrometheusCounterBuilder(t *testing.T) {
 // Test Gauge Builder and Gauge
 func TestPrometheusGaugeBuilder(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 	builder := promRegistry.NewGauge()
 
 	gauge := builder.
@@ -237,7 +238,7 @@ func TestPrometheusGaugeBuilder(t *testing.T) {
 // Test Histogram Builder and Histogram
 func TestPrometheusHistogramBuilder(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 	builder := promRegistry.NewHistogram()
 	buckets := []float64{0.1, 0.5, 1, 2, 5, 10}
 
@@ -289,7 +290,7 @@ func TestPrometheusHistogramBuilder(t *testing.T) {
 // Test Summary Builder and Summary
 func TestPrometheusSummaryBuilder(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 	builder := promRegistry.NewSummary()
 	objectives := map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001}
 
@@ -349,7 +350,7 @@ func TestPrometheusSummaryBuilder(t *testing.T) {
 // Test Registry Methods (using real registry)
 func TestPrometheusRegistry_Methods(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 
 	// Register is a no-op in the adapter, but test it doesn't error
 	counter := promRegistry.NewCounter().Name("reg_test_counter").Build()
@@ -372,7 +373,7 @@ func TestPrometheusRegistry_Methods(t *testing.T) {
 // Test random values and edge cases (using real registry)
 func TestRandomValuesAndEdgeCases(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	randomSuffix := r.Int63()
 
@@ -417,7 +418,7 @@ func TestRandomValuesAndEdgeCases(t *testing.T) {
 // without labels are properly handled as no-ops.
 func TestCounterVecNoOp(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 
 	// Setup counter vec
 	counterBuilderInterface := promRegistry.NewCounter()
@@ -457,7 +458,7 @@ func TestCounterVecNoOp(t *testing.T) {
 // without labels are properly handled as no-ops.
 func TestGaugeVecNoOp(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 
 	// Setup gauge vec
 	gaugeBuilderInterface := promRegistry.NewGauge()
@@ -530,7 +531,7 @@ func TestGaugeVecNoOp(t *testing.T) {
 // histogram or summary (which would require labels) is a no-op.
 func TestVecObserveNoOp(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 
 	// Setup histogram vec
 	histoBuilderInterface := promRegistry.NewHistogram()
@@ -580,7 +581,7 @@ func TestVecObserveNoOp(t *testing.T) {
 // Test adapter-specific implementation features (using real registry where needed)
 func TestPrometheusAdapterSpecifics(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 
 	// Test WithTags on concrete types
 	gauge := promRegistry.NewGauge().Name("specifics_gauge").Build()
@@ -626,7 +627,7 @@ func TestPrometheusAdapterSpecifics(t *testing.T) {
 
 	// --- Test Tag Merging Precedence ---
 	registryWithTags := prometheus.NewRegistry()
-	promRegistryWithTags := NewPrometheusRegistry(registryWithTags, "test", "router").
+	promRegistryWithTags := NewPrometheusRegistry(registryWithTags, "test", "router", zap.NewNop()).
 		WithTags(srouter_metrics.Tags{"registry_tag": "registry_value", "overlap_tag": "registry_overlap"}).(*PrometheusRegistry)
 
 	counterBuilderMerged := promRegistryWithTags.NewCounter().(*PrometheusCounterBuilder)
@@ -717,7 +718,7 @@ func TestRegistryConstLabelsApplied(t *testing.T) {
 	registry := prometheus.NewRegistry()
 
 	// Create a registry with predefined tags
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 	promRegistry.tags = srouter_metrics.Tags{
 		"registry_tag1": "registry_value1",
 		"common_tag":    "registry_value", // This one will be overridden by builder
@@ -764,7 +765,7 @@ func TestRegistryConstLabelsApplied(t *testing.T) {
 // Test for proper conversion of ConstLabels to Tags
 func TestConstLabelsToTagsConversion(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 
 	// Test with Counter
 	counterBuilder := promRegistry.NewCounter().(*PrometheusCounterBuilder)
@@ -813,7 +814,7 @@ func TestConstLabelsToTagsConversion(t *testing.T) {
 // Test for handling negative AgeBuckets value
 func TestNegativeAgeBuckets(t *testing.T) {
 	registry := prometheus.NewRegistry()
-	promRegistry := NewPrometheusRegistry(registry, "test", "router")
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", zap.NewNop())
 
 	// Create a summary builder and set a negative AgeBuckets value
 	summaryBuilder := promRegistry.NewSummary().(*PrometheusSummaryBuilder)
@@ -848,7 +849,7 @@ func TestPrometheusBuilder_RegisterErrorPanic(t *testing.T) {
 	mockRegistry.registerError = genericError // Configure mock to return a generic error
 
 	// Create adapter instance using the mock registerer
-	promRegistry := NewPrometheusRegistry(mockRegistry, "test", "panic_test")
+	promRegistry := NewPrometheusRegistry(mockRegistry, "test", "panic_test", zap.NewNop())
 
 	// Test Counter Panic
 	assert.PanicsWithError(t, genericError.Error(), func() {
