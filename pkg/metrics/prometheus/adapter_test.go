@@ -3,6 +3,7 @@ package prometheus
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	srouter_metrics "github.com/Suhaibinator/SRouter/pkg/metrics"
 )
@@ -107,6 +109,13 @@ func TestPrometheusRegistry_New(t *testing.T) {
 	assert.Panics(t, func() {
 		NewPrometheusRegistry(nil, "test", "nil", zap.NewNop())
 	}, "Should panic if registry is nil")
+
+	// Test nil logger defaults to Nop
+	promRegistryNilLogger := NewPrometheusRegistry(registry, "test", "nil_logger", nil) // Pass nil logger
+	assert.NotNil(t, promRegistryNilLogger, "Registry should be created even with nil logger")
+	assert.NotNil(t, promRegistryNilLogger.logger, "Internal logger field should not be nil")
+	// Verify it's a Nop logger (checking if Core returns nil is a way to identify Nop)
+	assert.Nil(t, promRegistryNilLogger.logger.Core(), "Internal logger should be a Nop logger when nil is passed")
 }
 
 func TestPrometheusRegistry_constLabels(t *testing.T) {
@@ -906,4 +915,43 @@ func TestPrometheusBuilder_RegisterErrorPanic(t *testing.T) {
 		builder.LabelNames("d")                                 // Call specific method
 		builder.Build()
 	}, "SummaryVec Build should panic with generic error")
+}
+
+// TestAgeBucketsOverflow tests the logging and clamping when AgeBuckets exceeds MaxUint32.
+func TestAgeBucketsOverflow(t *testing.T) {
+	// Create a logger with an observer to capture logs
+	core, observedLogs := observer.New(zap.WarnLevel) // Capture Warn level logs
+	logger := zap.New(core)
+
+	registry := prometheus.NewRegistry()
+	// Pass the observer logger to the registry
+	promRegistry := NewPrometheusRegistry(registry, "test", "router", logger)
+
+	// Create a summary builder
+	summaryBuilder := promRegistry.NewSummary().(*PrometheusSummaryBuilder)
+	metricName := "overflow_agebuckets_summary"
+	summaryBuilder.Name(metricName)
+
+	// Call AgeBuckets with a value exceeding MaxUint32
+	overflowValue := math.MaxUint32 + 1
+	summaryBuilder.AgeBuckets(overflowValue)
+
+	// We don't need to call Build() here, as the logging and clamping happen within AgeBuckets.
+	// summary := summaryBuilder.Build()
+	// assert.NotNil(t, summary)
+
+	// Verify the warning log was captured
+	logEntries := observedLogs.FilterMessage("Value provided for AgeBuckets exceeds MaxUint32, clamping").All()
+	require.Equal(t, 1, len(logEntries), "Expected exactly one warning log for AgeBuckets overflow")
+
+	// Verify log fields
+	logCtx := logEntries[0].ContextMap()
+	assert.Equal(t, int64(overflowValue), logCtx["provided_buckets"], "Log field 'provided_buckets' mismatch")
+	assert.Equal(t, uint32(math.MaxUint32), logCtx["clamped_value"], "Log field 'clamped_value' mismatch")
+	assert.Equal(t, metricName, logCtx["metric_name"], "Log field 'metric_name' mismatch")
+
+	// Optional: Verify the internal value was clamped (if accessible, otherwise rely on log)
+	// This requires accessing the internal opts, which might not be ideal,
+	// but can be done for thoroughness if the builder struct is accessible.
+	// assert.Equal(t, uint32(math.MaxUint32), summaryBuilder.opts.AgeBuckets, "Internal AgeBuckets value should be clamped")
 }
