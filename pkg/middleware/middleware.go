@@ -12,7 +12,9 @@ import (
 	"sync"
 	"time"
 
-	// Added back
+	"slices"
+
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Import scontext
 	"go.uber.org/zap"
 )
 
@@ -161,14 +163,10 @@ type CORSOptions struct {
 // CORS is a middleware that adds Cross-Origin Resource Sharing (CORS) headers to the response.
 // It allows you to specify which origins, methods, headers, and credentials are allowed for cross-origin requests,
 // and which headers can be exposed to the client-side script.
-// This middleware handles preflight OPTIONS requests automatically and optimizes header setting.
-func cors(corsConfig CORSOptions) Middleware {
-	// Precompute header values for efficiency
-	allowOrigin := ""
-	if len(corsConfig.Origins) > 0 {
-		allowOrigin = strings.Join(corsConfig.Origins, ", ")
-	}
-
+// This middleware handles preflight OPTIONS requests automatically, optimizes header setting,
+// and stores the CORS decision in the context for error handlers.
+func cors(corsConfig CORSOptions) Middleware { // Reverted to non-generic
+	// Precompute header values for efficiency where possible (methods, headers, max-age)
 	allowMethods := ""
 	if len(corsConfig.Methods) > 0 {
 		allowMethods = strings.Join(corsConfig.Methods, ", ")
@@ -189,48 +187,98 @@ func cors(corsConfig CORSOptions) Middleware {
 		maxAge = strconv.Itoa(int(corsConfig.MaxAge.Seconds()))
 	}
 
-	allowCredentials := corsConfig.AllowCredentials
+	// No need for testCompatAllowOrigin anymore
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Set headers common to both preflight and actual requests
-			if allowOrigin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+			origin := r.Header.Get("Origin")
+			// Variables for the *correct* CORS decision to store in context
+			correctAllowOrigin := ""
+			correctAllowCredentials := false
+
+			// Determine the correct Access-Control-Allow-Origin value for context
+			if origin != "" { // Only process if Origin header is present
+				isAllowed := false
+				// Check for wildcard first
+				for _, allowed := range corsConfig.Origins {
+					if allowed == "*" {
+						correctAllowOrigin = "*" // Correct value is '*'
+						isAllowed = true
+						break
+					}
+				}
+				// If not wildcard, check for specific match
+				if !isAllowed {
+					if slices.Contains(corsConfig.Origins, origin) {
+						correctAllowOrigin = origin // Correct value is the specific origin
+					}
+				}
+				// If origin wasn't allowed by config, correctAllowOrigin remains ""
 			}
-			// Allow-Credentials MUST be set on actual responses if needed,
-			// and it's often helpful to mirror it on preflight for consistency,
-			// although the spec primarily cares about it on the actual response.
-			if allowCredentials {
+
+			// Determine if credentials should be allowed (for context)
+			// Credentials require a specific origin match (not '*') and config flag set
+			if correctAllowOrigin != "" && correctAllowOrigin != "*" && corsConfig.AllowCredentials {
+				correctAllowCredentials = true
+			}
+
+			// Store the *correct* CORS info in the context BEFORE calling next handler
+			// This makes it available even if the handler errors out later.
+			ctx := r.Context()
+			// Use [any, any] here as the middleware doesn't know the router's specific T, U
+			ctx = scontext.WithCORSInfo[any, any](ctx, correctAllowOrigin, correctAllowCredentials)
+			r = r.WithContext(ctx)
+
+			// --- Set Headers on Response Writer (Correct Implementation) ---
+			// Set Allow-Origin if an origin was allowed by the spec-compliant check
+			if correctAllowOrigin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", correctAllowOrigin)
+			}
+			// Set Allow-Credentials if determined to be allowed by the spec-compliant check
+			if correctAllowCredentials {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+			// Add Vary header if the allowed origin isn't always '*' (important for caching)
+			if correctAllowOrigin != "" && correctAllowOrigin != "*" {
+				w.Header().Add("Vary", "Origin")
 			}
 
 			// Handle preflight (OPTIONS) requests
 			if r.Method == http.MethodOptions {
-				// Set headers specific to preflight responses
-				if allowMethods != "" {
-					w.Header().Set("Access-Control-Allow-Methods", allowMethods)
+				// Only set preflight-specific headers if the origin was allowed
+				if correctAllowOrigin != "" {
+					if allowMethods != "" {
+						w.Header().Set("Access-Control-Allow-Methods", allowMethods)
+					}
+					if allowHeaders != "" {
+						w.Header().Set("Access-Control-Allow-Headers", allowHeaders)
+					}
+					if maxAge != "" {
+						w.Header().Set("Access-Control-Max-Age", maxAge)
+					}
 				}
-				if allowHeaders != "" {
-					w.Header().Set("Access-Control-Allow-Headers", allowHeaders)
-				}
-				if maxAge != "" {
-					w.Header().Set("Access-Control-Max-Age", maxAge)
-				}
+				// Note: Allow-Origin and Allow-Credentials are set earlier based on correct logic
 
 				// Preflight requests don't need to go further down the chain.
-				// Respond with 200 OK (or 204 No Content is also common).
-				w.WriteHeader(http.StatusOK)
+				// Respond with 204 No Content (preferred for preflight)
+				w.WriteHeader(http.StatusNoContent) // Use 204 No Content
 				return
 			}
 
 			// Set headers specific to the actual response *before* calling the next handler
 			// Expose-Headers tells the browser which headers the JS code is allowed to access.
-			if exposeHeaders != "" {
+			// Set this for actual requests only, not for OPTIONS
+			if exposeHeaders != "" && r.Method != http.MethodOptions {
 				w.Header().Set("Access-Control-Expose-Headers", exposeHeaders)
 			}
 
 			// Call the next handler for actual requests (GET, POST, etc.)
 			next.ServeHTTP(w, r)
+
+			// Note: Headers like Allow-Origin and Allow-Credentials are set *before* calling next.ServeHTTP
+			// This ensures they are present even if the handler doesn't write anything or errors out.
+			// The error handling path (writeJSONError) will now read the context values
+			// and potentially overwrite these headers if needed (though ideally they should match).
 		})
 	}
 }
