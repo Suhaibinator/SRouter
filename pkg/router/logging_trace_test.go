@@ -9,6 +9,7 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Use centralized mocks
 	"github.com/Suhaibinator/SRouter/pkg/scontext"              // Added import
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 )
 
@@ -20,7 +21,7 @@ import (
 func TestTraceIDLogging(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, TraceIDBufferSize: 1000}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1000}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	r.RegisterRoute(RouteConfigBase{Path: "/test", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }}) // Use HttpMethod enum
 	req, err := http.NewRequest("GET", "/test", nil)
 	if err != nil {
@@ -57,7 +58,7 @@ func TestTraceIDLogging(t *testing.T) {
 func TestTraceIDLoggingDisabled(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, TraceIDBufferSize: 0, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 0, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	r.RegisterRoute(RouteConfigBase{Path: "/test", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }}) // Use HttpMethod enum
 	req, err := http.NewRequest("GET", "/test", nil)
 	if err != nil {
@@ -68,25 +69,18 @@ func TestTraceIDLoggingDisabled(t *testing.T) {
 	req = req.WithContext(ctxWithTrace)                                          // Apply context
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
-	logEntries := logs.All()
-	if len(logEntries) == 0 {
-		t.Errorf("Expected logs to be recorded")
-	}
-	found := false
-	for _, log := range logEntries {
-		for _, field := range log.Context {
-			if field.Key == "trace_id" {
-				found = true
-				break
-			}
-		}
-		if found {
-			break
+
+	// With TraceIDBufferSize = 0, the entire deferred logging block in ServeHTTP is skipped.
+	// Therefore, we expect NO log entries from this specific logger setup.
+	logEntries := logs.AllUntimed() // Use AllUntimed() for consistency
+	if len(logEntries) != 0 {
+		t.Errorf("Expected 0 log entries when TraceIDBufferSize is 0, but got %d", len(logEntries))
+		// Log the unexpected entries for debugging
+		for i, entry := range logEntries {
+			t.Logf("Unexpected log entry %d: %v", i, entry)
 		}
 	}
-	if found {
-		t.Errorf("Expected trace ID not to be included in log entries")
-	}
+	// The previous loop checking for the absence of 'trace_id' is no longer needed.
 }
 
 // TestHandleErrorWithTraceID tests that handleError includes trace IDs in log entries when EnableTraceID is true
@@ -237,14 +231,15 @@ func TestRecoveryMiddlewareWithoutTraceID(t *testing.T) {
 
 // TestSlowRequestLogging tests that slow requests are logged with a warning
 func TestSlowRequestLogging(t *testing.T) {
-	core, logs := observer.New(zap.WarnLevel)
+	core, logs := observer.New(zap.WarnLevel) // Observe WarnLevel logs
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, EnableMetrics: true, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	// Enable tracing so the logging block runs. Use TraceIDBufferSize > 0.
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/slow",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
-			time.Sleep(1100 * time.Millisecond) // Longer than 1s threshold
+			time.Sleep(600 * time.Millisecond) // Longer than 500ms threshold
 			w.WriteHeader(http.StatusOK)
 		},
 	})
@@ -254,34 +249,46 @@ func TestSlowRequestLogging(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
 	}
-	logEntries := logs.All()
+
+	// Check for the unified log message at Warn level
+	logEntries := logs.FilterMessage("Request completed").AllUntimed()
 	if len(logEntries) == 0 {
-		t.Errorf("Expected warning to be logged")
+		t.Fatalf("Expected 'Request completed' log entry at WarnLevel, but none found")
 	}
+
 	found := false
 	for _, log := range logEntries {
-		if log.Message == "Slow request" {
+		if log.Level == zapcore.WarnLevel {
 			found = true
-			if log.Context[0].Key != "method" || log.Context[0].String != "GET" {
-				t.Errorf("Expected method field GET, got %q", log.Context[0].String)
+			// Optionally check context fields like method and path
+			methodFound := false
+			pathFound := false
+			for _, field := range log.Context {
+				if field.Key == "method" && field.String == "GET" {
+					methodFound = true
+				}
+				if field.Key == "path" && field.String == "/slow" {
+					pathFound = true
+				}
 			}
-			if log.Context[1].Key != "path" || log.Context[1].String != "/slow" {
-				t.Errorf("Expected path field /slow, got %q", log.Context[1].String)
+			if !methodFound || !pathFound {
+				t.Errorf("Expected method=GET and path=/slow in log context, fields: %v", log.Context)
 			}
-			break
+			break // Found the correct log entry
 		}
 	}
 	if !found {
-		t.Errorf("Expected 'Slow request' log message")
+		t.Errorf("Expected 'Request completed' log message at WarnLevel due to slow request")
 	}
 }
 
 // TestErrorStatusLogging tests that error status codes are logged appropriately
 func TestErrorStatusLogging(t *testing.T) {
-	// Test server error (5xx)
-	coreErr, logsErr := observer.New(zap.ErrorLevel)
+	// Test server error (5xx) -> ERROR level
+	coreErr, logsErr := observer.New(zap.ErrorLevel) // Observe ErrorLevel logs
 	loggerErr := zap.New(coreErr)
-	rErr := NewRouter(RouterConfig{Logger: loggerErr, EnableMetrics: true, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)                                                   // Added EnableTraceLogging
+	// Enable tracing so the logging block runs. Use TraceIDBufferSize > 0.
+	rErr := NewRouter(RouterConfig{Logger: loggerErr, TraceIDBufferSize: 1}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	rErr.RegisterRoute(RouteConfigBase{Path: "/server-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusInternalServerError) }}) // Use HttpMethod enum
 	reqErr, _ := http.NewRequest("GET", "/server-error", nil)
 	rrErr := httptest.NewRecorder()
@@ -289,25 +296,28 @@ func TestErrorStatusLogging(t *testing.T) {
 	if rrErr.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status code %d, got %d", http.StatusInternalServerError, rrErr.Code)
 	}
-	logEntriesErr := logsErr.All()
+
+	// Check for the unified log message at Error level
+	logEntriesErr := logsErr.FilterMessage("Request completed").AllUntimed()
 	if len(logEntriesErr) == 0 {
-		t.Errorf("Expected error to be logged")
+		t.Fatalf("Expected 'Request completed' log entry at ErrorLevel, but none found")
 	}
 	foundErr := false
 	for _, log := range logEntriesErr {
-		if log.Message == "Server error" {
+		if log.Level == zapcore.ErrorLevel {
 			foundErr = true
 			break
 		}
 	}
 	if !foundErr {
-		t.Errorf("Expected 'Server error' log message")
+		t.Errorf("Expected 'Request completed' log message at ErrorLevel for 5xx status")
 	}
 
-	// Test client error (4xx)
-	coreWarn, logsWarn := observer.New(zap.InfoLevel)
+	// Test client error (4xx) -> WARN level
+	coreWarn, logsWarn := observer.New(zap.WarnLevel) // Observe WarnLevel logs
 	loggerWarn := zap.New(coreWarn)
-	rWarn := NewRouter(RouterConfig{Logger: loggerWarn, EnableMetrics: true, EnableTraceLogging: true}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)                                         // Added EnableTraceLogging
+	// Enable tracing so the logging block runs. Use TraceIDBufferSize > 0.
+	rWarn := NewRouter(RouterConfig{Logger: loggerWarn, TraceIDBufferSize: 1}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	rWarn.RegisterRoute(RouteConfigBase{Path: "/client-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) }}) // Use HttpMethod enum
 	reqWarn, _ := http.NewRequest("GET", "/client-error", nil)
 	rrWarn := httptest.NewRecorder()
@@ -315,18 +325,20 @@ func TestErrorStatusLogging(t *testing.T) {
 	if rrWarn.Code != http.StatusBadRequest {
 		t.Errorf("Expected status code %d, got %d", http.StatusBadRequest, rrWarn.Code)
 	}
-	logEntriesWarn := logsWarn.All()
+
+	// Check for the unified log message at Warn level
+	logEntriesWarn := logsWarn.FilterMessage("Request completed").AllUntimed()
 	if len(logEntriesWarn) == 0 {
-		t.Errorf("Expected warning to be logged")
+		t.Fatalf("Expected 'Request completed' log entry at WarnLevel, but none found")
 	}
 	foundWarn := false
 	for _, log := range logEntriesWarn {
-		if log.Message == "Client error" {
+		if log.Level == zapcore.WarnLevel {
 			foundWarn = true
 			break
 		}
 	}
 	if !foundWarn {
-		t.Errorf("Expected 'Client error' log message")
+		t.Errorf("Expected 'Request completed' log message at WarnLevel for 4xx status")
 	}
 }

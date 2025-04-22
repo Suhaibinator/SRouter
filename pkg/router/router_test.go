@@ -1991,7 +1991,6 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 	routerConfig := RouterConfig{
 		Logger:             observedLogger,
 		TraceIDBufferSize:  10,   // Enable tracing
-		EnableMetrics:      true, // Enable metrics logging
 		EnableTraceLogging: true, // <<< ADD THIS LINE to enable the "Request metrics" log block
 	}
 	r := NewRouter(routerConfig, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
@@ -2037,16 +2036,18 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 	// 5. Assert response status
 	assert.Equal(http.StatusOK, rr.Code, "Expected status OK")
 
-	// 6. Filter logs for "Request metrics"
-	metricsLogs := observedLogs.FilterMessage("Request metrics").AllUntimed()
-	assert.GreaterOrEqual(len(metricsLogs), 1, "Expected at least one 'Request metrics' log entry")
+	// 6. Filter logs for the new unified message "Request completed"
+	completedLogs := observedLogs.FilterMessage("Request completed").AllUntimed()
+	assert.GreaterOrEqual(len(completedLogs), 1, "Expected at least one 'Request completed' log entry")
 
-	// 7. Check the first matching log entry for trace_id field
-	// IMPORTANT: Based on the current implementation of ServeHTTP's defer,
-	// it uses `middleware.GetTraceID(req)` which captures the *initial* request context.
-	// Therefore, we expect the logged trace_id to be `initialTraceID`.
-	if len(metricsLogs) > 0 {
-		logEntry := metricsLogs[0]
+	// 7. Check the first matching log entry for trace_id field and correct level
+	// IMPORTANT: The trace ID logged should be the one present in the request context
+	// when the deferred function executes, which is `initialTraceID` set before ServeHTTP.
+	// The expected level should be DEBUG based on the test setup (status 200, duration < 500ms, TraceLoggingUseInfo=false).
+	if len(completedLogs) > 0 {
+		logEntry := completedLogs[0]
+		assert.Equal(zapcore.DebugLevel, logEntry.Level, "Expected log level to be DEBUG") // Verify log level
+
 		foundTraceID := false
 		var loggedTraceID string
 		for _, field := range logEntry.Context {

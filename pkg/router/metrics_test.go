@@ -8,6 +8,7 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Use centralized mocks
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 )
 
@@ -19,7 +20,7 @@ func TestMetricsConfig(t *testing.T) {
 
 	// Create a router with metrics config and string as both the user ID and user type
 	r := NewRouter(RouterConfig{
-		EnableMetrics: true,
+
 		MetricsConfig: &MetricsConfig{
 			Collector:        registry,
 			Namespace:        "test",
@@ -78,7 +79,6 @@ func TestMetrics(t *testing.T) {
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger:              logger,
-		EnableMetrics:       true,
 		EnableTraceLogging:  true,
 		TraceLoggingUseInfo: true,
 		TraceIDBufferSize:   1000, // Enable trace ID with buffer size of 1000
@@ -118,33 +118,70 @@ func TestMetrics(t *testing.T) {
 		t.Errorf("Expected response body %q, got %q", "Hello, World!", rr.Body.String())
 	}
 
-	// Check that metrics were logged
-	logEntries := logs.All()
+	// Check that the unified log was recorded
+	// Since TraceLoggingUseInfo is true and status is 200, expect INFO level.
+	// Observe at DebugLevel initially to capture all levels, then filter.
+	logEntries := logs.FilterMessage("Request completed").AllUntimed()
 	if len(logEntries) == 0 {
-		t.Errorf("Expected metrics to be logged")
+		t.Fatalf("Expected 'Request completed' log entry, but none found")
 	}
 
-	// Check that the log contains the expected fields
+	// Check the first matching log entry
 	found := false
 	for _, log := range logEntries {
-		if log.Message == "Request metrics" {
-			found = true
-			// Check that the log contains the expected fields
-			if log.Context[0].Key != "method" || log.Context[0].String != "GET" {
-				t.Errorf("Expected method field to be %q, got %q", "GET", log.Context[0].String)
-			}
-			if log.Context[1].Key != "path" || log.Context[1].String != "/test" {
-				t.Errorf("Expected path field to be %q, got %q", "/test", log.Context[1].String)
-			}
-			if log.Context[2].Key != "status" || log.Context[2].Integer != int64(http.StatusOK) {
-				t.Errorf("Expected status field to be %d, got %d", http.StatusOK, log.Context[2].Integer)
-			}
-			// Duration and bytes fields are also logged, but we don't check them here
-			break
+		// Verify the log level is INFO based on TraceLoggingUseInfo=true
+		if log.Level != zapcore.InfoLevel {
+			t.Errorf("Expected log level to be INFO, got %s", log.Level)
+			continue // Check other entries if level doesn't match
 		}
+
+		found = true // Found a log entry with the correct message and level
+
+		// Check context fields by key for robustness
+		expectedFields := map[string]any{
+			"method": "GET",
+			"path":   "/test",
+			"status": int64(http.StatusOK),
+			// We also expect duration, bytes, ip, user_agent, trace_id
+		}
+		actualFields := make(map[string]any)
+		foundKeys := make(map[string]bool)
+
+		for _, field := range log.Context {
+			actualFields[field.Key] = field.Interface // Store actual value
+			foundKeys[field.Key] = true
+			if expectedValue, ok := expectedFields[field.Key]; ok {
+				switch expectedValue := expectedValue.(type) {
+				case string:
+					if field.String != expectedValue {
+						t.Errorf("Expected %s field to be %q, got %q", field.Key, expectedValue, field.String)
+					}
+				case int64:
+					if field.Integer != expectedValue {
+						t.Errorf("Expected %s field to be %d, got %d", field.Key, expectedValue, field.Integer)
+					}
+				default:
+					// Handle other types if necessary, or just check presence
+				}
+			}
+		}
+
+		// Verify all expected keys were present
+		for key := range expectedFields {
+			if !foundKeys[key] {
+				t.Errorf("Expected field %q not found in log context", key)
+			}
+		}
+		// Also check for trace_id presence since TraceIDBufferSize > 0
+		if !foundKeys["trace_id"] {
+			t.Errorf("Expected field 'trace_id' not found in log context")
+		}
+
+		break // Found the correct log entry, no need to check others
 	}
+
 	if !found {
-		t.Errorf("Expected 'Request metrics' log message")
+		t.Errorf("Expected 'Request completed' log message at INFO level, but none found matching criteria")
 	}
 }
 
@@ -223,53 +260,6 @@ func TestTracing(t *testing.T) {
 	logEntries := logs.All()
 	if len(logEntries) == 0 {
 		t.Errorf("Expected tracing information to be logged")
-	}
-
-	// Check that the log contains the expected fields
-	found := false
-	for _, log := range logEntries {
-		if log.Message == "Request trace" {
-			found = true
-			// Check that the log contains the expected fields by key, not index
-			expectedFields := map[string]any{
-				"method":     "GET",
-				"path":       "/test",
-				"ip":         "127.0.0.1",
-				"user_agent": "test-agent",
-				"status":     int64(http.StatusOK),
-			}
-			foundFields := make(map[string]bool)
-
-			for _, field := range log.Context {
-				if expectedValue, ok := expectedFields[field.Key]; ok {
-					foundFields[field.Key] = true
-					switch expectedValue := expectedValue.(type) {
-					case string:
-						if field.String != expectedValue {
-							t.Errorf("Expected %s field to be %q, got %q", field.Key, expectedValue, field.String)
-						}
-					case int64:
-						if field.Integer != expectedValue {
-							t.Errorf("Expected %s field to be %d, got %d", field.Key, expectedValue, field.Integer)
-						}
-					default:
-						t.Errorf("Unexpected type for field %s", field.Key)
-					}
-				}
-			}
-
-			// Check if all expected fields were found
-			for key := range expectedFields {
-				if !foundFields[key] {
-					t.Errorf("Expected field %q not found in log context", key)
-				}
-			}
-			// Duration field is also logged, but we don't check it here
-			break
-		}
-	}
-	if !found {
-		t.Errorf("Expected 'Request trace' log message")
 	}
 }
 

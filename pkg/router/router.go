@@ -19,9 +19,9 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/metrics"
 	"github.com/Suhaibinator/SRouter/pkg/middleware" // Keep for middleware implementations like UberRateLimiter, IDGenerator, CreateTraceMiddleware
 	"github.com/Suhaibinator/SRouter/pkg/scontext"   // Ensure scontext is imported
-	"github.com/julien040/go-ternary"
 	"github.com/julienschmidt/httprouter"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore" // Added for log level constants
 )
 
 // Router is the main router struct that implements http.Handler.
@@ -119,7 +119,7 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 	}
 
 	// Add metrics middleware if configured
-	if config.EnableMetrics {
+	if config.MetricsConfig != nil {
 		var metricsMiddleware common.Middleware
 
 		// Use the MetricsConfig
@@ -467,9 +467,8 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return // CORS preflight or invalid origin handled
 	}
 
-	// Declare variables needed later
-	var rw http.ResponseWriter
-	var traceID string // traceID is primarily set within the deferred function if tracing is enabled
+	// Default to the original writer, override if metrics/tracing enabled
+	rw := w
 
 	// Apply Client IP Extraction
 	clientIP := extractClientIP(req, r.config.IPConfig)
@@ -477,7 +476,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	req = req.WithContext(ctx)
 
 	// Apply metrics and tracing if enabled
-	if r.config.EnableMetrics || r.config.TraceIDBufferSize > 0 {
+	if r.config.TraceIDBufferSize > 0 {
 		// Get a metricsResponseWriter from the pool
 		mrw := r.metricsWriterPool.Get().(*metricsResponseWriter[T, U])
 
@@ -493,108 +492,42 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 		// Defer logging, metrics collection, and returning the writer to the pool
 		defer func() {
+			// 1) Compute duration, traceID, ip
 			duration := time.Since(mrw.startTime)
+			traceID := scontext.GetTraceIDFromRequest[T, U](req)
+			ip, _ := scontext.GetClientIPFromRequest[T, U](req)
 
-			// Get updated trace ID from context
-			traceID = scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
-			ip, _ := scontext.GetClientIPFromRequest[T, U](req) // Use scontext
-
-			// Log metrics
-			if r.config.EnableTraceLogging {
-
-				// Create log fields
-				fields := []zap.Field{
-					zap.String("method", req.Method),
-					zap.String("path", req.URL.Path),
-					zap.Int("status", mrw.statusCode),
-					zap.Duration("duration", duration),
-					zap.Int64("bytes", mrw.bytesWritten),
-					zap.String("ip", ip),
-				}
-
-				// Add trace ID if enabled and present
-				if r.config.TraceIDBufferSize > 0 && traceID != "" {
-					fields = append(fields, zap.String("trace_id", traceID))
-				}
-
-				// Use Debug level for metrics to avoid log spam
-				r.logger.Debug("Request metrics", fields...)
-
-				// Log slow requests at Warn level
-				if duration > 1*time.Second {
-					// Create log fields
-					fields := []zap.Field{
-						zap.String("method", req.Method),
-						zap.String("path", req.URL.Path),
-						zap.Int("status", mrw.statusCode),
-						zap.Duration("duration", duration),
-						zap.String("ip", ip),
-					}
-
-					// Add trace ID if enabled and present
-					if r.config.TraceIDBufferSize > 0 && traceID != "" {
-						fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
-					}
-
-					r.logger.Warn("Slow request", fields...)
-				}
-
-				// Log errors at Error level
-				if mrw.statusCode >= 500 {
-					// Create log fields
-					fields := []zap.Field{
-						zap.String("method", req.Method),
-						zap.String("path", req.URL.Path),
-						zap.Int("status", mrw.statusCode),
-						zap.Duration("duration", duration),
-						zap.String("ip", ip),
-					}
-
-					// Add trace ID if enabled and present
-					if r.config.TraceIDBufferSize > 0 && traceID != "" {
-						fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
-					}
-
-					r.logger.Error("Server error", fields...)
-				} else if mrw.statusCode >= 400 {
-					// Create log fields
-					fields := []zap.Field{
-						zap.String("method", req.Method),
-						zap.String("path", req.URL.Path),
-						zap.Int("status", mrw.statusCode),
-						zap.Duration("duration", duration),
-						zap.String("ip", ip),
-					}
-
-					// Add trace ID if enabled and present
-					if r.config.TraceIDBufferSize > 0 && traceID != "" {
-						fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
-					}
-
-					r.logger.Warn("Client error", fields...)
-				}
+			// 2) Build unified fields - the UNION of all previously separate log fields
+			fields := []zap.Field{
+				zap.String("method", req.Method),
+				zap.String("path", req.URL.Path),
+				zap.Int("status", mrw.statusCode),
+				zap.Duration("duration", duration),
+				zap.Int64("bytes", mrw.bytesWritten),
+				zap.String("ip", ip),
+				zap.String("user_agent", req.UserAgent()),
 			}
 
-			// Log tracing information
-			if r.config.TraceIDBufferSize > 0 {
-				// Create log fields
-				fields := []zap.Field{
-					zap.String("method", req.Method),
-					zap.String("path", req.URL.Path),
-					zap.String("ip", ip),
-					zap.String("user_agent", req.UserAgent()),
-					zap.Int("status", mrw.statusCode),
-					zap.Duration("duration", duration),
-				}
-
-				// Add trace ID if enabled and present
-				if r.config.TraceIDBufferSize > 0 && traceID != "" {
-					fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
-				}
-
-				logFunc := ternary.If(r.config.TraceLoggingUseInfo, r.logger.Info, r.logger.Debug)
-				logFunc("Request trace", fields...)
+			// Add trace ID if enabled and present
+			if traceID != "" {
+				fields = append(fields, zap.String("trace_id", traceID))
 			}
+
+			// 3) Decide the log level based on status code, duration, and trace config
+			var lvl zapcore.Level
+			switch {
+			case mrw.statusCode >= 500:
+				lvl = zapcore.ErrorLevel
+			case mrw.statusCode >= 400 || duration > 500*time.Millisecond:
+				lvl = zapcore.WarnLevel
+			case r.config.TraceLoggingUseInfo:
+				lvl = zapcore.InfoLevel
+			default:
+				lvl = zapcore.DebugLevel
+			}
+
+			// 4) Emit a single, unified log with the appropriate level
+			r.logger.Log(lvl, "Request completed", fields...)
 
 			// Reset fields that might hold references to prevent memory leaks
 			mrw.ResponseWriter = nil
@@ -604,10 +537,8 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			// Return the writer to the pool
 			r.metricsWriterPool.Put(mrw)
 		}()
-	} else {
-		// Use the original response writer if metrics and tracing are disabled
-		rw = w
 	}
+	// Note: The 'else' block for rw = w is removed as rw is now defaulted to w earlier.
 
 	// Serve the request via the underlying router
 	r.router.ServeHTTP(rw, req)

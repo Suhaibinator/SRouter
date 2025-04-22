@@ -36,7 +36,6 @@ require (
 )
 
 require (
-	github.com/julien040/go-ternary v1.0.1
 	github.com/prometheus/client_golang v1.22.0
 	go.uber.org/multierr v1.11.0 // indirect
 )
