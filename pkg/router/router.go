@@ -724,6 +724,15 @@ func (r *Router[T, U]) handleCORS(w http.ResponseWriter, req *http.Request) (*ht
 				// If wildcard is allowed, all headers are allowed
 				if wildcardAllowed {
 					headersAllowed = true
+
+					// When wildcard is allowed, we'll echo back the exact headers the browser is requesting
+					// This is stored in the context for later use when setting the response headers
+					// We'll override the corsAllowHeaders value when responding to the preflight request
+					if reqHeaders != "" {
+						// Store the original requested headers to echo back
+						ctx = scontext.WithCORSRequestedHeaders[T, U](ctx, reqHeaders)
+						req = req.WithContext(ctx)
+					}
 				} else {
 					// Original header checking logic
 					requestedHeadersList := strings.Split(reqHeaders, ",")
@@ -751,9 +760,16 @@ func (r *Router[T, U]) handleCORS(w http.ResponseWriter, req *http.Request) (*ht
 				if r.corsAllowMethods != "" {
 					w.Header().Set("Access-Control-Allow-Methods", r.corsAllowMethods)
 				}
-				if r.corsAllowHeaders != "" {
-					w.Header().Set("Access-Control-Allow-Headers", r.corsAllowHeaders) // Respond with the configured list
+
+				// Check if we have stored requested headers to echo back (for wildcard case)
+				if requestedHeaders, ok := scontext.GetCORSRequestedHeaders[T, U](ctx); ok && requestedHeaders != "" {
+					// Echo back the exact headers the browser requested
+					w.Header().Set("Access-Control-Allow-Headers", requestedHeaders)
+				} else if r.corsAllowHeaders != "" {
+					// Otherwise use the configured list
+					w.Header().Set("Access-Control-Allow-Headers", r.corsAllowHeaders)
 				}
+
 				if r.corsMaxAge != "" {
 					w.Header().Set("Access-Control-Max-Age", r.corsMaxAge)
 				}
