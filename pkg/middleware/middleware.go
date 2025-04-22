@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"slices"
+
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Import scontext
 	"go.uber.org/zap"
 )
@@ -207,12 +209,8 @@ func cors(corsConfig CORSOptions) Middleware { // Reverted to non-generic
 				}
 				// If not wildcard, check for specific match
 				if !isAllowed {
-					for _, allowed := range corsConfig.Origins {
-						if allowed == origin {
-							correctAllowOrigin = origin // Correct value is the specific origin
-							isAllowed = true
-							break
-						}
+					if slices.Contains(corsConfig.Origins, origin) {
+						correctAllowOrigin = origin // Correct value is the specific origin
 					}
 				}
 				// If origin wasn't allowed by config, correctAllowOrigin remains ""

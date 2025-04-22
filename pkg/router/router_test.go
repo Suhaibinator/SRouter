@@ -1000,6 +1000,98 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 	}
 }
 
+// TestWriteJSONError_CORSHeaders tests that writeJSONError adds CORS headers from context.
+func TestWriteJSONError_CORSHeaders(t *testing.T) {
+	assert := assert.New(t)
+	logger := zap.NewNop()
+	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	tests := []struct {
+		name                 string
+		originInContext      string
+		credentialsInContext bool
+		expectedOriginHeader string
+		expectCredentials    bool
+		expectVary           bool
+	}{
+		{
+			name:                 "Specific Origin with Credentials",
+			originInContext:      "http://allowed.com",
+			credentialsInContext: true,
+			expectedOriginHeader: "http://allowed.com",
+			expectCredentials:    true,
+			expectVary:           true,
+		},
+		{
+			name:                 "Specific Origin without Credentials",
+			originInContext:      "http://allowed.com",
+			credentialsInContext: false,
+			expectedOriginHeader: "http://allowed.com",
+			expectCredentials:    false,
+			expectVary:           true,
+		},
+		{
+			name:                 "Wildcard Origin",
+			originInContext:      "*",
+			credentialsInContext: false, // Credentials cannot be true with wildcard
+			expectedOriginHeader: "*",
+			expectCredentials:    false,
+			expectVary:           false, // Vary should not be set for wildcard
+		},
+		{
+			name:                 "No CORS Info in Context",
+			originInContext:      "", // Simulate no info set
+			credentialsInContext: false,
+			expectedOriginHeader: "", // Expect no header
+			expectCredentials:    false,
+			expectVary:           false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			req, _ := http.NewRequest("GET", "/error", nil) // Method/path don't matter much here
+
+			// Prepare context
+			ctx := req.Context()
+			if tc.originInContext != "" || tc.credentialsInContext { // Only add if simulating set context
+				ctx = scontext.WithCORSInfo[string, string](ctx, tc.originInContext, tc.credentialsInContext)
+			}
+			req = req.WithContext(ctx)
+
+			// Call writeJSONError
+			r.writeJSONError(rr, req, http.StatusInternalServerError, "Test Error", "trace-123")
+
+			// Assertions
+			assert.Equal(tc.expectedOriginHeader, rr.Header().Get("Access-Control-Allow-Origin"), "Origin header mismatch")
+
+			if tc.expectCredentials {
+				assert.Equal("true", rr.Header().Get("Access-Control-Allow-Credentials"), "Credentials header expected")
+			} else {
+				assert.Empty(rr.Header().Get("Access-Control-Allow-Credentials"), "Credentials header not expected")
+			}
+
+			if tc.expectVary {
+				assert.Contains(rr.Header().Get("Vary"), "Origin", "Vary header should contain Origin")
+			} else {
+				assert.NotContains(rr.Header().Get("Vary"), "Origin", "Vary header should not contain Origin")
+			}
+
+			// Check other standard error response parts
+			assert.Equal(http.StatusInternalServerError, rr.Code, "Status code mismatch")
+			assert.Equal("application/json; charset=utf-8", rr.Header().Get("Content-Type"), "Content-Type mismatch")
+			// Optionally check body content
+			var body map[string]map[string]string
+			err := json.Unmarshal(rr.Body.Bytes(), &body)
+			assert.NoError(err, "Failed to unmarshal error body")
+			assert.Equal("Test Error", body["error"]["message"], "Error message mismatch")
+			// Trace ID check depends on TraceIDBufferSize > 0 in config, which is 0 here, so skip
+			// assert.Equal("trace-123", body["error"]["trace_id"], "Trace ID mismatch")
+		})
+	}
+}
+
 // --- New Test for Generic Route Error Paths ---
 
 // TestRegisterGenericRouteErrorPaths covers various error scenarios in RegisterGenericRoute.
