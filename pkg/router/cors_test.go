@@ -479,6 +479,24 @@ func TestCORSPreflight(t *testing.T) {
 			expectMaxAge:   "3600",
 			expectStatus:   http.StatusNoContent,
 		},
+		{
+			name: "Preflight - wildcard headers",
+			corsConfig: &CORSConfig{
+				Origins: []string{"http://example.com"},
+				Methods: []string{"GET", "POST"},
+				Headers: []string{"*"}, // Wildcard headers
+				MaxAge:  time.Hour,
+			},
+			requestOrigin:  "http://example.com",
+			requestMethod:  "POST",
+			requestHeaders: "Content-Type, X-Custom-Header, x-faro-session-id", // Custom headers not explicitly listed
+			expectOrigin:   "http://example.com",
+			expectCreds:    false,
+			expectMethods:  "GET, POST",
+			expectHeaders:  "*", // Wildcard is returned as-is
+			expectMaxAge:   "3600",
+			expectStatus:   http.StatusNoContent,
+		},
 	}
 
 	// Run test cases

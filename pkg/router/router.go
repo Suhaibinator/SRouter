@@ -718,21 +718,30 @@ func (r *Router[T, U]) handleCORS(w http.ResponseWriter, req *http.Request) (*ht
 			reqHeaders := req.Header.Get("Access-Control-Request-Headers")
 			headersAllowed := true // Assume allowed unless specific headers requested and not found
 			if reqHeaders != "" {
-				requestedHeadersList := strings.Split(reqHeaders, ",")
-				allowedHeadersSet := make(map[string]struct{}, len(corsConfig.Headers))
-				for _, h := range corsConfig.Headers {
-					allowedHeadersSet[strings.TrimSpace(strings.ToLower(h))] = struct{}{}
-				}
+				// Check if wildcard is in the allowed headers list
+				wildcardAllowed := slices.Contains(corsConfig.Headers, "*")
 
-				headersAllowed = true // Reset to true, only set to false if a requested header is *not* found
-				for _, reqH := range requestedHeadersList {
-					trimmedLowerReqH := strings.TrimSpace(strings.ToLower(reqH))
-					if trimmedLowerReqH == "" {
-						continue
+				// If wildcard is allowed, all headers are allowed
+				if wildcardAllowed {
+					headersAllowed = true
+				} else {
+					// Original header checking logic
+					requestedHeadersList := strings.Split(reqHeaders, ",")
+					allowedHeadersSet := make(map[string]struct{}, len(corsConfig.Headers))
+					for _, h := range corsConfig.Headers {
+						allowedHeadersSet[strings.TrimSpace(strings.ToLower(h))] = struct{}{}
 					}
-					if _, ok := allowedHeadersSet[trimmedLowerReqH]; !ok {
-						headersAllowed = false
-						break
+
+					headersAllowed = true // Reset to true, only set to false if a requested header is *not* found
+					for _, reqH := range requestedHeadersList {
+						trimmedLowerReqH := strings.TrimSpace(strings.ToLower(reqH))
+						if trimmedLowerReqH == "" {
+							continue
+						}
+						if _, ok := allowedHeadersSet[trimmedLowerReqH]; !ok {
+							headersAllowed = false
+							break
+						}
 					}
 				}
 			} // If reqHeaders is empty, headersAllowed remains true
