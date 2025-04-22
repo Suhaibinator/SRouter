@@ -123,7 +123,7 @@ func TestMetrics(t *testing.T) {
 	// Observe at DebugLevel initially to capture all levels, then filter.
 	logEntries := logs.FilterMessage("Request summary statistics").AllUntimed()
 	if len(logEntries) == 0 {
-		t.Fatalf("Expected ' Request summary statistics' log entry, but none found")
+		t.Fatalf("Expected 'Request summary statistics' log entry, but none found")
 	}
 
 	// Check the first matching log entry
@@ -181,7 +181,7 @@ func TestMetrics(t *testing.T) {
 	}
 
 	if !found {
-		t.Errorf("Expected ' Request summary statistics' log message at INFO level, but none found matching criteria")
+		t.Errorf("Expected 'Request summary statistics' log message at INFO level, but none found matching criteria")
 	}
 }
 
