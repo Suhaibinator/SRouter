@@ -247,20 +247,75 @@ func cors(corsConfig CORSOptions) Middleware { // Reverted to non-generic
 			if r.Method == http.MethodOptions {
 				// Only set preflight-specific headers if the origin was allowed
 				if correctAllowOrigin != "" {
-					if allowMethods != "" {
-						w.Header().Set("Access-Control-Allow-Methods", allowMethods)
+					// Check if the requested method is allowed
+					reqMethod := r.Header.Get("Access-Control-Request-Method")
+					methodAllowed := false
+					if reqMethod != "" {
+						// Check against precomputed list (case-sensitive comparison as per spec)
+						// Note: A true wildcard isn't standard here. We list allowed methods.
+						if slices.Contains(corsConfig.Methods, reqMethod) {
+							methodAllowed = true
+						}
+					} else {
+						// If no request method header, it's not a valid preflight for methods?
+						// Or maybe it means any method is okay if not specified?
+						// Let's assume it needs to be explicitly allowed if requested.
+						// If the header is *absent*, the browser isn't asking about methods,
+						// so we don't need to restrict based on it. Let's default to true if absent.
+						methodAllowed = true
 					}
-					if allowHeaders != "" {
-						w.Header().Set("Access-Control-Allow-Headers", allowHeaders)
-					}
-					if maxAge != "" {
-						w.Header().Set("Access-Control-Max-Age", maxAge)
+
+					// Check if the requested headers are allowed
+					reqHeaders := r.Header.Get("Access-Control-Request-Headers")
+					headersAllowed := true // Assume allowed unless specific headers requested and not found
+					if reqHeaders != "" {
+						requestedHeadersList := strings.Split(reqHeaders, ",")
+						allowedHeadersSet := make(map[string]struct{}, len(corsConfig.Headers))
+						for _, h := range corsConfig.Headers {
+							// Normalize headers to lower case for case-insensitive comparison
+							allowedHeadersSet[strings.TrimSpace(strings.ToLower(h))] = struct{}{}
+						}
+
+						headersAllowed = true // Reset to true, only set to false if a requested header is *not* found
+						for _, reqH := range requestedHeadersList {
+							trimmedLowerReqH := strings.TrimSpace(strings.ToLower(reqH))
+							// Ignore empty strings resulting from splitting
+							if trimmedLowerReqH == "" {
+								continue
+							}
+							// Check if the normalized requested header exists in the allowed set
+							if _, ok := allowedHeadersSet[trimmedLowerReqH]; !ok {
+								headersAllowed = false
+								break
+							}
+						}
+					} // If reqHeaders is empty, headersAllowed remains true (no specific headers requested)
+
+					// Only proceed with preflight response if origin, method, and headers are allowed
+					if methodAllowed && headersAllowed {
+						if allowMethods != "" {
+							w.Header().Set("Access-Control-Allow-Methods", allowMethods)
+						}
+						if allowHeaders != "" {
+							w.Header().Set("Access-Control-Allow-Headers", allowHeaders) // Respond with the configured list
+						}
+						if maxAge != "" {
+							w.Header().Set("Access-Control-Max-Age", maxAge)
+						}
+						// Note: Allow-Origin and Allow-Credentials are set earlier based on correct logic
+					} else {
+						// If method or headers are not allowed, don't set the Allow-* headers for preflight
+						// The browser will treat this as a CORS failure.
+						// We still need to return a response for the OPTIONS request.
+						// Setting Allow-Origin was already handled based on origin check.
+						// Log the failure reason?
+						// logger.Debug("CORS preflight check failed", zap.String("origin", origin), zap.Bool("methodAllowed", methodAllowed), zap.Bool("headersAllowed", headersAllowed))
 					}
 				}
-				// Note: Allow-Origin and Allow-Credentials are set earlier based on correct logic
 
 				// Preflight requests don't need to go further down the chain.
-				// Respond with 204 No Content (preferred for preflight)
+				// Respond with 204 No Content (preferred for preflight) regardless of success/failure of checks above.
+				// The absence of Allow-* headers signals failure to the browser.
 				w.WriteHeader(http.StatusNoContent) // Use 204 No Content
 				return
 			}
