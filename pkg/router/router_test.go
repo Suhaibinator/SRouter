@@ -2036,9 +2036,9 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 	// 5. Assert response status
 	assert.Equal(http.StatusOK, rr.Code, "Expected status OK")
 
-	// 6. Filter logs for the new unified message "Request completed"
-	completedLogs := observedLogs.FilterMessage("Request completed").AllUntimed()
-	assert.GreaterOrEqual(len(completedLogs), 1, "Expected at least one 'Request completed' log entry")
+	// 6. Filter logs for the new unified message "Request summary statistics"
+	completedLogs := observedLogs.FilterMessage("Request summary statistics").AllUntimed()
+	assert.GreaterOrEqual(len(completedLogs), 1, "Expected at least one ' Request summary statistics' log entry")
 
 	// 7. Check the first matching log entry for trace_id field and correct level
 	// IMPORTANT: The trace ID logged should be the one present in the request context

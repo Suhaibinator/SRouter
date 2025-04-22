@@ -251,9 +251,9 @@ func TestSlowRequestLogging(t *testing.T) {
 	}
 
 	// Check for the unified log message at Warn level
-	logEntries := logs.FilterMessage("Request completed").AllUntimed()
+	logEntries := logs.FilterMessage("Request summary statistics").AllUntimed()
 	if len(logEntries) == 0 {
-		t.Fatalf("Expected 'Request completed' log entry at WarnLevel, but none found")
+		t.Fatalf("Expected ' Request summary statistics' log entry at WarnLevel, but none found")
 	}
 
 	found := false
@@ -278,7 +278,7 @@ func TestSlowRequestLogging(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("Expected 'Request completed' log message at WarnLevel due to slow request")
+		t.Errorf("Expected ' Request summary statistics' log message at WarnLevel due to slow request")
 	}
 }
 
@@ -298,9 +298,9 @@ func TestErrorStatusLogging(t *testing.T) {
 	}
 
 	// Check for the unified log message at Error level
-	logEntriesErr := logsErr.FilterMessage("Request completed").AllUntimed()
+	logEntriesErr := logsErr.FilterMessage("Request summary statistics").AllUntimed()
 	if len(logEntriesErr) == 0 {
-		t.Fatalf("Expected 'Request completed' log entry at ErrorLevel, but none found")
+		t.Fatalf("Expected ' Request summary statistics' log entry at ErrorLevel, but none found")
 	}
 	foundErr := false
 	for _, log := range logEntriesErr {
@@ -310,7 +310,7 @@ func TestErrorStatusLogging(t *testing.T) {
 		}
 	}
 	if !foundErr {
-		t.Errorf("Expected 'Request completed' log message at ErrorLevel for 5xx status")
+		t.Errorf("Expected ' Request summary statistics' log message at ErrorLevel for 5xx status")
 	}
 
 	// Test client error (4xx) -> WARN level
@@ -327,9 +327,9 @@ func TestErrorStatusLogging(t *testing.T) {
 	}
 
 	// Check for the unified log message at Warn level
-	logEntriesWarn := logsWarn.FilterMessage("Request completed").AllUntimed()
+	logEntriesWarn := logsWarn.FilterMessage("Request summary statistics").AllUntimed()
 	if len(logEntriesWarn) == 0 {
-		t.Fatalf("Expected 'Request completed' log entry at WarnLevel, but none found")
+		t.Fatalf("Expected ' Request summary statistics' log entry at WarnLevel, but none found")
 	}
 	foundWarn := false
 	for _, log := range logEntriesWarn {
@@ -339,6 +339,6 @@ func TestErrorStatusLogging(t *testing.T) {
 		}
 	}
 	if !foundWarn {
-		t.Errorf("Expected 'Request completed' log message at WarnLevel for 4xx status")
+		t.Errorf("Expected ' Request summary statistics' log message at WarnLevel for 4xx status")
 	}
 }

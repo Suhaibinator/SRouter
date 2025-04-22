@@ -527,7 +527,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 
 			// 4) Emit a single, unified log with the appropriate level
-			r.logger.Log(lvl, "Request completed", fields...)
+			r.logger.Log(lvl, "Request summary statistics", fields...)
 
 			// Reset fields that might hold references to prevent memory leaks
 			mrw.ResponseWriter = nil

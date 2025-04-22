@@ -121,9 +121,9 @@ func TestMetrics(t *testing.T) {
 	// Check that the unified log was recorded
 	// Since TraceLoggingUseInfo is true and status is 200, expect INFO level.
 	// Observe at DebugLevel initially to capture all levels, then filter.
-	logEntries := logs.FilterMessage("Request completed").AllUntimed()
+	logEntries := logs.FilterMessage("Request summary statistics").AllUntimed()
 	if len(logEntries) == 0 {
-		t.Fatalf("Expected 'Request completed' log entry, but none found")
+		t.Fatalf("Expected ' Request summary statistics' log entry, but none found")
 	}
 
 	// Check the first matching log entry
@@ -181,7 +181,7 @@ func TestMetrics(t *testing.T) {
 	}
 
 	if !found {
-		t.Errorf("Expected 'Request completed' log message at INFO level, but none found matching criteria")
+		t.Errorf("Expected ' Request summary statistics' log message at INFO level, but none found matching criteria")
 	}
 }
 
