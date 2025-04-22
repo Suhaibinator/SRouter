@@ -185,21 +185,22 @@ func cors(corsConfig CORSOptions) Middleware { // Reverted to non-generic
 		maxAge = strconv.Itoa(int(corsConfig.MaxAge.Seconds()))
 	}
 
-	// allowCredentials := corsConfig.AllowCredentials // Removed, use corsConfig.AllowCredentials directly
+	// No need for testCompatAllowOrigin anymore
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			finalAllowOrigin := ""
-			finalAllowCredentials := false
+			// Variables for the *correct* CORS decision to store in context
+			correctAllowOrigin := ""
+			correctAllowCredentials := false
 
-			// Determine the correct Access-Control-Allow-Origin value
+			// Determine the correct Access-Control-Allow-Origin value for context
 			if origin != "" { // Only process if Origin header is present
 				isAllowed := false
 				// Check for wildcard first
 				for _, allowed := range corsConfig.Origins {
 					if allowed == "*" {
-						finalAllowOrigin = "*"
+						correctAllowOrigin = "*" // Correct value is '*'
 						isAllowed = true
 						break
 					}
@@ -208,63 +209,68 @@ func cors(corsConfig CORSOptions) Middleware { // Reverted to non-generic
 				if !isAllowed {
 					for _, allowed := range corsConfig.Origins {
 						if allowed == origin {
-							finalAllowOrigin = origin // Use the specific origin
+							correctAllowOrigin = origin // Correct value is the specific origin
 							isAllowed = true
 							break
 						}
 					}
 				}
+				// If origin wasn't allowed by config, correctAllowOrigin remains ""
 			}
 
-			// Determine if credentials should be allowed
+			// Determine if credentials should be allowed (for context)
 			// Credentials require a specific origin match (not '*') and config flag set
-			if finalAllowOrigin != "" && finalAllowOrigin != "*" && corsConfig.AllowCredentials {
-				finalAllowCredentials = true
+			if correctAllowOrigin != "" && correctAllowOrigin != "*" && corsConfig.AllowCredentials {
+				correctAllowCredentials = true
 			}
 
-			// Store the determined CORS info in the context BEFORE calling next handler
+			// Store the *correct* CORS info in the context BEFORE calling next handler
 			// This makes it available even if the handler errors out later.
 			ctx := r.Context()
 			// Use [any, any] here as the middleware doesn't know the router's specific T, U
-			ctx = scontext.WithCORSInfo[any, any](ctx, finalAllowOrigin, finalAllowCredentials)
+			ctx = scontext.WithCORSInfo[any, any](ctx, correctAllowOrigin, correctAllowCredentials)
 			r = r.WithContext(ctx)
 
-			// --- Set Headers on Response Writer ---
-			// Set Allow-Origin if an origin was allowed
-			if finalAllowOrigin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", finalAllowOrigin)
+			// --- Set Headers on Response Writer (Correct Implementation) ---
+			// Set Allow-Origin if an origin was allowed by the spec-compliant check
+			if correctAllowOrigin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", correctAllowOrigin)
 			}
-			// Set Allow-Credentials if determined to be allowed
-			if finalAllowCredentials {
+			// Set Allow-Credentials if determined to be allowed by the spec-compliant check
+			if correctAllowCredentials {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
-			// Vary header is important for caching proxies when Allow-Origin can change
-			if len(corsConfig.Origins) > 0 && corsConfig.Origins[0] != "*" { // Add Vary if not always '*'
+			// Add Vary header if the allowed origin isn't always '*' (important for caching)
+			if correctAllowOrigin != "" && correctAllowOrigin != "*" {
 				w.Header().Add("Vary", "Origin")
 			}
 
 			// Handle preflight (OPTIONS) requests
-			if r.Method == http.MethodOptions && origin != "" { // Also check origin for OPTIONS
-				// Set headers specific to preflight responses
-				if allowMethods != "" {
-					w.Header().Set("Access-Control-Allow-Methods", allowMethods)
+			if r.Method == http.MethodOptions {
+				// Only set preflight-specific headers if the origin was allowed
+				if correctAllowOrigin != "" {
+					if allowMethods != "" {
+						w.Header().Set("Access-Control-Allow-Methods", allowMethods)
+					}
+					if allowHeaders != "" {
+						w.Header().Set("Access-Control-Allow-Headers", allowHeaders)
+					}
+					if maxAge != "" {
+						w.Header().Set("Access-Control-Max-Age", maxAge)
+					}
 				}
-				if allowHeaders != "" {
-					w.Header().Set("Access-Control-Allow-Headers", allowHeaders)
-				}
-				if maxAge != "" {
-					w.Header().Set("Access-Control-Max-Age", maxAge)
-				}
+				// Note: Allow-Origin and Allow-Credentials are set earlier based on correct logic
 
 				// Preflight requests don't need to go further down the chain.
-				// Respond with 204 No Content (preferred for preflight).
+				// Respond with 204 No Content (preferred for preflight)
 				w.WriteHeader(http.StatusNoContent) // Use 204 No Content
 				return
 			}
 
 			// Set headers specific to the actual response *before* calling the next handler
 			// Expose-Headers tells the browser which headers the JS code is allowed to access.
-			if exposeHeaders != "" {
+			// Set this for actual requests only, not for OPTIONS
+			if exposeHeaders != "" && r.Method != http.MethodOptions {
 				w.Header().Set("Access-Control-Expose-Headers", exposeHeaders)
 			}
 

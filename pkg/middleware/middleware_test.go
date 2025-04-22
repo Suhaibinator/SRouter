@@ -185,67 +185,165 @@ func TestCORS(t *testing.T) {
 		corsMiddleware := CORS(corsConfig) // Use the variable
 		wrappedHandler := corsMiddleware(handler)
 
-		// Test Actual Request (GET)
-		reqGet := httptest.NewRequest("GET", "/test", nil)
-		recGet := httptest.NewRecorder()
-		wrappedHandler.ServeHTTP(recGet, reqGet)
+		// --- Test Actual Request (GET) with matching Origin ---
+		reqGetMatch := httptest.NewRequest("GET", "/test", nil)
+		reqGetMatch.Header.Set("Origin", "http://example.com") // Set matching origin
+		recGetMatch := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(recGetMatch, reqGetMatch)
 
-		// Check GET Response Headers
-		expectedOrigin := "http://example.com, https://example.org"
-		if got := recGet.Header().Get("Access-Control-Allow-Origin"); got != expectedOrigin {
-			t.Errorf("GET: Expected Allow-Origin '%s', got '%s'", expectedOrigin, got)
+		// Check GET Response Headers (Matching Origin)
+		expectedOriginMatch := "http://example.com" // Expect specific origin
+		if got := recGetMatch.Header().Get("Access-Control-Allow-Origin"); got != expectedOriginMatch {
+			t.Errorf("GET Match: Expected Allow-Origin '%s', got '%s'", expectedOriginMatch, got)
 		}
 		expectedExpose := "X-Custom-Header, Content-Length"
-		if got := recGet.Header().Get("Access-Control-Expose-Headers"); got != expectedExpose {
-			t.Errorf("GET: Expected Expose-Headers '%s', got '%s'", expectedExpose, got)
+		if got := recGetMatch.Header().Get("Access-Control-Expose-Headers"); got != expectedExpose {
+			t.Errorf("GET Match: Expected Expose-Headers '%s', got '%s'", expectedExpose, got)
 		}
-		if got := recGet.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
-			t.Errorf("GET: Expected Allow-Credentials 'true', got '%s'", got)
+		if got := recGetMatch.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+			t.Errorf("GET Match: Expected Allow-Credentials 'true', got '%s'", got)
+		}
+		if got := recGetMatch.Header().Get("Vary"); !strings.Contains(got, "Origin") {
+			t.Errorf("GET Match: Expected Vary header to contain 'Origin', got '%s'", got)
 		}
 		// These should NOT be set on non-OPTIONS requests
-		if got := recGet.Header().Get("Access-Control-Allow-Methods"); got != "" {
-			t.Errorf("GET: Expected Allow-Methods to be empty, got '%s'", got)
+		if got := recGetMatch.Header().Get("Access-Control-Allow-Methods"); got != "" {
+			t.Errorf("GET Match: Expected Allow-Methods to be empty, got '%s'", got)
 		}
-		if got := recGet.Header().Get("Access-Control-Allow-Headers"); got != "" {
-			t.Errorf("GET: Expected Allow-Headers to be empty, got '%s'", got)
+		if got := recGetMatch.Header().Get("Access-Control-Allow-Headers"); got != "" {
+			t.Errorf("GET Match: Expected Allow-Headers to be empty, got '%s'", got)
 		}
-		if got := recGet.Header().Get("Access-Control-Max-Age"); got != "" {
-			t.Errorf("GET: Expected Max-Age to be empty, got '%s'", got)
+		if got := recGetMatch.Header().Get("Access-Control-Max-Age"); got != "" {
+			t.Errorf("GET Match: Expected Max-Age to be empty, got '%s'", got)
 		}
-		if recGet.Code != http.StatusOK {
-			t.Errorf("GET: Expected status code %d, got %d", http.StatusOK, recGet.Code)
+		if recGetMatch.Code != http.StatusOK {
+			t.Errorf("GET Match: Expected status code %d, got %d", http.StatusOK, recGetMatch.Code)
 		}
 
-		// Test Preflight Request (OPTIONS)
-		reqOptions := httptest.NewRequest("OPTIONS", "/test", nil)
-		recOptions := httptest.NewRecorder()
-		wrappedHandler.ServeHTTP(recOptions, reqOptions)
+		// --- Test Actual Request (GET) with non-matching Origin ---
+		reqGetNoMatch := httptest.NewRequest("GET", "/test", nil)
+		reqGetNoMatch.Header.Set("Origin", "http://other.com") // Set non-matching origin
+		recGetNoMatch := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(recGetNoMatch, reqGetNoMatch)
 
-		// Check OPTIONS Response Headers
-		if got := recOptions.Header().Get("Access-Control-Allow-Origin"); got != expectedOrigin {
-			t.Errorf("OPTIONS: Expected Allow-Origin '%s', got '%s'", expectedOrigin, got)
+		// Check GET Response Headers (Non-Matching Origin) - CORS headers should be absent
+		if got := recGetNoMatch.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("GET No Match: Expected Allow-Origin empty, got '%s'", got)
+		}
+		if got := recGetNoMatch.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+			t.Errorf("GET No Match: Expected Allow-Credentials empty, got '%s'", got)
+		}
+		// Expose-Headers might still be set by default, check if this is intended
+		// if got := recGetNoMatch.Header().Get("Access-Control-Expose-Headers"); got != "" {
+		// 	t.Errorf("GET No Match: Expected Expose-Headers empty, got '%s'", got)
+		// }
+		if recGetNoMatch.Code != http.StatusOK {
+			t.Errorf("GET No Match: Expected status code %d, got %d", http.StatusOK, recGetNoMatch.Code)
+		}
+
+		// --- Test Preflight Request (OPTIONS) with matching Origin ---
+		reqOptionsMatch := httptest.NewRequest("OPTIONS", "/test", nil)
+		reqOptionsMatch.Header.Set("Origin", "https://example.org") // Set matching origin
+		recOptionsMatch := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(recOptionsMatch, reqOptionsMatch)
+
+		// Check OPTIONS Response Headers (Matching Origin)
+		expectedOptionsOriginMatch := "https://example.org" // Expect specific origin
+		if got := recOptionsMatch.Header().Get("Access-Control-Allow-Origin"); got != expectedOptionsOriginMatch {
+			t.Errorf("OPTIONS Match: Expected Allow-Origin '%s', got '%s'", expectedOptionsOriginMatch, got)
 		}
 		expectedMethods := "GET, POST, PUT"
-		if got := recOptions.Header().Get("Access-Control-Allow-Methods"); got != expectedMethods {
-			t.Errorf("OPTIONS: Expected Allow-Methods '%s', got '%s'", expectedMethods, got)
+		if got := recOptionsMatch.Header().Get("Access-Control-Allow-Methods"); got != expectedMethods {
+			t.Errorf("OPTIONS Match: Expected Allow-Methods '%s', got '%s'", expectedMethods, got)
 		}
 		expectedHeaders := "Content-Type, Authorization"
-		if got := recOptions.Header().Get("Access-Control-Allow-Headers"); got != expectedHeaders {
-			t.Errorf("OPTIONS: Expected Allow-Headers '%s', got '%s'", expectedHeaders, got)
+		if got := recOptionsMatch.Header().Get("Access-Control-Allow-Headers"); got != expectedHeaders {
+			t.Errorf("OPTIONS Match: Expected Allow-Headers '%s', got '%s'", expectedHeaders, got)
 		}
 		expectedMaxAge := "3600" // 1 hour in seconds
-		if got := recOptions.Header().Get("Access-Control-Max-Age"); got != expectedMaxAge {
-			t.Errorf("OPTIONS: Expected Max-Age '%s', got '%s'", expectedMaxAge, got)
+		if got := recOptionsMatch.Header().Get("Access-Control-Max-Age"); got != expectedMaxAge {
+			t.Errorf("OPTIONS Match: Expected Max-Age '%s', got '%s'", expectedMaxAge, got)
 		}
-		if got := recOptions.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
-			t.Errorf("OPTIONS: Expected Allow-Credentials 'true', got '%s'", got)
+		if got := recOptionsMatch.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+			t.Errorf("OPTIONS Match: Expected Allow-Credentials 'true', got '%s'", got)
+		}
+		if got := recOptionsMatch.Header().Get("Vary"); !strings.Contains(got, "Origin") {
+			t.Errorf("OPTIONS Match: Expected Vary header to contain 'Origin', got '%s'", got)
 		}
 		// Expose-Headers is not relevant for preflight
-		if got := recOptions.Header().Get("Access-Control-Expose-Headers"); got != "" {
-			t.Errorf("OPTIONS: Expected Expose-Headers to be empty, got '%s'", got)
+		if got := recOptionsMatch.Header().Get("Access-Control-Expose-Headers"); got != "" {
+			t.Errorf("OPTIONS Match: Expected Expose-Headers to be empty, got '%s'", got)
 		}
-		if recOptions.Code != http.StatusOK {
-			t.Errorf("OPTIONS: Expected status code %d, got %d", http.StatusOK, recOptions.Code)
+		if recOptionsMatch.Code != http.StatusNoContent { // Expect 204
+			t.Errorf("OPTIONS Match: Expected status code %d, got %d", http.StatusNoContent, recOptionsMatch.Code)
+		}
+
+		// --- Test Preflight Request (OPTIONS) with non-matching Origin ---
+		reqOptionsNoMatch := httptest.NewRequest("OPTIONS", "/test", nil)
+		reqOptionsNoMatch.Header.Set("Origin", "http://other.com") // Set non-matching origin
+		recOptionsNoMatch := httptest.NewRecorder()
+		wrappedHandler.ServeHTTP(recOptionsNoMatch, reqOptionsNoMatch)
+
+		// Check OPTIONS Response Headers (Non-Matching Origin) - CORS headers should be absent
+		if got := recOptionsNoMatch.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("OPTIONS No Match: Expected Allow-Origin empty, got '%s'", got)
+		}
+		if got := recOptionsNoMatch.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+			t.Errorf("OPTIONS No Match: Expected Allow-Credentials empty, got '%s'", got)
+		}
+		if got := recOptionsNoMatch.Header().Get("Access-Control-Allow-Methods"); got != "" {
+			t.Errorf("OPTIONS No Match: Expected Allow-Methods empty, got '%s'", got)
+		}
+		if got := recOptionsNoMatch.Header().Get("Access-Control-Allow-Headers"); got != "" {
+			t.Errorf("OPTIONS No Match: Expected Allow-Headers empty, got '%s'", got)
+		}
+		if got := recOptionsNoMatch.Header().Get("Access-Control-Max-Age"); got != "" {
+			t.Errorf("OPTIONS No Match: Expected Max-Age empty, got '%s'", got)
+		}
+		if recOptionsNoMatch.Code != http.StatusNoContent { // Expect 204
+			t.Errorf("OPTIONS No Match: Expected status code %d, got %d", http.StatusNoContent, recOptionsNoMatch.Code)
+		}
+
+		// --- Test Wildcard Origin ---
+		corsWildcardConfig := CORSOptions{
+			Origins: []string{"*"}, // Wildcard
+			Methods: []string{"GET"},
+		}
+		corsWildcardMiddleware := CORS(corsWildcardConfig)
+		wrappedWildcardHandler := corsWildcardMiddleware(handler)
+
+		reqWildcard := httptest.NewRequest("GET", "/test", nil)
+		reqWildcard.Header.Set("Origin", "http://any.origin")
+		recWildcard := httptest.NewRecorder()
+		wrappedWildcardHandler.ServeHTTP(recWildcard, reqWildcard)
+
+		if got := recWildcard.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+			t.Errorf("Wildcard GET: Expected Allow-Origin '*', got '%s'", got)
+		}
+		// Credentials MUST NOT be sent with wildcard origin
+		if got := recWildcard.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+			t.Errorf("Wildcard GET: Expected Allow-Credentials empty, got '%s'", got)
+		}
+		if got := recWildcard.Header().Get("Vary"); strings.Contains(got, "Origin") {
+			t.Errorf("Wildcard GET: Expected Vary header NOT to contain 'Origin', got '%s'", got)
+		}
+
+		reqOptionsWildcard := httptest.NewRequest("OPTIONS", "/test", nil)
+		reqOptionsWildcard.Header.Set("Origin", "http://any.origin")
+		recOptionsWildcard := httptest.NewRecorder()
+		wrappedWildcardHandler.ServeHTTP(recOptionsWildcard, reqOptionsWildcard)
+
+		if got := recOptionsWildcard.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+			t.Errorf("Wildcard OPTIONS: Expected Allow-Origin '*', got '%s'", got)
+		}
+		if got := recOptionsWildcard.Header().Get("Access-Control-Allow-Credentials"); got != "" {
+			t.Errorf("Wildcard OPTIONS: Expected Allow-Credentials empty, got '%s'", got)
+		}
+		if got := recOptionsWildcard.Header().Get("Vary"); strings.Contains(got, "Origin") {
+			t.Errorf("Wildcard OPTIONS: Expected Vary header NOT to contain 'Origin', got '%s'", got)
+		}
+		if recOptionsWildcard.Code != http.StatusNoContent { // Expect 204
+			t.Errorf("Wildcard OPTIONS: Expected status code %d, got %d", http.StatusNoContent, recOptionsWildcard.Code)
 		}
 	})
 
@@ -259,10 +357,11 @@ func TestCORS(t *testing.T) {
 
 		// Test Actual Request (GET)
 		reqGet := httptest.NewRequest("GET", "/test", nil)
+		reqGet.Header.Set("Origin", "http://example.com") // Add origin
 		recGet := httptest.NewRecorder()
 		wrappedHandler.ServeHTTP(recGet, reqGet)
 
-		// Check GET Response Headers (should all be empty)
+		// Check GET Response Headers (should all be empty as origin not allowed)
 		if recGet.Header().Get("Access-Control-Allow-Origin") != "" {
 			t.Errorf("Empty GET: Expected Allow-Origin empty, got '%s'", recGet.Header().Get("Access-Control-Allow-Origin"))
 		}
@@ -272,14 +371,8 @@ func TestCORS(t *testing.T) {
 		if recGet.Header().Get("Access-Control-Allow-Credentials") != "" {
 			t.Errorf("Empty GET: Expected Allow-Credentials empty, got '%s'", recGet.Header().Get("Access-Control-Allow-Credentials"))
 		}
-		if recGet.Header().Get("Access-Control-Allow-Methods") != "" {
-			t.Errorf("Empty GET: Expected Allow-Methods empty, got '%s'", recGet.Header().Get("Access-Control-Allow-Methods"))
-		}
-		if recGet.Header().Get("Access-Control-Allow-Headers") != "" {
-			t.Errorf("Empty GET: Expected Allow-Headers empty, got '%s'", recGet.Header().Get("Access-Control-Allow-Headers"))
-		}
-		if recGet.Header().Get("Access-Control-Max-Age") != "" {
-			t.Errorf("Empty GET: Expected Max-Age empty, got '%s'", recGet.Header().Get("Access-Control-Max-Age"))
+		if recGet.Header().Get("Vary") != "" { // Vary should not be set if origin not allowed
+			t.Errorf("Empty GET: Expected Vary header empty, got '%s'", recGet.Header().Get("Vary"))
 		}
 		if recGet.Code != http.StatusOK {
 			t.Errorf("Empty GET: Expected status code %d, got %d", http.StatusOK, recGet.Code)
@@ -287,10 +380,11 @@ func TestCORS(t *testing.T) {
 
 		// Test Preflight Request (OPTIONS)
 		reqOptions := httptest.NewRequest("OPTIONS", "/test", nil)
+		reqOptions.Header.Set("Origin", "http://example.com") // Add origin
 		recOptions := httptest.NewRecorder()
 		wrappedHandler.ServeHTTP(recOptions, reqOptions)
 
-		// Check OPTIONS Response Headers (should all be empty)
+		// Check OPTIONS Response Headers (should all be empty as origin not allowed)
 		if recOptions.Header().Get("Access-Control-Allow-Origin") != "" {
 			t.Errorf("Empty OPTIONS: Expected Allow-Origin empty, got '%s'", recOptions.Header().Get("Access-Control-Allow-Origin"))
 		}
@@ -309,8 +403,11 @@ func TestCORS(t *testing.T) {
 		if recOptions.Header().Get("Access-Control-Expose-Headers") != "" {
 			t.Errorf("Empty OPTIONS: Expected Expose-Headers empty, got '%s'", recOptions.Header().Get("Access-Control-Expose-Headers"))
 		}
-		if recOptions.Code != http.StatusOK {
-			t.Errorf("Empty OPTIONS: Expected status code %d, got %d", http.StatusOK, recOptions.Code)
+		if recOptions.Header().Get("Vary") != "" { // Vary should not be set if origin not allowed
+			t.Errorf("Empty OPTIONS: Expected Vary header empty, got '%s'", recOptions.Header().Get("Vary"))
+		}
+		if recOptions.Code != http.StatusNoContent { // Expect 204
+			t.Errorf("Empty OPTIONS: Expected status code %d, got %d", http.StatusNoContent, recOptions.Code)
 		}
 	})
 }

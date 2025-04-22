@@ -493,8 +493,9 @@ func TestMiddlewareIntegration(t *testing.T) {
 			return *user // Dereference pointer
 		})
 
-	// Create a request
+	// Create a request simulating a cross-origin request
 	req, _ := http.NewRequest("GET", "/api/test", nil)
+	req.Header.Set("Origin", "http://example.com") // Add Origin header
 	rr := httptest.NewRecorder()
 
 	// Serve the request
