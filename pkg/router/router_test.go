@@ -583,11 +583,15 @@ func TestHandleErrorWithHTTPError(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/test", nil)
 	rr := httptest.NewRecorder()
 
-	// Call handleError which should now write JSON
-	r.handleError(rr, req, httpErr, http.StatusInternalServerError, "Internal Server Error") // Default status/message are overridden by httpErr
+	// Call handleError which now returns status and body
+	status, bodyBytes := r.handleError(req, httpErr, http.StatusInternalServerError, "Internal Server Error") // Default status/message are overridden by httpErr
 
-	// Check status code
-	assert.Equal(t, http.StatusNotFound, rr.Code, "Expected status code to be StatusNotFound")
+	// Check status code returned by handleError
+	assert.Equal(t, http.StatusNotFound, status, "Expected status code to be StatusNotFound")
+
+	// Optionally write to recorder if needed for further assertions on body/headers
+	rr.WriteHeader(status)
+	rr.Write(bodyBytes)
 
 	// Check Content-Type header
 	assert.Equal(t, "application/json; charset=utf-8", rr.Header().Get("Content-Type"), "Expected Content-Type header to be application/json")

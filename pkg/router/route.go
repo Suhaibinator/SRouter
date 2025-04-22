@@ -59,10 +59,30 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 				// We need to check for the specific error string potentially returned by http.MaxBytesReader
 				// or similar errors from the codec's Decode implementation.
 				if err.Error() == "http: request body too large" { // Keep this check
-					r.handleError(w, req, err, http.StatusRequestEntityTooLarge, "Request entity too large")
+					// Prepare error response but don't write yet
+					status, body := r.handleError(req, err, http.StatusRequestEntityTooLarge, "Request entity too large")
+					if stateW, ok := w.(*responseStateWriter); ok {
+						stateW.setError(status, body)
+					} else {
+						// Fallback: Write directly if not the expected writer type
+						r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+						w.Header().Set("Content-Type", "application/json; charset=utf-8")
+						w.WriteHeader(status)
+						w.Write(body)
+					}
 					return
 				}
-				r.handleError(w, req, err, http.StatusBadRequest, "Failed to decode request body")
+				// Prepare error response but don't write yet
+				status, body := r.handleError(req, err, http.StatusBadRequest, "Failed to decode request body")
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else {
+					// Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 
@@ -70,24 +90,48 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 			// Get from query parameter and decode base64
 			encodedData := req.URL.Query().Get(route.SourceKey)
 			if encodedData == "" {
-				r.handleError(w, req, errors.New("missing query parameter"),
+				status, body := r.handleError(req, errors.New("missing query parameter"),
 					http.StatusBadRequest, "Missing required query parameter: "+route.SourceKey)
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 
 			// Decode from base64
 			decodedData, err := codec.DecodeBase64(encodedData)
 			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
+				status, body := r.handleError(req, err, http.StatusBadRequest,
 					"Failed to decode base64 query parameter: "+route.SourceKey)
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 
 			// Use codec's DecodeBytes to unmarshal the decoded data
 			data, err = route.Codec.DecodeBytes(decodedData)
 			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
+				status, body := r.handleError(req, err, http.StatusBadRequest,
 					"Failed to decode query parameter data")
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 
@@ -95,24 +139,48 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 			// Get from query parameter and decode base62
 			encodedData := req.URL.Query().Get(route.SourceKey)
 			if encodedData == "" {
-				r.handleError(w, req, errors.New("missing query parameter"),
+				status, body := r.handleError(req, errors.New("missing query parameter"),
 					http.StatusBadRequest, "Missing required query parameter: "+route.SourceKey)
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 
 			// Decode from base62
 			decodedData, err := codec.DecodeBase62(encodedData)
 			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
+				status, body := r.handleError(req, err, http.StatusBadRequest,
 					"Failed to decode base62 query parameter: "+route.SourceKey)
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 
 			// Use codec's DecodeBytes to unmarshal the decoded data
 			data, err = route.Codec.DecodeBytes(decodedData)
 			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
+				status, body := r.handleError(req, err, http.StatusBadRequest,
 					"Failed to decode query parameter data")
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 
@@ -123,8 +191,16 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 				// If no specific parameter name is provided, use the first path parameter
 				params := GetParams(req)
 				if len(params) == 0 {
-					r.handleError(w, req, errors.New("no path parameters found"),
+					status, body := r.handleError(req, errors.New("no path parameters found"),
 						http.StatusBadRequest, "No path parameters found")
+					if stateW, ok := w.(*responseStateWriter); ok {
+						stateW.setError(status, body)
+					} else { // Fallback
+						r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+						w.Header().Set("Content-Type", "application/json; charset=utf-8")
+						w.WriteHeader(status)
+						w.Write(body)
+					}
 					return
 				}
 				paramName = params[0].Key
@@ -132,24 +208,48 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 
 			encodedData := GetParam(req, paramName)
 			if encodedData == "" {
-				r.handleError(w, req, errors.New("missing path parameter"),
+				status, body := r.handleError(req, errors.New("missing path parameter"),
 					http.StatusBadRequest, "Missing required path parameter: "+paramName)
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 
 			// Decode from base64
 			decodedData, err := codec.DecodeBase64(encodedData)
 			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
+				status, body := r.handleError(req, err, http.StatusBadRequest,
 					"Failed to decode base64 path parameter: "+paramName)
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 
 			// Use codec's DecodeBytes to unmarshal the decoded data
 			data, err = route.Codec.DecodeBytes(decodedData)
 			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
+				status, body := r.handleError(req, err, http.StatusBadRequest,
 					"Failed to decode path parameter data")
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 
@@ -160,8 +260,16 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 				// If no specific parameter name is provided, use the first path parameter
 				params := GetParams(req)
 				if len(params) == 0 {
-					r.handleError(w, req, errors.New("no path parameters found"),
+					status, body := r.handleError(req, errors.New("no path parameters found"),
 						http.StatusBadRequest, "No path parameters found")
+					if stateW, ok := w.(*responseStateWriter); ok {
+						stateW.setError(status, body)
+					} else { // Fallback
+						r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+						w.Header().Set("Content-Type", "application/json; charset=utf-8")
+						w.WriteHeader(status)
+						w.Write(body)
+					}
 					return
 				}
 				paramName = params[0].Key
@@ -169,31 +277,63 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 
 			encodedData := GetParam(req, paramName)
 			if encodedData == "" {
-				r.handleError(w, req, errors.New("missing path parameter"),
+				status, body := r.handleError(req, errors.New("missing path parameter"),
 					http.StatusBadRequest, "Missing required path parameter: "+paramName)
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 
 			// Decode from base62
 			decodedData, err := codec.DecodeBase62(encodedData)
 			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
+				status, body := r.handleError(req, err, http.StatusBadRequest,
 					"Failed to decode base62 path parameter: "+paramName)
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 
 			// Use codec's DecodeBytes to unmarshal the decoded data
 			data, err = route.Codec.DecodeBytes(decodedData)
 			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest,
+				status, body := r.handleError(req, err, http.StatusBadRequest,
 					"Failed to decode path parameter data")
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 		case Empty:
-
+			// No data to decode
 		default:
-			r.handleError(w, req, errors.New("unsupported source type"),
+			status, body := r.handleError(req, errors.New("unsupported source type"),
 				http.StatusInternalServerError, "Unsupported source type")
+			if stateW, ok := w.(*responseStateWriter); ok {
+				stateW.setError(status, body)
+			} else { // Fallback
+				r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.WriteHeader(status)
+				w.Write(body)
+			}
 			return
 		}
 
@@ -201,7 +341,15 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 		if route.Sanitizer != nil {
 			sanitizedData, err := route.Sanitizer(data)
 			if err != nil {
-				r.handleError(w, req, err, http.StatusBadRequest, "Sanitization failed")
+				status, body := r.handleError(req, err, http.StatusBadRequest, "Sanitization failed")
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+				} else { // Fallback
+					r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 				return
 			}
 			data = sanitizedData
@@ -210,16 +358,38 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 		// Call the handler
 		resp, err := route.Handler(req, data)
 		if err != nil {
-			r.handleError(w, req, err, http.StatusInternalServerError, "Handler error")
+			// Prepare error response but don't write yet
+			status, body := r.handleError(req, err, http.StatusInternalServerError, "Handler error")
+			if stateW, ok := w.(*responseStateWriter); ok {
+				stateW.setError(status, body)
+			} else { // Fallback
+				r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.WriteHeader(status)
+				w.Write(body)
+			}
 			return
 		}
 
-		// Encode the response directly to the response writer
+		// Encode the successful response directly to the response writer
+		// This assumes the writer passed (w) is the wrapped one (stateW or metricsResponseWriter wrapping stateW)
 		err = route.Codec.Encode(w, resp)
 		if err != nil {
-			r.handleError(w, req, err, http.StatusInternalServerError, "Failed to encode response")
+			// If encoding fails, it's an internal server error.
+			// Prepare error response but don't write yet.
+			status, body := r.handleError(req, err, http.StatusInternalServerError, "Failed to encode response")
+			if stateW, ok := w.(*responseStateWriter); ok {
+				// We might be overwriting a previous error state if the handler returned an error
+				// AND encoding failed, but that seems unlikely/acceptable.
+				stateW.setError(status, body)
+			} else { // Fallback
+				r.logger.Error("Generic handler could not access responseStateWriter, writing error directly")
+				// Avoid writing if headers might already be sent by failed Encode
+				// http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
 			return
 		}
+		// If Encode succeeds, the response is written via the wrapped writer.
 
 	})
 

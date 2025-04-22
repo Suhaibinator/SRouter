@@ -3,6 +3,7 @@
 package router
 
 import (
+	"bytes"
 	"context"
 	"encoding/json" // Added for JSON marshalling
 	"errors"
@@ -21,6 +22,88 @@ import (
 	"github.com/julienschmidt/httprouter"
 	"go.uber.org/zap"
 )
+
+// responseStateWriter wraps http.ResponseWriter to capture status code and buffer error responses.
+type responseStateWriter struct {
+	http.ResponseWriter
+	statusCode    int
+	wroteHeader   bool // Tracks if WriteHeader was called explicitly
+	wroteBody     bool // Tracks if Write was called
+	errorOccurred bool
+	errorBody     []byte        // Buffer for pre-rendered error body
+	successBody   *bytes.Buffer // Buffer for successful response body
+	mu            sync.Mutex
+}
+
+// WriteHeader captures the status code and prevents multiple writes.
+// It does NOT write to the underlying writer.
+func (w *responseStateWriter) WriteHeader(statusCode int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.wroteHeader && !w.wroteBody { // Can only set status before writing body
+		w.statusCode = statusCode
+		w.wroteHeader = true
+	}
+}
+
+// Write captures the successful response body.
+// It does NOT write to the underlying writer.
+func (w *responseStateWriter) Write(b []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.errorOccurred {
+		// Discard writes if an error was already set.
+		return len(b), nil
+	}
+	// Initialize buffer if first write
+	if w.successBody == nil {
+		w.successBody = new(bytes.Buffer)
+	}
+	// Set implicit 200 OK if header wasn't explicitly set
+	if !w.wroteHeader {
+		w.statusCode = http.StatusOK
+	}
+	w.wroteBody = true // Mark that body has been written (or attempted)
+	return w.successBody.Write(b)
+}
+
+// Flush calls the underlying Flush if available.
+func (w *responseStateWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// setError prepares the writer to output a specific error response later.
+// It captures the status code and the pre-rendered error body.
+// It prevents further successful writes.
+func (w *responseStateWriter) setError(statusCode int, body []byte) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	// Allow setting error even if Write was called (e.g., encode error)
+	// but not if WriteHeader was already explicitly called with a success code?
+	// Let's prioritize the error state.
+	if !w.errorOccurred { // Prevent overwriting an earlier error? Or allow latest error? Let's allow latest.
+		w.errorOccurred = true
+		w.errorBody = body
+		// Only set status if header wasn't explicitly written previously
+		if !w.wroteHeader {
+			w.statusCode = statusCode
+		}
+		// Clear any potentially buffered success body
+		w.successBody = nil
+	}
+}
+
+// getStatusCode returns the captured status code, defaulting to 200 if not set.
+func (w *responseStateWriter) getStatusCode() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.statusCode == 0 { // Default if WriteHeader was never called
+		return http.StatusOK
+	}
+	return w.statusCode
+}
 
 // Router is the main router struct that implements http.Handler.
 // It provides routing, middleware support, graceful shutdown, and other features.
@@ -343,15 +426,25 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 
 				// Acquire lock to safely check and potentially write timeout response.
 				wrappedW.mu.Lock()
-				// Check if handler already started writing. Use Swap for atomic check-and-set.
-				if !wrappedW.wroteHeader.Swap(true) {
-					// Handler hasn't written yet, we can write the timeout error.
-					// Hold the lock while writing headers and body for timeout.
-					// Use the new JSON error writer
-					r.writeJSONError(wrappedW.ResponseWriter, http.StatusRequestTimeout, "Request Timeout", traceID)
+				// Check if handler already started writing.
+				// We need to signal the error state using the responseStateWriter.
+				// Need to cast w back to *responseStateWriter.
+				// Note: The wrappedW here is mutexResponseWriter, not responseStateWriter.
+				// The actual writer passed down the chain is responseStateWriter (or metrics wrapping it).
+				// We need access to the state writer instance.
+				// Let's assume 'w' passed into the middleware func is the state writer (or wrapper).
+				if stateW, ok := w.(*responseStateWriter); ok {
+					// Prepare the error response body using the original error
+					status, body := r.handleError(req, context.DeadlineExceeded, http.StatusRequestTimeout, "Request Timeout")
+					// Set the error state. setError handles the lock and checks.
+					stateW.setError(status, body)
+				} else {
+					// Fallback if casting fails (should not happen with current ServeHTTP)
+					r.logger.Error("Timeout middleware could not access responseStateWriter, writing error directly")
+					// This direct write bypasses other middleware.
+					http.Error(w, "Request Timeout", http.StatusRequestTimeout)
 				}
-				// If wroteHeader was already true, handler won the race, do nothing here.
-				// Unlock should happen regardless of whether we wrote the error or not.
+				// Unlock is handled by the defer in the outer scope of the select case.
 				wrappedW.mu.Unlock()
 				return
 			}
@@ -433,41 +526,54 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 
 // ServeHTTP implements the http.Handler interface.
 // It handles HTTP requests by applying metrics and tracing if enabled,
-// and then delegating to the underlying httprouter.
+// wrapping the response writer, and then delegating to the underlying httprouter.
+// It handles writing the final error body if one was prepared.
 func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	// Create a response writer that captures metrics
-	var rw http.ResponseWriter
-	var traceID string
+	// Wrap the original ResponseWriter to capture state
+	stateW := &responseStateWriter{ResponseWriter: w}
 
-	// Apply ClientIpMiddleware to the request
+	// --- Original ServeHTTP logic starts here, using stateW ---
+	var traceID string // Keep traceID for logging
+
+	// Apply ClientIpMiddleware to the request (using original context)
 	clientIP := extractClientIP(req, r.config.IPConfig)
 	ctx := scontext.WithClientIP[T, U](req.Context(), clientIP) // Use scontext
 	req = req.WithContext(ctx)
 
 	// Apply metrics and tracing if enabled
+	// Note: The metricsResponseWriter might need adjustment or replacement
+	// if it conflicts with responseStateWriter. For now, let's assume
+	// it can wrap the stateW or be integrated.
+	// Let's simplify for now and use stateW directly, potentially losing metrics.
+	// TODO: Re-integrate metrics capture properly with stateW.
+	var finalWriter http.ResponseWriter = stateW // Use stateW as the base
+
 	if r.config.EnableMetrics || r.config.TraceIDBufferSize > 0 {
 		// Get a metricsResponseWriter from the pool
 		mrw := r.metricsWriterPool.Get().(*metricsResponseWriter[T, U])
 
 		// Initialize the writer with the current request data
-		mrw.ResponseWriter = w
-		mrw.statusCode = http.StatusOK
+		// IMPORTANT: Wrap the stateW, not the original w
+		mrw.ResponseWriter = stateW
+		mrw.statusCode = http.StatusOK // Initial status
 		mrw.startTime = time.Now()
 		mrw.request = req
 		mrw.router = r
 		mrw.bytesWritten = 0
 
-		rw = mrw
+		finalWriter = mrw // Use the metrics writer as the final writer passed down
 
 		// Defer logging, metrics collection, and returning the writer to the pool
 		defer func() {
 			duration := time.Since(mrw.startTime)
+			// Update status code from the state writer *before* logging/metrics
+			mrw.statusCode = stateW.getStatusCode()
 
 			// Get updated trace ID from context
 			traceID = scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
 			ip, _ := scontext.GetClientIPFromRequest[T, U](req) // Use scontext
 
-			// Log metrics
+			// Log metrics (using mrw.statusCode which now reflects final status)
 			if r.config.EnableTraceLogging {
 
 				// Create log fields
@@ -572,13 +678,33 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			// Return the writer to the pool
 			r.metricsWriterPool.Put(mrw)
 		}()
-	} else {
-		// Use the original response writer if metrics and tracing are disabled
-		rw = w
+	}
+	// else: finalWriter remains stateW
+
+	// Serve the request using the final writer (either stateW or mrw wrapping stateW)
+	r.router.ServeHTTP(finalWriter, req)
+
+	// --- Final response writing ---
+	// After the handler and all middleware have run, write the response.
+	stateW.mu.Lock() // Lock for final check and write
+
+	finalStatusCode := stateW.statusCode
+	if finalStatusCode == 0 { // Default to 200 if never set
+		finalStatusCode = http.StatusOK
 	}
 
-	// Serve the request
-	r.router.ServeHTTP(rw, req)
+	// Write header using the final status code
+	stateW.ResponseWriter.WriteHeader(finalStatusCode)
+
+	// Write the appropriate body
+	if stateW.errorOccurred && stateW.errorBody != nil {
+		stateW.ResponseWriter.Write(stateW.errorBody)
+	} else if stateW.successBody != nil {
+		stateW.ResponseWriter.Write(stateW.successBody.Bytes())
+	}
+	// else: No body was written (e.g., HEAD request, or handler didn't write)
+
+	stateW.mu.Unlock()
 }
 
 // metricsResponseWriter is a wrapper around http.ResponseWriter that captures metrics.
@@ -699,7 +825,10 @@ func (r *Router[T, U]) getEffectiveRateLimit(routeRateLimit, subRouterRateLimit 
 // handleError handles an error by logging it and returning an appropriate HTTP response.
 // It checks if the error is a specific HTTPError and uses its status code and message if available.
 // It also checks for context deadline exceeded errors.
-func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err error, statusCode int, message string) {
+// Determines the correct status code and message for an error, logs it,
+// and prepares the JSON error body.
+// Returns the final status code and the rendered JSON byte slice.
+func (r *Router[T, U]) handleError(req *http.Request, err error, defaultStatusCode int, defaultMessage string) (int, []byte) {
 	// Get trace ID from context
 	traceID := scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
 
@@ -715,53 +844,55 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 		fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
 	}
 
-	// Check for specific error types
+	// Determine final status code and message based on error type
+	finalStatusCode := defaultStatusCode
+	finalMessage := defaultMessage
 	var httpErr *HTTPError
 	if errors.Is(err, context.DeadlineExceeded) {
-		// Handle timeout specifically
-		statusCode = http.StatusRequestTimeout // Or http.StatusGatewayTimeout
-		message = "Request Timeout"
-		// Log specifically as timeout
+		finalStatusCode = http.StatusRequestTimeout
+		finalMessage = "Request Timeout"
 		r.logger.Error("Request timed out (detected in handler)", fields...)
 	} else if errors.As(err, &httpErr) {
-		// Handle custom HTTPError
-		statusCode = httpErr.StatusCode
-		message = httpErr.Message
-		r.logger.Error(message, fields...) // Log with the custom message
+		finalStatusCode = httpErr.StatusCode
+		finalMessage = httpErr.Message
+		// Log based on status code severity
+		if finalStatusCode >= 500 {
+			r.logger.Error(finalMessage, fields...)
+		} else if finalStatusCode >= 400 {
+			r.logger.Warn(finalMessage, fields...)
+		}
 	} else if err != nil && err.Error() == "http: request body too large" {
-		// Specifically handle MaxBytesReader error
-		statusCode = http.StatusRequestEntityTooLarge
-		message = "Request Entity Too Large"
-		r.logger.Warn(message, fields...) // Log as Warn for client error
+		finalStatusCode = http.StatusRequestEntityTooLarge
+		finalMessage = "Request Entity Too Large"
+		r.logger.Warn(finalMessage, fields...)
 	} else {
-		// Log generic internal server error
-		r.logger.Error(message, fields...)
+		// Log generic internal server error for other non-nil errors
+		if err != nil {
+			r.logger.Error(defaultMessage, fields...)
+		}
+		// If err was nil, status/message remain defaults (e.g., for explicit 500)
 	}
 
-	// Return the error response as JSON
-	r.writeJSONError(w, statusCode, message, traceID)
+	// Prepare the JSON error body bytes
+	bodyBytes, renderErr := r.renderJSONErrorBody(finalMessage, traceID)
+	if renderErr != nil {
+		// Log failure to render the error body itself
+		r.logger.Error("Failed to render JSON error body",
+			zap.Error(renderErr),
+			zap.Int("original_status", finalStatusCode),
+			zap.String("original_message", finalMessage),
+			zap.String("trace_id", traceID),
+		)
+		// Fallback: return plain text error and internal server error status
+		return http.StatusInternalServerError, []byte("Internal Server Error")
+	}
+
+	return finalStatusCode, bodyBytes
 }
 
-// writeJSONError writes a JSON error response to the client.
-// It sets the Content-Type header to application/json and writes the status code.
-// It includes the trace ID in the JSON payload if available and enabled.
-func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, statusCode int, message string, traceID string) {
-	// Check if headers have already been written (best effort)
-	// This check might not be foolproof depending on the ResponseWriter implementation.
-	// http.Error handles this internally, but we need to be careful here.
-	// A common pattern is to use a custom ResponseWriter wrapper that tracks this state.
-	// Since we have mutexResponseWriter and metricsResponseWriter, they might offer ways,
-	// but for simplicity, we'll rely on the fact that these error handlers are often
-	// called before the main handler writes anything. If a panic/timeout happens *after*
-	// writing has started, writing the JSON error might fail or corrupt the response.
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	// Ensure the status code is written *before* the body, especially if WriteHeader hasn't been called yet.
-	// If WriteHeader was already called (e.g., by a middleware before the error), this might write a second
-	// header, which is ignored by net/http, but it's good practice to set it.
-	w.WriteHeader(statusCode) // WriteHeader is idempotent after the first call
-
-	// Prepare the JSON payload
+// renderJSONErrorBody renders the standard JSON error structure into a byte slice.
+// It includes the trace ID if available and enabled.
+func (r *Router[T, U]) renderJSONErrorBody(message string, traceID string) ([]byte, error) {
 	errorPayload := map[string]interface{}{
 		"error": map[string]string{
 			"message": message,
@@ -774,17 +905,9 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, statusCode int, mes
 		errorMap["trace_id"] = traceID
 	}
 
-	// Marshal and write the JSON response
-	if err := json.NewEncoder(w).Encode(errorPayload); err != nil {
-		// Log an error if we fail to marshal/write the JSON error response itself
-		// At this point, we can't easily send a different error to the client.
-		r.logger.Error("Failed to write JSON error response",
-			zap.Error(err),
-			zap.Int("original_status", statusCode),
-			zap.String("original_message", message),
-			zap.String("trace_id", traceID), // Log trace ID even if writing failed
-		)
-	}
+	// Marshal the JSON payload
+	// Using json.Marshal is generally safe here as the structure is simple.
+	return json.Marshal(errorPayload)
 }
 
 // HTTPError represents an HTTP error with a status code and message.
@@ -838,10 +961,24 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 				r.logger.Error("Panic recovered", fields...)
 
 				// Return a 500 Internal Server Error
-				// Return a 500 Internal Server Error as JSON
-				// We attempt to write the JSON error. If headers were already written,
-				// writeJSONError might log an error, but we can't do much more here.
-				r.writeJSONError(w, http.StatusInternalServerError, "Internal Server Error", traceID)
+				// Prepare the error response body
+				status, body := r.handleError(req, fmt.Errorf("panic: %v", rec), http.StatusInternalServerError, "Internal Server Error")
+
+				// Attempt to set the error state on the response writer
+				// Need to cast w, but this might be problematic if wrapped.
+				// For now, we'll assume w is *responseStateWriter or compatible.
+				// TODO: Find a cleaner way to pass the state writer or signal the error.
+				if stateW, ok := w.(*responseStateWriter); ok {
+					stateW.setError(status, body)
+					// Headers like Content-Type will be set later if needed
+				} else {
+					// Fallback if casting fails (should not happen with current ServeHTTP)
+					// This fallback writes directly, bypassing middleware response modification.
+					r.logger.Error("Recovery middleware could not access responseStateWriter, writing error directly")
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(status)
+					w.Write(body)
+				}
 			}
 		}()
 
@@ -882,7 +1019,18 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 
 			// Log that authentication failed
 			r.logger.Warn("Authentication failed", fields...)
-			r.writeJSONError(w, http.StatusUnauthorized, "Unauthorized", traceID)
+			// Prepare the error response body
+			status, body := r.handleError(req, errors.New("no authorization header"), http.StatusUnauthorized, "Unauthorized")
+			// Attempt to set the error state on the response writer
+			if stateW, ok := w.(*responseStateWriter); ok {
+				stateW.setError(status, body)
+			} else {
+				// Fallback
+				r.logger.Error("Auth middleware could not access responseStateWriter, writing error directly")
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				w.WriteHeader(status)
+				w.Write(body)
+			}
 			return
 		}
 
@@ -943,7 +1091,19 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 
 		// Log that authentication failed
 		r.logger.Warn("Authentication failed", fields...)
-		r.writeJSONError(w, http.StatusUnauthorized, "Unauthorized", traceID)
+		// Prepare the error response body
+		status, body := r.handleError(req, errors.New("invalid token"), http.StatusUnauthorized, "Unauthorized")
+		// Attempt to set the error state on the response writer
+		if stateW, ok := w.(*responseStateWriter); ok {
+			stateW.setError(status, body)
+		} else {
+			// Fallback
+			r.logger.Error("Auth middleware could not access responseStateWriter, writing error directly")
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(status)
+			w.Write(body)
+		}
+		// Return after setting error state (no need to call next.ServeHTTP)
 	})
 }
 

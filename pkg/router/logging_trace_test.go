@@ -101,8 +101,9 @@ func TestHandleErrorWithTraceID(t *testing.T) {
 	traceID := "test-trace-id"
 	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
 	req = req.WithContext(ctxWithTrace)                                          // Apply context
-	rr := httptest.NewRecorder()
-	r.handleError(rr, req, err, http.StatusInternalServerError, "Test error") // Pass err from NewRequest
+	// rr := httptest.NewRecorder() // rr is not used as handleError no longer writes
+	// Call handleError which returns status/body, but we only care about the logging here
+	_, _ = r.handleError(req, err, http.StatusInternalServerError, "Test error") // Pass err from NewRequest
 	logEntries := logs.All()
 	if len(logEntries) == 0 {
 		t.Errorf("Expected logs to be recorded")
@@ -136,8 +137,9 @@ func TestHandleErrorWithoutTraceID(t *testing.T) {
 	traceID := "test-trace-id"
 	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
 	req = req.WithContext(ctxWithTrace)                                          // Apply context
-	rr := httptest.NewRecorder()
-	r.handleError(rr, req, err, http.StatusInternalServerError, "Test error") // Pass err from NewRequest
+	// rr := httptest.NewRecorder() // rr is not used as handleError no longer writes
+	// Call handleError which returns status/body, but we only care about the logging here
+	_, _ = r.handleError(req, err, http.StatusInternalServerError, "Test error") // Pass err from NewRequest
 	logEntries := logs.All()
 	if len(logEntries) == 0 {
 		t.Errorf("Expected logs to be recorded")

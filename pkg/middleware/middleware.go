@@ -13,8 +13,11 @@ import (
 	"time"
 
 	// Added back
+
 	"go.uber.org/zap"
 )
+
+// Note: Removed unused import "github.com/Suhaibinator/SRouter/pkg/scontext"
 
 // Chain chains multiple middlewares together into a single middleware.
 // The middlewares are applied in reverse order, so the first middleware in the list
@@ -189,10 +192,11 @@ func cors(corsConfig CORSOptions) Middleware {
 		maxAge = strconv.Itoa(int(corsConfig.MaxAge.Seconds()))
 	}
 
-	allowCredentials := corsConfig.AllowCredentials
+	allowCredentials := corsConfig.AllowCredentials // Reverted rename
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
 			// Set headers common to both preflight and actual requests
 			if allowOrigin != "" {
 				w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
@@ -200,7 +204,7 @@ func cors(corsConfig CORSOptions) Middleware {
 			// Allow-Credentials MUST be set on actual responses if needed,
 			// and it's often helpful to mirror it on preflight for consistency,
 			// although the spec primarily cares about it on the actual response.
-			if allowCredentials {
+			if allowCredentials { // Use original variable name
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 

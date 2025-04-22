@@ -168,12 +168,15 @@ func TestHandleError(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	// Test handling a regular error
-	r.handleError(rr, req, errors.New("test error"), http.StatusInternalServerError, "Internal server error")
+	status, bodyBytes := r.handleError(req, errors.New("test error"), http.StatusInternalServerError, "Internal server error")
 
-	// Check status code
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("Expected status code %d, got %d", http.StatusInternalServerError, rr.Code)
+	// Check status code returned by handleError
+	if status != http.StatusInternalServerError {
+		t.Errorf("Expected status code %d, got %d", http.StatusInternalServerError, status)
 	}
+	// Write to recorder for body check
+	rr.WriteHeader(status)
+	rr.Write(bodyBytes)
 
 	// Check response body
 	if !strings.Contains(rr.Body.String(), "Internal server error") {
@@ -184,12 +187,15 @@ func TestHandleError(t *testing.T) {
 	rr = httptest.NewRecorder()
 
 	// Test handling an HTTPError
-	r.handleError(rr, req, NewHTTPError(http.StatusBadRequest, "Bad request"), http.StatusInternalServerError, "Internal server error")
+	status, bodyBytes = r.handleError(req, NewHTTPError(http.StatusBadRequest, "Bad request"), http.StatusInternalServerError, "Internal server error")
 
 	// Check status code (should be the one from the HTTPError)
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("Expected status code %d, got %d", http.StatusBadRequest, rr.Code)
+	if status != http.StatusBadRequest {
+		t.Errorf("Expected status code %d, got %d", http.StatusBadRequest, status)
 	}
+	// Write to recorder for body check
+	rr.WriteHeader(status)
+	rr.Write(bodyBytes)
 
 	// Check response body (should be the one from the HTTPError)
 	if !strings.Contains(rr.Body.String(), "Bad request") {
