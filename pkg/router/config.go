@@ -11,6 +11,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// CORSConfig defines the configuration for Cross-Origin Resource Sharing (CORS).
+// It allows customization of which origins, methods, headers, and credentials are allowed
+// for cross-origin requests, and which headers can be exposed to the client-side script.
+type CORSConfig struct {
+	Origins          []string      // Allowed origins (e.g., "http://example.com", "*"). Required.
+	Methods          []string      // Allowed methods (e.g., "GET", "POST"). Defaults to simple methods if empty.
+	Headers          []string      // Allowed headers. Defaults to simple headers if empty.
+	ExposeHeaders    []string      // Headers the browser is allowed to access.
+	AllowCredentials bool          // Whether to allow credentials (cookies, authorization headers).
+	MaxAge           time.Duration // How long the results of a preflight request can be cached.
+}
+
 // HttpMethod defines the type for HTTP methods.
 type HttpMethod string
 
@@ -129,6 +141,7 @@ type RouterConfig struct {
 	SubRouters          []SubRouterConfig                 // Sub-routers with their own configurations
 	Middlewares         []common.Middleware               // Global middlewares applied to all routes
 	AddUserObjectToCtx  bool                              // Add user object to context
+	CORSConfig          *CORSConfig                       // CORS configuration (optional, if nil CORS is disabled)
 }
 
 // GenericRouteRegistrationFunc defines the function signature for registering a generic route declaratively.

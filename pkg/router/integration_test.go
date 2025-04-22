@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"go.uber.org/zap"
 )
 
@@ -439,13 +438,14 @@ func TestMiddlewareIntegration(t *testing.T) {
 	// Create a router with middleware and string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger: logger,
+		CORSConfig: &CORSConfig{ // Configure CORS directly in the router config
+			Origins: []string{"*"},
+			Methods: []string{"GET", "POST"},
+			Headers: []string{"Content-Type"},
+			MaxAge:  time.Hour,
+		},
 		Middlewares: []Middleware{
-			middleware.CORS(middleware.CORSOptions{
-				Origins: []string{"*"},
-				Methods: []string{"GET", "POST"},
-				Headers: []string{"Content-Type"},
-				MaxAge:  time.Hour,
-			}),
+			// CORS middleware removed, handled by RouterConfig.CORSConfig now
 		},
 		SubRouters: []SubRouterConfig{
 			{

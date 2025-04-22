@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"  // Added for CORS
+	"strconv" // Added for CORS
 	"strings"
 	"sync"
 	"sync/atomic" // Import atomic package
@@ -37,6 +39,12 @@ type Router[T comparable, U any] struct {
 	shutdownMu        sync.RWMutex
 	metricsWriterPool sync.Pool               // Pool for reusing metricsResponseWriter objects
 	traceIDGenerator  *middleware.IDGenerator // Generator for trace IDs
+
+	// Precomputed CORS headers
+	corsAllowMethods  string
+	corsAllowHeaders  string
+	corsExposeHeaders string
+	corsMaxAge        string
 }
 
 // RegisterSubRouterWithSubRouter registers a nested SubRouter with a parent SubRouter
@@ -76,12 +84,29 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 		getUserIdFromUser: userIdFromuserFunction,
 		middlewares:       config.Middlewares,
 		rateLimiter:       rateLimiter,
+		// CORS headers initialized below
 		metricsWriterPool: sync.Pool{
 			New: func() any {
 				// metricsResponseWriter might still be needed for metrics, keep for now
 				return &metricsResponseWriter[T, U]{}
 			},
 		},
+	}
+
+	// Precompute CORS headers if configured
+	if config.CORSConfig != nil {
+		if len(config.CORSConfig.Methods) > 0 {
+			r.corsAllowMethods = strings.Join(config.CORSConfig.Methods, ", ")
+		}
+		if len(config.CORSConfig.Headers) > 0 {
+			r.corsAllowHeaders = strings.Join(config.CORSConfig.Headers, ", ")
+		}
+		if len(config.CORSConfig.ExposeHeaders) > 0 {
+			r.corsExposeHeaders = strings.Join(config.CORSConfig.ExposeHeaders, ", ")
+		}
+		if config.CORSConfig.MaxAge > 0 {
+			r.corsMaxAge = strconv.Itoa(int(config.CORSConfig.MaxAge.Seconds()))
+		}
 	}
 
 	// Initialize trace ID generator if trace ID is enabled
@@ -432,14 +457,21 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 }
 
 // ServeHTTP implements the http.Handler interface.
-// It handles HTTP requests by applying metrics and tracing if enabled,
+// It handles HTTP requests by applying CORS, client IP extraction, metrics, tracing,
 // and then delegating to the underlying httprouter.
 func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	// Create a response writer that captures metrics
-	var rw http.ResponseWriter
-	var traceID string
+	// Handle CORS first
+	var corsHandled bool
+	req, corsHandled = r.handleCORS(w, req)
+	if corsHandled {
+		return // CORS preflight or invalid origin handled
+	}
 
-	// Apply ClientIpMiddleware to the request
+	// Declare variables needed later
+	var rw http.ResponseWriter
+	var traceID string // traceID is primarily set within the deferred function if tracing is enabled
+
+	// Apply Client IP Extraction
 	clientIP := extractClientIP(req, r.config.IPConfig)
 	ctx := scontext.WithClientIP[T, U](req.Context(), clientIP) // Use scontext
 	req = req.WithContext(ctx)
@@ -577,8 +609,161 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		rw = w
 	}
 
-	// Serve the request
+	// Serve the request via the underlying router
 	r.router.ServeHTTP(rw, req)
+}
+
+// handleCORS applies CORS logic based on the router's configuration.
+// It checks the origin, sets appropriate headers, handles preflight requests,
+// and stores CORS information in the request context using the router's T and U types.
+// It returns the modified request and a boolean indicating if the request was fully handled (e.g., preflight).
+func (r *Router[T, U]) handleCORS(w http.ResponseWriter, req *http.Request) (*http.Request, bool) {
+	if r.config.CORSConfig == nil {
+		return req, false // CORS not configured
+	}
+
+	corsConfig := r.config.CORSConfig
+	origin := req.Header.Get("Origin")
+	ctx := req.Context()
+
+	// Variables for the *correct* CORS decision to store in context
+	correctAllowOrigin := ""
+	correctAllowCredentials := false
+
+	// Determine the correct Access-Control-Allow-Origin value for context
+	if origin != "" { // Only process if Origin header is present
+		isAllowed := false
+		// Check for wildcard first
+		if slices.Contains(corsConfig.Origins, "*") {
+			correctAllowOrigin = "*" // Correct value is '*'
+			isAllowed = true
+		}
+		// If not wildcard, check for specific match
+		if !isAllowed {
+			if slices.Contains(corsConfig.Origins, origin) {
+				correctAllowOrigin = origin // Correct value is the specific origin
+				isAllowed = true            // Mark as allowed
+			}
+		}
+		// If origin wasn't allowed by config, correctAllowOrigin remains ""
+		if !isAllowed {
+			// Origin is not allowed. For preflight, we still need to return 204 but without Allow-* headers.
+			// For actual requests, we *could* block here, but it's often better to let the request proceed
+			// and let the browser enforce the lack of Allow-Origin header.
+			// However, we MUST NOT set the Allow-Origin header.
+			// We also need to store the *lack* of allowance in the context.
+			ctx = scontext.WithCORSInfo[T, U](ctx, "", false) // Store empty origin, false credentials
+			req = req.WithContext(ctx)
+			// If it's a preflight, handle it below (it will fail the checks).
+			// If it's not preflight, let it continue, but CORS headers won't be set.
+		}
+	} else {
+		// No Origin header present. Store empty info in context.
+		ctx = scontext.WithCORSInfo[T, U](ctx, "", false)
+		req = req.WithContext(ctx)
+		// Not a CORS request, proceed normally.
+		return req, false
+	}
+
+	// Determine if credentials should be allowed (for context)
+	// Credentials require a specific origin match (not '*') and config flag set
+	if correctAllowOrigin != "" && correctAllowOrigin != "*" && corsConfig.AllowCredentials {
+		correctAllowCredentials = true
+	}
+
+	// Store the *correct* CORS info in the context BEFORE handling preflight or calling next handler.
+	// Use the router's specific T and U types.
+	ctx = scontext.WithCORSInfo[T, U](ctx, correctAllowOrigin, correctAllowCredentials)
+	req = req.WithContext(ctx)
+
+	// --- Set Headers on Response Writer (Actual Response Headers) ---
+	// Set Allow-Origin if an origin was allowed by the spec-compliant check
+	if correctAllowOrigin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", correctAllowOrigin)
+	}
+	// Set Allow-Credentials if determined to be allowed by the spec-compliant check
+	if correctAllowCredentials {
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	}
+	// Add Vary header if the allowed origin isn't always '*' (important for caching)
+	if correctAllowOrigin != "" && correctAllowOrigin != "*" {
+		w.Header().Add("Vary", "Origin")
+	}
+	// Set Expose-Headers for actual requests (not OPTIONS) only if origin was allowed
+	if correctAllowOrigin != "" && r.corsExposeHeaders != "" && req.Method != http.MethodOptions {
+		w.Header().Set("Access-Control-Expose-Headers", r.corsExposeHeaders)
+	}
+
+	// --- Handle preflight (OPTIONS) requests ---
+	if req.Method == http.MethodOptions {
+		// Only set preflight-specific headers if the origin was allowed
+		if correctAllowOrigin != "" {
+			// Check if the requested method is allowed
+			reqMethod := req.Header.Get("Access-Control-Request-Method")
+			methodAllowed := false
+			if reqMethod != "" {
+				// Check against configured list (case-sensitive comparison as per spec)
+				if slices.Contains(corsConfig.Methods, reqMethod) {
+					methodAllowed = true
+				}
+			} else {
+				// If no request method header, it's not a valid preflight for methods?
+				// Let's assume it needs to be explicitly allowed if requested.
+				// If the header is *absent*, the browser isn't asking about methods,
+				// so we don't need to restrict based on it. Default to true if absent.
+				methodAllowed = true
+			}
+
+			// Check if the requested headers are allowed
+			reqHeaders := req.Header.Get("Access-Control-Request-Headers")
+			headersAllowed := true // Assume allowed unless specific headers requested and not found
+			if reqHeaders != "" {
+				requestedHeadersList := strings.Split(reqHeaders, ",")
+				allowedHeadersSet := make(map[string]struct{}, len(corsConfig.Headers))
+				for _, h := range corsConfig.Headers {
+					allowedHeadersSet[strings.TrimSpace(strings.ToLower(h))] = struct{}{}
+				}
+
+				headersAllowed = true // Reset to true, only set to false if a requested header is *not* found
+				for _, reqH := range requestedHeadersList {
+					trimmedLowerReqH := strings.TrimSpace(strings.ToLower(reqH))
+					if trimmedLowerReqH == "" {
+						continue
+					}
+					if _, ok := allowedHeadersSet[trimmedLowerReqH]; !ok {
+						headersAllowed = false
+						break
+					}
+				}
+			} // If reqHeaders is empty, headersAllowed remains true
+
+			// Only proceed with preflight response headers if origin, method, and headers are allowed
+			if methodAllowed && headersAllowed {
+				if r.corsAllowMethods != "" {
+					w.Header().Set("Access-Control-Allow-Methods", r.corsAllowMethods)
+				}
+				if r.corsAllowHeaders != "" {
+					w.Header().Set("Access-Control-Allow-Headers", r.corsAllowHeaders) // Respond with the configured list
+				}
+				if r.corsMaxAge != "" {
+					w.Header().Set("Access-Control-Max-Age", r.corsMaxAge)
+				}
+				// Note: Allow-Origin and Allow-Credentials are set earlier based on correct logic
+			}
+			// If origin, method or headers are not allowed, don't set the Allow-* headers for preflight.
+			// The browser will treat this as a CORS failure. We still return 204 below,
+			// but the absence of the Allow-* headers signals the failure.
+		}
+
+		// Preflight requests don't need to go further down the chain.
+		// Respond with 204 No Content (preferred for preflight) regardless of success/failure of checks above.
+		// The absence of Allow-* headers signals failure to the browser.
+		w.WriteHeader(http.StatusNoContent) // Use 204 No Content
+		return req, true                    // Request handled (preflight)
+	}
+
+	// Not a preflight request, continue processing
+	return req, false // Request not fully handled by CORS logic
 }
 
 // metricsResponseWriter is a wrapper around http.ResponseWriter that captures metrics.

@@ -16,7 +16,6 @@ var (
 	Recovery    = recovery
 	MaxBodySize = maxBodySize
 	Timeout     = timeout
-	CORS        = cors
 )
 
 // Note: Generic middleware constructors (Authentication*, New*Middleware, RateLimit, etc.)

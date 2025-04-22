@@ -149,12 +149,14 @@ func main() {
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
+		CORSConfig: &router.CORSConfig{ // Add CORS configuration here
+			Origins: []string{"*"},
+			// Add other CORS options as needed (Methods, Headers, etc.)
+		},
 		Middlewares: []common.Middleware{
 			middleware.Recovery(logger),       // Use variable
 			DetailedLoggingMiddleware(logger), // Log detailed request/response info
-			middleware.CORS(middleware.CORSOptions{ // Use variable
-				Origins: []string{"*"},
-			}), // Add CORS headers
+			// CORS middleware removed, handled by RouterConfig.CORSConfig now
 			HeadersMiddleware(customHeaders),    // Add custom headers
 			RequestIDMiddleware(),               // Add request ID
 			middleware.Timeout(1 * time.Second), // Use variable

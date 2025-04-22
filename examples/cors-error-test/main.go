@@ -9,7 +9,6 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"go.uber.org/zap"
 )
@@ -39,22 +38,20 @@ func main() {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
-	// Configure CORS
-	corsOptions := middleware.CORSOptions{
-		Origins:          []string{"https://frontend.example.com"},
-		Methods:          []string{"GET", "POST", "OPTIONS"},
-		Headers:          []string{"Content-Type", "Authorization"},
-		AllowCredentials: true,
-		MaxAge:           86400 * time.Second,
-	}
-
-	// Create router configuration
+	// Create router configuration with CORS settings
 	routerConfig := router.RouterConfig{
 		Logger:            logger,
 		GlobalTimeout:     5 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
+		CORSConfig: &router.CORSConfig{ // Configure CORS directly
+			Origins:          []string{"https://frontend.example.com"},
+			Methods:          []string{"GET", "POST", "OPTIONS"},
+			Headers:          []string{"Content-Type", "Authorization"},
+			AllowCredentials: true,
+			MaxAge:           86400 * time.Second,
+		},
 		Middlewares: []common.Middleware{
-			middleware.CORS(corsOptions),
+			// CORS middleware removed, handled by RouterConfig.CORSConfig now
 		},
 		SubRouters: []router.SubRouterConfig{
 			{
