@@ -493,7 +493,7 @@ func TestCORSPreflight(t *testing.T) {
 			expectOrigin:   "http://example.com",
 			expectCreds:    false,
 			expectMethods:  "GET, POST",
-			expectHeaders:  "*", // Wildcard is returned as-is
+			expectHeaders:  "Content-Type, X-Custom-Header, x-faro-session-id", // Echo back the exact requested headers
 			expectMaxAge:   "3600",
 			expectStatus:   http.StatusNoContent,
 		},

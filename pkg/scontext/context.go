@@ -42,6 +42,7 @@ type SRouterContext[T comparable, U any] struct {
 	// CORS information determined by middleware
 	AllowedOrigin      string
 	CredentialsAllowed bool
+	RequestedHeaders   string // Stores the requested headers from CORS preflight requests
 
 	UserIDSet             bool
 	UserSet               bool
@@ -51,6 +52,7 @@ type SRouterContext[T comparable, U any] struct {
 	RouteTemplateSet      bool
 	AllowedOriginSet      bool
 	CredentialsAllowedSet bool
+	RequestedHeadersSet   bool // Flag for RequestedHeaders
 
 	Flags map[string]bool
 }
@@ -286,4 +288,26 @@ func GetCORSInfo[T comparable, U any](ctx context.Context) (allowedOrigin string
 // GetCORSInfoFromRequest is a convenience function to get CORS details from a request.
 func GetCORSInfoFromRequest[T comparable, U any](r *http.Request) (allowedOrigin string, credentialsAllowed bool, ok bool) {
 	return GetCORSInfo[T, U](r.Context())
+}
+
+// WithCORSRequestedHeaders adds the requested headers from a CORS preflight request to the context.
+func WithCORSRequestedHeaders[T comparable, U any](ctx context.Context, requestedHeaders string) context.Context {
+	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.RequestedHeaders = requestedHeaders
+	rc.RequestedHeadersSet = true
+	return ctx
+}
+
+// GetCORSRequestedHeaders retrieves the requested headers from a CORS preflight request from the context.
+func GetCORSRequestedHeaders[T comparable, U any](ctx context.Context) (string, bool) {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok || !rc.RequestedHeadersSet {
+		return "", false
+	}
+	return rc.RequestedHeaders, true
+}
+
+// GetCORSRequestedHeadersFromRequest is a convenience function to get the requested headers from a request.
+func GetCORSRequestedHeadersFromRequest[T comparable, U any](r *http.Request) (string, bool) {
+	return GetCORSRequestedHeaders[T, U](r.Context())
 }
