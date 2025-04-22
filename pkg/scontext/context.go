@@ -39,12 +39,18 @@ type SRouterContext[T comparable, U any] struct {
 	RouteTemplate string
 	PathParams    httprouter.Params
 
-	UserIDSet        bool
-	UserSet          bool
-	ClientIPSet      bool
-	TraceIDSet       bool
-	TransactionSet   bool
-	RouteTemplateSet bool
+	// CORS information determined by middleware
+	AllowedOrigin      string
+	CredentialsAllowed bool
+
+	UserIDSet             bool
+	UserSet               bool
+	ClientIPSet           bool
+	TraceIDSet            bool
+	TransactionSet        bool
+	RouteTemplateSet      bool
+	AllowedOriginSet      bool
+	CredentialsAllowedSet bool
 
 	Flags map[string]bool
 }
@@ -254,4 +260,30 @@ func GetPathParamsFromContext[T comparable, U any](ctx context.Context) (httprou
 // GetPathParamsFromRequest is a convenience function to get the path parameters from a request.
 func GetPathParamsFromRequest[T comparable, U any](r *http.Request) (httprouter.Params, bool) {
 	return GetPathParamsFromContext[T, U](r.Context())
+}
+
+// WithCORSInfo adds CORS details (allowed origin, credentials allowed) to the context.
+func WithCORSInfo[T comparable, U any](ctx context.Context, allowedOrigin string, credentialsAllowed bool) context.Context {
+	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.AllowedOrigin = allowedOrigin
+	rc.CredentialsAllowed = credentialsAllowed
+	rc.AllowedOriginSet = true
+	rc.CredentialsAllowedSet = true // Set both flags when info is added
+	return ctx
+}
+
+// GetCORSInfo retrieves CORS details from the router context.
+// It returns the allowed origin, whether credentials are allowed, and a boolean indicating if the values were set.
+func GetCORSInfo[T comparable, U any](ctx context.Context) (allowedOrigin string, credentialsAllowed bool, ok bool) {
+	rc, found := GetSRouterContext[T, U](ctx)
+	if !found || !rc.AllowedOriginSet { // Check if origin was set as the primary indicator
+		return "", false, false
+	}
+	// Return the stored values. CredentialsAllowedSet is implicitly true if AllowedOriginSet is true based on WithCORSInfo logic.
+	return rc.AllowedOrigin, rc.CredentialsAllowed, true
+}
+
+// GetCORSInfoFromRequest is a convenience function to get CORS details from a request.
+func GetCORSInfoFromRequest[T comparable, U any](r *http.Request) (allowedOrigin string, credentialsAllowed bool, ok bool) {
+	return GetCORSInfo[T, U](r.Context())
 }

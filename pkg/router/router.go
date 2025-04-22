@@ -347,8 +347,8 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 				if !wrappedW.wroteHeader.Swap(true) {
 					// Handler hasn't written yet, we can write the timeout error.
 					// Hold the lock while writing headers and body for timeout.
-					// Use the new JSON error writer
-					r.writeJSONError(wrappedW.ResponseWriter, http.StatusRequestTimeout, "Request Timeout", traceID)
+					// Use the new JSON error writer, passing the request
+					r.writeJSONError(wrappedW.ResponseWriter, req, http.StatusRequestTimeout, "Request Timeout", traceID)
 				}
 				// If wroteHeader was already true, handler won the race, do nothing here.
 				// Unlock should happen regardless of whether we wrote the error or not.
@@ -739,13 +739,34 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 	}
 
 	// Return the error response as JSON
-	r.writeJSONError(w, statusCode, message, traceID)
+	r.writeJSONError(w, req, statusCode, message, traceID) // Pass req
 }
 
 // writeJSONError writes a JSON error response to the client.
 // It sets the Content-Type header to application/json and writes the status code.
 // It includes the trace ID in the JSON payload if available and enabled.
-func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, statusCode int, message string, traceID string) {
+// It also adds CORS headers based on information stored in the context by the CORS middleware.
+func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, statusCode int, message string, traceID string) { // Add req parameter
+	// Retrieve CORS info from context using the passed-in request
+	allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfoFromRequest[T, U](req)
+
+	// Set CORS headers if applicable BEFORE writing status code or body
+	if corsOK {
+		if allowedOrigin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		}
+		if credentialsAllowed {
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		}
+		// Add Vary: Origin header if the allowed origin isn't always '*'
+		// This logic should ideally mirror the CORS middleware's Vary logic
+		// We might need access to the original CORSOptions here, or assume the middleware added Vary if needed.
+		// For simplicity, let's add Vary if allowedOrigin is specific.
+		if allowedOrigin != "" && allowedOrigin != "*" {
+			w.Header().Add("Vary", "Origin")
+		}
+	}
+
 	// Check if headers have already been written (best effort)
 	// This check might not be foolproof depending on the ResponseWriter implementation.
 	// http.Error handles this internally, but we need to be careful here.
@@ -756,10 +777,9 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, statusCode int, mes
 	// writing has started, writing the JSON error might fail or corrupt the response.
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	// Ensure the status code is written *before* the body, especially if WriteHeader hasn't been called yet.
-	// If WriteHeader was already called (e.g., by a middleware before the error), this might write a second
-	// header, which is ignored by net/http, but it's good practice to set it.
-	w.WriteHeader(statusCode) // WriteHeader is idempotent after the first call
+	// Ensure the status code is written *before* the body.
+	// CORS headers are set above, before this.
+	w.WriteHeader(statusCode)
 
 	// Prepare the JSON payload
 	errorPayload := map[string]interface{}{
@@ -841,7 +861,7 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 				// Return a 500 Internal Server Error as JSON
 				// We attempt to write the JSON error. If headers were already written,
 				// writeJSONError might log an error, but we can't do much more here.
-				r.writeJSONError(w, http.StatusInternalServerError, "Internal Server Error", traceID)
+				r.writeJSONError(w, req, http.StatusInternalServerError, "Internal Server Error", traceID) // Pass req
 			}
 		}()
 
@@ -882,7 +902,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 
 			// Log that authentication failed
 			r.logger.Warn("Authentication failed", fields...)
-			r.writeJSONError(w, http.StatusUnauthorized, "Unauthorized", traceID)
+			r.writeJSONError(w, req, http.StatusUnauthorized, "Unauthorized", traceID) // Pass req
 			return
 		}
 
@@ -943,7 +963,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 
 		// Log that authentication failed
 		r.logger.Warn("Authentication failed", fields...)
-		r.writeJSONError(w, http.StatusUnauthorized, "Unauthorized", traceID)
+		r.writeJSONError(w, req, http.StatusUnauthorized, "Unauthorized", traceID) // Pass req
 	})
 }
 
