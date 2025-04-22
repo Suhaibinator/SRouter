@@ -303,14 +303,10 @@ func cors(corsConfig CORSOptions) Middleware { // Reverted to non-generic
 							w.Header().Set("Access-Control-Max-Age", maxAge)
 						}
 						// Note: Allow-Origin and Allow-Credentials are set earlier based on correct logic
-					} else {
-						// If method or headers are not allowed, don't set the Allow-* headers for preflight
-						// The browser will treat this as a CORS failure.
-						// We still need to return a response for the OPTIONS request.
-						// Setting Allow-Origin was already handled based on origin check.
-						// Log the failure reason?
-						// logger.Debug("CORS preflight check failed", zap.String("origin", origin), zap.Bool("methodAllowed", methodAllowed), zap.Bool("headersAllowed", headersAllowed))
 					}
+					// If method or headers are not allowed, don't set the Allow-* headers for preflight.
+					// The browser will treat this as a CORS failure. We still return 204 below,
+					// but the absence of the Allow-* headers signals the failure.
 				}
 
 				// Preflight requests don't need to go further down the chain.
