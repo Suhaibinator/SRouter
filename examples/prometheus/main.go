@@ -532,7 +532,6 @@ func main() {
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
-		EnableMetrics:     true,
 		MetricsConfig: &router.MetricsConfig{
 			Collector:        registry,
 			Namespace:        "myapp",

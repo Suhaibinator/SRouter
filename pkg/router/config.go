@@ -133,7 +133,6 @@ type RouterConfig struct {
 	GlobalMaxBodySize   int64                             // Default maximum request body size in bytes
 	GlobalRateLimit     *common.RateLimitConfig[any, any] // Use common.RateLimitConfig // Default rate limit for all routes
 	IPConfig            *IPConfig                         // Configuration for client IP extraction
-	EnableMetrics       bool                              // Enable metrics collection
 	EnableTraceLogging  bool                              // Enable trace logging
 	TraceLoggingUseInfo bool                              // Use Info level for trace logging
 	TraceIDBufferSize   int                               // Buffer size for trace ID generator (0 disables trace ID)
