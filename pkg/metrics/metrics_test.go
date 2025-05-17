@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"math/rand"
 	"net/http"
 	"testing"
 	"time"
@@ -20,6 +21,18 @@ func TestRandomSampler(t *testing.T) {
 	sampler = NewRandomSampler(0.0)
 	if sampler.Sample() {
 		t.Error("Expected Sample() to return false with rate 0.0")
+	}
+
+	// Test with a mid-range rate using a deterministic random source
+	sampler = NewRandomSamplerWithRand(0.5, rand.New(rand.NewSource(42)))
+	samples := 0
+	for i := 0; i < 100; i++ {
+		if sampler.Sample() {
+			samples++
+		}
+	}
+	if samples == 0 || samples == 100 {
+		t.Errorf("Sampler did not appear random, got %d positive samples", samples)
 	}
 }
 

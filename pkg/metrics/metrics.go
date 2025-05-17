@@ -6,6 +6,7 @@
 package metrics
 
 import (
+	"math/rand"
 	"net/http"
 	"time"
 )
@@ -236,18 +237,35 @@ type MetricsSampler interface {
 // RandomSampler is a sampler that randomly samples requests.
 type RandomSampler struct {
 	rate float64
+	rng  *rand.Rand
 }
 
 // NewRandomSampler creates a new random sampler.
 func NewRandomSampler(rate float64) *RandomSampler {
 	return &RandomSampler{
 		rate: rate,
+		rng:  rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+}
+
+// NewRandomSamplerWithRand allows injecting a custom random generator.
+func NewRandomSamplerWithRand(rate float64, r *rand.Rand) *RandomSampler {
+	return &RandomSampler{
+		rate: rate,
+		rng:  r,
 	}
 }
 
 // Sample returns true if the request should be sampled.
 func (s *RandomSampler) Sample() bool {
-	return s.rate >= 1.0
+	switch {
+	case s.rate <= 0:
+		return false
+	case s.rate >= 1:
+		return true
+	default:
+		return s.rng.Float64() < s.rate
+	}
 }
 
 // MetricsMiddlewareImpl is a concrete generic implementation of the MetricsMiddleware interface.
