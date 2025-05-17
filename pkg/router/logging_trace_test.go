@@ -17,7 +17,7 @@ import (
 
 // --- Tests from trace_test.go ---
 
-// TestTraceIDLogging tests that trace IDs are included in log entries when EnableTraceID is true
+// TestTraceIDLogging tests that trace IDs are included in log entries when TraceIDBufferSize > 0
 func TestTraceIDLogging(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
@@ -54,7 +54,7 @@ func TestTraceIDLogging(t *testing.T) {
 	}
 }
 
-// TestTraceIDLoggingDisabled tests that trace IDs are not included in log entries when EnableTraceID is false
+// TestTraceIDLoggingDisabled tests that trace IDs are not included in log entries when TraceIDBufferSize is 0
 func TestTraceIDLoggingDisabled(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
@@ -83,7 +83,7 @@ func TestTraceIDLoggingDisabled(t *testing.T) {
 	// The previous loop checking for the absence of 'trace_id' is no longer needed.
 }
 
-// TestHandleErrorWithTraceID tests that handleError includes trace IDs in log entries when EnableTraceID is true
+// TestHandleErrorWithTraceID tests that handleError includes trace IDs in log entries when TraceIDBufferSize > 0
 func TestHandleErrorWithTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
@@ -118,7 +118,7 @@ func TestHandleErrorWithTraceID(t *testing.T) {
 	}
 }
 
-// TestHandleErrorWithoutTraceID tests that handleError does not include trace IDs in log entries when EnableTraceID is false
+// TestHandleErrorWithoutTraceID tests that handleError does not include trace IDs in log entries when TraceIDBufferSize is 0
 func TestHandleErrorWithoutTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
@@ -153,7 +153,7 @@ func TestHandleErrorWithoutTraceID(t *testing.T) {
 	}
 }
 
-// TestRecoveryMiddlewareWithTraceID tests that recoveryMiddleware includes trace IDs in log entries when EnableTraceID is true
+// TestRecoveryMiddlewareWithTraceID tests that recoveryMiddleware includes trace IDs in log entries when TraceIDBufferSize > 0
 func TestRecoveryMiddlewareWithTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
@@ -190,7 +190,7 @@ func TestRecoveryMiddlewareWithTraceID(t *testing.T) {
 	}
 }
 
-// TestRecoveryMiddlewareWithoutTraceID tests that recoveryMiddleware does not include trace IDs in log entries when EnableTraceID is false
+// TestRecoveryMiddlewareWithoutTraceID tests that recoveryMiddleware does not include trace IDs in log entries when TraceIDBufferSize is 0
 func TestRecoveryMiddlewareWithoutTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)

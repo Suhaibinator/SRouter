@@ -4,7 +4,7 @@ SRouter features a flexible, interface-based metrics system located in the `pkg/
 
 ## Enabling and Configuring Metrics
 
-Metrics collection is enabled by setting `EnableMetrics: true` in your `RouterConfig`. Further customization is done via the `MetricsConfig` field within `RouterConfig`.
+Metrics collection is enabled by providing a non-nil `MetricsConfig` in your `RouterConfig`.
 
 ```go
 import (
@@ -20,10 +20,9 @@ import (
 routerConfig := router.RouterConfig{
     Logger:            logger,
     // ... other global config ...
-    EnableMetrics:     true,      // Enable metrics collection
     MetricsConfig: &router.MetricsConfig{
         // Provide your implementations of metrics interfaces.
-        // Provide your implementation of the metrics.MetricsRegistry interface. Required if EnableMetrics is true.
+        // Provide your implementation of the metrics.MetricsRegistry interface. Required when metrics are enabled.
         Collector:        myMetricsRegistry, // Must implement metrics.MetricsRegistry
 
         // Provide your implementation of metrics.MetricsMiddleware. Optional.

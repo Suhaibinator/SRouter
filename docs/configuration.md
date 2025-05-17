@@ -1,12 +1,3 @@
-	// EnableTracing enables distributed tracing support (Note: Actual implementation
-	// might be via specific tracing middleware rather than just this flag).
-	EnableTracing bool // Check if still relevant or handled by middleware
-
-	// EnableTraceID enables automatic trace ID generation and injection into the request context.
-	// If true, the router handles trace ID setup internally. Alternatively, set this to false
-	// and explicitly add middleware.TraceMiddleware() to the Middlewares slice.
-	// See docs/trace-logging.md for details.
-	EnableTraceID bool
 # Configuration Reference
 
 This section details the configuration structs used by SRouter.
@@ -49,12 +40,9 @@ type RouterConfig struct {
 	// See docs/ip-configuration.md. Nil uses default (RemoteAddr, no proxy trust).
 	IPConfig *IPConfig // Defined in router package
 
-	// EnableMetrics globally enables or disables the metrics collection system.
-	EnableMetrics bool
-
-	// EnableTraceLogging enables detailed request/response logging including timing, status, etc.
-	// Often used in conjunction with TraceIDBufferSize > 0.
-	EnableTraceLogging bool
+        // EnableTraceLogging enables detailed request/response logging including timing, status, etc.
+        // Often used in conjunction with TraceIDBufferSize > 0.
+        EnableTraceLogging bool
 
 	// TraceLoggingUseInfo controls the log level for trace logging.
 	// If true, logs at Info level; otherwise, logs at Debug level.
@@ -65,9 +53,9 @@ type RouterConfig struct {
 	// Setting to 0 disables automatic trace ID generation. See docs/trace-logging.md.
 	TraceIDBufferSize int
 
-	// MetricsConfig holds detailed configuration for the v2 metrics system when EnableMetrics is true.
-	// See MetricsConfig section below and docs/metrics.md.
-	MetricsConfig *MetricsConfig
+        // MetricsConfig holds detailed configuration for the v2 metrics system.
+        // Metrics are enabled when this field is non-nil. See docs/metrics.md.
+        MetricsConfig *MetricsConfig
 
 	// SubRouters is a slice of SubRouterConfig structs defining sub-routers. Required.
 	SubRouters []SubRouterConfig
@@ -94,9 +82,9 @@ package router
 import "github.com/Suhaibinator/SRouter/pkg/metrics" // Assuming interfaces are here
 
 type MetricsConfig struct {
-	// Collector provides the implementation for creating and managing metric instruments.
-	// Must implement metrics.MetricsRegistry. Required if EnableMetrics is true.
-	Collector any // Typically metrics.MetricsRegistry
+        // Collector provides the implementation for creating and managing metric instruments.
+        // Must implement metrics.MetricsRegistry. Required when metrics are enabled.
+        Collector any // Typically metrics.MetricsRegistry
 
 	// MiddlewareFactory creates the metrics middleware.
 	// Optional. If nil, SRouter likely uses a default factory. Must implement metrics.MiddlewareFactory.

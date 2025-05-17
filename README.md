@@ -105,12 +105,12 @@ func main() {
 	defer logger.Sync()
 
 	// Create a router configuration
-	routerConfig := router.RouterConfig{
-		Logger:            logger, // Required
-		GlobalTimeout:     2 * time.Second,
-		GlobalMaxBodySize: 1 << 20, // 1 MB
-		EnableTraceID:     true,    // Enable trace ID logging (recommended)
-		Middlewares: []common.Middleware{
+        routerConfig := router.RouterConfig{
+                Logger:            logger, // Required
+                GlobalTimeout:     2 * time.Second,
+                GlobalMaxBodySize: 1 << 20, // 1 MB
+                TraceIDBufferSize: 1000,    // Enable trace ID logging
+                Middlewares: []common.Middleware{
 		 // Add other desired global middleware here.
 		 // Logging is handled internally by the router based on RouterConfig settings.
 		},
@@ -1047,7 +1047,7 @@ SRouter features a flexible, interface-based metrics system located in the `pkg/
 
 #### Enabling and Configuring Metrics
 
-To enable metrics, set `EnableMetrics: true` in your `RouterConfig`. You can further customize behavior using the `MetricsConfig` field:
+Metrics collection is enabled by providing a non-nil `MetricsConfig` in your `RouterConfig`:
 
 ```go
 // Example: Configure metrics using MetricsConfig
@@ -1055,7 +1055,6 @@ routerConfig := router.RouterConfig{
     Logger:            logger, // Required
     GlobalTimeout:     2 * time.Second,
     GlobalMaxBodySize: 1 << 20, // 1 MB
-    EnableMetrics:     true,      // Enable metrics collection
     MetricsConfig: &router.MetricsConfig{
         // Provide your implementations of metrics interfaces (MetricsRegistry, MetricsMiddleware)
         // If nil, SRouter might use default implementations if available.
@@ -1155,11 +1154,10 @@ type RouterConfig struct {
  GlobalMaxBodySize  int64                             // Default maximum request body size in bytes
  GlobalRateLimit    *common.RateLimitConfig[any, any] // Default rate limit for all routes (uses common.RateLimitConfig)
  IPConfig           *router.IPConfig                  // Configuration for client IP extraction (uses router.IPConfig)
- EnableMetrics      bool                              // Enable metrics collection
  EnableTraceLogging bool                              // Enable detailed trace logging (default: false, uses Debug level)
- TraceLoggingUseInfo bool                             // Log traces at Info level instead of Debug (default: false)
- TraceIDBufferSize  int                               // Buffer size for trace ID generator (0 disables trace ID generation, >0 enables it)
- MetricsConfig      *router.MetricsConfig             // Metrics configuration (optional, uses router.MetricsConfig)
+TraceLoggingUseInfo bool                             // Log traces at Info level instead of Debug (default: false)
+TraceIDBufferSize  int                               // Buffer size for trace ID generator (0 disables trace ID generation, >0 enables it)
+ MetricsConfig      *router.MetricsConfig             // Metrics configuration (non-nil to enable metrics)
  SubRouters         []SubRouterConfig                 // Sub-routers with their own configurations
  Middlewares        []common.Middleware               // Global middlewares applied to all routes (uses common.Middleware)
  AddUserObjectToCtx bool                              // Add user object to context (used by built-in auth middleware)
@@ -1171,7 +1169,7 @@ type RouterConfig struct {
 ```go
 type MetricsConfig struct {
  // Collector is the metrics collector to use.
- // Must implement metrics.MetricsRegistry. Required if EnableMetrics is true.
+ // Must implement metrics.MetricsRegistry. Required when metrics are enabled.
  Collector any // Must implement metrics.MetricsRegistry
 
  // MiddlewareFactory is the factory for creating metrics middleware.
