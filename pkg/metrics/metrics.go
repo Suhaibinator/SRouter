@@ -248,7 +248,9 @@ func NewRandomSampler(rate float64) *RandomSampler {
 	}
 }
 
-// NewRandomSamplerWithRand allows injecting a custom random generator.
+// NewRandomSamplerWithRand returns a RandomSampler that uses the provided `rand.Rand`
+// for deterministic sampling. The `rate` parameter specifies the sampling rate,
+// where 0 means no sampling and 1 means always sample.
 func NewRandomSamplerWithRand(rate float64, r *rand.Rand) *RandomSampler {
 	return &RandomSampler{
 		rate: rate,
