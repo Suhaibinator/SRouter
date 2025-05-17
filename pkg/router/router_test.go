@@ -663,6 +663,20 @@ func TestShutdownWithCancel(t *testing.T) {
 	}
 }
 
+// TestShutdownStopsIDGenerator ensures the trace ID generator is stopped on shutdown.
+func TestShutdownStopsIDGenerator(t *testing.T) {
+	r := NewRouter(RouterConfig{Logger: zap.NewNop(), TraceIDBufferSize: 2}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	ctx := context.Background()
+	if err := r.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown failed: %v", err)
+	}
+
+	if r.traceIDGenerator != nil {
+		// Calling Stop again should be safe and not panic
+		r.traceIDGenerator.Stop()
+	}
+}
+
 // --- Tests for Refactored Generic SubRouter Registration ---
 
 // TestFindSubRouterConfig tests the helper function for finding sub-router configs

@@ -766,6 +766,10 @@ func (r *Router[T, U]) Shutdown(ctx context.Context) error {
 	r.shutdown = true
 	r.shutdownMu.Unlock()
 
+	if r.traceIDGenerator != nil {
+		r.traceIDGenerator.Stop()
+	}
+
 	// Create a channel to signal when all requests are done
 	done := make(chan struct{})
 	go func() {
