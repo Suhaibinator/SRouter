@@ -6,6 +6,7 @@
 package metrics
 
 import (
+	"math/rand"
 	"net/http"
 	"time"
 )
@@ -247,7 +248,14 @@ func NewRandomSampler(rate float64) *RandomSampler {
 
 // Sample returns true if the request should be sampled.
 func (s *RandomSampler) Sample() bool {
-	return s.rate >= 1.0
+	switch {
+	case s.rate <= 0:
+		return false
+	case s.rate >= 1:
+		return true
+	default:
+		return rand.Float64() < s.rate
+	}
 }
 
 // MetricsMiddlewareImpl is a concrete generic implementation of the MetricsMiddleware interface.
