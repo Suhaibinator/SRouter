@@ -17,6 +17,8 @@ type IDGenerator struct {
 	idChan   chan string
 	size     int
 	initOnce sync.Once
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 // NewIDGenerator creates a new IDGenerator with the specified buffer size
@@ -24,6 +26,7 @@ func NewIDGenerator(bufferSize int) *IDGenerator {
 	g := &IDGenerator{
 		idChan: make(chan string, bufferSize),
 		size:   bufferSize,
+		stop:   make(chan struct{}),
 	}
 	g.init()
 	return g
@@ -48,6 +51,12 @@ func (g *IDGenerator) init() {
 			emptyThreshold := g.size / 10 // 10% capacity threshold to trigger batch fill
 
 			for {
+				select {
+				case <-g.stop:
+					return
+				default:
+				}
+
 				// Get current channel capacity
 				currentLen := len(g.idChan)
 
@@ -66,14 +75,14 @@ func (g *IDGenerator) init() {
 					// Add from our batch as many as we can without blocking
 					for len(batchUUIDs) > 0 {
 						select {
+						case <-g.stop:
+							return
 						case g.idChan <- batchUUIDs[0]:
 							// Successfully added one from batch
 							batchUUIDs = batchUUIDs[1:]
 						default:
 							// Channel is now full, stop adding
-							// No need for break here as it would only exit the select, not the for loop
 						}
-						// Break out of the for loop if the channel is full
 						if len(g.idChan) == g.size {
 							break
 						}
@@ -84,6 +93,8 @@ func (g *IDGenerator) init() {
 				} else {
 					// Normal case: channel has plenty of capacity, add one at a time
 					select {
+					case <-g.stop:
+						return
 					case g.idChan <- generateUUID():
 						// Successfully added a new UUID
 					default:
@@ -96,6 +107,13 @@ func (g *IDGenerator) init() {
 				lastChannelLen = currentLen
 			}
 		}()
+	})
+}
+
+// Stop signals the background generator to exit.
+func (g *IDGenerator) Stop() {
+	g.stopOnce.Do(func() {
+		close(g.stop)
 	})
 }
 
