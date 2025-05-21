@@ -180,15 +180,39 @@ func TestCleanIP(t *testing.T) {
 		t.Errorf("Expected '[2001:db8::1]', got '%s'", ip)
 	}
 
-	// Test IPv6 without port
+	// Test IPv6 without port (no brackets)
+	ip = cleanIP("2001:db8::1")
+	if ip != "2001:db8::1" {
+		t.Errorf("Expected '2001:db8::1', got '%s'", ip)
+	}
+
+	// Test IPv6 without port (with brackets) - net.SplitHostPort might not handle this if no port, so cleanIP's fallback kicks in
 	ip = cleanIP("[2001:db8::1]")
 	if ip != "[2001:db8::1]" {
 		t.Errorf("Expected '[2001:db8::1]', got '%s'", ip)
 	}
 
-	// Test IPv6 without brackets
-	ip = cleanIP("2001:db8::1")
-	if ip != "2001:db8::1" {
-		t.Errorf("Expected '2001:db8::1', got '%s'", ip)
+	// Test empty string
+	ip = cleanIP("")
+	if ip != "" {
+		t.Errorf("Expected '', got '%s'", ip)
+	}
+
+	// Test malformed host part
+	ip = cleanIP("invalid-address:8080")
+	if ip != "invalid-address:8080" {
+		t.Errorf("Expected 'invalid-address:8080', got '%s'", ip)
+	}
+
+	// Test IPv6 with zone identifier and port
+	ip = cleanIP("[fe80::1%eth0]:80")
+	if ip != "fe80::1%eth0" {
+		t.Errorf("Expected 'fe80::1%%eth0', got '%s'", ip)
+	}
+
+	// Test IPv6 with zone identifier without port
+	ip = cleanIP("fe80::1%eth0")
+	if ip != "fe80::1%eth0" {
+		t.Errorf("Expected 'fe80::1%%eth0', got '%s'", ip)
 	}
 }
