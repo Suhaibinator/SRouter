@@ -42,7 +42,7 @@ type IPConfig struct {
 func DefaultIPConfig() *IPConfig {
 	return &IPConfig{
 		Source:     IPSourceXForwardedFor, // Default to checking X-Forwarded-For
-		TrustProxy: false,                 // Trust proxy headers by default
+		TrustProxy: true,                  // Trust proxy headers by default
 	}
 }
 
@@ -120,8 +120,22 @@ func extractIPFromXForwardedFor(r *http.Request) string {
 func cleanIP(ip string) string {
 	host, _, err := net.SplitHostPort(ip)
 	if err == nil {
-		return host
+		// If the host contains a zone identifier, return without brackets
+		if strings.Contains(host, "%") {
+			return host
+		}
+		// Only return the host portion if it parses as a valid IP
+		if net.ParseIP(host) != nil {
+			// Preserve brackets if the original string contained them
+			if strings.HasPrefix(ip, "[") && strings.Contains(ip, "]") {
+				return "[" + host + "]"
+			}
+			return host
+		}
+		// If host isn't a valid IP, fall back to the original string
+		return ip
 	}
+
 	// If SplitHostPort fails, it might be an IP without a port or an invalid format
 	// For IPv6 without port but with brackets, e.g. "[::1]"
 	if strings.HasPrefix(ip, "[") && strings.HasSuffix(ip, "]") {
