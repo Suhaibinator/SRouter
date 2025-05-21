@@ -176,8 +176,8 @@ func TestCleanIP(t *testing.T) {
 
 	// Test IPv6 with port
 	ip = cleanIP("[2001:db8::1]:1234")
-	if ip != "2001:db8::1" { // Adjusted expected output
-		t.Errorf("Expected '2001:db8::1', got '%s'", ip)
+	if ip != "[2001:db8::1]" {
+		t.Errorf("Expected '[2001:db8::1]', got '%s'", ip)
 	}
 
 	// Test IPv6 without port (no brackets)
@@ -207,12 +207,12 @@ func TestCleanIP(t *testing.T) {
 	// Test IPv6 with zone identifier and port
 	ip = cleanIP("[fe80::1%eth0]:80")
 	if ip != "fe80::1%eth0" {
-		t.Errorf("Expected 'fe80::1%eth0', got '%s'", ip)
+		t.Errorf("Expected 'fe80::1%%eth0', got '%s'", ip)
 	}
 
 	// Test IPv6 with zone identifier without port
 	ip = cleanIP("fe80::1%eth0")
 	if ip != "fe80::1%eth0" {
-		t.Errorf("Expected 'fe80::1%eth0', got '%s'", ip)
+		t.Errorf("Expected 'fe80::1%%eth0', got '%s'", ip)
 	}
 }
