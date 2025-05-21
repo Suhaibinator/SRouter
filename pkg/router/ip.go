@@ -1,6 +1,7 @@
 package router
 
 import (
+	"net"
 	"net/http"
 	"strings"
 
@@ -41,7 +42,7 @@ type IPConfig struct {
 func DefaultIPConfig() *IPConfig {
 	return &IPConfig{
 		Source:     IPSourceXForwardedFor, // Default to checking X-Forwarded-For
-		TrustProxy: true,                  // Trust proxy headers by default
+		TrustProxy: false,                 // Trust proxy headers by default
 	}
 }
 
@@ -117,28 +118,16 @@ func extractIPFromXForwardedFor(r *http.Request) string {
 
 // cleanIP removes the port from an IP address if present
 func cleanIP(ip string) string {
-	// IPv6 addresses with ports are formatted as [IPv6]:port
-	if strings.HasPrefix(ip, "[") {
-		end := strings.LastIndex(ip, "]")
-		if end > 0 {
-			if end+1 < len(ip) && ip[end+1] == ':' {
-				return ip[:end+1]
-			}
-			return ip
-		}
+	host, _, err := net.SplitHostPort(ip)
+	if err == nil {
+		return host
 	}
-
-	// Check if this is an IPv6 address without brackets (contains multiple colons)
-	if strings.Count(ip, ":") > 1 {
-		// This is likely an IPv6 address without port, return as is
+	// If SplitHostPort fails, it might be an IP without a port or an invalid format
+	// For IPv6 without port but with brackets, e.g. "[::1]"
+	if strings.HasPrefix(ip, "[") && strings.HasSuffix(ip, "]") {
 		return ip
 	}
-
-	// IPv4 addresses with ports are formatted as IPv4:port
-	end := strings.LastIndex(ip, ":")
-	if end > 0 {
-		return ip[:end]
-	}
-
+	// For IPs without port or other cases, return the original string if SplitHostPort failed
+	// This maintains previous behavior for IPs that don't have a port.
 	return ip
 }
