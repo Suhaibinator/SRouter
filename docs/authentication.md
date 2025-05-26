@@ -104,10 +104,10 @@ Your custom middleware is responsible for:
 routerConfig := router.RouterConfig{
     // ... logger, etc.
     Middlewares: []common.Middleware{
-        middleware.TraceMiddleware(), // Trace ID first (assuming pkg/middleware provides this)
+        // Trace middleware is added automatically if TraceIDBufferSize > 0
         MyApiKeyMiddleware(apiKeyValidationService), // Your custom auth middleware
         // middleware.RateLimiterMiddleware(/*...*/), // Rate limiter might depend on user ID set by MyApiKeyMiddleware
-        // middleware.Logging(logger),
+        // Logging occurs automatically when EnableTraceLogging is true
     },
     // ...
 }
