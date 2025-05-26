@@ -55,10 +55,10 @@ func main() {
 			},
 			// Add more sub-routers here (e.g., { PathPrefix: "/api/v1", Routes: [...] })
 		},
-		// Global middlewares can be added here
-		// Middlewares: []common.Middleware{
-		//  middleware.Logging(logger), // Example: Add logging middleware
-		// },
+                // Global middlewares can be added here
+                // Middlewares: []common.Middleware{
+                //  // Logging is handled automatically when EnableTraceLogging is true
+                // },
 	}
 
 	// Define the authentication function (replace with your actual logic)

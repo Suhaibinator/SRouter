@@ -321,7 +321,7 @@ func GetUserHandler(w http.ResponseWriter, r *http.Request) {
 
 ### Trace ID Logging
 
-SRouter provides built-in support for trace ID logging, which allows you to correlate log entries across different parts of your application for a single request. Each request is assigned a unique trace ID (UUID) that is automatically included in all log entries related to that request if logging middleware is used.
+SRouter provides built-in support for trace ID logging, which allows you to correlate log entries across different parts of your application for a single request. Each request is assigned a unique trace ID (UUID) that is automatically included in all log entries when `EnableTraceLogging` is true.
 
 #### Enabling Trace ID Logging
 
@@ -1527,12 +1527,12 @@ Setting appropriate body size limits is important for security and performance:
 
 ## Logging
 
-SRouter uses structured logging via the `zap` library. A `*zap.Logger` instance **must** be provided in `RouterConfig`. The built-in `middleware.Logging` uses this logger and automatically includes contextual information like `trace_id` (if enabled). Appropriate log levels are used internally:
+SRouter uses structured logging via the `zap` library. A `*zap.Logger` instance **must** be provided in `RouterConfig`. When `EnableTraceLogging` is enabled, the router automatically logs each request's start and completion with contextual fields like `trace_id`. Appropriate log levels are used internally:
 
 - **Error**: For server errors (status code 500+), timeouts, panics, and other exceptional conditions.
 - **Warn**: For client errors (status code 400-499), slow requests (>1s), and potentially harmful situations.
 - **Info**: For important operational information (used sparingly).
-- **Debug**: For detailed request metrics, tracing information, and other development-related data (including successful request logs by default via `middleware.Logging`).
+- **Debug**: For detailed request metrics, tracing information, and other development-related data (including successful request logs when trace logging is enabled).
 
 This approach ensures that your logs contain the right information at the right level. You can configure the log level of your `zap.Logger` instance passed to `RouterConfig` to control the verbosity.
 
