@@ -36,9 +36,9 @@ type RouterConfig struct {
 	// Uses common.RateLimitConfig. Can be overridden. Nil means no global rate limit.
 	GlobalRateLimit *common.RateLimitConfig[any, any]
 
-	// IPConfig defines how client IP addresses are extracted.
-	// See docs/ip-configuration.md. Nil uses default (RemoteAddr, no proxy trust).
-	IPConfig *IPConfig // Defined in router package
+        // IPConfig defines how client IP addresses are extracted.
+        // See docs/ip-configuration.md. Nil uses default (IPSourceXForwardedFor, TrustProxy: true).
+        IPConfig *IPConfig // Defined in router package
 
         // EnableTraceLogging enables detailed request/response logging including timing, status, etc.
         // Often used in conjunction with TraceIDBufferSize > 0.
