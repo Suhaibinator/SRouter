@@ -33,6 +33,9 @@ type SRouterContext[T comparable, U any] struct {
 
 	ClientIP string
 
+	// UserAgent holds the user agent string from the request.
+	UserAgent string
+
 	Transaction DatabaseTransaction
 
 	// Route information
@@ -47,6 +50,7 @@ type SRouterContext[T comparable, U any] struct {
 	UserIDSet             bool
 	UserSet               bool
 	ClientIPSet           bool
+	UserAgentSet          bool
 	TraceIDSet            bool
 	TransactionSet        bool
 	RouteTemplateSet      bool
@@ -175,6 +179,28 @@ func GetClientIP[T comparable, U any](ctx context.Context) (string, bool) {
 // GetClientIPFromRequest is a convenience function to get the client IP from a request
 func GetClientIPFromRequest[T comparable, U any](r *http.Request) (string, bool) {
 	return GetClientIP[T, U](r.Context())
+}
+
+// WithUserAgent adds a user agent string to the context
+func WithUserAgent[T comparable, U any](ctx context.Context, ua string) context.Context {
+	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.UserAgent = ua
+	rc.UserAgentSet = true
+	return ctx
+}
+
+// GetUserAgent retrieves the user agent from the router context
+func GetUserAgent[T comparable, U any](ctx context.Context) (string, bool) {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok || !rc.UserAgentSet {
+		return "", false
+	}
+	return rc.UserAgent, true
+}
+
+// GetUserAgentFromRequest is a convenience function to get the user agent from a request
+func GetUserAgentFromRequest[T comparable, U any](r *http.Request) (string, bool) {
+	return GetUserAgent[T, U](r.Context())
 }
 
 // WithTransaction adds a database transaction to the context
