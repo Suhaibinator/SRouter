@@ -473,6 +473,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Apply Client IP Extraction
 	clientIP := extractClientIP(req, r.config.IPConfig)
 	ctx := scontext.WithClientIP[T, U](req.Context(), clientIP) // Use scontext
+	ctx = scontext.WithUserAgent[T, U](ctx, req.UserAgent())
 	req = req.WithContext(ctx)
 
 	// Apply metrics and tracing if enabled
@@ -496,6 +497,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			duration := time.Since(mrw.startTime)
 			traceID := scontext.GetTraceIDFromRequest[T, U](req)
 			ip, _ := scontext.GetClientIPFromRequest[T, U](req)
+			ua, _ := scontext.GetUserAgentFromRequest[T, U](req)
 
 			// 2) Build unified fields - the UNION of all previously separate log fields
 			fields := []zap.Field{
@@ -505,7 +507,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				zap.Duration("duration", duration),
 				zap.Int64("bytes", mrw.bytesWritten),
 				zap.String("ip", ip),
-				zap.String("user_agent", req.UserAgent()),
+				zap.String("user_agent", ua),
 			}
 
 			// Add trace ID if enabled and present

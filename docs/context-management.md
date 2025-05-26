@@ -36,8 +36,11 @@ type SRouterContext[T comparable, U any] struct {
 	// User holds a pointer to the authenticated user object.
 	User *U // Pointer to avoid copying potentially large structs
 
-	// ClientIP holds the determined client IP address.
-	ClientIP string
+        // ClientIP holds the determined client IP address.
+        ClientIP string
+
+        // UserAgent holds the user agent string from the request.
+        UserAgent string
 
 	// TraceID holds the unique identifier for the request trace.
 	TraceID string
@@ -52,8 +55,10 @@ type SRouterContext[T comparable, U any] struct {
 	UserIDSet bool
 	// UserSet indicates if the User field has been explicitly set.
 	UserSet bool
-	// ClientIPSet indicates if the ClientIP field has been explicitly set.
-	ClientIPSet bool
+        // ClientIPSet indicates if the ClientIP field has been explicitly set.
+        ClientIPSet bool
+        // UserAgentSet indicates if the UserAgent field has been explicitly set.
+        UserAgentSet bool
 	// TraceIDSet indicates if the TraceID field has been explicitly set.
 	TraceIDSet bool
 	// TransactionSet indicates if the Transaction field has been explicitly set.
@@ -87,7 +92,7 @@ This approach offers several advantages over traditional `context.WithValue` nes
 
 ## Adding Values to Context (Middleware Authors)
 
-Middleware should use the provided helper functions from the `pkg/scontext` package (like `scontext.WithUserID`, `scontext.WithUser`, `scontext.WithClientIP`, `scontext.WithTraceID`, `scontext.WithFlag`, `scontext.WithTransaction`) to add values. These functions handle creating or updating the `SRouterContext` wrapper within the `context.Context`.
+Middleware should use the provided helper functions from the `pkg/scontext` package (like `scontext.WithUserID`, `scontext.WithUser`, `scontext.WithClientIP`, `scontext.WithUserAgent`, `scontext.WithTraceID`, `scontext.WithFlag`, `scontext.WithTransaction`) to add values. These functions handle creating or updating the `SRouterContext` wrapper within the `context.Context`.
 
 ```go
 // Example within a middleware:
@@ -175,6 +180,12 @@ func myHandler(w http.ResponseWriter, r *http.Request) {
     clientIP, ok := scontext.GetClientIPFromRequest[string, MyUserType](r)
     if ok {
         fmt.Printf("Client IP: %s\n", clientIP)
+    }
+
+    // Get User Agent
+    userAgent, ok := scontext.GetUserAgentFromRequest[string, MyUserType](r)
+    if ok {
+        fmt.Printf("User Agent: %s\n", userAgent)
     }
 
     // Get Trace ID
