@@ -12,15 +12,13 @@ While middleware is powerful, each layer adds some overhead to the request proce
 
 The order in which middleware is applied matters. SRouter applies middleware by wrapping the final handler. The effective order, from outermost (runs first) to innermost (runs last before handler), based on the internal `wrapHandler` and `registerSubRouter` logic, is:
 
-1.  **Timeout Middleware** (Applied first if `timeout > 0`)
-2.  **Global Middlewares** (`RouterConfig.Middlewares`, including Trace if enabled)
-3.  **Sub-Router Middlewares** (`SubRouterConfig.Middlewares` for the relevant sub-router)
-4.  **Route-Specific Middlewares** (`RouteConfig.Middlewares`)
-5.  **Rate Limiting Middleware** (Applied internally if `rateLimit` config exists)
-6.  **Authentication Middleware** (Applied internally if `AuthLevel` is `AuthRequired` or `AuthOptional`)
-7.  **Recovery Middleware** (Applied internally)
-8.  **Base Handler Logic** (Internal shutdown check, Max Body Size check)
-9.  **Your Actual Handler** (`http.HandlerFunc` or `GenericHandler`)
+1.  **Recovery Middleware** (Applied internally)
+2.  **Authentication Middleware** (Applied internally if `AuthLevel` is `AuthRequired` or `AuthOptional`)
+3.  **Rate Limiting Middleware** (Applied internally if `rateLimit` config exists)
+4.  **Route-Specific and Sub-Router Middlewares** (`SubRouterConfig.Middlewares` and `RouteConfig.Middlewares`)
+5.  **Global Middlewares** (`RouterConfig.Middlewares`, including Trace if enabled)
+6.  **Timeout Middleware** (Applied if `timeout > 0`)
+7.  **Your Actual Handler** (`http.HandlerFunc` or `GenericHandler`)
 
 Note: The `registerSubRouter` function combines sub-router and route-specific middleware before passing the combined list to `wrapHandler`. `wrapHandler` then applies global middleware before this combined list.
 

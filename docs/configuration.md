@@ -148,8 +148,8 @@ type SubRouterConfig struct {
 	// - GenericRouteDefinition (for generic routes, created via NewGenericRouteDefinition)
 	Routes []any
 
-	// Middlewares is a slice of middlewares applied only to routes within this
-	// sub-router (and its children), executed after global/parent middleware.
+        // Middlewares is a slice of middlewares applied only to routes within this
+        // sub-router (and its children), executed before global/parent middleware.
 	Middlewares []common.Middleware
 
 	// SubRouters defines nested sub-routers within this group.
@@ -199,8 +199,8 @@ type RouteConfigBase struct {
 	// Handler is the standard Go HTTP handler function. Required.
 	Handler http.HandlerFunc
 
-	// Middlewares is a slice of middlewares applied only to this route, executed
-	// after global and sub-router middlewares.
+        // Middlewares is a slice of middlewares applied only to this route, executed
+        // before global middlewares.
 	Middlewares []common.Middleware
 }
 ```
