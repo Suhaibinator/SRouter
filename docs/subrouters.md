@@ -4,7 +4,7 @@ Sub-routers allow you to group related routes under a common path prefix and app
 
 ## Defining Sub-Routers
 
-Sub-routers are defined using the `SubRouterConfig` struct and added to the `SubRouters` slice within the main `RouterConfig`.
+Sub-routers are defined using the `SubRouterConfig` struct and added to the `SubRouters` slice within the main `RouterConfig`. Routes can be added declaratively within the sub-router configuration or imperatively after router creation using `RegisterGenericRouteOnSubRouter`.
 
 ```go
 // Define sub-router configurations
@@ -75,6 +75,7 @@ Key points:
 -   `TimeoutOverride`, `MaxBodySizeOverride`, `RateLimitOverride`: Allow overriding global settings specifically for this sub-router.
 -   `Routes`: A slice of `any` that can contain `RouteConfigBase` for standard routes or `GenericRouteDefinition` (created via `NewGenericRouteDefinition`) for generic routes. Paths within these routes are relative to the `PathPrefix`.
 -   `Middlewares`: Middleware applied only to routes within this sub-router.
+-   `AuthLevel`: Default authentication level for all routes in this sub-router (can be overridden at the route level).
 
 ## Nested Sub-Routers
 
@@ -125,3 +126,34 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 ```
 
 Configuration (timeouts, body size, rate limits, auth level, middleware) cascades: Global -> Outer Sub-Router -> Inner Sub-Router -> Route. The most specific setting takes precedence.
+
+## Imperative Route Registration
+
+While routes can be defined declaratively within `SubRouterConfig`, you can also register generic routes imperatively after router creation using `RegisterGenericRouteOnSubRouter`. This is useful when you need to dynamically register routes or when working with generic types that require explicit type parameters.
+
+```go
+// After creating the router
+r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+
+// Register a generic route on a specific sub-router
+err := router.RegisterGenericRouteOnSubRouter(
+    r,
+    "/api/v1", // Target sub-router path prefix
+    router.RouteConfig[CreateUserReq, CreateUserResp]{
+        Path:      "/users", // Path relative to the sub-router prefix
+        Methods:   []router.HttpMethod{router.MethodPost},
+        AuthLevel: router.Ptr(router.AuthRequired),
+        Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
+        Handler:   CreateUserHandler,
+    },
+)
+if err != nil {
+    log.Fatalf("Failed to register route: %v", err)
+}
+```
+
+This function will:
+- Find the sub-router with the matching path prefix
+- Apply the sub-router's configuration (middleware, timeouts, etc.)
+- Prefix the route path with the sub-router's path prefix
+- Register the route with all appropriate settings

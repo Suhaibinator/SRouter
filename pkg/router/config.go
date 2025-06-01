@@ -89,11 +89,6 @@ const (
 	Empty
 )
 
-// PrometheusConfig is removed in favor of MetricsConfig with v2 metrics system.
-// This type is kept for reference but should not be used.
-// Deprecated: Use MetricsConfig instead.
-type PrometheusConfig struct{}
-
 // MetricsConfig defines the configuration for metrics collection.
 // It allows customization of how metrics are collected and exposed.
 type MetricsConfig struct {
