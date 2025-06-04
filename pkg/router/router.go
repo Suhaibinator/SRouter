@@ -1125,6 +1125,11 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 			// Add the user ID to the context
 			ctx := scontext.WithUserID[T, U](req.Context(), id) // Use scontext
 
+			// Add the user object to context if configured
+			if r.config.AddUserObjectToCtx {
+				ctx = scontext.WithUser[T](ctx, user) // Use scontext
+			}
+
 			// If there was a trace ID, make sure it's preserved
 			if traceID != "" {
 				ctx = scontext.WithTraceID[T, U](ctx, traceID) // Use scontext directly

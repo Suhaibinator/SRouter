@@ -272,7 +272,7 @@ func TestRateLimit_NilLimiterPanic(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Call RateLimit with nil limiter - this should panic
-	_ = RateLimit[string, string](config, nil, logger)
+	_ = RateLimit(config, nil, logger)
 }
 
 // TestRateLimit_NilLogger tests that RateLimit uses a Nop logger if nil is provided
@@ -286,7 +286,7 @@ func TestRateLimit_NilLogger(t *testing.T) {
 	limiter := NewUberRateLimiter() // Use a real limiter
 
 	// Call RateLimit with nil logger - should not panic
-	middleware := RateLimit[string, string](config, limiter, nil) // Pass nil logger
+	middleware := RateLimit(config, limiter, nil) // Pass nil logger
 
 	// Create a simple handler and apply the middleware
 	handlerCalled := false

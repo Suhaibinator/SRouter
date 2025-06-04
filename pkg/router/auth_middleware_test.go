@@ -245,6 +245,74 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 	}
 }
 
+// TestAuthRequiredMiddlewareWithUserObject tests that authRequired middleware properly adds user object to context when AddUserObjectToCtx is enabled
+func TestAuthRequiredMiddlewareWithUserObject(t *testing.T) {
+	logger := zap.NewNop()
+
+	// Create router with AddUserObjectToCtx enabled
+	config := RouterConfig{
+		Logger:             logger,
+		AddUserObjectToCtx: true,
+	}
+
+	authFunction := func(ctx context.Context, token string) (*string, bool) {
+		if token == "valid-token" {
+			user := "user123"
+			return &user, true
+		}
+		return nil, false
+	}
+
+	getUserIDFromUser := func(user *string) string {
+		if user == nil {
+			return "nil_user_pointer"
+		}
+		return *user
+	}
+
+	router := NewRouter(config, authFunction, getUserIDFromUser)
+
+	// Handler that checks both user ID and user object in context
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check user ID
+		userID, ok := scontext.GetUserIDFromRequest[string, string](r)
+		if !ok {
+			t.Error("Expected user ID to be in context")
+		}
+		if userID != "user123" {
+			t.Errorf("Expected user ID %q, got %q", "user123", userID)
+		}
+
+		// Check user object (this would fail with the original bug)
+		userObjPtr, ok := scontext.GetUserFromRequest[string, string](r)
+		if !ok {
+			t.Error("Expected user object pointer in context, but not found")
+		} else if userObjPtr == nil {
+			t.Error("Expected non-nil user object pointer, got nil")
+		} else if *userObjPtr != "user123" {
+			t.Errorf("Expected user object 'user123', got '%v'", *userObjPtr)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+
+	wrappedHandler := router.authRequiredMiddleware(handler)
+
+	// Test with valid Authorization header
+	req, _ := http.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	rr := httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
+	}
+	if rr.Body.String() != "OK" {
+		t.Errorf("Expected response body %q, got %q", "OK", rr.Body.String())
+	}
+}
+
 // TestAuthRequiredMiddlewareWithTraceID tests the authRequiredMiddleware function with trace ID
 // (from auth_required_middleware_test.go)
 func TestAuthRequiredMiddlewareWithTraceID(t *testing.T) {

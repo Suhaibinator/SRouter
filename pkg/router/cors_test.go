@@ -803,7 +803,7 @@ func TestCORSWithGenericRoutes(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create a router with the test case's CORS config
-			r := NewRouter[string, string](RouterConfig{
+			r := NewRouter(RouterConfig{
 				Logger:     logger,
 				CORSConfig: tc.corsConfig,
 			},
