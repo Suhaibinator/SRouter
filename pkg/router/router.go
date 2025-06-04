@@ -47,15 +47,41 @@ type Router[T comparable, U any] struct {
 	corsMaxAge        string
 }
 
-// RegisterSubRouterWithSubRouter registers a nested SubRouter with a parent SubRouter
-// This is a helper function that adds a SubRouter to the parent SubRouter's SubRouters field
+// RegisterSubRouterWithSubRouter registers a nested SubRouter with a parent SubRouter.
+// This helper function enables hierarchical route organization by adding a child
+// SubRouter to the parent's SubRouters slice.
+//
+// Important behaviors:
+// - Path prefixes are concatenated (parent + child)
+// - Configuration overrides are NOT inherited - the child must set its own
+// - Middlewares will be combined additively when routes are registered
+// - This modifies the parent SubRouterConfig by appending to its SubRouters slice
+//
+// Example:
+//   parentRouter := SubRouterConfig{PathPrefix: "/api"}
+//   childRouter := SubRouterConfig{PathPrefix: "/v1", TimeoutOverride: 5*time.Second}
+//   RegisterSubRouterWithSubRouter(&parentRouter, childRouter)
+//   // Results in routes under /api/v1 with the child's timeout override
 func RegisterSubRouterWithSubRouter(parent *SubRouterConfig, child SubRouterConfig) {
 	// Add the child SubRouter to the parent's SubRouters field
 	parent.SubRouters = append(parent.SubRouters, child)
 }
 
-// NewRouter creates a new Router with the given configuration.
-// It initializes the underlying httprouter, sets up logging, and registers routes from sub-routers.
+// NewRouter creates a new Router instance with the given configuration.
+// It initializes all components including the underlying httprouter, logging, middleware,
+// metrics, rate limiting, and registers all routes defined in the configuration.
+//
+// Type parameters:
+//   - T: The user ID type (must be comparable, e.g., string, int, uuid.UUID)
+//   - U: The user object type (e.g., User, Account)
+//
+// Parameters:
+//   - config: Router configuration including sub-routers, middleware, and settings
+//   - authFunction: Function to validate tokens and return user objects
+//   - userIdFromuserFunction: Function to extract user ID from user object
+//
+// The router automatically sets up trace ID generation, metrics collection, and
+// CORS handling based on the provided configuration.
 func NewRouter[T comparable, U any](config RouterConfig, authFunction func(context.Context, string) (*U, bool), userIdFromuserFunction func(*U) T) *Router[T, U] {
 	// Initialize the httprouter
 	hr := httprouter.New()
@@ -160,6 +186,8 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 
 // registerSubRouter registers all routes and nested sub-routers defined in a SubRouterConfig.
 // It applies the sub-router's path prefix, overrides, and middlewares.
+// For nested sub-routers, path prefixes are concatenated but configuration overrides are not inherited.
+// Middlewares are combined additively: global + sub-router + route-specific.
 func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 	// Register routes defined in this sub-router
 	for _, routeDefinition := range sr.Routes {
@@ -234,8 +262,16 @@ func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler, routeTemp
 }
 
 // wrapHandler wraps a handler with all the necessary middleware.
-// It applies authentication, timeout, body size limits, rate limiting, and other middleware
-// to create a complete request processing pipeline.
+// It creates a complete request processing pipeline with the following middleware order:
+// 1. Recovery (innermost, catches panics)
+// 2. Authentication (if authLevel is set)
+// 3. Rate limiting (if rateLimit is set)
+// 4. Route-specific middlewares (from the middlewares parameter)
+// 5. Global middlewares (from RouterConfig, includes trace and metrics if enabled)
+// 6. Timeout (if timeout > 0)
+// 7. Shutdown check and body size limit (in the base handler)
+//
+// Middlewares are combined additively, not replaced.
 func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLevel, timeout time.Duration, maxBodySize int64, rateLimit *common.RateLimitConfig[T, U], middlewares []Middleware) http.Handler { // Use common.RateLimitConfig
 	// Create a base handler that only handles shutdown check and body size limit directly
 	// Timeout is now handled by timeoutMiddleware setting the context.
@@ -401,10 +437,23 @@ func findSubRouterConfig(subRouters []SubRouterConfig, targetPrefix string) (*Su
 	return nil, false
 }
 
-// RegisterGenericRouteOnSubRouter registers a generic route intended to be part of a sub-router.
-// It finds the SubRouterConfig matching the provided pathPrefix, applies relevant overrides
-// and middleware, prefixes the route's path, and then registers it using RegisterGenericRoute.
-// This function should be called *after* NewRouter has been called.
+// RegisterGenericRouteOnSubRouter registers a generic route on a specific sub-router after router creation.
+// This function is primarily used for dynamic route registration after the router has been initialized.
+// For static route configuration, prefer using NewGenericRouteDefinition within SubRouterConfig.Routes.
+//
+// The function locates the sub-router by path prefix, applies its configuration (middleware, timeouts,
+// rate limits), and registers the route with the combined settings.
+//
+// Type parameters:
+//   - Req: Request type for the route
+//   - Resp: Response type for the route
+//   - UserID: Must match the router's T type parameter
+//   - User: Must match the router's U type parameter
+//
+// Returns an error if no sub-router with the given prefix exists.
+//
+// Note: This is considered an advanced use case. The preferred approach is declarative
+// route registration using NewGenericRouteDefinition in SubRouterConfig.
 func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User any](
 	r *Router[UserID, User],
 	pathPrefix string,
@@ -789,7 +838,10 @@ func (r *Router[T, U]) Shutdown(ctx context.Context) error {
 }
 
 // getEffectiveTimeout returns the effective timeout for a route.
-// It considers route-specific, sub-router, and global timeout settings in that order of precedence.
+// Precedence order (first non-zero value wins):
+// 1. Route-specific timeout
+// 2. Sub-router timeout override (NOT inherited by nested sub-routers)
+// 3. Global timeout from RouterConfig
 func (r *Router[T, U]) getEffectiveTimeout(routeTimeout, subRouterTimeout time.Duration) time.Duration {
 	if routeTimeout > 0 {
 		return routeTimeout
@@ -801,7 +853,10 @@ func (r *Router[T, U]) getEffectiveTimeout(routeTimeout, subRouterTimeout time.D
 }
 
 // getEffectiveMaxBodySize returns the effective max body size for a route.
-// It considers route-specific, sub-router, and global max body size settings in that order of precedence.
+// Precedence order (first non-zero value wins):
+// 1. Route-specific max body size
+// 2. Sub-router max body size override (NOT inherited by nested sub-routers)
+// 3. Global max body size from RouterConfig
 func (r *Router[T, U]) getEffectiveMaxBodySize(routeMaxBodySize, subRouterMaxBodySize int64) int64 {
 	if routeMaxBodySize > 0 {
 		return routeMaxBodySize
@@ -813,7 +868,11 @@ func (r *Router[T, U]) getEffectiveMaxBodySize(routeMaxBodySize, subRouterMaxBod
 }
 
 // getEffectiveRateLimit returns the effective rate limit for a route.
-// It considers route-specific, sub-router, and global rate limit settings in that order of precedence.
+// Precedence order (first non-nil value wins):
+// 1. Route-specific rate limit
+// 2. Sub-router rate limit override (NOT inherited by nested sub-routers)
+// 3. Global rate limit from RouterConfig
+// The function also converts the generic type parameters from [any, any] to [T, U].
 func (r *Router[T, U]) getEffectiveRateLimit(routeRateLimit, subRouterRateLimit *common.RateLimitConfig[any, any]) *common.RateLimitConfig[T, U] { // Use common types
 	// Convert the rate limit config to the correct type
 	convertConfig := func(config *common.RateLimitConfig[any, any]) *common.RateLimitConfig[T, U] { // Use common types

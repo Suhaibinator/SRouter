@@ -15,13 +15,17 @@ type JSONCodec[T any, U any] struct {
 }
 
 // NewRequest creates a new zero-value instance of the request type T.
+// This method is required by the Codec interface and is used internally
+// by the framework to get an instance for decoding without using reflection.
 func (c *JSONCodec[T, U]) NewRequest() T {
 	var data T
 	return data
 }
 
-// Decode decodes the request body into a value of type T.
-// It reads the entire request body and unmarshals it from JSON.
+// Decode reads and unmarshals JSON data from the HTTP request body into type T.
+// It implements the Codec interface. The entire request body is read and the
+// body is closed after reading. If the JSON is malformed or doesn't match
+// the structure of T, an error is returned along with the zero value of T.
 func (c *JSONCodec[T, U]) Decode(r *http.Request) (T, error) {
 	data := c.NewRequest() // Use NewRequest to get an instance
 
@@ -46,8 +50,10 @@ func (c *JSONCodec[T, U]) Decode(r *http.Request) (T, error) {
 	return data, nil
 }
 
-// DecodeBytes decodes a byte slice into a value of type T.
-// It unmarshals the byte slice from JSON.
+// DecodeBytes unmarshals JSON data from a byte slice into type T.
+// It implements the Codec interface. This method is used when the request
+// data comes from sources other than the request body (e.g., base64-encoded
+// query parameters). Returns an error if the JSON is invalid.
 func (c *JSONCodec[T, U]) DecodeBytes(body []byte) (T, error) {
 	data := c.NewRequest() // Use NewRequest to get an instance
 
@@ -62,8 +68,10 @@ func (c *JSONCodec[T, U]) DecodeBytes(body []byte) (T, error) {
 	return data, nil
 }
 
-// Encode encodes a value of type U into the response.
-// It marshals the value to JSON and writes it to the response with the appropriate content type.
+// Encode marshals the response value of type U to JSON and writes it to the HTTP response.
+// It implements the Codec interface. Sets the Content-Type header to "application/json"
+// before writing the response body. Returns an error if marshaling fails or if
+// writing to the response writer fails.
 func (c *JSONCodec[T, U]) Encode(w http.ResponseWriter, resp U) error {
 	// Set the content type
 	w.Header().Set("Content-Type", "application/json")
@@ -81,6 +89,11 @@ func (c *JSONCodec[T, U]) Encode(w http.ResponseWriter, resp U) error {
 
 // NewJSONCodec creates a new JSONCodec instance for the specified types.
 // T represents the request type and U represents the response type.
+// The returned codec can be used with generic routes to automatically
+// handle JSON marshaling and unmarshaling of request and response data.
+//
+// Example:
+//   codec := NewJSONCodec[CreateUserReq, CreateUserResp]()
 func NewJSONCodec[T any, U any]() *JSONCodec[T, U] {
 	return &JSONCodec[T, U]{}
 }

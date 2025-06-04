@@ -137,13 +137,17 @@ func (m *MetricsMiddlewareImpl[T, U]) Handler(name string, handler http.Handler)
 
 // Removed the standalone getRouteTemplateFromRequest function as it's now handled directly within Handler using generics.
 
-// responseWriter is a wrapper around http.ResponseWriter that captures the status code.
+// responseWriter is a wrapper around http.ResponseWriter that captures the HTTP status code.
+// It intercepts calls to WriteHeader to record the status code for metrics collection.
+// If WriteHeader is not called explicitly, it defaults to 200 (OK).
 type responseWriter struct {
 	http.ResponseWriter
 	statusCode int
 }
 
-// WriteHeader captures the status code and calls the underlying ResponseWriter.
+// WriteHeader captures the HTTP status code and forwards it to the underlying ResponseWriter.
+// The captured status code is used for metrics collection, particularly for error rate tracking.
+// This method ensures the status code is recorded even if the handler sets it explicitly.
 func (rw *responseWriter) WriteHeader(statusCode int) {
 	rw.statusCode = statusCode
 	rw.ResponseWriter.WriteHeader(statusCode)

@@ -140,53 +140,80 @@ type RouterConfig struct {
 
 // GenericRouteRegistrationFunc defines the function signature for registering a generic route declaratively.
 // This function is stored in SubRouterConfig.Routes and called during router initialization.
-// It captures the specific generic types and calls the appropriate registration logic.
+// It receives the router instance and the SubRouterConfig it belongs to, allowing it to:
+// - Calculate effective settings based on sub-router configuration
+// - Apply the sub-router's path prefix
+// - Combine middlewares appropriately
+// - Register the route with all settings applied
+//
+// This type is used internally by NewGenericRouteDefinition.
 type GenericRouteRegistrationFunc[T comparable, U any] func(r *Router[T, U], sr SubRouterConfig)
 
 // SubRouterConfig defines configuration for a group of routes with a common path prefix.
 // This allows for organizing routes into logical groups and applying shared configuration.
+// Sub-routers can be nested to create hierarchical routing structures with concatenated path prefixes.
+//
+// Important behaviors:
+// - Path prefixes are concatenated when nesting (e.g., "/api" + "/v1" = "/api/v1")
+// - Configuration overrides (timeout, max body size, rate limit) are NOT inherited by nested sub-routers
+// - Middlewares are additive - they combine with parent and global middlewares
+// - Routes can be added declaratively via the Routes field or imperatively after router creation
 type SubRouterConfig struct {
 	PathPrefix          string                            // Common path prefix for all routes in this sub-router
-	TimeoutOverride     time.Duration                     // Override global timeout for all routes in this sub-router
-	MaxBodySizeOverride int64                             // Override global max body size for all routes in this sub-router
-	RateLimitOverride   *common.RateLimitConfig[any, any] // Use common.RateLimitConfig // Override global rate limit for all routes in this sub-router
-	Routes              []any                             // Routes in this sub-router. Can contain RouteConfigBase or GenericRouteRegistrationFunc.
-	Middlewares         []common.Middleware               // Middlewares applied to all routes in this sub-router
-	// SubRouters is a slice of nested sub-routers
-	// This allows for creating a hierarchy of sub-routers
-	SubRouters []SubRouterConfig // Nested sub-routers
+	TimeoutOverride     time.Duration                     // Override global timeout for routes in this sub-router (not inherited by nested sub-routers)
+	MaxBodySizeOverride int64                             // Override global max body size for routes in this sub-router (not inherited by nested sub-routers)
+	RateLimitOverride   *common.RateLimitConfig[any, any] // Override global rate limit for routes in this sub-router (not inherited by nested sub-routers)
+	Routes              []any                             // Routes in this sub-router. Can contain RouteConfigBase or GenericRouteRegistrationFunc
+	Middlewares         []common.Middleware               // Middlewares applied to all routes in this sub-router (additive with global middlewares)
+	// SubRouters is a slice of nested sub-routers.
+	// Nested sub-routers inherit the parent's path prefix (concatenated) but NOT configuration overrides.
+	// Each nested sub-router must explicitly set its own overrides if needed.
+	SubRouters []SubRouterConfig // Nested sub-routers with concatenated path prefixes
 	AuthLevel  *AuthLevel        // Default authentication level for all routes in this sub-router (overridden by route-specific AuthLevel)
 }
 
-// RouteConfigBase defines the base configuration for a route without generics.
+// RouteConfigBase defines the base configuration for a standard (non-generic) route.
 // It includes settings for path, HTTP methods, authentication, timeouts, and middleware.
+// This is used for routes that work directly with http.ResponseWriter and *http.Request.
+//
+// Configuration precedence (when used within a sub-router):
+// - Route settings override sub-router settings
+// - Sub-router settings override global settings
+// - Middlewares are additive (not replaced)
 type RouteConfigBase struct {
 	Path        string                            // Route path (will be prefixed with sub-router path prefix if applicable)
 	Methods     []HttpMethod                      // HTTP methods this route handles (use constants like MethodGet)
-	AuthLevel   *AuthLevel                        // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired). If nil, inherits from sub-router or defaults to NoAuth.
-	Timeout     time.Duration                     // Override timeout for this specific route
-	MaxBodySize int64                             // Override max body size for this specific route
-	RateLimit   *common.RateLimitConfig[any, any] // Use common.RateLimitConfig // Rate limit for this specific route
+	AuthLevel   *AuthLevel                        // Authentication level for this route. If nil, inherits from sub-router or defaults to NoAuth
+	Timeout     time.Duration                     // Override timeout for this specific route (0 means use sub-router or global timeout)
+	MaxBodySize int64                             // Override max body size for this specific route (0 means use sub-router or global limit)
+	RateLimit   *common.RateLimitConfig[any, any] // Rate limit configuration for this specific route (nil means use sub-router or global limit)
 	Handler     http.HandlerFunc                  // Standard HTTP handler function
-	Middlewares []common.Middleware               // Middlewares applied to this specific route
+	Middlewares []common.Middleware               // Middlewares applied to this specific route (combined with sub-router and global middlewares)
 }
 
 // RouteConfig defines a route with generic request and response types.
-// It extends RouteConfigBase with type parameters for request and response data,
-// allowing for strongly-typed handlers and automatic marshaling/unmarshaling.
+// It provides type-safe request/response handling with automatic marshaling/unmarshaling.
+// The framework handles decoding the request into type T and encoding the response of type U.
+//
+// Configuration precedence (when used within a sub-router):
+// - Route settings override sub-router settings
+// - Sub-router settings override global settings
+// - Middlewares are additive (not replaced)
+//
+// Use NewGenericRouteDefinition to register these routes within SubRouterConfig.Routes.
 type RouteConfig[T any, U any] struct {
 	Path        string                            // Route path (will be prefixed with sub-router path prefix if applicable)
 	Methods     []HttpMethod                      // HTTP methods this route handles (use constants like MethodGet)
-	AuthLevel   *AuthLevel                        // Authentication level for this route (NoAuth, AuthOptional, or AuthRequired). If nil, inherits from sub-router or defaults to NoAuth.
-	Timeout     time.Duration                     // Override timeout for this specific route
-	MaxBodySize int64                             // Override max body size for this specific route
-	RateLimit   *common.RateLimitConfig[any, any] // Use common.RateLimitConfig // Rate limit for this specific route
-	Codec       Codec[T, U]                       // Codec for marshaling/unmarshaling request and response
-	Handler     GenericHandler[T, U]              // Generic handler function
-	Middlewares []common.Middleware               // Middlewares applied to this specific route
-	SourceType  SourceType                        // How to retrieve request data (defaults to Body)
-	SourceKey   string                            // Query parameter name (only used for query parameters)
-	Sanitizer   func(T) (T, error)                // Optional sanitizer function applied after decoding
+	AuthLevel   *AuthLevel                        // Authentication level for this route. If nil, inherits from sub-router or defaults to NoAuth
+	Timeout     time.Duration                     // Override timeout for this specific route (0 means use sub-router or global timeout)
+	MaxBodySize int64                             // Override max body size for this specific route (0 means use sub-router or global limit)
+	RateLimit   *common.RateLimitConfig[any, any] // Rate limit configuration for this specific route (nil means use sub-router or global limit)
+	Codec       Codec[T, U]                       // Codec for marshaling/unmarshaling request and response (required)
+	Handler     GenericHandler[T, U]              // Generic handler function (required)
+	Middlewares []common.Middleware               // Middlewares applied to this specific route (combined with sub-router and global middlewares)
+	SourceType  SourceType                        // Where to retrieve request data from (defaults to Body)
+	SourceKey   string                            // Parameter name for query/path parameters (required when SourceType is not Body/Empty)
+	Sanitizer   func(T) (T, error)                // Optional function to validate/transform request data after decoding
 }
 
 // Middleware is an alias for common.Middleware.
