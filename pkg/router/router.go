@@ -58,10 +58,11 @@ type Router[T comparable, U any] struct {
 // - This modifies the parent SubRouterConfig by appending to its SubRouters slice
 //
 // Example:
-//   parentRouter := SubRouterConfig{PathPrefix: "/api"}
-//   childRouter := SubRouterConfig{PathPrefix: "/v1", TimeoutOverride: 5*time.Second}
-//   RegisterSubRouterWithSubRouter(&parentRouter, childRouter)
-//   // Results in routes under /api/v1 with the child's timeout override
+//
+//	parentRouter := SubRouterConfig{PathPrefix: "/api"}
+//	childRouter := SubRouterConfig{PathPrefix: "/v1", TimeoutOverride: 5*time.Second}
+//	RegisterSubRouterWithSubRouter(&parentRouter, childRouter)
+//	// Results in routes under /api/v1 with the child's timeout override
 func RegisterSubRouterWithSubRouter(parent *SubRouterConfig, child SubRouterConfig) {
 	// Add the child SubRouter to the parent's SubRouters field
 	parent.SubRouters = append(parent.SubRouters, child)
@@ -390,16 +391,11 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 				return
 			case <-ctx.Done():
 				// Timeout occurred. Log it.
-				traceID := scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
-				fields := []zap.Field{
-					zap.String("method", req.Method),
-					zap.String("path", req.URL.Path),
+				fields := append(r.baseFields(req),
 					zap.Duration("timeout", timeout),
 					zap.String("client_ip", req.RemoteAddr),
-				}
-				if traceID != "" {
-					fields = append(fields, zap.String("trace_id", traceID))
-				}
+				)
+				fields = r.addTrace(fields, req)
 				r.logger.Error("Request timed out", fields...)
 
 				// Acquire lock to safely check and potentially write timeout response.
@@ -409,6 +405,7 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
 					// Handler hasn't written yet, we can write the timeout error.
 					// Hold the lock while writing headers and body for timeout.
 					// Use the new JSON error writer, passing the request
+					traceID := scontext.GetTraceIDFromRequest[T, U](req)
 					r.writeJSONError(wrappedW.ResponseWriter, req, http.StatusRequestTimeout, "Request Timeout", traceID)
 				}
 				// If wroteHeader was already true, handler won the race, do nothing here.
@@ -531,7 +528,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		mrw := r.metricsWriterPool.Get().(*metricsResponseWriter[T, U])
 
 		// Initialize the writer with the current request data
-		mrw.ResponseWriter = w
+		mrw.baseResponseWriter = &baseResponseWriter{ResponseWriter: w}
 		mrw.statusCode = http.StatusOK
 		mrw.startTime = time.Now()
 		mrw.request = req
@@ -544,25 +541,18 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		defer func() {
 			// 1) Compute duration, traceID, ip
 			duration := time.Since(mrw.startTime)
-			traceID := scontext.GetTraceIDFromRequest[T, U](req)
 			ip, _ := scontext.GetClientIPFromRequest[T, U](req)
 			ua, _ := scontext.GetUserAgentFromRequest[T, U](req)
 
 			// 2) Build unified fields - the UNION of all previously separate log fields
-			fields := []zap.Field{
-				zap.String("method", req.Method),
-				zap.String("path", req.URL.Path),
+			fields := append(r.baseFields(req),
 				zap.Int("status", mrw.statusCode),
 				zap.Duration("duration", duration),
 				zap.Int64("bytes", mrw.bytesWritten),
 				zap.String("ip", ip),
 				zap.String("user_agent", ua),
-			}
-
-			// Add trace ID if enabled and present
-			if traceID != "" {
-				fields = append(fields, zap.String("trace_id", traceID))
-			}
+			)
+			fields = r.addTrace(fields, req)
 
 			// 3) Decide the log level based on status code, duration, and trace config
 			var lvl zapcore.Level
@@ -581,7 +571,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			r.logger.Log(lvl, "Request summary statistics", fields...)
 
 			// Reset fields that might hold references to prevent memory leaks
-			mrw.ResponseWriter = nil
+			mrw.baseResponseWriter = nil
 			mrw.request = nil
 			mrw.router = nil
 
@@ -773,10 +763,33 @@ func (r *Router[T, U]) handleCORS(w http.ResponseWriter, req *http.Request) (*ht
 	return req, false // Request not fully handled by CORS logic
 }
 
+// baseResponseWriter provides common ResponseWriter functionality.
+// It is embedded by other writers to avoid code duplication.
+type baseResponseWriter struct {
+	http.ResponseWriter
+}
+
+// WriteHeader calls the underlying ResponseWriter's WriteHeader.
+func (bw *baseResponseWriter) WriteHeader(statusCode int) {
+	bw.ResponseWriter.WriteHeader(statusCode)
+}
+
+// Write delegates to the underlying ResponseWriter.
+func (bw *baseResponseWriter) Write(b []byte) (int, error) {
+	return bw.ResponseWriter.Write(b)
+}
+
+// Flush calls Flush on the underlying ResponseWriter when available.
+func (bw *baseResponseWriter) Flush() {
+	if f, ok := bw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // metricsResponseWriter is a wrapper around http.ResponseWriter that captures metrics.
 // It tracks the status code, bytes written, and timing information for each response.
 type metricsResponseWriter[T comparable, U any] struct {
-	http.ResponseWriter
+	*baseResponseWriter
 	statusCode   int
 	bytesWritten int64
 	startTime    time.Time
@@ -787,21 +800,19 @@ type metricsResponseWriter[T comparable, U any] struct {
 // WriteHeader captures the status code and calls the underlying ResponseWriter.WriteHeader.
 func (rw *metricsResponseWriter[T, U]) WriteHeader(statusCode int) {
 	rw.statusCode = statusCode
-	rw.ResponseWriter.WriteHeader(statusCode)
+	rw.baseResponseWriter.WriteHeader(statusCode)
 }
 
 // Write captures the number of bytes written and calls the underlying ResponseWriter.Write.
 func (rw *metricsResponseWriter[T, U]) Write(b []byte) (int, error) {
-	n, err := rw.ResponseWriter.Write(b)
+	n, err := rw.baseResponseWriter.Write(b)
 	rw.bytesWritten += int64(n)
 	return n, err
 }
 
 // Flush calls the underlying ResponseWriter.Flush if it implements http.Flusher.
 func (rw *metricsResponseWriter[T, U]) Flush() {
-	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
+	rw.baseResponseWriter.Flush()
 }
 
 // Shutdown gracefully shuts down the router.
@@ -902,24 +913,30 @@ func (r *Router[T, U]) getEffectiveRateLimit(routeRateLimit, subRouterRateLimit 
 	return convertConfig(r.config.GlobalRateLimit)
 }
 
+// baseFields returns common log fields for the request.
+func (r *Router[T, U]) baseFields(req *http.Request) []zap.Field {
+	return []zap.Field{
+		zap.String("method", req.Method),
+		zap.String("path", req.URL.Path),
+	}
+}
+
+// addTrace appends the trace_id field when available.
+func (r *Router[T, U]) addTrace(fields []zap.Field, req *http.Request) []zap.Field {
+	if r.config.TraceIDBufferSize > 0 {
+		if traceID := scontext.GetTraceIDFromRequest[T, U](req); traceID != "" {
+			fields = append(fields, zap.String("trace_id", traceID))
+		}
+	}
+	return fields
+}
+
 // handleError handles an error by logging it and returning an appropriate HTTP response.
 // It checks if the error is a specific HTTPError and uses its status code and message if available.
 // It also checks for context deadline exceeded errors.
 func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err error, statusCode int, message string) {
-	// Get trace ID from context
-	traceID := scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
-
-	// Create log fields
-	fields := []zap.Field{
-		zap.Error(err),
-		zap.String("method", req.Method),
-		zap.String("path", req.URL.Path),
-	}
-
-	// Add trace ID if enabled and present
-	if r.config.TraceIDBufferSize > 0 && traceID != "" {
-		fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
-	}
+	fields := append([]zap.Field{zap.Error(err)}, r.baseFields(req)...)
+	fields = r.addTrace(fields, req)
 
 	// Check for specific error types
 	var httpErr *HTTPError
@@ -945,7 +962,8 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 	}
 
 	// Return the error response as JSON
-	r.writeJSONError(w, req, statusCode, message, traceID) // Pass req
+	traceID := scontext.GetTraceIDFromRequest[T, U](req)
+	r.writeJSONError(w, req, statusCode, message, traceID)
 }
 
 // writeJSONError writes a JSON error response to the client.
@@ -1045,34 +1063,46 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				// Get trace ID from context
-				traceID := scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
-
-				// Create log fields
-				fields := []zap.Field{
-					zap.Any("panic", rec),
-					zap.String("method", req.Method),
-					zap.String("path", req.URL.Path),
-				}
-
-				// Add trace ID if enabled and present
-				if r.config.TraceIDBufferSize > 0 && traceID != "" {
-					fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
-				}
-
-				// Log the panic
+				fields := append([]zap.Field{zap.Any("panic", rec)}, r.baseFields(req)...)
+				fields = r.addTrace(fields, req)
 				r.logger.Error("Panic recovered", fields...)
 
 				// Return a 500 Internal Server Error
 				// Return a 500 Internal Server Error as JSON
 				// We attempt to write the JSON error. If headers were already written,
 				// writeJSONError might log an error, but we can't do much more here.
-				r.writeJSONError(w, req, http.StatusInternalServerError, "Internal Server Error", traceID) // Pass req
+				traceID := scontext.GetTraceIDFromRequest[T, U](req)
+				r.writeJSONError(w, req, http.StatusInternalServerError, "Internal Server Error", traceID)
 			}
 		}()
 
 		next.ServeHTTP(w, req)
 	})
+}
+
+// authenticateRequest attempts to authenticate the request and, if successful,
+// returns a new request with user information stored in the context.
+// It does not perform any logging; callers handle logging based on the result.
+func (r *Router[T, U]) authenticateRequest(req *http.Request) (*http.Request, bool, string) {
+	authHeader := req.Header.Get("Authorization")
+	if authHeader == "" {
+		return req, false, "no authorization header"
+	}
+
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	if user, valid := r.authFunction(req.Context(), token); valid {
+		id := r.getUserIdFromUser(user)
+		ctx := scontext.WithUserID[T, U](req.Context(), id)
+		if r.config.AddUserObjectToCtx {
+			ctx = scontext.WithUser[T](ctx, user)
+		}
+		if traceID := scontext.GetTraceIDFromRequest[T, U](req); traceID != "" {
+			ctx = scontext.WithTraceID[T, U](ctx, traceID)
+		}
+		req = req.WithContext(ctx)
+		return req, true, ""
+	}
+	return req, false, "invalid token"
 }
 
 // authRequiredMiddleware is a middleware that requires authentication for a request.
@@ -1085,96 +1115,24 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, req)
 			return
 		}
-		// Declare traceID variable to be used throughout the function
-		var traceID string
-		// Check for the presence of an Authorization header
-		authHeader := req.Header.Get("Authorization")
-		if authHeader == "" {
-			// Get updated trace ID from context
-			traceID = scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
-
-			// Create log fields
-			fields := []zap.Field{
-				zap.String("method", req.Method),
-				zap.String("path", req.URL.Path),
+		var ok bool
+		var reason string
+		req, ok, reason = r.authenticateRequest(req)
+		if !ok {
+			fields := append(r.baseFields(req),
 				zap.String("remote_addr", req.RemoteAddr),
-				zap.String("error", "no authorization header"),
-			}
-
-			// Add trace ID if enabled and present
-			if r.config.TraceIDBufferSize > 0 && traceID != "" {
-				fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
-			}
-
-			// Log that authentication failed
+				zap.String("error", reason),
+			)
+			fields = r.addTrace(fields, req)
 			r.logger.Warn("Authentication failed", fields...)
-			r.writeJSONError(w, req, http.StatusUnauthorized, "Unauthorized", traceID) // Pass req
+			traceID := scontext.GetTraceIDFromRequest[T, U](req)
+			r.writeJSONError(w, req, http.StatusUnauthorized, "Unauthorized", traceID)
 			return
 		}
 
-		// Extract the token from the Authorization header
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-
-		// Try to authenticate using the authFunction
-		if user, valid := r.authFunction(req.Context(), token); valid {
-			id := r.getUserIdFromUser(user)
-			// Add the user ID to the request context using scontext package functions
-			// First get the trace ID so we can preserve it
-			traceID = scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
-
-			// Add the user ID to the context
-			ctx := scontext.WithUserID[T, U](req.Context(), id) // Use scontext
-
-			// Add the user object to context if configured
-			if r.config.AddUserObjectToCtx {
-				ctx = scontext.WithUser[T](ctx, user) // Use scontext
-			}
-
-			// If there was a trace ID, make sure it's preserved
-			if traceID != "" {
-				ctx = scontext.WithTraceID[T, U](ctx, traceID) // Use scontext directly
-			}
-			req = req.WithContext(ctx)
-
-			// Get updated trace ID from context
-			traceID = scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
-
-			// Create log fields
-			fields := []zap.Field{
-				zap.String("method", req.Method),
-				zap.String("path", req.URL.Path),
-			}
-
-			// Add trace ID if enabled and present
-			if r.config.TraceIDBufferSize > 0 && traceID != "" {
-				fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
-			}
-
-			// Log that authentication was successful
-			r.logger.Debug("Authentication successful", fields...)
-			next.ServeHTTP(w, req)
-			return
-		}
-
-		// Get trace ID from context
-		traceID = scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
-
-		// Create log fields
-		fields := []zap.Field{
-			zap.String("method", req.Method),
-			zap.String("path", req.URL.Path),
-			zap.String("remote_addr", req.RemoteAddr),
-			zap.String("error", "invalid token"),
-		}
-
-		// Add trace ID if enabled and present
-		if r.config.TraceIDBufferSize > 0 && traceID != "" {
-			fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
-		}
-
-		// Log that authentication failed
-		r.logger.Warn("Authentication failed", fields...)
-		r.writeJSONError(w, req, http.StatusUnauthorized, "Unauthorized", traceID) // Pass req
+		fields := r.addTrace(r.baseFields(req), req)
+		r.logger.Debug("Authentication successful", fields...)
+		next.ServeHTTP(w, req)
 	})
 }
 
@@ -1189,38 +1147,11 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, req)
 			return
 		}
-		// Try to authenticate the request
-		authHeader := req.Header.Get("Authorization")
-		if authHeader != "" {
-			// Extract the token from the Authorization header
-			token := strings.TrimPrefix(authHeader, "Bearer ")
-
-			// Try to authenticate using the authFunction
-			if user, valid := r.authFunction(req.Context(), token); valid {
-				id := r.getUserIdFromUser(user)
-				// Add the user ID to the request context using scontext package functions
-				ctx := scontext.WithUserID[T, U](req.Context(), id) // Use scontext
-				if r.config.AddUserObjectToCtx {
-					ctx = scontext.WithUser[T](ctx, user) // Use scontext
-				}
-				req = req.WithContext(ctx)
-				// Get trace ID from context
-				traceID := scontext.GetTraceIDFromRequest[T, U](req) // Use scontext
-
-				// Create log fields
-				fields := []zap.Field{
-					zap.String("method", req.Method),
-					zap.String("path", req.URL.Path),
-				}
-
-				// Add trace ID if enabled and present
-				if r.config.TraceIDBufferSize > 0 && traceID != "" {
-					fields = append([]zap.Field{zap.String("trace_id", traceID)}, fields...)
-				}
-
-				// Log that authentication was successful
-				r.logger.Debug("Authentication successful", fields...)
-			}
+		var ok bool
+		req, ok, _ = r.authenticateRequest(req)
+		if ok {
+			fields := r.addTrace(r.baseFields(req), req)
+			r.logger.Debug("Authentication successful", fields...)
 		}
 
 		// Call the next handler regardless of authentication result
@@ -1231,26 +1162,24 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 // responseWriter is a wrapper around http.ResponseWriter that captures the status code.
 // This allows middleware to inspect the status code after the handler has completed.
 type responseWriter struct {
-	http.ResponseWriter
+	*baseResponseWriter
 	statusCode int
 }
 
 // WriteHeader captures the status code and calls the underlying ResponseWriter.WriteHeader.
 func (rw *responseWriter) WriteHeader(statusCode int) {
 	rw.statusCode = statusCode
-	rw.ResponseWriter.WriteHeader(statusCode)
+	rw.baseResponseWriter.WriteHeader(statusCode)
 }
 
 // Write calls the underlying ResponseWriter.Write.
 func (rw *responseWriter) Write(b []byte) (int, error) {
-	return rw.ResponseWriter.Write(b)
+	return rw.baseResponseWriter.Write(b)
 }
 
 // Flush calls the underlying ResponseWriter.Flush if it implements http.Flusher.
 func (rw *responseWriter) Flush() {
-	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
+	rw.baseResponseWriter.Flush()
 }
 
 // mutexResponseWriter is a wrapper around http.ResponseWriter that uses a mutex to protect access

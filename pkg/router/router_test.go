@@ -634,7 +634,7 @@ func TestRegisterGenericRouteWithErrorCoverage(t *testing.T) { // Renamed to avo
 // TestResponseWriter tests the responseWriter type
 func TestResponseWriterCoverage(t *testing.T) { // Renamed to avoid conflict
 	rr := httptest.NewRecorder()
-	rw := &responseWriter{ResponseWriter: rr, statusCode: http.StatusOK}
+	rw := &responseWriter{baseResponseWriter: &baseResponseWriter{ResponseWriter: rr}, statusCode: http.StatusOK}
 	rw.WriteHeader(http.StatusNotFound)
 	if rw.statusCode != http.StatusNotFound {
 		t.Errorf("Expected statusCode to be %d, got %d", http.StatusNotFound, rw.statusCode)
