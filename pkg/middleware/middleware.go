@@ -13,9 +13,15 @@ import (
 	"go.uber.org/zap"
 )
 
-// Chain chains multiple middlewares together into a single middleware.
-// The middlewares are applied in reverse order, so the first middleware in the list
-// will be the outermost wrapper (the first to process the request and the last to process the response).
+// Chain combines multiple middleware functions into a single middleware.
+// The middlewares are applied in the order they appear in the chain:
+// the first middleware in the list will be the outermost wrapper.
+// This means it will be the first to process the request and the last
+// to process the response, following the "onion" model of middleware.
+//
+// Example:
+//   chain := Chain(logging, auth, rateLimit)
+//   // Results in: logging(auth(rateLimit(handler)))
 func Chain(middlewares ...Middleware) Middleware {
 	return func(next http.Handler) http.Handler {
 		for i := len(middlewares) - 1; i >= 0; i-- {

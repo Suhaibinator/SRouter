@@ -9,8 +9,16 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/common" // Ensure common is imported
 )
 
-// RegisterRoute registers a route with the router.
+// RegisterRoute registers a standard (non-generic) route with the router.
 // It creates a handler with all middlewares applied and registers it with the underlying httprouter.
+//
+// Middleware execution order:
+// 1. Global middlewares (from RouterConfig)
+// 2. Route-specific middlewares
+//
+// Configuration precedence (most specific wins):
+// - Route settings > Global settings
+//
 // For generic routes with type parameters, use RegisterGenericRoute function instead.
 func (r *Router[T, U]) RegisterRoute(route RouteConfigBase) {
 	// Get effective timeout, max body size, and rate limit for this route
@@ -31,8 +39,19 @@ func (r *Router[T, U]) RegisterRoute(route RouteConfigBase) {
 
 // RegisterGenericRoute registers a route with generic request and response types.
 // This is a standalone function rather than a method because Go methods cannot have type parameters.
-// It creates a handler that uses the codec to decode the request and encode the response,
-// applies middleware using the provided effective settings, and registers the route with the router.
+//
+// The function creates a complete request/response pipeline:
+// 1. Decodes request using the codec (based on SourceType)
+// 2. Applies optional sanitizer function
+// 3. Calls the generic handler with decoded data
+// 4. Encodes response using the codec
+// 5. Handles errors appropriately (including HTTPError for custom status codes)
+//
+// The effective settings (timeout, max body size, rate limit) must be pre-calculated
+// by the caller. This is typically done by NewGenericRouteDefinition or RegisterGenericRouteOnSubRouter.
+//
+// Note: This function is primarily for internal use. Users should prefer NewGenericRouteDefinition
+// for declarative route registration within SubRouterConfig.
 func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 	r *Router[UserID, User],
 	route RouteConfig[Req, Resp],
@@ -235,6 +254,15 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 // NewGenericRouteDefinition creates a GenericRouteRegistrationFunc for declarative configuration.
 // It captures the specific RouteConfig[Req, Resp] and returns a function that, when called
 // by registerSubRouter, calculates effective settings and registers the generic route.
+//
+// This is the recommended way to register generic routes within SubRouterConfig.Routes.
+// It ensures proper application of sub-router settings including:
+// - Path prefix concatenation
+// - Middleware combination (sub-router + route-specific)
+// - Configuration override precedence
+// - AuthLevel inheritance (route > sub-router > default)
+//
+// Type parameters must match those used in NewRouter[UserID, User].
 func NewGenericRouteDefinition[Req any, Resp any, UserID comparable, User any](
 	route RouteConfig[Req, Resp],
 ) GenericRouteRegistrationFunc[UserID, User] {

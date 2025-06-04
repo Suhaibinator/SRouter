@@ -17,12 +17,17 @@ import (
 
 // Note: RateLimitStrategy, RateLimiter, RateLimitConfig moved to pkg/common/types.go
 
-// UberRateLimiter implements common.RateLimiter using Uber's ratelimit library (leaky bucket).
+// UberRateLimiter implements the common.RateLimiter interface using Uber's ratelimit library.
+// It provides a leaky bucket rate limiting algorithm, which smooths out request rates
+// by allowing a steady flow of requests while preventing bursts.
+// The implementation maintains a map of rate limiters, one per unique key.
 type UberRateLimiter struct {
 	limiters sync.Map // map[string]ratelimit.Limiter
 }
 
-// NewUberRateLimiter creates a new rate limiter using Uber's ratelimit library.
+// NewUberRateLimiter creates a new UberRateLimiter instance.
+// The returned limiter uses the leaky bucket algorithm to enforce rate limits.
+// It maintains separate rate limiters for different keys (e.g., different IPs or users).
 func NewUberRateLimiter() *UberRateLimiter {
 	return &UberRateLimiter{}
 }
@@ -52,8 +57,18 @@ func (u *UberRateLimiter) getLimiter(key string, rps int) ratelimit.Limiter {
 // Ensure UberRateLimiter implements the common.RateLimiter interface.
 var _ common.RateLimiter = (*UberRateLimiter)(nil)
 
-// Allow checks if a request is allowed based on the key and rate limit config.
-// This implementation uses the leaky bucket algorithm.
+// Allow checks if a request is allowed based on the key and rate limit configuration.
+// It implements the common.RateLimiter interface using the leaky bucket algorithm.
+//
+// Parameters:
+//   - key: Unique identifier for the rate limit bucket (e.g., "api:IP:192.168.1.1")
+//   - limit: Maximum number of requests allowed within the window
+//   - window: Time duration for the rate limit window
+//
+// Returns:
+//   - allowed: true if the request is allowed, false if rate limit exceeded
+//   - remaining: Estimated number of remaining requests in the current window
+//   - reset: Duration until the next request will be allowed (0 if allowed now)
 func (u *UberRateLimiter) Allow(key string, limit int, window time.Duration) (bool, int, time.Duration) {
 	// Convert limit and window to Requests Per Second (RPS) for Uber's limiter.
 	// Ensure RPS is at least 1.

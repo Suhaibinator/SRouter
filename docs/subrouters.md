@@ -4,7 +4,7 @@ Sub-routers allow you to group related routes under a common path prefix and app
 
 ## Defining Sub-Routers
 
-Sub-routers are defined using the `SubRouterConfig` struct and added to the `SubRouters` slice within the main `RouterConfig`. Routes can be added declaratively within the sub-router configuration or imperatively after router creation using `RegisterGenericRouteOnSubRouter`.
+Sub-routers are defined using the `SubRouterConfig` struct and added to the `SubRouters` slice within the main `RouterConfig`. Routes can be added declaratively within the sub-router configuration or imperatively after router creation using `RegisterGenericRouteOnSubRouter` or by registering entire sub-routers with `RegisterSubRouter`.
 
 ```go
 // Define sub-router configurations
@@ -74,12 +74,18 @@ Key points:
 -   `PathPrefix`: Defines the base path for all routes within the sub-router.
 -   `TimeoutOverride`, `MaxBodySizeOverride`, `RateLimitOverride`: Allow overriding global settings specifically for this sub-router.
 -   `Routes`: A slice of `any` that can contain `RouteConfigBase` for standard routes or `GenericRouteDefinition` (created via `NewGenericRouteDefinition`) for generic routes. Paths within these routes are relative to the `PathPrefix`.
--   `Middlewares`: Middleware applied only to routes within this sub-router.
+-   `Middlewares`: Middleware applied to routes within this sub-router. These are **added to** (not replacing) any global middlewares defined in RouterConfig.
 -   `AuthLevel`: Default authentication level for all routes in this sub-router (can be overridden at the route level).
 
 ## Nested Sub-Routers
 
-You can nest `SubRouterConfig` structs within the `SubRouters` field of another `SubRouterConfig` to create hierarchical routing structures. Path prefixes are concatenated, and configuration overrides cascade down the hierarchy (inner settings override outer settings).
+You can nest `SubRouterConfig` structs within the `SubRouters` field of another `SubRouterConfig` to create hierarchical routing structures. Path prefixes are concatenated automatically.
+
+**Important notes about nested sub-routers:**
+- Path prefixes are concatenated (e.g., `/api` + `/v1` = `/api/v1`)
+- Configuration overrides (timeout, max body size, rate limit) are **not inherited** - each sub-router level must explicitly set its own overrides
+- Middlewares are **additive** - they combine as you go deeper (global + parent sub-router + child sub-router + route)
+- The most specific setting takes precedence for overrides
 
 ```go
 // Define nested structure
@@ -96,7 +102,7 @@ usersV1SubRouter := router.SubRouterConfig{
 
 apiV1SubRouter := router.SubRouterConfig{
 	PathPrefix: "/v1", // Relative to /api -> /api/v1
-	TimeoutOverride: 3 * time.Second, // Applies to /api/v1/status and potentially nested routes unless overridden again
+	TimeoutOverride: 3 * time.Second, // Applies to routes in this sub-router only, NOT inherited by nested sub-routers
 	SubRouters: []router.SubRouterConfig{usersV1SubRouter}, // Nest the users sub-router
 	Routes: []any{
 		router.RouteConfigBase{ Path: "/status", Methods: []router.HttpMethod{router.MethodGet}, Handler: V1StatusHandler }, // /api/v1/status
@@ -125,11 +131,17 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 // POST /api/v1/users/info
 ```
 
-Configuration (timeouts, body size, rate limits, auth level, middleware) cascades: Global -> Outer Sub-Router -> Inner Sub-Router -> Route. The most specific setting takes precedence.
+**Configuration precedence:**
+- **Overrides** (timeouts, body size, rate limits, auth level): The most specific setting wins (Route > Sub-Router > Global). Each level must explicitly set overrides; they are not inherited.
+- **Middlewares**: These are combined additively in order: Global → Outer Sub-Router → Inner Sub-Router → Route-specific. All applicable middlewares run in this sequence.
 
 ## Imperative Route Registration
 
-While routes can be defined declaratively within `SubRouterConfig`, you can also register generic routes imperatively after router creation using `RegisterGenericRouteOnSubRouter`. This is useful when you need to dynamically register routes or when working with generic types that require explicit type parameters.
+While routes are typically defined declaratively within `SubRouterConfig`, you can also register routes imperatively after router creation. This is useful for dynamic route registration or when working with routes that need to be conditionally added.
+
+### Registering Individual Routes
+
+Use `RegisterGenericRouteOnSubRouter` to add a single generic route to an existing sub-router:
 
 ```go
 // After creating the router
@@ -157,3 +169,57 @@ This function will:
 - Apply the sub-router's configuration (middleware, timeouts, etc.)
 - Prefix the route path with the sub-router's path prefix
 - Register the route with all appropriate settings
+
+### Registering Entire Sub-Routers
+
+You can also register complete sub-routers after router creation using `RegisterSubRouter`:
+
+```go
+// Create the router first
+r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+
+// Define a new sub-router
+adminSubRouter := router.SubRouterConfig{
+    PathPrefix: "/admin",
+    AuthLevel:  router.Ptr(router.AuthRequired), // All admin routes require auth by default
+    Routes: []any{
+        router.RouteConfigBase{
+            Path:    "/users",
+            Methods: []router.HttpMethod{router.MethodGet},
+            Handler: ListAdminUsersHandler,
+        },
+        router.RouteConfigBase{
+            Path:    "/settings",
+            Methods: []router.HttpMethod{router.MethodGet, router.MethodPost},
+            Handler: AdminSettingsHandler,
+        },
+    },
+}
+
+// Register the sub-router dynamically
+r.RegisterSubRouter(adminSubRouter)
+```
+
+### Programmatic Sub-Router Nesting
+
+For building sub-router hierarchies programmatically, use `RegisterSubRouterWithSubRouter`:
+
+```go
+// Create parent and child sub-routers
+apiRouter := router.SubRouterConfig{PathPrefix: "/api"}
+v1Router := router.SubRouterConfig{
+    PathPrefix: "/v1",
+    Routes: []any{
+        router.RouteConfigBase{
+            Path:    "/status",
+            Methods: []router.HttpMethod{router.MethodGet},
+            Handler: StatusHandler,
+        },
+    },
+}
+
+// Nest v1Router under apiRouter
+router.RegisterSubRouterWithSubRouter(&apiRouter, v1Router)
+
+// Now apiRouter contains v1Router, resulting in routes under /api/v1
+```
