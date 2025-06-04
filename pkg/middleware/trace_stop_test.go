@@ -10,7 +10,7 @@ func TestIDGeneratorStopDuringBatchFill(t *testing.T) {
 	bufferSize := 50
 	g := NewIDGenerator(bufferSize)
 	// Drain the buffer to force batch refill
-	for i := 0; i < bufferSize; i++ {
+	for range bufferSize {
 		_ = g.GetIDNonBlocking()
 	}
 
