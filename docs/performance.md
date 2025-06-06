@@ -18,7 +18,7 @@ The order in which middleware is applied matters. SRouter applies middleware by 
 4.  **Route-Specific and Sub-Router Middlewares** (`SubRouterConfig.Middlewares` and `RouteConfig.Middlewares`)
 5.  **Global Middlewares** (`RouterConfig.Middlewares`, including Trace if enabled)
 6.  **Timeout Middleware** (Applied if `timeout > 0`)
-7.  **Your Actual Handler** (`http.HandlerFunc` or `GenericHandler`)
+7.  **Shutdown and Body Size Checks**, then **Your Actual Handler**
 
 Note: The `registerSubRouter` function combines sub-router and route-specific middleware before passing the combined list to `wrapHandler`. `wrapHandler` then applies global middleware before this combined list.
 
@@ -41,7 +41,7 @@ SRouter aims to minimize memory allocations in the hot path (request processing)
 
 ## Timeouts
 
-Setting appropriate timeouts via `GlobalTimeout`, `TimeoutOverride` (sub-router), and `Timeout` (route) is crucial for both performance and stability:
+Setting appropriate timeouts via `GlobalTimeout`, the `Overrides.Timeout` field on a sub-router, and the `Overrides.Timeout` field on individual routes is crucial for both performance and stability:
 
 -   Prevents slow client connections or long-running handlers from consuming server resources indefinitely.
 -   Helps protect against certain types of Denial-of-Service (DoS) attacks.
@@ -51,7 +51,7 @@ Set timeouts based on the expected latency of the underlying operations for each
 
 ## Body Size Limits
 
-Configuring maximum request body sizes using `GlobalMaxBodySize`, `MaxBodySizeOverride` (sub-router), and `MaxBodySize` (route) is important for:
+Configuring maximum request body sizes using `GlobalMaxBodySize`, the `Overrides.MaxBodySize` field on a sub-router, and the `Overrides.MaxBodySize` field on individual routes is important for:
 
 -   **Security**: Prevents DoS attacks where clients send excessively large request bodies to exhaust server memory or bandwidth.
 -   **Performance**: Avoids processing unnecessarily large amounts of data.
