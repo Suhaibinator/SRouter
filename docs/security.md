@@ -19,8 +19,8 @@ The `IPConfig` struct has the following options:
 *   **`TrustProxy` (bool):** This is a critical security setting.
     *   When set to `true`, SRouter will trust the IP address provided in headers like `X-Forwarded-For` or `X-Real-IP` (depending on the `Source` configuration).
     *   **Security Warning:** Only set `TrustProxy` to `true` if your application is deployed behind a trusted reverse proxy or load balancer that correctly sets these headers and sanitizes them. The proxy must ensure that these headers cannot be spoofed by malicious clients. If your application is directly exposed to the internet, or if you are unsure about the configuration of your proxy, **`TrustProxy` should be set to `false`.**
-    *   If `TrustProxy` is `false` (which is the **default setting**), SRouter will always use the `RemoteAddr` from the direct incoming connection as the client IP if the configured `Source` relies on headers. This provides a more secure default by preventing IP spoofing through malicious header injection.
-    *   The default value for `TrustProxy` is `false` to prioritize security.
+    *   If `TrustProxy` is `false`, SRouter will always use the `RemoteAddr` from the direct incoming connection as the client IP if the configured `Source` relies on headers. This provides a more secure stance in environments where proxy headers could be forged.
+    *   The default value for `TrustProxy` is `true`, matching the behavior of `DefaultIPConfig`. Provide your own `IPConfig` with `TrustProxy: false` if you need to disable this.
 
 It is essential to configure these options correctly based on your deployment environment to ensure accurate and secure IP address extraction. Incorrect configuration, especially of `TrustProxy`, can lead to security vulnerabilities such as IP spoofing, where a malicious user might be able to falsify their IP address.
 
@@ -106,9 +106,9 @@ SRouter itself does not perform deep inspection or validation of the data fields
 
 ### SRouter's Built-in Mechanisms
 
-*   **Body Size Limits:** The `RouteConfig` allows setting a `MaxBodyBytes` to limit the size of incoming request bodies, which can help prevent certain types of denial-of-service attacks caused by excessively large payloads.
-*   **Generic Route Sanitizer:** For routes registered using `router.RegisterGenericRoute`, the `RouteConfig` accepts an optional `Sanitizer` function (`func(input []byte) ([]byte, error)`).
-    *   This function is executed *before* the main handler and *after* the request body has been read (up to `MaxBodyBytes`).
+*   **Body Size Limits:** The `RouteConfig` allows setting a `MaxBodySize` to limit the size of incoming request bodies, which can help prevent certain types of denial-of-service attacks caused by excessively large payloads.
+*   **Generic Route Sanitizer:** For generic routes, the `RouteConfig` accepts an optional `Sanitizer` function (`func(T) (T, error)` where `T` is the request type).
+    *   This function is executed *after* the request body has been decoded (and the size limit enforced) but *before* the main handler runs.
     *   It can be used to perform both **sanitization** (modifying the input to remove malicious parts) and **validation** (checking if the input conforms to expected formats, ranges, or patterns).
     *   If the `Sanitizer` function returns an error, the request is typically rejected by the framework with an appropriate HTTP error code (e.g., `400 Bad Request`), and the main handler is not called.
     *   Refer to the example at `examples/generic/main.go` for a demonstration of how to implement and use a `Sanitizer` function.
