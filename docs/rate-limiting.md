@@ -4,7 +4,7 @@ SRouter provides a flexible rate limiting system, configurable at the global, su
 
 ## Configuration
 
-Rate limiting is configured using the `common.RateLimitConfig` struct (defined in `pkg/common/types.go`). You can set it globally (`GlobalRateLimit` in `RouterConfig`), per sub-router (`RateLimitOverride` in `SubRouterConfig`), or per route (`RateLimit` in `RouteConfigBase` or `RouteConfig`). Settings cascade, with the most specific configuration taking precedence.
+Rate limiting is configured using the `common.RateLimitConfig` struct (defined in `pkg/common/types.go`). You can set it globally (`GlobalRateLimit` in `RouterConfig`), per sub-router via `SubRouterConfig.Overrides.RateLimit`, or per route (`Overrides.RateLimit` in `RouteConfigBase`/`RouteConfig`). Settings cascade, with the most specific configuration taking precedence.
 
 ```go
 import (
@@ -28,11 +28,13 @@ routerConfig := router.RouterConfig{
 // Example: Sub-Router Override
 subRouter := router.SubRouterConfig{
     PathPrefix: "/api/v1/sensitive",
-    RateLimitOverride: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-        BucketName: "sensitive_api_user_limit",
-        Limit:      20,
-        Window:     time.Hour,
-        Strategy:   common.RateLimitStrategyUser, // Use common constants
+    Overrides: common.RouteOverrides{
+        RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
+            BucketName: "sensitive_api_user_limit",
+            Limit:      20,
+            Window:     time.Hour,
+            Strategy:   common.RateLimitStrategyUser, // Use common constants
+        },
     },
     // ... other sub-router config
 }
