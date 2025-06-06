@@ -29,7 +29,7 @@ func TestRegisterSubRouterWithCaching(t *testing.T) {
 	// Create a sub-router with caching enabled
 	sr := SubRouterConfig{
 		PathPrefix: "/api",
-		Routes: []any{ // Changed to []any
+		Routes: []RouteDefinition{
 			RouteConfigBase{
 				Path:      "/hello",
 				Methods:   []HttpMethod{MethodGet},
@@ -92,7 +92,7 @@ func TestRegisterSubRouterWithCachingNonGetMethod(t *testing.T) {
 	// Create a sub-router with caching enabled
 	sr := SubRouterConfig{
 		PathPrefix: "/api",
-		Routes: []any{ // Changed to []any
+		Routes: []RouteDefinition{
 			RouteConfigBase{
 				Path:      "/hello",
 				Methods:   []HttpMethod{MethodPost}, // Non-GET method
@@ -141,7 +141,7 @@ func TestRegisterSubRouterWithCachingErrorCoverage(t *testing.T) { // Renamed to
 	// Create a sub-router with caching enabled
 	sr := SubRouterConfig{
 		PathPrefix: "/api",
-		Routes: []any{ // Changed to []any
+		Routes: []RouteDefinition{
 			RouteConfigBase{
 				Path:      "/hello",
 				Methods:   []HttpMethod{MethodGet},
@@ -183,7 +183,7 @@ func TestExportedRegisterSubRouter(t *testing.T) {
 
 	subRouterCfg := SubRouterConfig{
 		PathPrefix: "/export",
-		Routes: []any{ // Changed to []any
+		Routes: []RouteDefinition{
 			RouteConfigBase{
 				Path:    "/route",
 				Methods: []HttpMethod{MethodGet},
@@ -230,11 +230,13 @@ func TestRegisterSubRouter(t *testing.T) {
 	// Register a sub-router with various configurations
 	r.registerSubRouter(SubRouterConfig{
 		PathPrefix:          "/api",
-		TimeoutOverride:     2 * time.Second,
-		MaxBodySizeOverride: 1024,
+		Overrides: common.RouteOverrides{
+			Timeout:     2 * time.Second,
+			MaxBodySize: 1024,
+		},
 		// RateLimitOverride:   rateLimitConfig, // Removed to prevent 429 errors in sequential test requests
-		Middlewares: []Middleware{headerMiddleware},
-		Routes: []any{ // Changed to []any
+		Middlewares: []common.Middleware{headerMiddleware},
+		Routes: []RouteDefinition{
 			RouteConfigBase{
 				Path:      "/users",
 				Methods:   []HttpMethod{MethodGet},
@@ -259,7 +261,7 @@ func TestRegisterSubRouter(t *testing.T) {
 				Path:      "/custom-timeout",
 				Methods:   []HttpMethod{MethodGet},
 				AuthLevel: Ptr(NoAuth),     // Changed
-				Timeout:   1 * time.Second, // Override sub-router timeout
+				Overrides: common.RouteOverrides{Timeout: 1 * time.Second}, // Override sub-router timeout
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
@@ -270,7 +272,7 @@ func TestRegisterSubRouter(t *testing.T) {
 				Path:        "/custom-body-size",
 				Methods:     []HttpMethod{MethodPost},
 				AuthLevel:   Ptr(NoAuth), // Changed
-				MaxBodySize: 512,         // Override sub-router max body size
+				Overrides: common.RouteOverrides{MaxBodySize: 512}, // Override sub-router max body size
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
@@ -281,9 +283,11 @@ func TestRegisterSubRouter(t *testing.T) {
 				Path:      "/custom-rate-limit",
 				Methods:   []HttpMethod{MethodGet},
 				AuthLevel: Ptr(NoAuth), // Changed
-				RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-					Limit:  5,
-					Window: 30 * time.Second,
+				Overrides: common.RouteOverrides{
+					RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
+						Limit:  5,
+						Window: 30 * time.Second,
+					},
 				}, // Override sub-router rate limit
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
@@ -295,7 +299,7 @@ func TestRegisterSubRouter(t *testing.T) {
 				Path:      "/custom-middleware",
 				Methods:   []HttpMethod{MethodGet},
 				AuthLevel: Ptr(NoAuth), // Changed
-				Middlewares: []Middleware{
+				Middlewares: []common.Middleware{
 					func(next http.Handler) http.Handler {
 						return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 							w.Header().Set("X-Custom-Middleware", "true")
@@ -402,7 +406,7 @@ func TestRegisterSubRouterWithoutCaching(t *testing.T) {
 	// Register a sub-router with caching enabled (but router doesn't support it)
 	r.registerSubRouter(SubRouterConfig{
 		PathPrefix: "/api",
-		Routes: []any{ // Changed to []any
+		Routes: []RouteDefinition{
 			RouteConfigBase{
 				Path:      "/users",
 				Methods:   []HttpMethod{MethodGet},

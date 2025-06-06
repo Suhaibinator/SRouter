@@ -22,11 +22,11 @@ import (
 // For generic routes with type parameters, use RegisterGenericRoute function instead.
 func (r *Router[T, U]) RegisterRoute(route RouteConfigBase) {
 	// Get effective timeout, max body size, and rate limit for this route
-	timeout := r.getEffectiveTimeout(route.Timeout, 0)
-	maxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, 0)
+	timeout := r.getEffectiveTimeout(route.Overrides.Timeout, 0)
+	maxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, 0)
 	// Pass the specific route config (which is *common.RateLimitConfig[any, any])
 	// to getEffectiveRateLimit. The conversion happens inside getEffectiveRateLimit.
-	rateLimit := r.getEffectiveRateLimit(route.RateLimit, nil)
+	rateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, nil)
 
 	// Create a handler with all middlewares applied
 	handler := r.wrapHandler(route.Handler, route.AuthLevel, timeout, maxBodySize, rateLimit, route.Middlewares)
@@ -288,11 +288,11 @@ func NewGenericRouteDefinition[Req any, Resp any, UserID comparable, User any](
 		finalRouteConfig.AuthLevel = authLevel // Set the effective auth level
 
 		// Get effective timeout, max body size, rate limit considering overrides
-		effectiveTimeout := r.getEffectiveTimeout(route.Timeout, sr.TimeoutOverride)
-		effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, sr.MaxBodySizeOverride)
+		effectiveTimeout := r.getEffectiveTimeout(route.Overrides.Timeout, sr.Overrides.Timeout)
+		effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, sr.Overrides.MaxBodySize)
 		// Pass the specific route config (which is *common.RateLimitConfig[any, any])
 		// to getEffectiveRateLimit. The conversion happens inside getEffectiveRateLimit.
-		effectiveRateLimit := r.getEffectiveRateLimit(route.RateLimit, sr.RateLimitOverride)
+		effectiveRateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, sr.Overrides.RateLimit)
 
 		// Call the underlying generic registration function with the modified config and effective settings
 		RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)

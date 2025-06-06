@@ -11,6 +11,7 @@ import (
 	"time" // Added for zero value
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
+	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Import the new mocks package
 	"go.uber.org/zap"
 )
@@ -580,7 +581,7 @@ func TestRegisterGenericRouteWithMiddleware(t *testing.T) {
 		Codec:       codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:     testGenericHandler[RequestType, ResponseType],
 		SourceType:  Body,
-		Middlewares: []Middleware{middleware},
+		Middlewares: []common.Middleware{middleware},
 		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
@@ -633,7 +634,7 @@ func TestRegisterGenericRouteWithMaxBodySize(t *testing.T) {
 		Codec:       codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:     testGenericHandler[RequestType, ResponseType],
 		SourceType:  Body,
-		MaxBodySize: maxBodySize,
+		Overrides: common.RouteOverrides{MaxBodySize: maxBodySize},
 		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), maxBodySize, nil) // Use maxBodySize here, timeout 0, rate limit nil
 

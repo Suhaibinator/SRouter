@@ -37,7 +37,7 @@ type TestData struct {
 // TestRouteMatching tests that routes are matched correctly
 func TestRouteMatching(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Routes: []any{RouteConfigBase{Path: "/users/:id", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { // Changed to []any{RouteConfigBase{...}}
+	r := NewRouter(RouterConfig{Logger: logger, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Routes: []RouteDefinition{RouteConfigBase{Path: "/users/:id", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 		id := GetParam(r, "id")
 		_, err := w.Write([]byte("User ID: " + id))
 		if err != nil {
@@ -67,7 +67,7 @@ func TestRouteMatching(t *testing.T) {
 // TestSubRouterOverrides tests that sub-router overrides work correctly
 func TestSubRouterOverrides(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 1 * time.Second, SubRouters: []SubRouterConfig{{PathPrefix: "/api", TimeoutOverride: 2 * time.Second, Routes: []any{ // Changed to []any{...}
+	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 1 * time.Second, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Overrides: common.RouteOverrides{Timeout: 2 * time.Second}, Routes: []RouteDefinition{
 		RouteConfigBase{Path: "/slow", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(1500 * time.Millisecond)
 			_, err := w.Write([]byte("Slow response"))
@@ -76,7 +76,7 @@ func TestSubRouterOverrides(t *testing.T) {
 				return
 			}
 		}},
-		RouteConfigBase{Path: "/fast", Methods: []HttpMethod{MethodGet}, Timeout: 500 * time.Millisecond, Handler: func(w http.ResponseWriter, r *http.Request) {
+		RouteConfigBase{Path: "/fast", Methods: []HttpMethod{MethodGet}, Overrides: common.RouteOverrides{Timeout: 500 * time.Millisecond}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(750 * time.Millisecond)
 			_, err := w.Write([]byte("Fast response"))
 			if err != nil {
@@ -108,8 +108,8 @@ func TestSubRouterOverrides(t *testing.T) {
 // TestBodySizeLimits tests that body size limits are enforced
 func TestBodySizeLimits(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger, GlobalMaxBodySize: 10, SubRouters: []SubRouterConfig{{PathPrefix: "/api", MaxBodySizeOverride: 20, Routes: []any{ // Changed to []any{...}
-		RouteConfigBase{Path: "/small", Methods: []HttpMethod{MethodPost}, MaxBodySize: 5, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r := NewRouter(RouterConfig{Logger: logger, GlobalMaxBodySize: 10, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Overrides: common.RouteOverrides{MaxBodySize: 20}, Routes: []RouteDefinition{
+		RouteConfigBase{Path: "/small", Methods: []HttpMethod{MethodPost}, Overrides: common.RouteOverrides{MaxBodySize: 5}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			_, err := io.ReadAll(r.Body)
 			if err != nil {
 				// Check if the error is due to body size limit
@@ -261,7 +261,7 @@ func TestMiddlewareChaining(t *testing.T) {
 		Middlewares: []common.Middleware{
 			addHeaderMiddleware("SubRouter", "true"),
 		},
-		Routes: []any{testRoute}, // Changed to []any{...}
+		Routes: []RouteDefinition{testRoute},
 	}
 
 	// Define global router configuration
@@ -1461,7 +1461,7 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 		Methods: []HttpMethod{MethodPost},
 		Codec:   defCodec,
 		Handler: defHandler,
-		Middlewares: []Middleware{
+		Middlewares: []common.Middleware{
 			func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					r.Header.Set("X-Route-Mw", "route") // Use Header().Set for request modification
@@ -1469,7 +1469,9 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 				})
 			},
 		},
-		Timeout: 500 * time.Millisecond, // Specific timeout
+		Overrides: common.RouteOverrides{
+			Timeout: 500 * time.Millisecond, // Specific timeout
+		},
 	}
 
 	// Create the registration function using the helper
@@ -1477,9 +1479,11 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 
 	// Define sub-router config with overrides and middleware
 	subRouterCfg := SubRouterConfig{
-		PathPrefix:      "/sub",
-		TimeoutOverride: 1 * time.Second, // Different from route timeout
-		Middlewares: []Middleware{
+		PathPrefix: "/sub",
+		Overrides: common.RouteOverrides{
+			Timeout: 1 * time.Second, // Different from route timeout
+		},
+		Middlewares: []common.Middleware{
 			func(next http.Handler) http.Handler {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					r.Header.Set("X-Sub-Mw", "sub") // Use Header().Set for request modification
@@ -1487,7 +1491,7 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 				})
 			},
 		},
-		Routes: []any{regFunc}, // Add the registration function here
+		Routes: []RouteDefinition{regFunc}, // Add the registration function here
 	}
 
 	// Create router with the sub-router
@@ -1540,15 +1544,19 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 		Methods: []HttpMethod{MethodPost},
 		Codec:   defCodec,
 		Handler: slowHandler,
-		Timeout: 500 * time.Millisecond, // Route timeout
+		Overrides: common.RouteOverrides{
+			Timeout: 500 * time.Millisecond, // Route timeout
+		},
 	}
 	slowRegFunc := NewGenericRouteDefinition[DefReq, DefResp, string, string](slowRouteCfg)
 
 	// Create new router with this route
 	slowSubRouterCfg := SubRouterConfig{
-		PathPrefix:      "/sub-slow",
-		TimeoutOverride: 1 * time.Second, // Sub-router timeout
-		Routes:          []any{slowRegFunc},
+		PathPrefix: "/sub-slow",
+		Overrides: common.RouteOverrides{
+			Timeout: 1 * time.Second, // Sub-router timeout
+		},
+		Routes: []RouteDefinition{slowRegFunc},
 	}
 	slowRouter := NewRouter(RouterConfig{
 		Logger:     logger,
@@ -1595,7 +1603,7 @@ func TestRegisterSubRouter_UnsupportedRouteType(t *testing.T) {
 	// Define sub-router config with an invalid route type (int)
 	subRouterCfg := SubRouterConfig{
 		PathPrefix: "/invalid",
-		Routes:     []any{123}, // Add an integer, which is an unsupported type
+		Routes:     []RouteDefinition{}, // Empty routes for this test
 	}
 
 	// Create router config

@@ -143,12 +143,14 @@ func main() {
 		SubRouters: []router.SubRouterConfig{
 			// API v1 sub-router
 			{
-				PathPrefix:      "/api/v1",
-				TimeoutOverride: 2 * time.Second,
+				PathPrefix: "/api/v1",
+				Overrides: common.RouteOverrides{
+					Timeout: 2 * time.Second,
+				},
 				Middlewares: []common.Middleware{
 					VersionMiddleware("1.0"),
 				},
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:    "/users",
 						Methods: []router.HttpMethod{router.MethodGet},
@@ -173,12 +175,14 @@ func main() {
 			},
 			// API v2 sub-router
 			{
-				PathPrefix:      "/api/v2",
-				TimeoutOverride: 3 * time.Second,
+				PathPrefix: "/api/v2",
+				Overrides: common.RouteOverrides{
+					Timeout: 3 * time.Second,
+				},
 				Middlewares: []common.Middleware{
 					VersionMiddleware("2.0"),
 				},
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:    "/users",
 						Methods: []router.HttpMethod{router.MethodGet},
@@ -198,18 +202,22 @@ func main() {
 						Path:    "/slow",
 						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: slowHandler,
-						Timeout: 4 * time.Second, // Override sub-router timeout
+						Overrides: common.RouteOverrides{
+							Timeout: 4 * time.Second, // Override sub-router timeout
+						},
 					},
 				},
 			},
 			// Admin sub-router
 			{
-				PathPrefix:          "/admin",
-				MaxBodySizeOverride: 5 << 20, // 5 MB
+				PathPrefix: "/admin",
+				Overrides: common.RouteOverrides{
+					MaxBodySize: 5 << 20, // 5 MB
+				},
 				Middlewares: []common.Middleware{
 					AdminAuthMiddleware(),
 				},
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:    "/dashboard",
 						Methods: []router.HttpMethod{router.MethodGet},
@@ -235,7 +243,7 @@ func main() {
 			// Public sub-router
 			{
 				PathPrefix: "/",
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:    "/",
 						Methods: []router.HttpMethod{router.MethodGet},

@@ -60,7 +60,7 @@ type Router[T comparable, U any] struct {
 // Example:
 //
 //	parentRouter := SubRouterConfig{PathPrefix: "/api"}
-//	childRouter := SubRouterConfig{PathPrefix: "/v1", TimeoutOverride: 5*time.Second}
+//	childRouter := SubRouterConfig{PathPrefix: "/v1", Overrides: common.RouteOverrides{Timeout: 5*time.Second}}
 //	RegisterSubRouterWithSubRouter(&parentRouter, childRouter)
 //	// Results in routes under /api/v1 with the child's timeout override
 func RegisterSubRouterWithSubRouter(parent *SubRouterConfig, child SubRouterConfig) {
@@ -185,6 +185,20 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 	return r
 }
 
+// RegisterSubRouter registers a sub-router with the router after router creation.
+// This method allows dynamic registration of sub-routers at runtime.
+//
+// The sub-router's configuration is applied as follows:
+// - Path prefix is prepended to all routes in the sub-router
+// - Middlewares are added to (not replacing) global middlewares
+// - Configuration overrides (timeout, max body size, rate limit) apply only to direct routes
+// - Nested sub-routers will have their path prefixes concatenated but must set their own overrides
+//
+// This is useful for conditionally adding routes or building routes programmatically.
+func (r *Router[T, U]) RegisterSubRouter(sr SubRouterConfig) {
+	r.registerSubRouter(sr)
+}
+
 // registerSubRouter registers all routes and nested sub-routers defined in a SubRouterConfig.
 // It applies the sub-router's path prefix, overrides, and middlewares.
 // For nested sub-routers, path prefixes are concatenated but configuration overrides are not inherited.
@@ -198,9 +212,9 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 			fullPath := sr.PathPrefix + route.Path
 
 			// Get effective settings considering overrides
-			timeout := r.getEffectiveTimeout(route.Timeout, sr.TimeoutOverride)
-			maxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, sr.MaxBodySizeOverride)
-			rateLimit := r.getEffectiveRateLimit(route.RateLimit, sr.RateLimitOverride)
+			timeout := r.getEffectiveTimeout(route.Overrides.Timeout, sr.Overrides.Timeout)
+			maxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, sr.Overrides.MaxBodySize)
+			rateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, sr.Overrides.RateLimit)
 			authLevel := route.AuthLevel // Use route-specific first
 			if authLevel == nil {
 				authLevel = sr.AuthLevel // Fallback to sub-router default
@@ -273,7 +287,7 @@ func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler, routeTemp
 // 7. Shutdown check and body size limit (in the base handler)
 //
 // Middlewares are combined additively, not replaced.
-func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLevel, timeout time.Duration, maxBodySize int64, rateLimit *common.RateLimitConfig[T, U], middlewares []Middleware) http.Handler { // Use common.RateLimitConfig
+func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLevel, timeout time.Duration, maxBodySize int64, rateLimit *common.RateLimitConfig[T, U], middlewares []common.Middleware) http.Handler { // Use common.RateLimitConfig
 	// Create a base handler that only handles shutdown check and body size limit directly
 	// Timeout is now handled by timeoutMiddleware setting the context.
 	h := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -346,7 +360,7 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLeve
 // timeoutMiddleware creates a middleware that handles request timeouts.
 // It sets a context deadline and attempts to write a timeout error if the handler exceeds it,
 // but only if the handler hasn't already started writing the response.
-func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) Middleware {
+func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			if timeout <= 0 {
@@ -472,9 +486,9 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 	var subRouterRateLimit *common.RateLimitConfig[any, any] // Use common type here
 	var subRouterMiddlewares []common.Middleware
 	if sr != nil {
-		subRouterTimeout = sr.TimeoutOverride
-		subRouterMaxBodySize = sr.MaxBodySizeOverride
-		subRouterRateLimit = sr.RateLimitOverride // This is already common.RateLimitConfig[any, any]
+		subRouterTimeout = sr.Overrides.Timeout
+		subRouterMaxBodySize = sr.Overrides.MaxBodySize
+		subRouterRateLimit = sr.Overrides.RateLimit // This is already common.RateLimitConfig[any, any]
 		subRouterMiddlewares = sr.Middlewares
 	}
 
@@ -492,9 +506,9 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 	finalRouteConfig.Middlewares = allMiddlewares                    // Overwrite middlewares in the config passed down
 
 	// Get effective timeout, max body size, rate limit considering overrides
-	effectiveTimeout := r.getEffectiveTimeout(route.Timeout, subRouterTimeout)
-	effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.MaxBodySize, subRouterMaxBodySize)
-	effectiveRateLimit := r.getEffectiveRateLimit(route.RateLimit, subRouterRateLimit) // This returns *common.RateLimitConfig[UserID, User]
+	effectiveTimeout := r.getEffectiveTimeout(route.Overrides.Timeout, subRouterTimeout)
+	effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, subRouterMaxBodySize)
+	effectiveRateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, subRouterRateLimit) // This returns *common.RateLimitConfig[UserID, User]
 
 	// Call the underlying generic registration function with the modified config
 	RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
@@ -1006,7 +1020,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 	w.WriteHeader(statusCode)
 
 	// Prepare the JSON payload
-	errorPayload := map[string]interface{}{
+	errorPayload := map[string]any{
 		"error": map[string]string{
 			"message": message,
 		},

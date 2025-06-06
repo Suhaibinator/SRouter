@@ -56,10 +56,12 @@ func main() {
 		Middlewares:       []common.Middleware{},
 		SubRouters: []router.SubRouterConfig{
 			{
-				PathPrefix:          "/api",
-				TimeoutOverride:     3 * time.Second,
-				MaxBodySizeOverride: 2 << 20, // 2 MB
-				Routes: []any{ // Changed to []any
+				PathPrefix: "/api",
+				Overrides: common.RouteOverrides{
+					Timeout:     3 * time.Second,
+					MaxBodySize: 2 << 20, // 2 MB
+				},
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:      "/health",
 						Methods:   []router.HttpMethod{router.MethodGet},
@@ -99,9 +101,11 @@ func main() {
 		Path:      "/users", // Relative path
 		Methods:   []router.HttpMethod{router.MethodPost},
 		AuthLevel: router.Ptr(router.AuthRequired), // Changed
-		Timeout:   3 * time.Second,                 // Route-specific override (will be used by getEffectiveTimeout)
-		Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
-		Handler:   CreateUserHandler,
+		Overrides: common.RouteOverrides{
+			Timeout: 3 * time.Second, // Route-specific override (will be used by getEffectiveTimeout)
+		},
+		Codec:   codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
+		Handler: CreateUserHandler,
 	}
 	err := router.RegisterGenericRouteOnSubRouter[CreateUserReq, CreateUserResp, string, string](
 		r,
