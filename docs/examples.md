@@ -24,6 +24,7 @@ Here's a brief overview of the available examples (refer to the source code and 
 -   **`/examples/rate-limiting`**: Shows how to configure IP-based, user-based, and potentially custom rate limiting strategies using `RateLimitConfig`.
 -   **`/examples/graceful-shutdown`**: Provides a complete example of handling OS signals (SIGINT, SIGTERM) for graceful server shutdown using `http.Server.Shutdown` and `router.Shutdown`.
 -   **`/examples/trace-logging`**: Demonstrates enabling and using trace IDs for correlating logs within a request lifecycle.
+-   **`/examples/cors-error-test`**: Demonstrates handling CORS preflight and error scenarios, including how SRouter writes CORS headers on error responses.
 -   **`/examples/source-types`**: Shows how to use different `SourceType` options (Body, Base64QueryParameter, Base64PathParameter, etc.) for generic routes.
 -   **`/examples/codec`**: Illustrates using different codecs, particularly `JSONCodec` and `ProtoCodec` (including the required factory function for proto).
 -   **`/examples/prometheus`**: Example of integrating SRouter's metrics system with Prometheus by providing a Prometheus-based implementation of the `metrics.MetricsRegistry` interface and showing how the application can expose the metrics via an HTTP handler.
