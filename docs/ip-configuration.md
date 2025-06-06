@@ -22,7 +22,7 @@ routerConfig := router.RouterConfig{
 r := router.NewRouter[string, string](routerConfig, /* auth funcs */)
 ```
 
-If `IPConfig` is `nil` or not provided, SRouter defaults to using `Source: router.IPSourceXForwardedFor` and `TrustProxy: true`. If you want to explicitly use only `RemoteAddr`, you must provide an `IPConfig` like:
+If `IPConfig` is `nil` or not provided, SRouter **does not** inspect any proxy headers. It simply uses `r.RemoteAddr` (equivalent to `Source: router.IPSourceRemoteAddr`) and therefore does not trust proxy-provided IPs. To enable header-based extraction, supply an `IPConfig` like:
 
 ```go
 routerConfig := router.RouterConfig{
@@ -40,7 +40,7 @@ routerConfig := router.RouterConfig{
 The `Source` field in `router.IPConfig` determines where SRouter attempts to find the client IP. It uses constants of type `router.IPSourceType` defined in `pkg/router/ip.go`:
 
 1.  **`router.IPSourceRemoteAddr`**: Uses the `r.RemoteAddr` field directly. This is the IP address of the immediate peer connecting to your server (which might be the proxy itself).
-2.  **`router.IPSourceXForwardedFor`**: (Default `Source` if `IPConfig` is nil) Uses the `X-Forwarded-For` header. This header can contain a comma-separated list of IPs (`client, proxy1, proxy2`). SRouter extracts the *first* IP in the list as the original client IP when `TrustProxy` is true.
+2.  **`router.IPSourceXForwardedFor`**: Uses the `X-Forwarded-For` header. This header can contain a comma-separated list of IPs (`client, proxy1, proxy2`). SRouter extracts the *first* IP in the list as the original client IP when `TrustProxy` is true.
 3.  **`router.IPSourceXRealIP`**: Uses the `X-Real-IP` header. This header is often set by proxies like Nginx to contain only the original client IP.
 4.  **`router.IPSourceCustomHeader`**: Uses a custom header name specified in the `CustomHeader` field of `IPConfig`.
 
@@ -61,7 +61,7 @@ routerConfig := router.RouterConfig{
 
 The `TrustProxy` boolean field is critical for security:
 
--   **`TrustProxy: true`**: (Default if `IPConfig` is nil) SRouter will attempt to extract the IP from the header specified by `Source`. If the header is missing or invalid, it falls back to `r.RemoteAddr`. **Only use this if you are certain your proxy correctly sets and sanitizes the relevant header.** Otherwise, a client could spoof their IP address by sending a fake header.
+-   **`TrustProxy: true`**: SRouter will attempt to extract the IP from the header specified by `Source`. If the header is missing or invalid, it falls back to `r.RemoteAddr`. **Only use this if you are certain your proxy correctly sets and sanitizes the relevant header.** Otherwise, a client could spoof their IP address by sending a fake header.
 -   **`TrustProxy: false`**: SRouter will *ignore* the specified `Source` header (even if set to `IPSourceXForwardedFor`, etc.) and *always* use `r.RemoteAddr`. This is the safer option if you are unsure about your proxy setup or don't run behind a trusted proxy.
 
 ## Accessing the Client IP
