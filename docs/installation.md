@@ -17,7 +17,6 @@ go get github.com/Suhaibinator/SRouter
   - [github.com/google/uuid](https://github.com/google/uuid) v1.6.0+ (Used internally, e.g., trace IDs)
   - [go.uber.org/ratelimit](https://github.com/uber-go/ratelimit) v0.3.1+ (Used by built-in rate limiting middleware)
   - [google.golang.org/protobuf](https://github.com/protocolbuffers/protobuf-go) (Required if using `ProtoCodec`)
-  - [github.com/julien040/go-ternary](https://github.com/julien040/go-ternary) (Used internally)
   - [gorm.io/gorm](https://gorm.io/) (Required if using `GormTransactionWrapper` or related DB features)
   - Metrics dependencies (e.g., [github.com/prometheus/client_golang](https://github.com/prometheus/client_golang)) if using the metrics system.
 
