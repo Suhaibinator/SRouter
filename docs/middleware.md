@@ -104,7 +104,7 @@ Middleware can be applied at three levels:
 routerConfig := router.RouterConfig{
     // ... logger, etc.
     Middlewares: []common.Middleware{
-        // middleware.CreateTraceMiddleware(idGen), // Global: Added automatically if TraceIDBufferSize > 0
+        // middleware.CreateTraceMiddleware[T, U](idGen), // Global: Added automatically if TraceIDBufferSize > 0
         // middleware.Recovery, // Global: Applied internally by SRouter
         mymiddleware.AddHeaderMiddleware("X-Global", "true"), // Global: Custom middleware
         // Note: Request logging is handled internally if EnableTraceLogging is true
@@ -116,7 +116,7 @@ routerConfig := router.RouterConfig{
                 MyCustomAuthMiddleware(), // Sub-Router: Runs before global middleware
                 mymiddleware.AddHeaderMiddleware("X-API-Version", "v1"), // Sub-Router: Custom middleware
             },
-            Routes: []any{
+            Routes: []router.RouteDefinition{
                 router.RouteConfigBase{
                     Path: "/users",
                     Methods: []router.HttpMethod{router.MethodGet},
@@ -163,7 +163,7 @@ SRouter provides several built-in middleware functions and applies others intern
 -   **`Recovery`**: Recovers from panics. Applied internally by SRouter, usually no need to add manually.
 -   **`MaxBodySize(limit int64)`**: Limits request body size. Applied internally based on config, usually no need to add manually.
 -   **`Timeout(timeout time.Duration)`**: Applies a request timeout using context. Applied internally based on config, usually no need to add manually.
--   **`CreateTraceMiddleware(idGen *IDGenerator)`**: Creates the trace ID middleware. Added automatically to global middleware if `RouterConfig.TraceIDBufferSize > 0`. See [Trace ID Logging](./trace-logging.md).
+    -   **`CreateTraceMiddleware[T, U](idGen *IDGenerator)`**: Creates the trace ID middleware. Added automatically to global middleware if `RouterConfig.TraceIDBufferSize > 0`. See [Trace ID Logging](./trace-logging.md).
 -   **`RateLimit(config *common.RateLimitConfig[T, U], limiter common.RateLimiter, logger *zap.Logger)`**: Applies rate limiting. Applied internally based on config, usually no need to add manually. See [Rate Limiting](./rate-limiting.md).
 -   **`NewGormTransactionWrapper`**: Wrapper for GORM transactions (used with `scontext`). See [Context Management](./context-management.md).
 

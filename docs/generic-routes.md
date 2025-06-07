@@ -48,12 +48,17 @@ type CreateUserResp struct {
 
 // Define the route configuration
 createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
- Path:        "/users",
- Methods:     []router.HttpMethod{router.MethodPost},
- AuthLevel:   router.Ptr(router.AuthRequired), // Example: Requires authentication
- Codec:       codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Specify the codec
- Handler:     CreateUserHandler, // Assign the generic handler
- // Middlewares, Timeout, MaxBodySize, RateLimit can be set here too
+ Path:      "/users",
+ Methods:   []router.HttpMethod{router.MethodPost},
+ AuthLevel: router.Ptr(router.AuthRequired), // Example: Requires authentication
+ Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Specify the codec
+ Handler:   CreateUserHandler, // Assign the generic handler
+ // Optional overrides for timeout, body size, or rate limit
+ Overrides: common.RouteOverrides{
+     // Timeout:     3 * time.Second,
+     // MaxBodySize: 2 << 20, // 2 MB
+     // RateLimit:   &common.RateLimitConfig[any, any]{...},
+ },
  Sanitizer: func(req CreateUserReq) (CreateUserReq, error) { // Optional: Sanitize data after decoding
   if req.Name == "invalid" {
    return CreateUserReq{}, router.NewHTTPError(http.StatusBadRequest, "Invalid name provided")
@@ -77,7 +82,7 @@ createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{ /* ... */ 
 apiV1SubRouter := router.SubRouterConfig{
     PathPrefix: "/api/v1",
     // Middlewares specific to this sub-router can go here
-    Routes: []any{
+    Routes: []router.RouteDefinition{
         // ... other routes (RouteConfigBase or other NewGenericRouteDefinition calls) ...
 
         // Use NewGenericRouteDefinition to wrap the generic RouteConfig.
@@ -85,7 +90,12 @@ apiV1SubRouter := router.SubRouterConfig{
         // UserIDType and UserObjectType used in NewRouter[UserIDType, UserObjectType].
         router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, string, string](createUserRoute),
     },
-    // TimeoutOverride, MaxBodySizeOverride, RateLimitOverride can be set here
+    // Optional overrides for all routes in this sub-router
+    Overrides: common.RouteOverrides{
+        // Timeout:     5 * time.Second,
+        // MaxBodySize: 4 << 20,
+        // RateLimit:   &common.RateLimitConfig[any, any]{...},
+    },
 }
 
 // This SubRouterConfig is then included in the main RouterConfig.SubRouters slice
