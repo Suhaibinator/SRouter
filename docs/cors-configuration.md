@@ -52,11 +52,12 @@ When `CORSConfig` is provided:
 
 1.  **Incoming Request Check**: For every incoming request, SRouter checks for an `Origin` header.
 2.  **Origin Matching**: It compares the request's `Origin` against the configured `Origins` list.
-3.  **Context Update**: The result of the CORS check (the allowed origin, if any, and whether credentials are allowed) is stored in the request context using `scontext.WithCORSInfo`. This uses the router's specific generic types (`T`, `U`) ensuring context consistency.
-4.  **Response Header Setting**: Appropriate CORS headers (`Access-Control-Allow-Origin`, `Access-Control-Allow-Credentials`, `Vary: Origin`, `Access-Control-Expose-Headers`) are set on the response *before* the request handler or other middleware are called.
-5.  **Preflight Handling**: If the request method is `OPTIONS` (a preflight request), SRouter checks the requested method (`Access-Control-Request-Method`) and headers (`Access-Control-Request-Headers`) against the configured `Methods` and `Headers`.
+3.  **Context Update**: The outcome of the CORS check is stored in the request context using `scontext.WithCORSInfo`. If the `Origin` header is missing or not permitted, empty values are recorded so later middleware and error handlers know not to emit CORS headers. This uses the router's generic types (`T`, `U`).
+4.  **Disallowed Origin Requests**: If the origin is not allowed and the request is not a preflight `OPTIONS`, SRouter simply forwards the request without adding any CORS headers. The browser will block the response because the required CORS headers are missing.
+5.  **Response Header Setting**: Appropriate CORS headers (`Access-Control-Allow-Origin`, `Access-Control-Allow-Credentials`, `Vary: Origin`, `Access-Control-Expose-Headers`) are set on the response *before* the request handler or other middleware are called.
+6.  **Preflight Handling**: If the request method is `OPTIONS` (a preflight request), SRouter checks the requested method (`Access-Control-Request-Method`) and headers (`Access-Control-Request-Headers`) against the configured `Methods` and `Headers`.
     -   If allowed, it sets the necessary preflight response headers (`Access-Control-Allow-Methods`, `Access-Control-Allow-Headers`, `Access-Control-Max-Age`) and responds with `204 No Content`, terminating the request chain.
     -   If not allowed, it still responds with `204 No Content` but *without* the `Allow-*` headers, signaling failure to the browser.
-6.  **Error Handling**: The `writeJSONError` function also checks the context for CORS information and sets the appropriate `Access-Control-Allow-Origin` and `Access-Control-Allow-Credentials` headers on error responses, ensuring CORS compliance even when errors occur.
+7.  **Error Handling**: The `writeJSONError` function also checks the context for CORS information and sets the appropriate `Access-Control-Allow-Origin` and `Access-Control-Allow-Credentials` headers on error responses, ensuring CORS compliance even when errors occur.
 
 This integrated approach ensures that CORS is handled consistently and correctly across all requests and responses, including errors, without needing a separate middleware step.

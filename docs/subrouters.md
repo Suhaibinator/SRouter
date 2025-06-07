@@ -9,12 +9,15 @@ Sub-routers are defined using the `SubRouterConfig` struct and added to the `Sub
 ```go
 // Define sub-router configurations
 apiV1SubRouter := router.SubRouterConfig{
-	PathPrefix:          "/api/v1",
-	TimeoutOverride:     3 * time.Second,     // Overrides GlobalTimeout
-	MaxBodySizeOverride: 2 << 20,         // 2 MB, overrides GlobalMaxBodySize
-	// Middlewares specific to /api/v1 routes can be added here
-	// Middlewares: []common.Middleware{ myV1Middleware },
-	Routes: []any{ // Use []any to hold different route types (RouteConfigBase or GenericRouteDefinition)
+        PathPrefix: "/api/v1",
+        Overrides: common.RouteOverrides{
+                Timeout:     3 * time.Second,     // Overrides GlobalTimeout
+                MaxBodySize: 2 << 20,         // 2 MB, overrides GlobalMaxBodySize
+                // RateLimit: &common.RateLimitConfig[any, any]{...},
+        },
+        // Middlewares specific to /api/v1 routes can be added here
+        // Middlewares: []common.Middleware{ myV1Middleware },
+        Routes: []router.RouteDefinition{
 		// Standard route
 		router.RouteConfigBase{
 			Path:    "/users", // Becomes /api/v1/users
@@ -41,8 +44,8 @@ apiV1SubRouter := router.SubRouterConfig{
 }
 
 apiV2SubRouter := router.SubRouterConfig{
-	PathPrefix: "/api/v2",
-	Routes: []any{ // Use []any
+        PathPrefix: "/api/v2",
+        Routes: []router.RouteDefinition{
 		router.RouteConfigBase{
 			Path:    "/users", // Becomes /api/v2/users
 			Methods: []router.HttpMethod{router.MethodGet},
@@ -72,8 +75,8 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 Key points:
 
 -   `PathPrefix`: Defines the base path for all routes within the sub-router.
--   `TimeoutOverride`, `MaxBodySizeOverride`, `RateLimitOverride`: Allow overriding global settings specifically for this sub-router.
--   `Routes`: A slice of `any` that can contain `RouteConfigBase` for standard routes or `GenericRouteDefinition` (created via `NewGenericRouteDefinition`) for generic routes. Paths within these routes are relative to the `PathPrefix`.
+-   `Overrides`: `common.RouteOverrides` allowing timeout, body size, or rate limit overrides specific to this sub-router.
+-   `Routes`: A slice of `router.RouteDefinition` that can contain `RouteConfigBase` or `GenericRouteDefinition`. Paths within these routes are relative to the `PathPrefix`.
 -   `Middlewares`: Middleware applied to routes within this sub-router. These are **added to** (not replacing) any global middlewares defined in RouterConfig.
 -   `AuthLevel`: Default authentication level for all routes in this sub-router (can be overridden at the route level).
 
@@ -90,9 +93,9 @@ You can nest `SubRouterConfig` structs within the `SubRouters` field of another 
 ```go
 // Define nested structure
 usersV1SubRouter := router.SubRouterConfig{
-	PathPrefix: "/users", // Relative to /api/v1 -> /api/v1/users
-	// TimeoutOverride: 1 * time.Second, // Could override /api/v1's timeout
-	Routes: []any{
+        PathPrefix: "/users", // Relative to /api/v1 -> /api/v1/users
+        // Overrides: common.RouteOverrides{Timeout: 1 * time.Second}, // Could override /api/v1's timeout
+        Routes: []router.RouteDefinition{
 		router.RouteConfigBase{ Path: "/:id", Methods: []router.HttpMethod{router.MethodGet}, Handler: GetUserHandler }, // /api/v1/users/:id
 		router.NewGenericRouteDefinition[UserReq, UserResp, string, string]( // Assume types/codec/handler exist
 			router.RouteConfig[UserReq, UserResp]{ Path: "/info", Methods: []router.HttpMethod{router.MethodPost}, Codec: userCodec, Handler: UserInfoHandler }, // /api/v1/users/info
@@ -101,18 +104,18 @@ usersV1SubRouter := router.SubRouterConfig{
 }
 
 apiV1SubRouter := router.SubRouterConfig{
-	PathPrefix: "/v1", // Relative to /api -> /api/v1
-	TimeoutOverride: 3 * time.Second, // Applies to routes in this sub-router only, NOT inherited by nested sub-routers
-	SubRouters: []router.SubRouterConfig{usersV1SubRouter}, // Nest the users sub-router
-	Routes: []any{
+        PathPrefix: "/v1", // Relative to /api -> /api/v1
+        Overrides: common.RouteOverrides{Timeout: 3 * time.Second}, // Applies to routes in this sub-router only, NOT inherited by nested sub-routers
+        SubRouters: []router.SubRouterConfig{usersV1SubRouter}, // Nest the users sub-router
+        Routes: []router.RouteDefinition{
 		router.RouteConfigBase{ Path: "/status", Methods: []router.HttpMethod{router.MethodGet}, Handler: V1StatusHandler }, // /api/v1/status
 	},
 }
 
 apiSubRouter := router.SubRouterConfig{
-	PathPrefix: "/api", // Root prefix for this group
-	SubRouters: []router.SubRouterConfig{apiV1SubRouter}, // Nest the v1 sub-router
-	Routes: []any{
+        PathPrefix: "/api", // Root prefix for this group
+        SubRouters: []router.SubRouterConfig{apiV1SubRouter}, // Nest the v1 sub-router
+        Routes: []router.RouteDefinition{
 		router.RouteConfigBase{ Path: "/health", Methods: []router.HttpMethod{router.MethodGet}, Handler: HealthHandler }, // /api/health
 	},
 }
@@ -182,7 +185,7 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 adminSubRouter := router.SubRouterConfig{
     PathPrefix: "/admin",
     AuthLevel:  router.Ptr(router.AuthRequired), // All admin routes require auth by default
-    Routes: []any{
+    Routes: []router.RouteDefinition{
         router.RouteConfigBase{
             Path:    "/users",
             Methods: []router.HttpMethod{router.MethodGet},
@@ -209,7 +212,7 @@ For building sub-router hierarchies programmatically, use `RegisterSubRouterWith
 apiRouter := router.SubRouterConfig{PathPrefix: "/api"}
 v1Router := router.SubRouterConfig{
     PathPrefix: "/v1",
-    Routes: []any{
+    Routes: []router.RouteDefinition{
         router.RouteConfigBase{
             Path:    "/status",
             Methods: []router.HttpMethod{router.MethodGet},

@@ -56,6 +56,7 @@ SRouter defines constants for the available source types in the `router` package
     *   Retrieves data from a **Base64-encoded** string in a named path parameter.
     *   The route's `Path` must include a corresponding named parameter (e.g., `/:data`).
     *   `SourceKey` specifies the name of the path parameter (e.g., `data`).
+    *   If `SourceKey` is empty, the first path parameter in the request URL is used.
     *   The parameter value is Base64-decoded, and the bytes are passed to the `Codec`'s `DecodeBytes` method.
 
     ```go
@@ -72,6 +73,7 @@ SRouter defines constants for the available source types in the `router` package
 5.  **`router.Base62PathParameter`**:
     *   Similar to `Base64PathParameter`, but uses **Base62 encoding**.
     *   Retrieves data from a Base62-encoded string in a named path parameter specified by `SourceKey`.
+    *   If `SourceKey` is empty, the first path parameter in the request URL is used.
     *   The parameter value is Base62-decoded, and the bytes are passed to the `Codec`'s `DecodeBytes` method.
 
     ```go
@@ -84,6 +86,11 @@ SRouter defines constants for the available source types in the `router` package
         SourceKey:  "p", // Matches the :p name in the Path
     }
     ```
+
+
+6.  **`router.Empty`**:
+    *   No request decoding is performed. The handler receives the zero value of the request type.
+    *   Useful for endpoints that do not accept input but still use generic handlers.
 
 ## Codec Requirement
 

@@ -41,7 +41,7 @@ SRouter aims to minimize memory allocations in the hot path (request processing)
 
 ## Timeouts
 
-Setting appropriate timeouts via `GlobalTimeout`, `TimeoutOverride` (sub-router), and `Timeout` (route) is crucial for both performance and stability:
+Setting appropriate timeouts via `GlobalTimeout`, `SubRouterConfig.Overrides.Timeout`, and route-level `Overrides.Timeout` is crucial for both performance and stability:
 
 -   Prevents slow client connections or long-running handlers from consuming server resources indefinitely.
 -   Helps protect against certain types of Denial-of-Service (DoS) attacks.
@@ -51,7 +51,7 @@ Set timeouts based on the expected latency of the underlying operations for each
 
 ## Body Size Limits
 
-Configuring maximum request body sizes using `GlobalMaxBodySize`, `MaxBodySizeOverride` (sub-router), and `MaxBodySize` (route) is important for:
+Configuring maximum request body sizes using `GlobalMaxBodySize`, `SubRouterConfig.Overrides.MaxBodySize`, and route-level `Overrides.MaxBodySize` is important for:
 
 -   **Security**: Prevents DoS attacks where clients send excessively large request bodies to exhaust server memory or bandwidth.
 -   **Performance**: Avoids processing unnecessarily large amounts of data.
