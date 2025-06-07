@@ -31,10 +31,13 @@ type DatabaseTransaction interface {
 // SRouterContext holds values added to the request context by SRouter components.
 // T is the UserID type (comparable), U is the User object type (any).
 type SRouterContext[T comparable, U any] struct {
-	// UserID holds the authenticated user's ID.
-	UserID T
-	// User holds a pointer to the authenticated user object.
-	User *U // Pointer to avoid copying potentially large structs
+        // UserID holds the authenticated user's ID.
+        UserID T
+        // User holds a pointer to the authenticated user object.
+        User *U // Pointer to avoid copying potentially large structs
+
+        // TraceID holds the unique identifier for the request trace.
+        TraceID string
 
         // ClientIP holds the determined client IP address.
         ClientIP string
@@ -42,35 +45,56 @@ type SRouterContext[T comparable, U any] struct {
         // UserAgent holds the user agent string from the request.
         UserAgent string
 
-	// TraceID holds the unique identifier for the request trace.
-	TraceID string
+        // Transaction holds an active database transaction object.
+        // It uses the DatabaseTransaction interface for abstraction.
+        Transaction DatabaseTransaction
 
-	// Transaction holds an active database transaction object.
-	// It uses the DatabaseTransaction interface for abstraction.
-	Transaction DatabaseTransaction
+        // Route information
+        RouteTemplate string
+        PathParams    httprouter.Params
 
-	// --- Internal tracking flags ---
+        // CORS information determined by middleware
+        AllowedOrigin      string
+        CredentialsAllowed bool
+        RequestedHeaders   string // Stores the requested headers from CORS preflight requests
 
-	// UserIDSet indicates if the UserID field has been explicitly set.
-	UserIDSet bool
-	// UserSet indicates if the User field has been explicitly set.
-	UserSet bool
+        // --- Internal tracking flags ---
+
+        // UserIDSet indicates if the UserID field has been explicitly set.
+        UserIDSet bool
+        // UserSet indicates if the User field has been explicitly set.
+        UserSet bool
         // ClientIPSet indicates if the ClientIP field has been explicitly set.
         ClientIPSet bool
         // UserAgentSet indicates if the UserAgent field has been explicitly set.
         UserAgentSet bool
-	// TraceIDSet indicates if the TraceID field has been explicitly set.
-	TraceIDSet bool
-	// TransactionSet indicates if the Transaction field has been explicitly set.
-	TransactionSet bool
+        // TraceIDSet indicates if the TraceID field has been explicitly set.
+        TraceIDSet bool
+        // TransactionSet indicates if the Transaction field has been explicitly set.
+        TransactionSet bool
+        // RouteTemplateSet indicates if the RouteTemplate/PathParams have been set.
+        RouteTemplateSet bool
+        // AllowedOriginSet indicates if AllowedOrigin has been set.
+        AllowedOriginSet bool
+        // CredentialsAllowedSet indicates if CredentialsAllowed has been set.
+        CredentialsAllowedSet bool
+        // RequestedHeadersSet indicates if RequestedHeaders has been set.
+        RequestedHeadersSet bool
 
-	// Flags allow storing arbitrary boolean flags.
-	Flags map[string]bool
+        // Flags allow storing arbitrary boolean flags.
+        Flags map[string]bool
 }
 
 // Helper functions like NewSRouterContext, GetSRouterContext, WithSRouterContext,
 // EnsureSRouterContext are also defined in pkg/scontext.
 ```
+
+The router automatically populates route metadata (template and path parameters)
+using `scontext.WithRouteInfo` whenever a request matches a registered route.
+Similarly, CORS processing stores the allowed origin, credential flag and any
+requested headers via `scontext.WithCORSInfo` and
+`scontext.WithCORSRequestedHeaders`. These values can be retrieved by handlers
+with the corresponding `Get*FromRequest` helper functions.
 
 The type parameters `T` (UserID type) and `U` (User object type) must match the types used when creating the `router.NewRouter[T, U]` instance.
 
@@ -92,7 +116,7 @@ This approach offers several advantages over traditional `context.WithValue` nes
 
 ## Adding Values to Context (Middleware Authors)
 
-Middleware should use the provided helper functions from the `pkg/scontext` package (like `scontext.WithUserID`, `scontext.WithUser`, `scontext.WithClientIP`, `scontext.WithUserAgent`, `scontext.WithTraceID`, `scontext.WithFlag`, `scontext.WithTransaction`) to add values. These functions handle creating or updating the `SRouterContext` wrapper within the `context.Context`.
+Middleware should use the provided helper functions from the `pkg/scontext` package (like `scontext.WithUserID`, `scontext.WithUser`, `scontext.WithClientIP`, `scontext.WithUserAgent`, `scontext.WithTraceID`, `scontext.WithFlag`, `scontext.WithTransaction`, `scontext.WithRouteInfo`, `scontext.WithCORSInfo`, and `scontext.WithCORSRequestedHeaders`) to add values. These functions handle creating or updating the `SRouterContext` wrapper within the `context.Context`.
 
 ```go
 // Example within a middleware:
@@ -189,8 +213,24 @@ func myHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // Get Trace ID
-    traceID := scontext.GetTraceIDFromRequest[string, MyUserType](r) // Use the correct function
+    traceID := scontext.GetTraceIDFromRequest[string, MyUserType](r)
     fmt.Printf("Trace ID: %s\n", traceID)
+
+    // Get route metadata
+    route, ok := scontext.GetRouteTemplateFromRequest[string, MyUserType](r)
+    if ok {
+        fmt.Printf("Route Template: %s\n", route)
+    }
+    params, ok := scontext.GetPathParamsFromRequest[string, MyUserType](r)
+    if ok {
+        fmt.Printf("Path Params: %v\n", params)
+    }
+
+    // Get CORS information (if set)
+    allowOrigin, allowCreds, ok := scontext.GetCORSInfoFromRequest[string, MyUserType](r)
+    if ok {
+        fmt.Printf("CORS Origin: %s (Credentials: %t)\n", allowOrigin, allowCreds)
+    }
 
     // Get a custom boolean flag
     isAdmin, ok := scontext.GetFlagFromRequest[string, MyUserType](r, "is_admin")
