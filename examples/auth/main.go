@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"go.uber.org/zap"
@@ -57,7 +58,7 @@ func main() {
 		SubRouters: []router.SubRouterConfig{
 			{
 				PathPrefix: "/public",
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:    "/resource",
 						Methods: []router.HttpMethod{router.MethodGet},
@@ -67,29 +68,29 @@ func main() {
 			},
 			{
 				PathPrefix: "/bearer-auth",
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:        "/resource",
 						Methods:     []router.HttpMethod{router.MethodGet},
-						Middlewares: []router.Middleware{bearerTokenMiddleware},
+						Middlewares: []common.Middleware{bearerTokenMiddleware},
 						Handler:     protectedHandler,
 					},
 				},
 			},
 			{
 				PathPrefix: "/api-key-auth",
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:        "/resource",
 						Methods:     []router.HttpMethod{router.MethodGet},
-						Middlewares: []router.Middleware{apiKeyMiddleware},
+						Middlewares: []common.Middleware{apiKeyMiddleware},
 						Handler:     protectedHandler,
 					},
 				},
 			},
 			{
 				PathPrefix: "/require-auth",
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:      "/resource",
 						Methods:   []router.HttpMethod{router.MethodGet},

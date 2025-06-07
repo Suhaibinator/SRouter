@@ -56,7 +56,7 @@ func main() {
 		SubRouters: []router.SubRouterConfig{
 			{
 				PathPrefix: "/api",
-				Routes: []any{
+				Routes: []router.RouteDefinition{
 					// Route that will return an error
 					router.NewGenericRouteDefinition[TestRequest, *TestResponse, string, string](
 						router.RouteConfig[TestRequest, *TestResponse]{

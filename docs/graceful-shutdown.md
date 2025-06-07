@@ -4,7 +4,7 @@ Properly shutting down your HTTP server is crucial to avoid abruptly terminating
 
 ## Router Shutdown Method
 
-The SRouter instance (`*router.Router`) itself has a `Shutdown` method. This method is primarily responsible for signaling internal components, like the rate limiter (if used), to stop accepting new requests and potentially clean up resources.
+The SRouter instance (`*router.Router`) itself has a `Shutdown` method. Calling this marks the router as shutting down so no new requests are served, waits for any in‑flight requests to finish, and stops internal components such as the trace ID generator (if enabled).
 
 ```go
 // func (r *Router[T, U]) Shutdown(ctx context.Context) error
@@ -71,7 +71,7 @@ func main() {
 
 	// --- Perform Shutdown ---
 
-	// 1. Shut down the SRouter instance (signals internal components like rate limiter)
+        // 1. Shut down the SRouter instance (stops new requests and halts internal components like the trace ID generator)
 	// It's generally good practice to shut down the router logic first.
 	if err := r.Shutdown(ctx); err != nil {
 		log.Printf("SRouter shutdown failed: %v\n", err)

@@ -168,7 +168,7 @@ func main() {
 				Middlewares: []common.Middleware{
 					TimingMiddleware(), // Measure request time
 				},
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{ // Changed to []router.RouteDefinition
 					router.RouteConfigBase{
 						Path:    "/hello",
 						Methods: []router.HttpMethod{router.MethodGet},
@@ -191,7 +191,7 @@ func main() {
 				Middlewares: []common.Middleware{
 					RateLimitMiddleware(2), // Limit to 2 requests per second
 				},
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{ // Changed to []router.RouteDefinition
 					router.RouteConfigBase{
 						Path:    "/resource",
 						Methods: []router.HttpMethod{router.MethodGet},

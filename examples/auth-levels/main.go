@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/middleware" // Keep for AuthenticationWithUser
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
@@ -121,7 +122,7 @@ func main() {
 		SubRouters: []router.SubRouterConfig{
 			{
 				PathPrefix: "/auth-levels",
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:      "/no-auth",
 						Methods:   []router.HttpMethod{router.MethodGet},
@@ -132,7 +133,7 @@ func main() {
 						Path:      "/optional-auth",
 						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.AuthOptional), // Authentication is optional. OPTIONS requests are automatically allowed.
-						Middlewares: []router.Middleware{
+						Middlewares: []common.Middleware{
 							middleware.AuthenticationWithUser[*User](customUserAuth), // Middleware to add user to context if authenticated
 						},
 						Handler: optionalAuthHandler,
@@ -141,7 +142,7 @@ func main() {
 						Path:      "/required-auth",
 						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.AuthRequired), // Authentication is required. OPTIONS requests are automatically allowed.
-						Middlewares: []router.Middleware{
+						Middlewares: []common.Middleware{
 							middleware.AuthenticationWithUser[*User](customUserAuth), // Middleware to add user to context if authenticated
 						},
 						Handler: requiredAuthHandler,

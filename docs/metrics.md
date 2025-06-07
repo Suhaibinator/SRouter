@@ -26,13 +26,16 @@ routerConfig := router.RouterConfig{
         Collector:        myMetricsRegistry, // Must implement metrics.MetricsRegistry
 
         // Provide your implementation of metrics.MetricsMiddleware. Optional.
-        // If nil, SRouter uses metrics.NewMetricsMiddleware(Collector, config) internally.
+        // If nil, SRouter uses metrics.NewMetricsMiddleware[T, U](Collector, config) internally.
         MiddlewareFactory: myMiddlewareFactory, // Must implement metrics.MetricsMiddleware
+
+        // Optional identifiers passed to your MetricsRegistry implementation.
+        // The built-in middleware also uses Namespace as the "service" tag on all metrics.
+        Namespace:        "myapp",
+        Subsystem:        "api",
 
         // Configure which default metrics the built-in middleware should collect
         // if MiddlewareFactory is nil. These flags are used by metrics.NewMetricsMiddleware.
-        // Note: Namespace and Subsystem are typically configured within your MetricsRegistry implementation,
-        // not directly in this config struct.
         EnableLatency:    true,  // Collect request latency histogram/summary
         EnableThroughput: true,  // Collect request/response size histogram/summary
         EnableQPS:        true,  // Collect request counter (requests_total)
@@ -48,7 +51,7 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 // of the application using SRouter, not SRouter itself.
 //
 // You would typically:
-// 1. Instantiate your chosen MetricsExporter implementation.
+// 1. Instantiate your chosen MetricsRegistry implementation.
 // 2. If it provides an HTTP handler (via the Handler() method), retrieve it.
 // 3. Create your main HTTP server (e.g., using http.ListenAndServe).
 // 4. Register the metrics handler on a specific path (e.g., "/metrics")
@@ -93,7 +96,7 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 The system is built around dependency injection using these key interfaces defined in `pkg/metrics/metrics.go`:
 
 1.  **`MetricsRegistry`**: The core interface responsible for managing the lifecycle of metrics within the system. It provides a method to `Register` metrics. It also offers builder methods (`NewCounter`, `NewGauge`, `NewHistogram`, `NewSummary`) that return specific *builder* interfaces (e.g., `CounterBuilder`). These builders are used to configure and finally `.Build()` the individual metric instruments (Counters, Gauges, etc.). Your implementation will wrap your chosen metrics library (e.g., `prometheus.NewRegistry`). This is the interface expected by the `MetricsConfig.Collector` field.
-2.  **`MetricsMiddleware`**: Defines the interface for the metrics middleware itself. Its primary method is `Handler(name string, handler http.Handler) http.Handler`, which wraps an existing HTTP handler to collect metrics. Additionally, the interface provides methods for post-creation configuration (`Configure(config MetricsMiddlewareConfig)`), adding request filtering logic (`WithFilter(filter MetricsFilter)`), and adding request sampling logic (`WithSampler(sampler MetricsSampler)`). The `MetricsConfig.MiddlewareFactory` field expects an object implementing this interface. If `MiddlewareFactory` is `nil` in the config, SRouter internally creates an instance of `metrics.MetricsMiddlewareImpl` using the provided `MetricsRegistry` (Collector) and the `Enable*` flags from `MetricsConfig`.
+2.  **`MetricsMiddleware[T, U]`**: A generic interface defining the metrics middleware. Its primary method is `Handler(name string, handler http.Handler) http.Handler`, which wraps an existing HTTP handler to collect metrics. Additional methods allow post-creation configuration (`Configure(config MetricsMiddlewareConfig)`), request filtering (`WithFilter(filter MetricsFilter)`), and request sampling (`WithSampler(sampler MetricsSampler)`). The `MetricsConfig.MiddlewareFactory` field expects an implementation of this interface. If `MiddlewareFactory` is `nil`, SRouter internally creates a `metrics.MetricsMiddlewareImpl[T, U]` using the provided `MetricsRegistry` and the `Enable*` flags from `MetricsConfig`.
 3.  **Metric Types** (`Counter`, `Gauge`, `Histogram`, `Summary`) and **Builders** (`CounterBuilder`, etc.): Interfaces defining the individual metric instruments and how they are constructed. Your `MetricsRegistry` implementation will return builders that create objects satisfying these metric interfaces. The base `Metric` interface provides common methods like `Name()`, `Description()`, `Type()`, and `Tags()`. Builders typically offer fluent methods like `.Name()`, `.Description()`, `.Tag()`, and specific configuration (e.g., `.Buckets()` for HistogramBuilder, `.Objectives()` for SummaryBuilder) before calling `.Build()`.
 
 ## Middleware Filtering and Sampling
@@ -103,6 +106,15 @@ The `MetricsMiddleware` interface supports filtering and sampling to control whi
 -   **`MetricsFilter`**: An interface with a `Filter(r *http.Request) bool` method. If implemented and added via `WithFilter`, the middleware will only collect metrics for requests where `Filter` returns `true`.
 -   **`MetricsSampler`**: An interface with a `Sample() bool` method. If implemented and added via `WithSampler`, the middleware will only collect metrics for a fraction of requests based on the sampler's logic (e.g., random sampling). The code provides a basic `RandomSampler`.
 -   These allow for fine-grained control over metric collection, potentially reducing overhead or focusing on specific request types.
+
+### MetricsMiddlewareConfig
+
+`MetricsMiddlewareConfig` configures how the built-in middleware records metrics. In addition to the `Enable*` flags it defines:
+
+- `SamplingRate` – a `float64` that sampler implementations can use to decide how often to record metrics.
+- `DefaultTags` – a `metrics.Tags` map automatically added to every metric.
+
+Custom middleware may interpret these fields differently. The provided middleware stores them and expects sampling or extra tags to be activated via the `WithSampler` and `WithFilter` helpers.
 
 ## Default Collected Metrics
 

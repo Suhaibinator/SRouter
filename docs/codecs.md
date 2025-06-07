@@ -4,10 +4,10 @@ Codecs are responsible for encoding and decoding data in SRouter's generic route
 
 ## The Codec Interface
 
-Any codec used with SRouter's generic routes must implement the `router.Codec[T, U]` interface (likely defined in `pkg/router/config.go` or similar):
+Any codec used with SRouter's generic routes must implement the `codec.Codec[T, U]` interface defined in `pkg/codec/codec.go`:
 
 ```go
-package router // Or wherever Codec is defined
+package codec
 
 import "net/http"
 
@@ -60,7 +60,7 @@ route := router.RouteConfig[MyRequest, MyResponse]{
 
 Handles Protocol Buffers encoding and decoding using Google's `protobuf` libraries (e.g., `google.golang.org/protobuf/proto`).
 
-**Important:** Due to the nature of Protocol Buffers, the `ProtoCodec` requires a factory function (`NewRequestFunc`) during construction. This function must return a new, zero-value instance of the specific *request* proto message type (`T`). This is needed internally to provide a concrete type for unmarshaling without relying on reflection.
+**Important:** Due to the nature of Protocol Buffers, the `ProtoCodec` requires a factory function (`codec.ProtoRequestFactory`) when being constructed. This function must return a new, zero-value instance of the specific *request* proto message type (`T`). This is needed internally to provide a concrete type for unmarshaling without relying on reflection.
 
 ```go
 import (
@@ -88,16 +88,17 @@ route := router.RouteConfig[*pb.MyRequestProto, *pb.MyResponseProto]{
 
 ## Creating Custom Codecs
 
-You can implement support for other formats (e.g., XML, MessagePack, YAML) by creating your own struct that implements the `router.Codec[T, U]` interface.
+You can implement support for other formats (e.g., XML, MessagePack, YAML) by creating your own struct that implements the `codec.Codec[T, U]` interface.
 
 ```go
 package customcodec
 
 import (
-	"encoding/xml"
-	"io"
-	"net/http"
-	"github.com/Suhaibinator/SRouter/pkg/router" // For Codec interface
+        "encoding/xml"
+        "io"
+        "net/http"
+        "github.com/Suhaibinator/SRouter/pkg/codec"  // For Codec interface
+        "github.com/Suhaibinator/SRouter/pkg/router" // For NewHTTPError
 )
 
 // Define your request and response types if not already defined
@@ -111,7 +112,7 @@ type MyXMLResponse struct {
 	Result  string   `xml:"result"`
 }
 
-// XMLCodec implements the router.Codec interface for XML
+// XMLCodec implements the codec.Codec interface for XML
 type XMLCodec[T any, U any] struct{}
 
 // NewXMLCodec creates a new XMLCodec instance.
@@ -190,8 +191,8 @@ Remember to handle errors appropriately within your codec methods, potentially r
 
 ## Codec Reference
 
--   **`router.Codec[T, U]`**: Interface defining methods `NewRequest() T`, `Decode(*http.Request) (T, error)`, `DecodeBytes([]byte) (T, error)`, and `Encode(http.ResponseWriter, U) error`.
+-   **`codec.Codec[T, U]`**: Interface defining methods `NewRequest() T`, `Decode(*http.Request) (T, error)`, `DecodeBytes([]byte) (T, error)`, and `Encode(http.ResponseWriter, U) error`.
 -   **`codec.NewJSONCodec[T, U]() *codec.JSONCodec[T, U]`**: Constructor for the built-in JSON codec.
--   **`codec.NewProtoCodec[T, U](factoryFunc func() T) *codec.ProtoCodec[T, U]`**: Constructor for the built-in Protocol Buffers codec, requiring a factory function for the request type `T`.
+-   **`codec.NewProtoCodec[T, U](factory codec.ProtoRequestFactory[T]) *codec.ProtoCodec[T, U]`**: Constructor for the built-in Protocol Buffers codec, requiring a factory function for the request type `T`.
 
 See the `examples/codec` directory for runnable examples using different codecs.

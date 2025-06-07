@@ -17,7 +17,7 @@ SRouter's internal components use appropriate log levels:
 -   **`Error`**: Used for significant server-side problems, unrecoverable errors, panics caught by recovery middleware, failures during critical operations (like server shutdown). Status codes 500+ often trigger Error logs.
 -   **`Warn`**: Used for client-side errors (status codes 400-499), potentially problematic situations (e.g., rate limit exceeded, configuration issues), or notable but non-critical events (e.g., slow request warnings if implemented).
 -   **`Info`**: Used sparingly for high-level operational information (e.g., server starting, shutting down gracefully). Avoid spamming Info logs in the request path.
--   **`Debug`**: Used for detailed diagnostic information useful during development or troubleshooting. This includes detailed request/response metrics (status, duration, bytes, IP, trace ID - logged internally when `EnableTraceLogging` is true), context values, trace information, and fine-grained steps within components. The main request trace log can also be set to Debug via `TraceLoggingUseInfo: false`.
+-   **`Debug`**: Used for detailed diagnostic information useful during development or troubleshooting. This includes detailed request/response metrics (status, duration, bytes, IP, trace ID - logged internally when trace logging is enabled via `TraceIDBufferSize > 0`), context values, trace information, and fine-grained steps within components. The main request trace log can also be set to Debug via `TraceLoggingUseInfo: false`.
 
 This tiered approach helps manage log verbosity. In production, you typically configure your logger to output `Info` level and above, while `Debug` logs are suppressed unless needed for debugging.
 
@@ -79,3 +79,24 @@ logger.Info("Processing user data",
     zap.String("user_id", userID),   // Include user ID
     // ... other relevant fields
 )
+```
+
+## Request Summary Logging
+
+When `TraceIDBufferSize` is set to a value greater than zero, SRouter emits a single log entry at the end of every request. The message is `"Request summary statistics"` and includes fields:
+
+- `method` and `path`
+- HTTP `status`
+- request `duration`
+- number of `bytes` written
+- client `ip` and `user_agent`
+- `trace_id` when trace IDs are enabled
+
+The log level is selected automatically:
+
+- `Error` for status codes `>= 500`
+- `Warn` for status codes `>= 400` or requests taking longer than 500&nbsp;ms
+- `Info` for successful requests when `TraceLoggingUseInfo` is `true`
+- `Debug` otherwise
+
+Setting `TraceIDBufferSize` to `0` disables this automatic summary log.

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
+	"github.com/Suhaibinator/SRouter/pkg/common"
 	"go.uber.org/zap"
 )
 
@@ -26,10 +27,12 @@ func TestSubRouterIntegration(t *testing.T) {
 		GlobalMaxBodySize: 1024, // 1 KB
 		SubRouters: []SubRouterConfig{
 			{
-				PathPrefix:          "/api/v1",
-				TimeoutOverride:     2 * time.Second,
-				MaxBodySizeOverride: 2048, // 2 KB
-				Routes: []any{ // Changed to []any
+				PathPrefix: "/api/v1",
+				Overrides: common.RouteOverrides{
+					Timeout:     2 * time.Second,
+					MaxBodySize: 2048, // 2 KB
+				},
+				Routes: []RouteDefinition{
 					RouteConfigBase{
 						Path:    "/users",
 						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
@@ -42,7 +45,7 @@ func TestSubRouterIntegration(t *testing.T) {
 			},
 			{
 				PathPrefix: "/api/v2",
-				Routes: []any{ // Changed to []any
+				Routes: []RouteDefinition{
 					RouteConfigBase{
 						Path:    "/users",
 						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
@@ -111,7 +114,7 @@ func TestPathParameters(t *testing.T) {
 		SubRouters: []SubRouterConfig{
 			{
 				PathPrefix: "/api",
-				Routes: []any{ // Changed to []any
+				Routes: []RouteDefinition{
 					RouteConfigBase{
 						Path:    "/users/:id",
 						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
@@ -191,9 +194,11 @@ func TestTimeoutOverrides(t *testing.T) {
 		GlobalTimeout: 100 * time.Millisecond,
 		SubRouters: []SubRouterConfig{
 			{
-				PathPrefix:      "/api/v1",
-				TimeoutOverride: 50 * time.Millisecond,
-				Routes: []any{ // Changed to []any
+				PathPrefix: "/api/v1",
+				Overrides: common.RouteOverrides{
+					Timeout: 50 * time.Millisecond,
+				},
+				Routes: []RouteDefinition{
 					RouteConfigBase{
 						Path:    "/fast",
 						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
@@ -214,7 +219,9 @@ func TestTimeoutOverrides(t *testing.T) {
 					RouteConfigBase{ // Add explicit type
 						Path:    "/custom-timeout",
 						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-						Timeout: 300 * time.Millisecond,
+						Overrides: common.RouteOverrides{
+							Timeout: 300 * time.Millisecond,
+						},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							// This handler sleeps for 200ms, which is shorter than the custom timeout
 							time.Sleep(200 * time.Millisecond)
@@ -279,9 +286,11 @@ func TestMaxBodySizeOverrides(t *testing.T) {
 		GlobalMaxBodySize: 10, // 10 bytes
 		SubRouters: []SubRouterConfig{
 			{
-				PathPrefix:          "/api/v1",
-				MaxBodySizeOverride: 20, // 20 bytes
-				Routes: []any{ // Changed to []any
+				PathPrefix: "/api/v1",
+				Overrides: common.RouteOverrides{
+					MaxBodySize: 20, // 20 bytes
+				},
+				Routes: []RouteDefinition{
 					RouteConfigBase{
 						Path:    "/small",
 						Methods: []HttpMethod{MethodPost}, // Use HttpMethod enum
@@ -298,7 +307,9 @@ func TestMaxBodySizeOverrides(t *testing.T) {
 					RouteConfigBase{ // Add explicit type
 						Path:        "/large",
 						Methods:     []HttpMethod{MethodPost}, // Use HttpMethod enum
-						MaxBodySize: 100,                      // 100 bytes
+						Overrides: common.RouteOverrides{
+							MaxBodySize: 100, // 100 bytes
+						},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							// Read the body
 							_, err := io.ReadAll(r.Body)
@@ -444,13 +455,13 @@ func TestMiddlewareIntegration(t *testing.T) {
 			Headers: []string{"Content-Type"},
 			MaxAge:  time.Hour,
 		},
-		Middlewares: []Middleware{
+		Middlewares: []common.Middleware{
 			// CORS middleware removed, handled by RouterConfig.CORSConfig now
 		},
 		SubRouters: []SubRouterConfig{
 			{
 				PathPrefix: "/api",
-				Middlewares: []Middleware{
+				Middlewares: []common.Middleware{
 					func(next http.Handler) http.Handler {
 						return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 							// Add a custom header
@@ -459,11 +470,11 @@ func TestMiddlewareIntegration(t *testing.T) {
 						})
 					},
 				},
-				Routes: []any{ // Changed to []any
+				Routes: []RouteDefinition{
 					RouteConfigBase{
 						Path:    "/test",
 						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-						Middlewares: []Middleware{
+						Middlewares: []common.Middleware{
 							func(next http.Handler) http.Handler {
 								return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 									// Add another custom header

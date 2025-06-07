@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
@@ -129,7 +130,7 @@ func main() {
 		SubRouters: []router.SubRouterConfig{
 			{
 				PathPrefix: "/public",
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:      "/resource",
 						Methods:   []router.HttpMethod{router.MethodGet},
@@ -140,12 +141,12 @@ func main() {
 			},
 			{
 				PathPrefix: "/boolean-auth",
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:      "/resource",
 						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.AuthRequired), // Changed
-						Middlewares: []router.Middleware{
+						Middlewares: []common.Middleware{
 							middleware.AuthenticationBool[*User, User](func(r *http.Request) bool {
 								// Simple boolean authentication
 								authHeader := r.Header.Get("Authorization")
@@ -163,12 +164,12 @@ func main() {
 			},
 			{
 				PathPrefix: "/user-auth",
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
 						Path:      "/custom",
 						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.AuthRequired), // Changed
-						Middlewares: []router.Middleware{ // Uncommented middleware
+						Middlewares: []common.Middleware{ // Uncommented middleware
 							middleware.AuthenticationWithUser[*User, User](customUserAuth),
 						},
 						Handler: protectedUserHandler,
@@ -177,7 +178,7 @@ func main() {
 						Path:      "/bearer",
 						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.AuthRequired), // Changed
-						Middlewares: []router.Middleware{ // Uncommented middleware
+						Middlewares: []common.Middleware{ // Uncommented middleware
 							middleware.NewBearerTokenWithUserMiddleware[*User, User](bearerTokenUserAuth, logger),
 						},
 						Handler: protectedUserHandler,

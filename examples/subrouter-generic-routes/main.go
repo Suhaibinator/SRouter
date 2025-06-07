@@ -88,7 +88,7 @@ func main() {
 	// Create a sub-router for API v1 with declarative generic route
 	apiV1SubRouter := router.SubRouterConfig{
 		PathPrefix: "/api/v1",
-		Routes: []any{ // Use []any
+		Routes: []router.RouteDefinition{
 			// Standard route
 			router.RouteConfigBase{
 				Path:      "/hello",
@@ -115,7 +115,7 @@ func main() {
 	// Create a sub-router for API v2 with declarative generic routes
 	apiV2SubRouter := router.SubRouterConfig{
 		PathPrefix: "/api/v2",
-		Routes: []any{ // Use []any
+		Routes: []router.RouteDefinition{
 			// Declarative generic route for users
 			router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
 				router.RouteConfig[UserRequest, UserResponse]{

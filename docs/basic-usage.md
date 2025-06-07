@@ -44,13 +44,13 @@ func main() {
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
 		// Define sub-routers. Even top-level routes belong to a sub-router (e.g., with an empty prefix).
-		SubRouters: []router.SubRouterConfig{
-			{
-				PathPrefix: "", // Root-level routes
-				Routes: []any{ // Use 'any' slice to hold different route config types
-					helloRoute,
-					// Add more RouteConfigBase or GenericRouteRegistrationFunc here
-				},
+                SubRouters: []router.SubRouterConfig{
+                        {
+                                PathPrefix: "", // Root-level routes
+                                Routes: []router.RouteDefinition{
+                                        helloRoute,
+                                        // Add more RouteConfigBase or GenericRouteRegistrationFunc here
+                                },
 				// Middlewares specific to this sub-router can be added here
 			},
 			// Add more sub-routers here (e.g., { PathPrefix: "/api/v1", Routes: [...] })

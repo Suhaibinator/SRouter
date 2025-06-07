@@ -23,7 +23,10 @@ router.RouteConfigBase{
 
 ## Accessing Path Parameters
 
-SRouter provides helper functions to easily access the values of these parameters from the `http.Request` object within your handlers. The parameters are stored in the request's context.
+SRouter stores path parameters in the request context.  In recent versions the
+parameters (and the original route template) are placed inside the
+`scontext.SRouterContext` wrapper.  Convenience helpers are provided in both the
+`router` and `scontext` packages to retrieve them from handlers.
 
 ### `router.GetParam`
 
@@ -98,9 +101,32 @@ func GetArticleHandlerAlternative(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
+### `scontext.GetPathParamsFromRequest`
+
+Retrieves path parameters from the `scontext.SRouterContext`. Replace `string, any` with your router's type parameters.
+
+```go
+import "github.com/Suhaibinator/SRouter/pkg/scontext"
+
+func GetArticleHandlerTyped(w http.ResponseWriter, r *http.Request) {
+    params, ok := scontext.GetPathParamsFromRequest[string, any](r)
+    if !ok {
+        http.Error(w, "Path parameters missing", http.StatusBadRequest)
+        return
+    }
+    category := params.ByName("category")
+    slug := params.ByName("slug")
+    fmt.Fprintf(w, "Fetching article in category '%s' with slug '%s'", category, slug)
+}
+```
+
+You can also retrieve the original route pattern using `scontext.GetRouteTemplateFromRequest[string, any](r)` for logging or metrics.
+
 Generally, `router.GetParam` is more convenient when you know the specific parameter name you need. `router.GetParams` is useful if you need to iterate over all parameters or access them dynamically.
 
 ## Path Parameter Reference
 
 -   **`router.GetParam(r *http.Request, name string) string`**: Retrieves a specific parameter by name from the request context. Returns an empty string if the parameter is not found.
 -   **`router.GetParams(r *http.Request) httprouter.Params`**: Retrieves all parameters from the request context as an `httprouter.Params` slice.
+-   **`scontext.GetPathParamsFromRequest[T, U](r *http.Request) (httprouter.Params, bool)`**: Returns all parameters from the generic `scontext` wrapper along with a boolean indicating presence.
+-   **`scontext.GetRouteTemplateFromRequest[T, U](r *http.Request) (string, bool)`**: Retrieves the original route pattern from the context for metrics or logging.

@@ -544,7 +544,7 @@ func main() {
 		SubRouters: []router.SubRouterConfig{
 			{
 				PathPrefix: "/api",
-				Routes: []any{ // Changed to []any
+				Routes: []router.RouteDefinition{ // Changed to []any
 					router.RouteConfigBase{
 						Path:    "/hello",
 						Methods: []router.HttpMethod{router.MethodGet},
