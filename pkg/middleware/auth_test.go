@@ -131,14 +131,22 @@ func TestAuthenticationWithProvider_OptionsBypass(t *testing.T) {
 		t.Errorf("Invalid Auth: Expected status %d, got %d", http.StatusUnauthorized, recInvalid.Code)
 	}
 
-	// --- Test Case 3: OPTIONS Request (Should Bypass Auth) ---
-	reqOptions := httptest.NewRequest("OPTIONS", "/test", nil)
-	// No auth header needed, or even an invalid one, should still pass
-	reqOptions.Header.Set("Authorization", "Bearer invalid-token")
-	recOptions := httptest.NewRecorder()
-	wrappedHandler.ServeHTTP(recOptions, reqOptions)
-	if recOptions.Code != http.StatusOK {
-		t.Errorf("OPTIONS Request: Expected status %d, got %d", http.StatusOK, recOptions.Code)
+	// --- Test Case 3: OPTIONS Request with Invalid Auth (Should Fail) ---
+	reqOptionsInvalid := httptest.NewRequest("OPTIONS", "/test", nil)
+	reqOptionsInvalid.Header.Set("Authorization", "Bearer invalid-token")
+	recOptionsInvalid := httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(recOptionsInvalid, reqOptionsInvalid)
+	if recOptionsInvalid.Code != http.StatusUnauthorized {
+		t.Errorf("OPTIONS Request with invalid auth: Expected status %d, got %d", http.StatusUnauthorized, recOptionsInvalid.Code)
+	}
+
+	// --- Test Case 4: OPTIONS Request with Valid Auth (Should Pass) ---
+	reqOptionsValid := httptest.NewRequest("OPTIONS", "/test", nil)
+	reqOptionsValid.Header.Set("Authorization", "Bearer valid-token")
+	recOptionsValid := httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(recOptionsValid, reqOptionsValid)
+	if recOptionsValid.Code != http.StatusOK {
+		t.Errorf("OPTIONS Request with valid auth: Expected status %d, got %d", http.StatusOK, recOptionsValid.Code)
 	}
 }
 

@@ -1124,11 +1124,6 @@ func (r *Router[T, U]) authenticateRequest(req *http.Request) (*http.Request, bo
 // It uses the middleware.AuthenticationWithUser function with a configurable authentication function.
 func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodOptions {
-			// Allow preflight requests without authentication
-			next.ServeHTTP(w, req)
-			return
-		}
 		var ok bool
 		var reason string
 		req, ok, reason = r.authenticateRequest(req)
@@ -1156,11 +1151,6 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 // but allows the request to proceed even if authentication fails.
 func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodOptions {
-			// Allow preflight requests without authentication
-			next.ServeHTTP(w, req)
-			return
-		}
 		var ok bool
 		req, ok, _ = r.authenticateRequest(req)
 		if ok {
