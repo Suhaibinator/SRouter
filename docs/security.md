@@ -19,8 +19,8 @@ The `IPConfig` struct has the following options:
 *   **`TrustProxy` (bool):** This is a critical security setting.
     *   When set to `true`, SRouter will trust the IP address provided in headers like `X-Forwarded-For` or `X-Real-IP` (depending on the `Source` configuration).
     *   **Security Warning:** Only set `TrustProxy` to `true` if your application is deployed behind a trusted reverse proxy or load balancer that correctly sets these headers and sanitizes them. The proxy must ensure that these headers cannot be spoofed by malicious clients. If your application is directly exposed to the internet, or if you are unsure about the configuration of your proxy, **`TrustProxy` should be set to `false`.**
-    *   If `TrustProxy` is `false` (which is the **default setting**), SRouter will always use the `RemoteAddr` from the direct incoming connection as the client IP if the configured `Source` relies on headers. This provides a more secure default by preventing IP spoofing through malicious header injection.
-    *   The default value for `TrustProxy` is `false` to prioritize security.
+    *   If `TrustProxy` is `false`, SRouter will always use the `RemoteAddr` from the direct incoming connection as the client IP if the configured `Source` relies on headers. This provides a more secure stance in environments where proxy headers could be forged.
+    *   The default value for `TrustProxy` is `true`, matching the behavior of `DefaultIPConfig`. Provide your own `IPConfig` with `TrustProxy: false` if you need to disable this.
 
 It is essential to configure these options correctly based on your deployment environment to ensure accurate and secure IP address extraction. Incorrect configuration, especially of `TrustProxy`, can lead to security vulnerabilities such as IP spoofing, where a malicious user might be able to falsify their IP address.
 
