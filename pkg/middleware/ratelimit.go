@@ -2,6 +2,7 @@
 package middleware
 
 import (
+	"container/list"
 	"errors" // Added for error handling
 	"fmt"
 	"net/http"
@@ -22,36 +23,68 @@ import (
 // by allowing a steady flow of requests while preventing bursts.
 // The implementation maintains a map of rate limiters, one per unique key.
 type UberRateLimiter struct {
-	limiters sync.Map // map[string]ratelimit.Limiter
+	mu         sync.Mutex
+	limiters   map[string]*list.Element // LRU cache mapping
+	lru        *list.List               // order of keys, most recent at front
+	maxEntries int
 }
 
-// NewUberRateLimiter creates a new UberRateLimiter instance.
-// The returned limiter uses the leaky bucket algorithm to enforce rate limits.
-// It maintains separate rate limiters for different keys (e.g., different IPs or users).
+type limiterEntry struct {
+	key     string
+	limiter ratelimit.Limiter
+}
+
+// NewUberRateLimiter creates a new UberRateLimiter instance using a default cache size.
+// The returned limiter uses the leaky bucket algorithm to enforce rate limits and
+// keeps recently used limiters in an LRU cache to bound memory usage.
+const defaultLimiterCacheSize = 10000
+
 func NewUberRateLimiter() *UberRateLimiter {
-	return &UberRateLimiter{}
+	return NewUberRateLimiterWithMax(defaultLimiterCacheSize)
+}
+
+// NewUberRateLimiterWithMax creates a new UberRateLimiter instance with a
+// maximum number of limiter entries to keep in memory. If maxEntries is <= 0
+// a reasonable default is used.
+func NewUberRateLimiterWithMax(maxEntries int) *UberRateLimiter {
+	if maxEntries <= 0 {
+		maxEntries = defaultLimiterCacheSize
+	}
+	return &UberRateLimiter{
+		limiters:   make(map[string]*list.Element),
+		lru:        list.New(),
+		maxEntries: maxEntries,
+	}
 }
 
 // getLimiter gets or creates a limiter for the given key and rate (requests per second).
 // It uses a composite key including the RPS to handle different rate limits for the same base key.
 func (u *UberRateLimiter) getLimiter(key string, rps int) ratelimit.Limiter {
-	compositeKey := fmt.Sprintf("%s-%d", key, rps) // Combine key and rps
+	compositeKey := fmt.Sprintf("%s-%d", key, rps)
 
-	// Fast path: Check if limiter already exists.
-	if limiter, ok := u.limiters.Load(compositeKey); ok {
-		return limiter.(ratelimit.Limiter)
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	if elem, ok := u.limiters[compositeKey]; ok {
+		u.lru.MoveToFront(elem)
+		return elem.Value.(*limiterEntry).limiter
 	}
 
-	// Slow path: Limiter doesn't exist, create a new one.
 	newLimiter := ratelimit.New(rps)
 
-	// Atomically load or store.
-	// - If compositeKey already exists (due to concurrent creation), LoadOrStore loads and returns the existing value.
-	// - If compositeKey doesn't exist, LoadOrStore stores newLimiter and returns it.
-	actualLimiter, _ := u.limiters.LoadOrStore(compositeKey, newLimiter)
+	// Evict oldest if we exceed the maximum size
+	if u.lru.Len() >= u.maxEntries {
+		if back := u.lru.Back(); back != nil {
+			ent := back.Value.(*limiterEntry)
+			delete(u.limiters, ent.key)
+			u.lru.Remove(back)
+		}
+	}
 
-	// Return the actual limiter stored in the map (either the existing one or the new one).
-	return actualLimiter.(ratelimit.Limiter)
+	ent := &limiterEntry{key: compositeKey, limiter: newLimiter}
+	elem := u.lru.PushFront(ent)
+	u.limiters[compositeKey] = elem
+	return newLimiter
 }
 
 // Ensure UberRateLimiter implements the common.RateLimiter interface.

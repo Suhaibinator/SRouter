@@ -66,16 +66,16 @@ func TestGetLimiter_Coverage(t *testing.T) {
 				// Check if the same limiter instance is returned across goroutines
 				// This indirectly tests that the double-check prevents creating multiple limiters
 				compositeKey := fmt.Sprintf("%s-%d", key, rps)
-				val, ok := limiter.limiters.Load(compositeKey)
-				// Explicitly check 'ok' before proceeding to prevent panic on nil interface conversion
-				if !assert.True(t, ok, "Limiter should exist in the map for key %s", compositeKey) {
-					// If the assertion fails (ok is false), skip the rest of the checks for this iteration
-					// as val will be nil, causing a panic on type assertion.
-					// This indicates a potential timing issue or problem in limiter creation/storage.
-					continue // Skip to the next iteration of the inner loop
+				limiter.mu.Lock()
+				elem, ok := limiter.limiters[compositeKey]
+				var currentLimiter ratelimit.Limiter
+				if ok {
+					currentLimiter = elem.Value.(*limiterEntry).limiter
 				}
-				// Only proceed if ok is true
-				currentLimiter := val.(ratelimit.Limiter)
+				limiter.mu.Unlock()
+				if !assert.True(t, ok, "Limiter should exist in the map for key %s", compositeKey) {
+					continue
+				}
 
 				once.Do(func() {
 					firstLimiter = currentLimiter // Capture the first successfully retrieved limiter
@@ -91,12 +91,13 @@ func TestGetLimiter_Coverage(t *testing.T) {
 
 	// Final check that only one limiter was created for the key/rps combination
 	count := 0
-	limiter.limiters.Range(func(k, v interface{}) bool {
+	limiter.mu.Lock()
+	for k := range limiter.limiters {
 		if k == fmt.Sprintf("%s-%d", key, rps) {
 			count++
 		}
-		return true
-	})
+	}
+	limiter.mu.Unlock()
 	assert.Equal(t, 1, count, "Expected exactly one limiter instance for the key/rps")
 }
 
@@ -227,7 +228,7 @@ func TestUberRateLimiter_ForceNegativeRemaining(t *testing.T) {
 
 	// Override the Allow method to force a negative remaining calculation
 	// This directly tests the if remaining < 0 { remaining = 0 } code path
-	mockLimiter := &mockLimiterWithNegativeRemaining{}
+	mockLimiter := &mockLimiterWithNegativeRemaining{*NewUberRateLimiter()}
 
 	// Create a test scenario where the calculation would result in negative remaining
 	key := "negative-remaining-test"

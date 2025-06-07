@@ -79,13 +79,14 @@ The rate limiting middleware in SRouter supports several strategies for identify
 
 ### Memory Consumption Considerations
 
-SRouter's default rate limiter, `UberRateLimiter` (which uses `go.uber.org/ratelimit`), stores rate limiting state in memory for each unique key (e.g., each IP address or user ID).
+SRouter's default rate limiter, `UberRateLimiter` (which uses `go.uber.org/ratelimit`), stores rate limiting state in memory for each unique key (e.g., each IP address or user ID). To prevent unbounded growth, it now keeps these limiters in an in-memory LRU cache with a configurable maximum size (default `10,000` entries).
 
 *   **High Cardinality Warning:** If your application anticipates a very large number of unique keys (e.g., millions of different IP addresses making requests over a short period, or a vast number of user accounts being actively rate-limited simultaneously) without application restarts, this in-memory storage can lead to significant memory consumption.
 *   **Suitability:** The current `UberRateLimiter` is well-suited for many common use cases, especially for applications with a moderate number of active users or for services deployed behind a load balancer that already handles a significant portion of traffic.
 *   **Alternatives for Extreme Scale:** For extremely high-traffic scenarios with very high cardinality of rate limiting keys, or if you require persistence of rate limiting state across application restarts or a distributed environment, consider:
+    *   Increasing or decreasing the LRU cache size via `NewUberRateLimiterWithMax` when memory constraints or key cardinality require it.
     *   Using an external rate-limiting solution (e.g., Redis-based, or dedicated proxy/API gateway rate limiters).
-    *   Implementing a custom `RateLimiter` for SRouter that uses a backend store with eviction policies (e.g., LRU cache, Redis with TTLs) to manage memory usage.
+    *   Implementing a custom `RateLimiter` for SRouter that uses a backend store with eviction policies (e.g., Redis with TTLs) to manage memory usage.
 
 ### Standard Rate Limit Headers
 

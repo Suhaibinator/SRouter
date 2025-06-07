@@ -518,6 +518,8 @@ See the `examples/middleware` directory for examples of using IP configuration.
 
 SRouter provides a flexible rate limiting system using `common.RateLimitConfig` (defined in `pkg/common/types.go`) that can be configured at the global, sub-router, or route level. Rate limits can be based on IP address, authenticated user, or custom criteria. Under the hood, SRouter uses [Uber's ratelimit library](https://github.com/uber-go/ratelimit) via the `middleware.RateLimit` function for efficient and smooth rate limiting with a leaky bucket algorithm.
 
+`UberRateLimiter` stores buckets in an in-memory LRU cache to bound memory usage. The cache size defaults to `10,000` entries and can be customized via `NewUberRateLimiterWithMax`.
+
 #### Rate Limiting Configuration
 
 ```go
