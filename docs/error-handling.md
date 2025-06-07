@@ -15,18 +15,19 @@ Generic handlers (`GenericHandler[T, U]`) have the signature `func(*http.Request
 This struct allows you to specify both the HTTP status code and the error message that should be sent to the client.
 
 ```go
-// Defined in pkg/router/errors.go (or similar)
+// Defined in the router package (router.go)
 type HTTPError struct {
-    StatusCode int
-    Message    string // This message IS sent to the client
+    StatusCode int    // HTTP status code to send to the client
+    Message    string // Error message that will appear in the response body
 }
 
 // Error makes HTTPError satisfy the error interface.
+// It returns "<status>: <message>".
 func (e *HTTPError) Error() string {
-    return e.Message
+    return fmt.Sprintf("%d: %s", e.StatusCode, e.Message)
 }
 
-// NewHTTPError is a constructor for creating HTTPError instances.
+// NewHTTPError constructs an HTTPError instance.
 func NewHTTPError(statusCode int, message string) *HTTPError {
     return &HTTPError{
         StatusCode: statusCode,
@@ -83,7 +84,7 @@ func GetUserHandler(r *http.Request, req GetUserReq) (GetUserResp, error) {
 
 When `NewHTTPError` is returned:
 
-1.  SRouter logs the error message at the appropriate level (Warn for 4xx, Error for 5xx) via the `handleError` method.
+1.  SRouter logs the error via the `handleError` method. `HTTPError` values are logged at `Error` level and certain client errors (e.g., request body too large) are logged at `Warn`.
 2.  It sets the HTTP response status code to `HTTPError.StatusCode`.
 3.  It sets the `Content-Type` header to `application/json; charset=utf-8`.
 4.  It writes a JSON response body containing the error message and trace ID (if enabled):
