@@ -4,7 +4,7 @@ SRouter provides a flexible rate limiting system, configurable at the global, su
 
 ## Configuration
 
-Rate limiting is configured using the `common.RateLimitConfig` struct (defined in `pkg/common/types.go`). You can set it globally (`GlobalRateLimit` in `RouterConfig`), per sub-router (`Overrides.RateLimit` in `SubRouterConfig`), or per route (`Overrides.RateLimit` in `RouteConfigBase` or `RouteConfig`). Settings cascade, with the most specific configuration taking precedence.
+Rate limiting is configured using the `common.RateLimitConfig` struct (defined in `pkg/common/types.go`). You can set it globally (`GlobalRateLimit` in `RouterConfig`), per sub-router via `SubRouterConfig.Overrides.RateLimit`, or per route (`Overrides.RateLimit` in `RouteConfigBase`/`RouteConfig`). Settings cascade, with the most specific configuration taking precedence.
 
 ```go
 import (
