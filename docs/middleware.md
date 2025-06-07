@@ -133,9 +133,9 @@ routerConfig := router.RouterConfig{
     // ...
 }
 
-// Note: The router's internal authentication middleware (authRequiredMiddleware, authOptionalMiddleware)
-// automatically bypass authentication checks for HTTP OPTIONS requests (preflight requests).
-// This ensures CORS preflight requests succeed without needing explicit authentication.
+// Note: CORS preflight requests (OPTIONS with Origin header and CORS-specific headers)
+// are handled at the CORS layer before reaching authentication middleware.
+// Other OPTIONS requests are subject to normal authentication requirements.
 ```
 
 ## Middleware Execution Order

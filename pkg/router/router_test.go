@@ -1650,8 +1650,8 @@ func TestRegisterSubRouter_UnsupportedRouteType(t *testing.T) {
 	}
 }
 
-// TestAuthRequiredMiddleware_OptionsBypass tests that OPTIONS requests bypass authRequiredMiddleware
-func TestAuthRequiredMiddleware_OptionsBypass(t *testing.T) {
+// TestAuthRequiredMiddleware_OptionsRequireAuth tests that OPTIONS requests require authentication
+func TestAuthRequiredMiddleware_OptionsRequireAuth(t *testing.T) {
 	logger := zap.NewNop()
 	mockAuth := func(ctx context.Context, token string) (*string, bool) {
 		if token == "valid-token" {
@@ -1691,15 +1691,25 @@ func TestAuthRequiredMiddleware_OptionsBypass(t *testing.T) {
 	server := httptest.NewServer(wrappedHandler)
 	defer server.Close()
 
-	// Test OPTIONS request (should pass regardless of auth)
-	reqOptions, _ := http.NewRequest(http.MethodOptions, server.URL+"/test", nil)
-	reqOptions.Header.Set("Authorization", "Bearer invalid-token") // Invalid token
-	respOptions, err := http.DefaultClient.Do(reqOptions)
+	// Test OPTIONS request with invalid auth (should fail)
+	reqOptionsInvalid, _ := http.NewRequest(http.MethodOptions, server.URL+"/test", nil)
+	reqOptionsInvalid.Header.Set("Authorization", "Bearer invalid-token") // Invalid token
+	respOptionsInvalid, err := http.DefaultClient.Do(reqOptionsInvalid)
 	if err != nil {
 		t.Fatalf("OPTIONS request failed: %v", err)
 	}
-	defer respOptions.Body.Close()
-	assert.Equal(t, http.StatusOK, respOptions.StatusCode, "OPTIONS request should return OK")
+	defer respOptionsInvalid.Body.Close()
+	assert.Equal(t, http.StatusUnauthorized, respOptionsInvalid.StatusCode, "OPTIONS request with invalid auth should return Unauthorized")
+
+	// Test OPTIONS request with valid auth (should pass)
+	reqOptionsValid, _ := http.NewRequest(http.MethodOptions, server.URL+"/test", nil)
+	reqOptionsValid.Header.Set("Authorization", "Bearer valid-token") // Valid token
+	respOptionsValid, err := http.DefaultClient.Do(reqOptionsValid)
+	if err != nil {
+		t.Fatalf("OPTIONS request failed: %v", err)
+	}
+	defer respOptionsValid.Body.Close()
+	assert.Equal(t, http.StatusOK, respOptionsValid.StatusCode, "OPTIONS request with valid auth should return OK")
 
 	// Test GET request with invalid auth (should fail)
 	reqInvalid, _ := http.NewRequest(http.MethodGet, server.URL+"/test", nil)
@@ -1724,7 +1734,7 @@ func TestAuthRequiredMiddleware_OptionsBypass(t *testing.T) {
 	assert.Equal(t, "OK", string(bodyBytes), "Valid GET request body mismatch")
 }
 
-// TestAuthOptionalMiddleware_OptionsBypass tests that OPTIONS requests bypass authOptionalMiddleware
+// TestAuthOptionalMiddleware_OptionsBypass tests that OPTIONS requests go through authOptionalMiddleware but are allowed to proceed
 func TestAuthOptionalMiddleware_OptionsBypass(t *testing.T) {
 	logger := zap.NewNop()
 	mockAuth := func(ctx context.Context, token string) (*string, bool) {

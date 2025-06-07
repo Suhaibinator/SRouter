@@ -97,7 +97,7 @@ Your custom middleware is responsible for:
     *   For logic equivalent to `AuthRequired`, write an error response (e.g., `http.Error(w, "Unauthorized", http.StatusUnauthorized)`) and **do not** call `next.ServeHTTP`.
     *   For logic equivalent to `AuthOptional`, simply call `next.ServeHTTP(w, r)` without populating the context.
 
-**Important Note on OPTIONS Requests:** The built-in authentication middleware automatically bypasses authentication checks for HTTP `OPTIONS` requests to ensure CORS preflight requests function correctly. Your custom authentication middleware should generally include similar logic.
+**Important Note on OPTIONS Requests:** CORS preflight requests (OPTIONS with Origin header and CORS-specific headers) are handled at the CORS layer before reaching authentication middleware. Regular OPTIONS requests are subject to normal authentication requirements. Your custom authentication middleware should handle OPTIONS requests consistently with your security requirements.
 
 **Applying Custom Middleware:** Add your custom authentication middleware globally in `RouterConfig.Middlewares` or per-sub-router in `SubRouterConfig.Middlewares`. Ensure it runs *before* other middleware that might depend on the user context (like user-based rate limiting). If using custom middleware, you might set `AuthLevel` to `NoAuth` for relevant routes to prevent the built-in middleware from running unnecessarily.
 

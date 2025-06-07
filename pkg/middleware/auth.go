@@ -120,11 +120,6 @@ func AuthenticationWithProvider[T comparable, U any](
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Check if the request is authenticated
-			if r.Method == http.MethodOptions {
-				// Allow preflight requests without authentication
-				next.ServeHTTP(w, r)
-				return
-			}
 			userID, ok := provider.Authenticate(r)
 			if !ok {
 				logger.Warn("Authentication failed",
