@@ -10,7 +10,7 @@ Setting `AuthLevel` to `AuthOptional` or `AuthRequired` activates **built-in mid
 
 1.  **`router.NoAuth`**: No authentication is required or attempted by the built-in middleware. The request proceeds directly to the next middleware or handler. This is the default if `AuthLevel` is not set.
 2.  **`router.AuthOptional`**: The built-in authentication middleware is activated. It attempts to validate credentials (currently expects a Bearer token in the `Authorization` header) using the `authFunction` provided to `NewRouter`.
-    *   If authentication succeeds, the middleware populates the user ID (using the `userIdFromUserFunction` from `NewRouter`) and optionally the user object into the request context using `scontext.WithUserID` and `scontext.WithUser`. The request then proceeds to the next middleware or handler.
+    *   If authentication succeeds, the middleware populates the user ID (using the `userIdFromUserFunction` from `NewRouter`) and optionally the user object into the request context using `scontext.WithUserID` and `scontext.WithUser`. Storing the user object requires `RouterConfig.AddUserObjectToCtx` to be `true`. The request then proceeds to the next middleware or handler.
     *   If authentication fails (or no `Authorization` header is provided), the request *still proceeds* to the next middleware or handler, but without user information in the context. The handler must check for the presence of user information using `scontext.GetUserIDFromRequest` or `scontext.GetUserFromRequest`.
 3.  **`router.AuthRequired`**: The built-in authentication middleware is activated and authentication is mandatory. It attempts validation as described for `AuthOptional`.
     *   If authentication succeeds, the middleware populates the context (as above) and proceeds to the next middleware or handler.
@@ -49,28 +49,31 @@ routeProtected := router.RouteConfig[UpdateSettingsReq, UpdateSettingsResp]{
 
 The core of the built-in authentication mechanism relies on two functions you **must** provide when creating the router instance with `NewRouter`:
 
-1.  **`authFunction func(ctx context.Context, token string) (UserObjectType, bool)`**:
+1.  **`authFunction func(ctx context.Context, token string) (*UserObjectType, bool)`**:
     *   This function is called by the built-in middleware when `AuthLevel` is `AuthOptional` or `AuthRequired`.
     *   It receives the request context and the token string extracted from the `Authorization: Bearer <token>` header.
     *   It should validate the token (e.g., check a database, validate a JWT signature).
     *   It must return the corresponding `UserObjectType` (your application's user struct/type) and `true` if the token is valid, or a zero-value `UserObjectType` and `false` if invalid.
 
-2.  **`userIdFromUserFunction func(user UserObjectType) UserIDType`**:
+2.  **`userIdFromUserFunction func(user *UserObjectType) UserIDType`**:
     *   This function is called *after* `authFunction` returns `true`.
     *   It receives the `UserObjectType` returned by `authFunction`.
     *   It must return the corresponding `UserIDType` (your application's user ID type, e.g., `string`, `int`) for that user. This ID is then stored in the request context.
 
 ```go
 // Example dummy functions for NewRouter
-func myAuthValidator(ctx context.Context, token string) (MyUserType, bool) {
+func myAuthValidator(ctx context.Context, token string) (*MyUserType, bool) {
     // TODO: Implement actual token validation (e.g., JWT check, DB lookup)
     if token == "valid-token-for-user-123" {
-        return MyUserType{ID: "123", Email: "user@example.com"}, true
+        return &MyUserType{ID: "123", Email: "user@example.com"}, true
     }
-    return MyUserType{}, false
+    return nil, false
 }
 
-func myGetIDFromUser(user MyUserType) string {
+func myGetIDFromUser(user *MyUserType) string {
+    if user == nil {
+        return ""
+    }
     return user.ID
 }
 
@@ -113,8 +116,8 @@ routerConfig := router.RouterConfig{
 }
 
 // Define dummy functions since NewRouter requires them, even if unused by MyApiKeyMiddleware
-dummyAuthFunc := func(ctx context.Context, token string) (MyUserType, bool) { return MyUserType{}, false }
-dummyGetIDFunc := func(user MyUserType) string { return "" }
+dummyAuthFunc := func(ctx context.Context, token string) (*MyUserType, bool) { return nil, false }
+dummyGetIDFunc := func(user *MyUserType) string { return "" }
 
 // UserIDType and UserObjectType for NewRouter must match what MyApiKeyMiddleware puts in context
 r := router.NewRouter[string, MyUserType](routerConfig, dummyAuthFunc, dummyGetIDFunc)
@@ -123,7 +126,6 @@ r := router.NewRouter[string, MyUserType](routerConfig, dummyAuthFunc, dummyGetI
 // if MyApiKeyMiddleware handles all required/optional logic itself.
 ```
 
-*(This section is replaced by the "Authentication Functions (`NewRouter`)" section above)*
 
 ## Accessing User Information
 
