@@ -154,15 +154,17 @@ func main() {
 
 ### Using Sub-Routers
 
-Sub-routers allow you to group routes with a common path prefix and apply shared configuration. You can define both standard (`RouteConfigBase`) and generic routes declaratively within the `Routes` field, which now accepts `[]any`.
+Sub-routers allow you to group routes with a common path prefix and apply shared configuration. You can define both standard (`RouteConfigBase`) and generic routes declaratively within the `Routes` field, which accepts `[]router.RouteDefinition`.
 
 ```go
 // Define sub-router configurations
 apiV1SubRouter := router.SubRouterConfig{
-	PathPrefix:          "/api/v1",
-	TimeoutOverride:     3 * time.Second,
-	MaxBodySizeOverride: 2 << 20, // 2 MB
-	Routes: []any{ // Use []any to hold different route types
+        PathPrefix: "/api/v1",
+        Overrides: common.RouteOverrides{
+                Timeout:     3 * time.Second,
+                MaxBodySize: 2 << 20, // 2 MB
+        },
+        Routes: []router.RouteDefinition{
 		// Standard route
 		router.RouteConfigBase{
 			Path:    "/users", // Becomes /api/v1/users
@@ -189,8 +191,8 @@ apiV1SubRouter := router.SubRouterConfig{
 }
 
 apiV2SubRouter := router.SubRouterConfig{
-	PathPrefix: "/api/v2",
-	Routes: []any{ // Use []any
+        PathPrefix: "/api/v2",
+        Routes: []router.RouteDefinition{
 		router.RouteConfigBase{
 			Path:    "/users", // Becomes /api/v2/users
 			Methods: []router.HttpMethod{router.MethodGet},
@@ -219,8 +221,8 @@ You can nest `SubRouterConfig` structs within each other to create a hierarchica
 ```go
 // Define nested structure
 usersV1SubRouter := router.SubRouterConfig{
-	PathPrefix: "/users", // Relative to /api/v1
-	Routes: []any{
+        PathPrefix: "/users", // Relative to /api/v1
+        Routes: []router.RouteDefinition{
 		router.RouteConfigBase{ Path: "/:id", Methods: []router.HttpMethod{router.MethodGet}, Handler: GetUserHandler },
 		router.NewGenericRouteDefinition[UserReq, UserResp, string, string](
 			router.RouteConfig[UserReq, UserResp]{ Path: "/info", Methods: []router.HttpMethod{router.MethodPost}, Codec: userCodec, Handler: UserInfoHandler },
@@ -228,16 +230,16 @@ usersV1SubRouter := router.SubRouterConfig{
 	},
 }
 apiV1SubRouter := router.SubRouterConfig{
-	PathPrefix: "/v1", // Relative to /api
-	SubRouters: []router.SubRouterConfig{usersV1SubRouter},
-	Routes: []any{
+        PathPrefix: "/v1", // Relative to /api
+        SubRouters: []router.SubRouterConfig{usersV1SubRouter},
+        Routes: []router.RouteDefinition{
 		router.RouteConfigBase{ Path: "/status", Methods: []router.HttpMethod{router.MethodGet}, Handler: V1StatusHandler },
 	},
 }
 apiSubRouter := router.SubRouterConfig{
-	PathPrefix: "/api", // Root prefix for this group
-	SubRouters: []router.SubRouterConfig{apiV1SubRouter},
-	Routes: []any{
+        PathPrefix: "/api", // Root prefix for this group
+        SubRouters: []router.SubRouterConfig{apiV1SubRouter},
+        Routes: []router.RouteDefinition{
 		router.RouteConfigBase{ Path: "/health", Methods: []router.HttpMethod{router.MethodGet}, Handler: HealthHandler },
 	},
 }
@@ -533,11 +535,13 @@ routerConfig := router.RouterConfig{
 // Create a sub-router with rate limiting override
 subRouter := router.SubRouterConfig{
     PathPrefix: "/api/v1",
-    RateLimitOverride: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-        BucketName: "api_v1_user_limit",
-        Limit:      50,
-        Window:     time.Hour,
-        Strategy:   common.StrategyUser, // Requires auth middleware first
+    Overrides: common.RouteOverrides{
+        RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
+            BucketName: "api_v1_user_limit",
+            Limit:      50,
+            Window:     time.Hour,
+            Strategy:   common.StrategyUser, // Requires auth middleware first
+        },
     },
     // ... other config
 }
@@ -1200,11 +1204,9 @@ type MetricsConfig struct {
 
 ```go
 type SubRouterConfig struct {
- PathPrefix          string                            // Common path prefix for all routes in this sub-router
- TimeoutOverride     time.Duration                     // Override global timeout for all routes in this sub-router
- MaxBodySizeOverride int64                             // Override global max body size for all routes in this sub-router
- RateLimitOverride   *common.RateLimitConfig[any, any] // Override global rate limit (uses common.RateLimitConfig)
- Routes              []any                             // Routes (can contain RouteConfigBase or GenericRouteRegistrationFunc)
+ PathPrefix string                            // Common path prefix for all routes in this sub-router
+ Overrides  common.RouteOverrides             // Timeout/body size/rate limit overrides for this sub-router
+ Routes     []RouteDefinition                 // Routes (RouteConfigBase or GenericRouteDefinition)
  Middlewares         []common.Middleware               // Middlewares applied to all routes in this sub-router
  SubRouters          []SubRouterConfig                 // Nested sub-routers
  AuthLevel           *AuthLevel                        // Default auth level for routes in this sub-router (nil inherits)
@@ -1219,9 +1221,7 @@ type RouteConfigBase struct {
  Path        string                            // Route path (will be prefixed with sub-router path prefix if applicable)
  Methods     []HttpMethod                      // HTTP methods this route handles (use constants like MethodGet)
  AuthLevel   *AuthLevel                        // Authentication level (nil uses sub-router default)
- Timeout     time.Duration                     // Override timeout for this specific route (0 inherits)
- MaxBodySize int64                             // Override max body size for this specific route (0 inherits, negative = no limit)
- RateLimit   *common.RateLimitConfig[any, any] // Rate limit for this specific route (nil inherits, uses common.RateLimitConfig)
+ Overrides   common.RouteOverrides             // Optional per-route overrides
  Handler     http.HandlerFunc                  // Standard HTTP handler function
  Middlewares []common.Middleware               // Middlewares applied to this specific route
 }
@@ -1234,9 +1234,7 @@ type RouteConfig[T any, U any] struct {
  Path        string                            // Route path (will be prefixed with sub-router path prefix if applicable)
  Methods     []HttpMethod                      // HTTP methods this route handles (use constants like MethodGet)
  AuthLevel   *AuthLevel                        // Authentication level (nil uses sub-router default)
- Timeout     time.Duration                     // Override timeout for this specific route (0 inherits)
- MaxBodySize int64                             // Override max body size for this specific route (0 inherits, negative = no limit)
- RateLimit   *common.RateLimitConfig[any, any] // Rate limit for this specific route (nil inherits, uses common.RateLimitConfig)
+ Overrides   common.RouteOverrides             // Optional per-route overrides
  Codec       Codec[T, U]                       // Codec for marshaling/unmarshaling request and response. Required.
  Handler     GenericHandler[T, U]              // Generic handler function. Required.
  Middlewares []common.Middleware               // Middlewares applied to this specific route

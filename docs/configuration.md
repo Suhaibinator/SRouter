@@ -124,36 +124,24 @@ import (
 )
 
 type SubRouterConfig struct {
-	// PathPrefix is the common URL prefix for all routes and nested sub-routers
-	// within this group (e.g., "/api/v1").
-	PathPrefix string
+        // PathPrefix is the common URL prefix for all routes and nested sub-routers
+        // within this group (e.g., "/api/v1").
+        PathPrefix string
 
-	// TimeoutOverride overrides the global or parent sub-router's timeout.
-	// Zero inherits the parent's value.
-	TimeoutOverride time.Duration
+        // Overrides allows this sub-router to specify timeout, body size, or rate limit
+        // settings that override the global configuration. Zero values mean no override.
+        Overrides common.RouteOverrides
 
-	// MaxBodySizeOverride overrides the global or parent's max body size.
-	// Zero inherits. Negative means no limit for this sub-router.
-	MaxBodySizeOverride int64
-
-	// RateLimitOverride overrides the global or parent's rate limit config.
-	// Uses common.RateLimitConfig. Nil inherits.
-	RateLimitOverride *common.RateLimitConfig[any, any]
-
-	// Routes is a slice containing route definitions. Must contain RouteConfigBase
-	// or GenericRouteRegistrationFunc types. Required.
-	Routes []any
-
-	// Middlewares is a slice of middlewares applied only to routes within this
-	// - GenericRouteDefinition (for generic routes, created via NewGenericRouteDefinition)
-	Routes []any
+        // Routes is a slice containing route definitions. Must contain RouteConfigBase
+        // or GenericRouteRegistrationFunc values.
+        Routes []router.RouteDefinition
 
         // Middlewares is a slice of middlewares applied only to routes within this
         // sub-router (and its children), executed before global/parent middleware.
-	Middlewares []common.Middleware
+        Middlewares []common.Middleware
 
-	// SubRouters defines nested sub-routers within this group.
-	SubRouters []SubRouterConfig
+        // SubRouters defines nested sub-routers within this group.
+        SubRouters []SubRouterConfig
 
 	// AuthLevel sets the default authentication level for routes in this sub-router
 	// if the route itself doesn't specify one. Nil inherits from parent or defaults to NoAuth.
@@ -186,15 +174,9 @@ type RouteConfigBase struct {
 	// Nil inherits from parent sub-router or defaults to NoAuth.
 	AuthLevel *AuthLevel
 
-	// Timeout overrides the timeout specifically for this route. Zero inherits.
-	Timeout time.Duration
-
-	// MaxBodySize overrides the max body size specifically for this route. Zero inherits. Negative means no limit.
-	MaxBodySize int64
-
-	// RateLimit overrides the rate limit specifically for this route.
-	// Uses common.RateLimitConfig. Nil inherits.
-	RateLimit *common.RateLimitConfig[any, any]
+        // Overrides allows this route to specify timeout, body size, or rate limit
+        // settings. Zero values mean inherit from the sub-router or global configuration.
+        Overrides common.RouteOverrides
 
 	// Handler is the standard Go HTTP handler function. Required.
 	Handler http.HandlerFunc
@@ -233,15 +215,9 @@ type RouteConfig[T any, U any] struct {
 	// Nil inherits.
 	AuthLevel *AuthLevel
 
-	// Timeout overrides the timeout specifically for this route. Zero inherits.
-	Timeout time.Duration
-
-	// MaxBodySize overrides the max body size specifically for this route. Zero inherits. Negative means no limit.
-	MaxBodySize int64
-
-	// RateLimit overrides the rate limit specifically for this route.
-	// Uses common.RateLimitConfig. Nil inherits.
-	RateLimit *common.RateLimitConfig[any, any]
+        // Overrides allows this route to specify timeout, body size, or rate limit
+        // settings. Zero values mean inherit from the sub-router or global configuration.
+        Overrides common.RouteOverrides
 
 	// Codec is the encoder/decoder implementation for types T and U. Required.
 	// Must implement the router.Codec[T, U] interface.

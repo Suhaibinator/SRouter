@@ -116,7 +116,7 @@ routerConfig := router.RouterConfig{
                 MyCustomAuthMiddleware(), // Sub-Router: Runs before global middleware
                 mymiddleware.AddHeaderMiddleware("X-API-Version", "v1"), // Sub-Router: Custom middleware
             },
-            Routes: []any{
+            Routes: []router.RouteDefinition{
                 router.RouteConfigBase{
                     Path: "/users",
                     Methods: []router.HttpMethod{router.MethodGet},
