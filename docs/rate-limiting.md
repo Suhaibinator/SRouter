@@ -21,7 +21,7 @@ routerConfig := router.RouterConfig{
         BucketName: "global_ip_limit", // Unique name for the bucket
         Limit:      100,               // Allow 100 requests...
         Window:     time.Minute,       // ...per minute
-        Strategy:   common.RateLimitStrategyIP, // Use common constants
+        Strategy:   common.StrategyIP, // Use common constants
     },
 }
 
@@ -33,7 +33,7 @@ subRouter := router.SubRouterConfig{
             BucketName: "sensitive_api_user_limit",
             Limit:      20,
             Window:     time.Hour,
-            Strategy:   common.RateLimitStrategyUser, // Use common constants
+            Strategy:   common.StrategyUser, // Use common constants
         },
     },
     // ... other sub-router config
@@ -43,11 +43,13 @@ subRouter := router.SubRouterConfig{
 route := router.RouteConfig[MyReq, MyResp]{ // Use specific types for route config
     Path:    "/heavy-operation",
     Methods: []router.HttpMethod{router.MethodPost},
-    RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-        BucketName: "heavy_op_ip_limit",
-        Limit:      5,
-        Window:     time.Minute,
-        Strategy:   common.RateLimitStrategyIP, // Use common constants
+    Overrides: common.RouteOverrides{
+        RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
+            BucketName: "heavy_op_ip_limit",
+            Limit:      5,
+            Window:     time.Minute,
+            Strategy:   common.StrategyIP, // Use common constants
+        },
     },
     // ... other route config
 }
@@ -63,43 +65,45 @@ Key `RateLimitConfig` fields:
 -   `Limit`: The maximum number of requests allowed within the specified `Window`.
 -   `Window`: The duration over which the `Limit` is enforced.
 -   `Strategy`: Determines how the rate limit is applied (see below).
--   `KeyExtractor`: (Used only with `RateLimitStrategyCustom`) A function to extract a custom key for rate limiting.
+-   `UserIDFromUser`: (Only for `StrategyUser`) Function that extracts the user ID from the user object stored in context.
+-   `UserIDToString`: (Only for `StrategyUser`) Converts the user ID to a string for use as a key.
+-   `KeyExtractor`: (Used only with `StrategyCustom`) A function to extract a custom key for rate limiting.
 -   `ExceededHandler`: (Optional) An `http.HandlerFunc` to customize the response when the rate limit is exceeded (defaults to a standard 429 Too Many Requests response).
 
 ## Rate Limiting Strategies
 
 SRouter defines several strategies using constants of type `common.RateLimitStrategy` (defined in `pkg/common/types.go`):
 
-1.  **`common.RateLimitStrategyIP`**: Limits requests based on the client's IP address. The IP address is extracted internally based on the router's [IP Configuration](./ip-configuration.md) and stored in the context. This is the most common strategy for anonymous or global rate limiting.
+1.  **`common.StrategyIP`**: Limits requests based on the client's IP address. The IP address is extracted internally based on the router's [IP Configuration](./ip-configuration.md) and stored in the context. This is the most common strategy for anonymous or global rate limiting.
 
     ```go
     RateLimit: &common.RateLimitConfig[any, any]{
         BucketName: "ip_limit",
         Limit:      100,
         Window:     time.Minute,
-        Strategy:   common.RateLimitStrategyIP,
+        Strategy:   common.StrategyIP,
     }
     ```
 
-2.  **`common.RateLimitStrategyUser`**: Limits requests based on the authenticated user ID stored in the request context (via `scontext.GetUserIDFromRequest`). This requires an [Authentication](./authentication.md) mechanism (built-in or custom middleware) to run *before* the rate limiter to populate the user ID.
+2.  **`common.StrategyUser`**: Limits requests based on the authenticated user ID stored in the request context (via `scontext.GetUserIDFromRequest`). This requires an [Authentication](./authentication.md) mechanism (built-in or custom middleware) to run *before* the rate limiter to populate the user ID.
 
     ```go
     RateLimit: &common.RateLimitConfig[any, any]{
         BucketName: "user_limit",
         Limit:      50,
         Window:     time.Hour,
-        Strategy:   common.RateLimitStrategyUser, // Requires User ID in context
+        Strategy:   common.StrategyUser, // Requires User ID in context
     }
     ```
 
-3.  **`common.RateLimitStrategyCustom`**: Limits requests based on a custom key extracted from the request using the `KeyExtractor` function provided in the `RateLimitConfig`. This allows for flexible strategies, like limiting based on API keys, specific headers, or combinations of factors.
+3.  **`common.StrategyCustom`**: Limits requests based on a custom key extracted from the request using the `KeyExtractor` function provided in the `RateLimitConfig`. This allows for flexible strategies, like limiting based on API keys, specific headers, or combinations of factors.
 
     ```go
     RateLimit: &common.RateLimitConfig[any, any]{
         BucketName: "api_key_limit",
         Limit:      200,
         Window:     time.Hour,
-        Strategy:   common.RateLimitStrategyCustom,
+        Strategy:   common.StrategyCustom,
         KeyExtractor: func(r *http.Request) (string, error) {
             // Example: Extract API key from header or query param
             apiKey := r.Header.Get("X-API-Key")
@@ -127,11 +131,13 @@ You can enforce a shared rate limit across multiple endpoints by assigning the *
 loginRoute := router.RouteConfigBase{
     Path:    "/login",
     Methods: []router.HttpMethod{router.MethodPost},
-    RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-        BucketName: "auth_ip_limit", // Shared bucket name
-        Limit:      5,
-        Window:     time.Minute,
-        Strategy:   common.RateLimitStrategyIP, // Use common constants
+    Overrides: common.RouteOverrides{
+        RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
+            BucketName: "auth_ip_limit", // Shared bucket name
+            Limit:      5,
+            Window:     time.Minute,
+            Strategy:   common.StrategyIP, // Use common constants
+        },
     },
     // ...
 }
@@ -139,11 +145,13 @@ loginRoute := router.RouteConfigBase{
 registerRoute := router.RouteConfigBase{
     Path:    "/register",
     Methods: []router.HttpMethod{router.MethodPost},
-    RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-        BucketName: "auth_ip_limit", // Same bucket name
-        Limit:      5,               // Limit applies to combined requests
-        Window:     time.Minute,
-        Strategy:   common.RateLimitStrategyIP, // Use common constants
+    Overrides: common.RouteOverrides{
+        RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
+            BucketName: "auth_ip_limit", // Same bucket name
+            Limit:      5,               // Limit applies to combined requests
+            Window:     time.Minute,
+            Strategy:   common.StrategyIP, // Use common constants
+        },
     },
     // ...
 }
@@ -158,12 +166,11 @@ RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
     BucketName: "custom_response_limit",
     Limit:      10,
     Window:     time.Minute,
-    Strategy:   common.RateLimitStrategyIP, // Use common constants
+    Strategy:   common.StrategyIP, // Use common constants
     ExceededHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Note: The default handler already sets X-RateLimit-* headers.
+        // Note: The default handler already sets X-RateLimit-* headers and a standard Retry-After header.
         // You might want to set additional headers or customize the body.
         w.Header().Set("Content-Type", "application/json")
-        // w.Header().Set("X-RateLimit-Retry-After", "60") // Default handler sets Retry-After
         w.WriteHeader(http.StatusTooManyRequests) // 429
         w.Write([]byte(`{"error": "Slow down!", "message": "You have exceeded the rate limit. Please wait a minute."}`))
     }),
