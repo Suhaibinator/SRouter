@@ -1594,16 +1594,21 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 	}
 }
 
+// unsupportedRouteType is a test type that implements RouteDefinition but is not supported by the router.
+type unsupportedRouteType struct{}
+
+func (unsupportedRouteType) isRouteDefinition() {}
+
 // TestRegisterSubRouter_UnsupportedRouteType tests the default case in registerSubRouter's switch statement.
 func TestRegisterSubRouter_UnsupportedRouteType(t *testing.T) {
 	// Create an observer logger
 	observedZapCore, observedLogs := observer.New(zapcore.WarnLevel)
 	observedLogger := zap.New(observedZapCore)
 
-	// Define sub-router config with an invalid route type (int)
+	// Define sub-router config with an invalid route type
 	subRouterCfg := SubRouterConfig{
 		PathPrefix: "/invalid",
-		Routes:     []RouteDefinition{}, // Empty routes for this test
+		Routes:     []RouteDefinition{unsupportedRouteType{}}, // Add an unsupported route type
 	}
 
 	// Create router config
@@ -1625,7 +1630,7 @@ func TestRegisterSubRouter_UnsupportedRouteType(t *testing.T) {
 		// Check context fields
 		expectedContext := map[string]any{
 			"pathPrefix": "/invalid",
-			"type":       "int", // The type of the invalid item
+			"type":       "router.unsupportedRouteType", // The type of the invalid item
 		}
 		// Convert zapcore.Field to map for easier comparison
 		actualContext := make(map[string]any)
