@@ -537,7 +537,7 @@ func TestTransactionHandling_ConcurrentRequests(t *testing.T) {
 			return &mocks.MockTransaction{
 				GetDBFunc: func() *gorm.DB {
 					// Return a unique value to identify this transaction
-					return &gorm.DB{Config: &gorm.Config{DryRun: true, SkipDefaultTransaction: true}, Error: errors.New(fmt.Sprintf("tx-%d", currentTx))}
+					return &gorm.DB{Config: &gorm.Config{DryRun: true, SkipDefaultTransaction: true}, Error: fmt.Errorf("tx-%d", currentTx)}
 				},
 			}, nil
 		},
@@ -559,7 +559,7 @@ func TestTransactionHandling_ConcurrentRequests(t *testing.T) {
 		// Write the transaction identifier
 		db := tx.GetDB()
 		if db != nil && db.Error != nil {
-			w.Write([]byte(db.Error.Error()))
+			_, _ = w.Write([]byte(db.Error.Error()))
 		}
 	})
 

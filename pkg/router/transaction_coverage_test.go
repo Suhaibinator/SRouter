@@ -39,7 +39,7 @@ func TestTransactionCommitFailure(t *testing.T) {
 	// Handler that succeeds (should trigger commit)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("success"))
+		_, _ = w.Write([]byte("success"))
 	})
 
 	// Register route with transaction
@@ -93,7 +93,7 @@ func TestTransactionRollbackFailure(t *testing.T) {
 	// Handler that fails (should trigger rollback)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error"))
+		_, _ = w.Write([]byte("error"))
 	})
 
 	// Register route with transaction
