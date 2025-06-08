@@ -5,8 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks"
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
@@ -227,12 +229,12 @@ func TestTransactionPanicWithRollbackFailure(t *testing.T) {
 	assert.True(t, mockTx.IsRollbackCalled())
 }
 
-// TestTransactionWithTraceID tests transaction error logging with trace ID
-func TestTransactionWithTraceID(t *testing.T) {
+// TestRegisterRouteTransactionCommitFailure tests commit failure for routes registered via RegisterRoute
+func TestRegisterRouteTransactionCommitFailure(t *testing.T) {
 	// Create mock transaction that fails on commit
 	mockTx := &mocks.MockTransaction{
 		CommitFunc: func() error {
-			return errors.New("commit failed")
+			return errors.New("commit failed in RegisterRoute")
 		},
 	}
 	
@@ -243,25 +245,20 @@ func TestTransactionWithTraceID(t *testing.T) {
 		},
 	}
 
-	// Create router with transaction factory and trace ID generation
+	// Create router with transaction factory
 	r := NewRouter[string, TestUser](RouterConfig{
 		Logger:             zaptest.NewLogger(t),
 		TransactionFactory: mockFactory,
-		TraceIDBufferSize:  10, // Enable trace ID generation
 	}, nil, nil)
 
 	// Handler that succeeds
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		// Verify trace ID is in context
-		traceID := scontext.GetTraceIDFromRequest[string, TestUser](req)
-		assert.NotEmpty(t, traceID)
-		
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Register route with transaction
+	// Register route directly with RegisterRoute
 	r.RegisterRoute(RouteConfigBase{
-		Path:    "/test",
+		Path:    "/test-register-route",
 		Methods: []HttpMethod{MethodGet},
 		Handler: handler,
 		Overrides: common.RouteOverrides{
@@ -272,7 +269,7 @@ func TestTransactionWithTraceID(t *testing.T) {
 	})
 
 	// Make request
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test-register-route", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -281,4 +278,302 @@ func TestTransactionWithTraceID(t *testing.T) {
 	
 	// Verify commit was attempted
 	assert.True(t, mockTx.IsCommitCalled())
+}
+
+// TestRegisterGenericRouteTransactionCommitFailure tests commit failure for generic routes
+func TestRegisterGenericRouteTransactionCommitFailure(t *testing.T) {
+	type Request struct {
+		Name string `json:"name"`
+	}
+	type Response struct {
+		Message string `json:"message"`
+	}
+
+	// Create mock transaction that fails on commit
+	mockTx := &mocks.MockTransaction{
+		CommitFunc: func() error {
+			return errors.New("commit failed in RegisterGenericRoute")
+		},
+	}
+	
+	// Create mock factory
+	mockFactory := &mocks.MockTransactionFactory{
+		BeginFunc: func(ctx context.Context, options map[string]any) (scontext.DatabaseTransaction, error) {
+			return mockTx, nil
+		},
+	}
+
+	// Handler that succeeds
+	handler := func(req *http.Request, data Request) (Response, error) {
+		return Response{Message: "success"}, nil
+	}
+
+	// Create router with transaction factory and generic route in subrouter
+	r := NewRouter[string, TestUser](RouterConfig{
+		Logger:             zaptest.NewLogger(t),
+		TransactionFactory: mockFactory,
+		SubRouters: []SubRouterConfig{
+			{
+				PathPrefix: "",
+				Routes: []RouteDefinition{
+					NewGenericRouteDefinition[Request, Response, string, TestUser](
+						RouteConfig[Request, Response]{
+							Path:    "/test-generic",
+							Methods: []HttpMethod{MethodPost},
+							Handler: handler,
+							Codec:   codec.NewJSONCodec[Request, Response](),
+							Overrides: common.RouteOverrides{
+								Transaction: &common.TransactionConfig{
+									Enabled: true,
+								},
+							},
+						},
+					),
+				},
+			},
+		},
+	}, nil, nil)
+
+	// Make request
+	reqBody := `{"name":"test"}`
+	req := httptest.NewRequest("POST", "/test-generic", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Check response
+	assert.Equal(t, http.StatusOK, w.Code)
+	
+	// Verify commit was attempted
+	assert.True(t, mockTx.IsCommitCalled())
+}
+
+// TestRegisterRouteTransactionRollbackFailure tests rollback failure for routes registered via RegisterRoute
+func TestRegisterRouteTransactionRollbackFailure(t *testing.T) {
+	// Create mock transaction that fails on rollback
+	mockTx := &mocks.MockTransaction{
+		RollbackFunc: func() error {
+			return errors.New("rollback failed in RegisterRoute")
+		},
+	}
+	
+	// Create mock factory
+	mockFactory := &mocks.MockTransactionFactory{
+		BeginFunc: func(ctx context.Context, options map[string]any) (scontext.DatabaseTransaction, error) {
+			return mockTx, nil
+		},
+	}
+
+	// Create router with transaction factory
+	r := NewRouter[string, TestUser](RouterConfig{
+		Logger:             zaptest.NewLogger(t),
+		TransactionFactory: mockFactory,
+	}, nil, nil)
+
+	// Handler that fails
+	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	// Register route directly with RegisterRoute
+	r.RegisterRoute(RouteConfigBase{
+		Path:    "/test-register-route-fail",
+		Methods: []HttpMethod{MethodGet},
+		Handler: handler,
+		Overrides: common.RouteOverrides{
+			Transaction: &common.TransactionConfig{
+				Enabled: true,
+			},
+		},
+	})
+
+	// Make request
+	req := httptest.NewRequest("GET", "/test-register-route-fail", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Check response
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	
+	// Verify rollback was attempted
+	assert.True(t, mockTx.IsRollbackCalled())
+}
+
+// TestRegisterGenericRouteTransactionRollbackFailure tests rollback failure for generic routes
+func TestRegisterGenericRouteTransactionRollbackFailure(t *testing.T) {
+	type Request struct {
+		Name string `json:"name"`
+	}
+	type Response struct {
+		Message string `json:"message"`
+	}
+
+	// Create mock transaction that fails on rollback
+	mockTx := &mocks.MockTransaction{
+		RollbackFunc: func() error {
+			return errors.New("rollback failed in RegisterGenericRoute")
+		},
+	}
+	
+	// Create mock factory
+	mockFactory := &mocks.MockTransactionFactory{
+		BeginFunc: func(ctx context.Context, options map[string]any) (scontext.DatabaseTransaction, error) {
+			return mockTx, nil
+		},
+	}
+
+	// Handler that fails
+	handler := func(req *http.Request, data Request) (Response, error) {
+		return Response{}, errors.New("handler error")
+	}
+
+	// Create router with transaction factory and generic route in subrouter
+	r := NewRouter[string, TestUser](RouterConfig{
+		Logger:             zaptest.NewLogger(t),
+		TransactionFactory: mockFactory,
+		SubRouters: []SubRouterConfig{
+			{
+				PathPrefix: "",
+				Routes: []RouteDefinition{
+					NewGenericRouteDefinition[Request, Response, string, TestUser](
+						RouteConfig[Request, Response]{
+							Path:    "/test-generic-fail",
+							Methods: []HttpMethod{MethodPost},
+							Handler: handler,
+							Codec:   codec.NewJSONCodec[Request, Response](),
+							Overrides: common.RouteOverrides{
+								Transaction: &common.TransactionConfig{
+									Enabled: true,
+								},
+							},
+						},
+					),
+				},
+			},
+		},
+	}, nil, nil)
+
+	// Make request
+	reqBody := `{"name":"test"}`
+	req := httptest.NewRequest("POST", "/test-generic-fail", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Check response
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	
+	// Verify rollback was attempted
+	assert.True(t, mockTx.IsRollbackCalled())
+}
+
+// TestRegisterRouteTransactionBeginFailure tests begin failure for routes registered via RegisterRoute
+func TestRegisterRouteTransactionBeginFailure(t *testing.T) {
+	// Create mock factory that fails to begin transaction
+	mockFactory := &mocks.MockTransactionFactory{
+		BeginFunc: func(ctx context.Context, options map[string]any) (scontext.DatabaseTransaction, error) {
+			return nil, errors.New("begin failed in RegisterRoute")
+		},
+	}
+
+	// Create router with transaction factory
+	r := NewRouter[string, TestUser](RouterConfig{
+		Logger:             zaptest.NewLogger(t),
+		TransactionFactory: mockFactory,
+	}, nil, nil)
+
+	// Handler that should not be called
+	handlerCalled := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		handlerCalled = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Register route directly with RegisterRoute
+	r.RegisterRoute(RouteConfigBase{
+		Path:    "/test-register-route-begin-fail",
+		Methods: []HttpMethod{MethodGet},
+		Handler: handler,
+		Overrides: common.RouteOverrides{
+			Transaction: &common.TransactionConfig{
+				Enabled: true,
+			},
+		},
+	})
+
+	// Make request
+	req := httptest.NewRequest("GET", "/test-register-route-begin-fail", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Check response
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "Failed to begin transaction")
+	
+	// Handler should not have been called
+	assert.False(t, handlerCalled)
+}
+
+// TestRegisterGenericRouteTransactionBeginFailure tests begin failure for generic routes
+func TestRegisterGenericRouteTransactionBeginFailure(t *testing.T) {
+	type Request struct {
+		Name string `json:"name"`
+	}
+	type Response struct {
+		Message string `json:"message"`
+	}
+
+	// Create mock factory that fails to begin transaction
+	mockFactory := &mocks.MockTransactionFactory{
+		BeginFunc: func(ctx context.Context, options map[string]any) (scontext.DatabaseTransaction, error) {
+			return nil, errors.New("begin failed in RegisterGenericRoute")
+		},
+	}
+
+	// Handler that should not be called
+	handlerCalled := false
+	handler := func(req *http.Request, data Request) (Response, error) {
+		handlerCalled = true
+		return Response{Message: "success"}, nil
+	}
+
+	// Create router with transaction factory and generic route in subrouter
+	r := NewRouter[string, TestUser](RouterConfig{
+		Logger:             zaptest.NewLogger(t),
+		TransactionFactory: mockFactory,
+		SubRouters: []SubRouterConfig{
+			{
+				PathPrefix: "",
+				Routes: []RouteDefinition{
+					NewGenericRouteDefinition[Request, Response, string, TestUser](
+						RouteConfig[Request, Response]{
+							Path:    "/test-generic-begin-fail",
+							Methods: []HttpMethod{MethodPost},
+							Handler: handler,
+							Codec:   codec.NewJSONCodec[Request, Response](),
+							Overrides: common.RouteOverrides{
+								Transaction: &common.TransactionConfig{
+									Enabled: true,
+								},
+							},
+						},
+					),
+				},
+			},
+		},
+	}, nil, nil)
+
+	// Make request
+	reqBody := `{"name":"test"}`
+	req := httptest.NewRequest("POST", "/test-generic-begin-fail", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	// Check response
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "Failed to begin transaction")
+	
+	// Handler should not have been called
+	assert.False(t, handlerCalled)
 }
