@@ -227,51 +227,15 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 			allMiddlewares = append(allMiddlewares, route.Middlewares...)
 
 			// Wrap handler with transaction handling if enabled
-			finalHandler := route.Handler
-			if transaction != nil && transaction.Enabled && r.config.TransactionFactory != nil {
-				originalHandler := finalHandler
-				finalHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-					// Begin transaction
-					tx, err := r.config.TransactionFactory.BeginTransaction(req.Context(), transaction.Options)
-					if err != nil {
-						r.handleError(w, req, err, http.StatusInternalServerError, "Failed to begin transaction")
-						return
-					}
-
-					// Add transaction to context
-					ctx := scontext.WithTransaction[T, U](req.Context(), tx)
-					req = req.WithContext(ctx)
-
-					// Create status-capturing writer
-					captureWriter := &statusCapturingResponseWriter{ResponseWriter: w}
-
-					// Call original handler
-					originalHandler.ServeHTTP(captureWriter, req)
-
-					// Determine if handler succeeded based on status code
-					// Consider 2xx and 3xx as success
-					success := captureWriter.status >= 200 && captureWriter.status < 400
-
-					// Commit or rollback based on success
-					if success {
-						if err := tx.Commit(); err != nil {
-							fields := append(r.baseFields(req), zap.Error(err))
-							fields = r.addTrace(fields, req)
-							r.logger.Error("Failed to commit transaction", fields...)
-							// Note: We can't change the response at this point
-						}
-					} else {
-						if err := tx.Rollback(); err != nil {
-							fields := append(r.baseFields(req), zap.Error(err))
-							fields = r.addTrace(fields, req)
-							r.logger.Error("Failed to rollback transaction", fields...)
-						}
-					}
-				})
-			}
+			finalHandler := r.wrapWithTransaction(route.Handler, transaction)
 
 			// Create a handler with all middlewares applied (global middlewares are added inside wrapHandler)
-			handler := r.wrapHandler(finalHandler, authLevel, timeout, maxBodySize, rateLimit, allMiddlewares)
+			// Convert to HandlerFunc if needed
+			handlerFunc, ok := finalHandler.(http.HandlerFunc)
+			if !ok {
+				handlerFunc = http.HandlerFunc(finalHandler.ServeHTTP)
+			}
+			handler := r.wrapHandler(handlerFunc, authLevel, timeout, maxBodySize, rateLimit, allMiddlewares)
 
 			// Register the route with httprouter
 			for _, method := range route.Methods {

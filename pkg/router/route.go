@@ -7,8 +7,6 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common" // Ensure common is imported
-	"github.com/Suhaibinator/SRouter/pkg/scontext"
-	"go.uber.org/zap"
 )
 
 // RegisterRoute registers a standard (non-generic) route with the router.
@@ -32,51 +30,15 @@ func (r *Router[T, U]) RegisterRoute(route RouteConfigBase) {
 	transaction := r.getEffectiveTransaction(route.Overrides.Transaction, nil)
 
 	// Wrap handler with transaction handling if enabled
-	finalHandler := route.Handler
-	if transaction != nil && transaction.Enabled && r.config.TransactionFactory != nil {
-		originalHandler := finalHandler
-		finalHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			// Begin transaction
-			tx, err := r.config.TransactionFactory.BeginTransaction(req.Context(), transaction.Options)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusInternalServerError, "Failed to begin transaction")
-				return
-			}
-
-			// Add transaction to context
-			ctx := scontext.WithTransaction[T, U](req.Context(), tx)
-			req = req.WithContext(ctx)
-
-			// Create status-capturing writer
-			captureWriter := &statusCapturingResponseWriter{ResponseWriter: w}
-
-			// Call original handler
-			originalHandler.ServeHTTP(captureWriter, req)
-
-			// Determine if handler succeeded based on status code
-			// Consider 2xx and 3xx as success
-			success := captureWriter.status >= 200 && captureWriter.status < 400
-
-			// Commit or rollback based on success
-			if success {
-				if err := tx.Commit(); err != nil {
-					fields := append(r.baseFields(req), zap.Error(err))
-					fields = r.addTrace(fields, req)
-					r.logger.Error("Failed to commit transaction", fields...)
-					// Note: We can't change the response at this point
-				}
-			} else {
-				if err := tx.Rollback(); err != nil {
-					fields := append(r.baseFields(req), zap.Error(err))
-					fields = r.addTrace(fields, req)
-					r.logger.Error("Failed to rollback transaction", fields...)
-				}
-			}
-		})
-	}
+	finalHandler := r.wrapWithTransaction(route.Handler, transaction)
 
 	// Create a handler with all middlewares applied
-	handler := r.wrapHandler(finalHandler, route.AuthLevel, timeout, maxBodySize, rateLimit, route.Middlewares)
+	// Convert to HandlerFunc if needed
+	handlerFunc, ok := finalHandler.(http.HandlerFunc)
+	if !ok {
+		handlerFunc = http.HandlerFunc(finalHandler.ServeHTTP)
+	}
+	handler := r.wrapHandler(handlerFunc, route.AuthLevel, timeout, maxBodySize, rateLimit, route.Middlewares)
 
 	// Register the route with httprouter
 	for _, method := range route.Methods {
@@ -291,50 +253,15 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 	})
 
 	// Wrap with transaction handling if enabled
-	if effectiveTransaction != nil && effectiveTransaction.Enabled && r.config.TransactionFactory != nil {
-		originalHandler := handler
-		handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			// Begin transaction
-			tx, err := r.config.TransactionFactory.BeginTransaction(req.Context(), effectiveTransaction.Options)
-			if err != nil {
-				r.handleError(w, req, err, http.StatusInternalServerError, "Failed to begin transaction")
-				return
-			}
-
-			// Add transaction to context
-			ctx := scontext.WithTransaction[UserID, User](req.Context(), tx)
-			req = req.WithContext(ctx)
-
-			// Create status-capturing writer
-			captureWriter := &statusCapturingResponseWriter{ResponseWriter: w}
-
-			// Call original handler
-			originalHandler.ServeHTTP(captureWriter, req)
-
-			// Determine if handler succeeded based on status code
-			// Consider 2xx and 3xx as success
-			success := captureWriter.status >= 200 && captureWriter.status < 400
-
-			// Commit or rollback based on success
-			if success {
-				if err := tx.Commit(); err != nil {
-					fields := append(r.baseFields(req), zap.Error(err))
-					fields = r.addTrace(fields, req)
-					r.logger.Error("Failed to commit transaction", fields...)
-					// Note: We can't change the response at this point
-				}
-			} else {
-				if err := tx.Rollback(); err != nil {
-					fields := append(r.baseFields(req), zap.Error(err))
-					fields = r.addTrace(fields, req)
-					r.logger.Error("Failed to rollback transaction", fields...)
-				}
-			}
-		})
+	wrappedWithTx := r.wrapWithTransaction(handler, effectiveTransaction)
+	// Convert back to HandlerFunc if needed
+	handlerFunc, ok := wrappedWithTx.(http.HandlerFunc)
+	if !ok {
+		handlerFunc = http.HandlerFunc(wrappedWithTx.ServeHTTP)
 	}
 
 	// Create a handler with all middlewares applied, using the effective settings passed in
-	wrappedHandler := r.wrapHandler(handler, route.AuthLevel, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit, route.Middlewares)
+	wrappedHandler := r.wrapHandler(handlerFunc, route.AuthLevel, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit, route.Middlewares)
 
 	// Register the route with httprouter
 	for _, method := range route.Methods {
