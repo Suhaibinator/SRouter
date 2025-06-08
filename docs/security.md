@@ -4,25 +4,7 @@ This document provides security-related guidance for developers using the SRoute
 
 ## IP Address Configuration
 
-The `IPConfig` in SRouter allows you to customize how client IP addresses are extracted from incoming HTTP requests. This is crucial for logging, rate limiting, and other security-related features.
-
-The `IPConfig` struct has the following options:
-
-*   **`Source` (IPSourceType):** Determines which part of the request is used to find the client's IP address. Possible values are:
-    *   `"remote_addr"`: Uses the `RemoteAddr` field from the `http.Request`. This is generally the most reliable source if your application is directly exposed to the internet.
-    *   `"x_forwarded_for"`: Uses the `X-Forwarded-For` HTTP header. This header is commonly set by reverse proxies and load balancers.
-    *   `"x_real_ip"`: Uses the `X-Real-IP` HTTP header. This is another header often set by proxy servers.
-    *   `"custom_header"`: Uses a custom header name specified by the `CustomHeader` field.
-
-*   **`CustomHeader` (string):** If `Source` is set to `"custom_header"`, this field specifies the name of the HTTP header to inspect for the client's IP address.
-
-*   **`TrustProxy` (bool):** This is a critical security setting.
-    *   When set to `true`, SRouter will trust the IP address provided in headers like `X-Forwarded-For` or `X-Real-IP` (depending on the `Source` configuration).
-    *   **Security Warning:** Only set `TrustProxy` to `true` if your application is deployed behind a trusted reverse proxy or load balancer that correctly sets these headers and sanitizes them. The proxy must ensure that these headers cannot be spoofed by malicious clients. If your application is directly exposed to the internet, or if you are unsure about the configuration of your proxy, **`TrustProxy` should be set to `false`.**
-    *   If `TrustProxy` is `false`, SRouter will always use the `RemoteAddr` from the direct incoming connection as the client IP if the configured `Source` relies on headers. This provides a more secure stance in environments where proxy headers could be forged.
-    *   The default value for `TrustProxy` is `true`, matching the behavior of `DefaultIPConfig`. Provide your own `IPConfig` with `TrustProxy: false` if you need to disable this.
-
-It is essential to configure these options correctly based on your deployment environment to ensure accurate and secure IP address extraction. Incorrect configuration, especially of `TrustProxy`, can lead to security vulnerabilities such as IP spoofing, where a malicious user might be able to falsify their IP address.
+Correctly extracting the client IP is crucial for logging, rate limiting, and other security features. SRouter provides extensive configuration via `IPConfig` to handle proxies and custom headers. See the dedicated [IP Configuration](./ip-configuration.md) documentation for details and security recommendations.
 
 ## Authentication
 
