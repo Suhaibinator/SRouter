@@ -577,3 +577,77 @@ func TestRegisterGenericRouteTransactionBeginFailure(t *testing.T) {
 	// Handler should not have been called
 	assert.False(t, handlerCalled)
 }
+// TestStatusCapturingResponseWriterFlush tests the Flush method of statusCapturingResponseWriter
+func TestStatusCapturingResponseWriterFlush(t *testing.T) {
+	// Test with a response writer that implements http.Flusher
+	t.Run("with flusher", func(t *testing.T) {
+		// Create a mock flusher recorder
+		mockFlusher := mocks.NewFlusherRecorder()
+		
+		// Create statusCapturingResponseWriter wrapping the flusher
+		captureWriter := &statusCapturingResponseWriter{
+			ResponseWriter: mockFlusher,
+		}
+		
+		// Call Flush
+		captureWriter.Flush()
+		
+		// Verify that the underlying Flush was called
+		assert.True(t, mockFlusher.Flushed, "Expected Flush to be called on the underlying response writer")
+	})
+	
+	// Test with a response writer that does NOT implement http.Flusher
+	t.Run("without flusher", func(t *testing.T) {
+		// Create a regular httptest.ResponseRecorder (doesn't implement Flusher)
+		recorder := httptest.NewRecorder()
+		
+		// Create statusCapturingResponseWriter wrapping the recorder
+		captureWriter := &statusCapturingResponseWriter{
+			ResponseWriter: recorder,
+		}
+		
+		// Call Flush - should not panic
+		assert.NotPanics(t, func() {
+			captureWriter.Flush()
+		}, "Flush should not panic when underlying writer doesn't implement Flusher")
+	})
+	
+	// Test Flush after Write operations
+	t.Run("flush after write", func(t *testing.T) {
+		mockFlusher := mocks.NewFlusherRecorder()
+		captureWriter := &statusCapturingResponseWriter{
+			ResponseWriter: mockFlusher,
+		}
+		
+		// Write some data
+		data := []byte("test data")
+		n, err := captureWriter.Write(data)
+		assert.NoError(t, err)
+		assert.Equal(t, len(data), n)
+		
+		// Status should be set to 200 after write
+		assert.Equal(t, http.StatusOK, captureWriter.status)
+		assert.True(t, captureWriter.written)
+		
+		// Now flush
+		captureWriter.Flush()
+		assert.True(t, mockFlusher.Flushed, "Flush should be called after write")
+	})
+	
+	// Test Flush after WriteHeader
+	t.Run("flush after write header", func(t *testing.T) {
+		mockFlusher := mocks.NewFlusherRecorder()
+		captureWriter := &statusCapturingResponseWriter{
+			ResponseWriter: mockFlusher,
+		}
+		
+		// Write header
+		captureWriter.WriteHeader(http.StatusCreated)
+		assert.Equal(t, http.StatusCreated, captureWriter.status)
+		assert.True(t, captureWriter.written)
+		
+		// Now flush
+		captureWriter.Flush()
+		assert.True(t, mockFlusher.Flushed, "Flush should be called after WriteHeader")
+	})
+}
