@@ -6,23 +6,9 @@ SRouter is designed with performance in mind, building upon the speed of `julien
 
 SRouter inherits the high-performance path matching capabilities of `julienschmidt/httprouter`. This router uses a radix tree structure, allowing for path lookups that are generally O(k), where k is the length of the path, or even O(1) in many practical scenarios, significantly faster than routers relying solely on regular expressions for every route.
 
-## Middleware Ordering and Overhead
+## Middleware Overhead
 
-While middleware is powerful, each layer adds some overhead to the request processing time. Be mindful of the number of middleware functions applied globally or to frequently accessed routes.
-
-The order in which middleware is applied matters. SRouter applies middleware by wrapping the final handler. The effective order, from outermost (runs first) to innermost (runs last before handler), based on the internal `wrapHandler` and `registerSubRouter` logic, is:
-
-1.  **Recovery Middleware** (Applied internally)
-2.  **Authentication Middleware** (Applied internally if `AuthLevel` is `AuthRequired` or `AuthOptional`)
-3.  **Rate Limiting Middleware** (Applied internally if `rateLimit` config exists)
-4.  **Route-Specific and Sub-Router Middlewares** (`SubRouterConfig.Middlewares` and `RouteConfig.Middlewares`)
-5.  **Global Middlewares** (`RouterConfig.Middlewares`, including Trace if enabled)
-6.  **Timeout Middleware** (Applied if `timeout > 0`)
-7.  **Your Actual Handler** (`http.HandlerFunc` or `GenericHandler`)
-
-Note: The `registerSubRouter` function combines sub-router and route-specific middleware before passing the combined list to `wrapHandler`. `wrapHandler` then applies global middleware before this combined list.
-
-Middleware within the *same slice* (e.g., `RouterConfig.Middlewares`) are applied in the order they appear in the slice; the first one in the slice becomes the outermost wrapper. Placing frequently used but potentially short-circuiting middleware (like authentication or rate limiting, though these are often handled internally) earlier in the *effective* chain can improve performance by avoiding unnecessary work in later middleware or the handler itself.
+Each middleware layer introduces some runtime cost. Limit global and route-specific middleware to what you actually need. For a detailed explanation of how SRouter orders and applies middleware, see [Custom Middleware](./middleware.md#middleware-execution-order).
 
 ## Memory Allocation
 
