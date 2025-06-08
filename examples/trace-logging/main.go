@@ -54,7 +54,7 @@ func main() {
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/hello",
 		Methods: []router.HttpMethod{router.MethodGet},
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Get the trace ID
 			traceID := scontext.GetTraceIDFromRequest[string, string](r) // Use scontext
 
@@ -76,14 +76,14 @@ func main() {
 			// Return a response
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write(fmt.Appendf(nil, `{"message":"Hello, World!", "trace_id":"%s"}`, traceID))
-		},
+		}),
 	})
 
 	// Register a route that demonstrates propagating trace ID to a downstream service
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/downstream",
 		Methods: []router.HttpMethod{router.MethodGet},
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Get the trace ID
 			traceID := scontext.GetTraceIDFromRequest[string, string](r) // Use scontext
 
@@ -130,7 +130,7 @@ func main() {
 			// Return a response
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write(fmt.Appendf(nil, `{"message":"Downstream service call successful", "trace_id":"%s"}`, traceID))
-		},
+		}),
 	})
 
 	// Start the server

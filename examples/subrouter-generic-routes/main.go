@@ -94,10 +94,10 @@ func main() {
 				Path:      "/hello",
 				Methods:   []router.HttpMethod{router.MethodGet},
 				AuthLevel: router.Ptr(router.NoAuth),
-				Handler: func(w http.ResponseWriter, r *http.Request) {
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(`{"message":"Hello from API v1!"}`))
-				},
+				}),
 			},
 			// Declarative generic route using the helper
 			router.NewGenericRouteDefinition[GreetingRequest, GreetingResponse, string, string](

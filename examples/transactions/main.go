@@ -66,7 +66,7 @@ func (f *GormTransactionFactory) BeginTransaction(ctx context.Context, options m
 	if tx.Error != nil {
 		return nil, tx.Error
 	}
-	
+
 	// Wrap with GormTransactionWrapper
 	return middleware.NewGormTransactionWrapper(tx), nil
 }
@@ -122,7 +122,7 @@ func main() {
 					router.RouteConfigBase{
 						Path:    "/health",
 						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: healthHandler,
+						Handler: http.HandlerFunc(healthHandler),
 						Overrides: common.RouteOverrides{
 							Transaction: &common.TransactionConfig{
 								Enabled: false, // Disable transaction for health check
@@ -212,7 +212,7 @@ func transferHandler(r *http.Request, req TransferRequest) (TransferResponse, er
 
 	// Lock accounts for update (prevents race conditions)
 	var fromAccount, toAccount Account
-	
+
 	if err := db.Set("gorm:query_option", "FOR UPDATE").First(&fromAccount, "user_id = ?", req.FromUserID).Error; err != nil {
 		return TransferResponse{}, fmt.Errorf("sender account not found")
 	}
@@ -254,7 +254,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		"status": "healthy",
 		"time":   time.Now().Format(time.RFC3339),
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }

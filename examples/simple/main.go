@@ -66,7 +66,7 @@ func main() {
 						Path:      "/health",
 						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.NoAuth), // Changed
-						Handler:   HealthCheckHandler,
+						Handler:   http.HandlerFunc(HealthCheckHandler),
 					},
 				},
 			},

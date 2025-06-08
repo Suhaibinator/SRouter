@@ -172,17 +172,17 @@ func main() {
 					router.RouteConfigBase{
 						Path:    "/hello",
 						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: SimpleHandler,
+						Handler: http.HandlerFunc(SimpleHandler),
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/slow",
 						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: func(w http.ResponseWriter, r *http.Request) {
+						Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 							// Simulate a slow operation
 							time.Sleep(500 * time.Millisecond)
 							w.Header().Set("Content-Type", "application/json")
 							w.Write([]byte(`{"message":"Slow operation completed"}`))
-						},
+						}),
 					},
 				},
 			},
@@ -195,7 +195,7 @@ func main() {
 					router.RouteConfigBase{
 						Path:    "/resource",
 						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: SimpleHandler,
+						Handler: http.HandlerFunc(SimpleHandler),
 					},
 				},
 			},
@@ -236,7 +236,7 @@ func main() {
 				})
 			},
 		},
-		Handler: SimpleHandler,
+		Handler: http.HandlerFunc(SimpleHandler),
 	})
 
 	// Start the server

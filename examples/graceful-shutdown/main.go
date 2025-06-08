@@ -103,19 +103,19 @@ func main() {
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/slow",
 		Methods: []router.HttpMethod{router.MethodGet},
-		Handler: SlowHandler,
+		Handler: http.HandlerFunc(SlowHandler),
 	})
 
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/quick",
 		Methods: []router.HttpMethod{router.MethodGet},
-		Handler: QuickHandler,
+		Handler: http.HandlerFunc(QuickHandler),
 	})
 
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:    "/status",
 		Methods: []router.HttpMethod{router.MethodGet},
-		Handler: StatusHandler,
+		Handler: http.HandlerFunc(StatusHandler),
 	})
 
 	// Create a server

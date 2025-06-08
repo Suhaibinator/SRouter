@@ -8,6 +8,7 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
+
 	// Removed: "github.com/Suhaibinator/SRouter/pkg/middleware"
 	"go.uber.org/zap"
 )
@@ -171,10 +172,10 @@ func (GenericRouteRegistrationFunc[T, U]) isRouteDefinition() {}
 // - Middlewares are additive - they combine with parent and global middlewares
 // - Routes can be added declaratively via the Routes field or imperatively after router creation
 type SubRouterConfig struct {
-	PathPrefix  string              // Common path prefix for all routes in this sub-router
+	PathPrefix  string                // Common path prefix for all routes in this sub-router
 	Overrides   common.RouteOverrides // Configuration overrides for routes in this sub-router (not inherited by nested sub-routers)
-	Routes      []RouteDefinition   // Routes in this sub-router. Can contain RouteConfigBase or GenericRouteRegistrationFunc
-	Middlewares []common.Middleware // Middlewares applied to all routes in this sub-router (additive with global middlewares)
+	Routes      []RouteDefinition     // Routes in this sub-router. Can contain RouteConfigBase or GenericRouteRegistrationFunc
+	Middlewares []common.Middleware   // Middlewares applied to all routes in this sub-router (additive with global middlewares)
 	// SubRouters is a slice of nested sub-routers.
 	// Nested sub-routers inherit the parent's path prefix (concatenated) but NOT configuration overrides.
 	// Each nested sub-router must explicitly set its own overrides if needed.
@@ -191,12 +192,12 @@ type SubRouterConfig struct {
 // - Sub-router settings override global settings
 // - Middlewares are additive (not replaced)
 type RouteConfigBase struct {
-	Path        string              // Route path (will be prefixed with sub-router path prefix if applicable)
-	Methods     []HttpMethod        // HTTP methods this route handles (use constants like MethodGet)
-	AuthLevel   *AuthLevel          // Authentication level for this route. If nil, inherits from sub-router or defaults to NoAuth
+	Path        string                // Route path (will be prefixed with sub-router path prefix if applicable)
+	Methods     []HttpMethod          // HTTP methods this route handles (use constants like MethodGet)
+	AuthLevel   *AuthLevel            // Authentication level for this route. If nil, inherits from sub-router or defaults to NoAuth
 	Overrides   common.RouteOverrides // Configuration overrides for this specific route
-	Handler     http.HandlerFunc    // Standard HTTP handler function
-	Middlewares []common.Middleware // Middlewares applied to this specific route (combined with sub-router and global middlewares)
+	Handler     http.Handler          // Standard HTTP handler
+	Middlewares []common.Middleware   // Middlewares applied to this specific route (combined with sub-router and global middlewares)
 }
 
 // Implement RouteDefinition for RouteConfigBase
@@ -225,7 +226,6 @@ type RouteConfig[T any, U any] struct {
 	Sanitizer   func(T) (T, error)    // Optional function to validate/transform request data after decoding
 }
 
-
 // GenericHandler defines a handler function with generic request and response types.
 // It takes an http.Request and a typed request data object, and returns a typed response
 // object and an error. This allows for strongly-typed request and response handling.
@@ -233,7 +233,6 @@ type RouteConfig[T any, U any] struct {
 // When used with RegisterGenericRoute, the framework automatically handles decoding the
 // request and encoding the response using the specified Codec.
 type GenericHandler[T any, U any] func(r *http.Request, data T) (U, error)
-
 
 // Ptr returns a pointer to the given AuthLevel value.
 // Useful for setting AuthLevel fields in configurations.

@@ -123,10 +123,10 @@ func main() {
 				Path:      "", // Becomes /api/v1/users
 				Methods:   []router.HttpMethod{router.MethodGet},
 				AuthLevel: router.Ptr(router.NoAuth), // Changed
-				Handler: func(w http.ResponseWriter, r *http.Request) {
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(`{"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"},{"id":3,"name":"Charlie"}]}`))
-				},
+				}),
 			},
 		},
 		// Generic routes will be added imperatively later
@@ -140,10 +140,10 @@ func main() {
 				Path:      "/hello", // Becomes /api/v1/hello
 				Methods:   []router.HttpMethod{router.MethodGet},
 				AuthLevel: router.Ptr(router.NoAuth), // Changed
-				Handler: func(w http.ResponseWriter, r *http.Request) {
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(`{"message":"Hello from API v1!"}`))
-				},
+				}),
 			},
 		},
 		SubRouters: []router.SubRouterConfig{usersV1SubRouter}, // Nest usersV1
@@ -170,10 +170,10 @@ func main() {
 				Path:      "/hello", // Becomes /api/v2/hello
 				Methods:   []router.HttpMethod{router.MethodGet},
 				AuthLevel: router.Ptr(router.NoAuth), // Changed
-				Handler: func(w http.ResponseWriter, r *http.Request) {
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(`{"message":"Hello from API v2!"}`))
-				},
+				}),
 			},
 		},
 		SubRouters: []router.SubRouterConfig{usersV2SubRouter, authV2SubRouter}, // Nest usersV2 and authV2
@@ -187,10 +187,10 @@ func main() {
 				Path:      "/status", // Becomes /api/status
 				Methods:   []router.HttpMethod{router.MethodGet},
 				AuthLevel: router.Ptr(router.NoAuth), // Changed
-				Handler: func(w http.ResponseWriter, r *http.Request) {
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(`{"status":"ok"}`))
-				},
+				}),
 			},
 		},
 		SubRouters: []router.SubRouterConfig{apiV1SubRouter, apiV2SubRouter}, // Nest v1 and v2

@@ -180,7 +180,7 @@ func main() {
 						ExceededHandler: http.HandlerFunc(rateLimitExceededHandler),
 					},
 				},
-				Handler: loginHandler,
+				Handler: http.HandlerFunc(loginHandler),
 			},
 		},
 	}
@@ -204,7 +204,7 @@ func main() {
 				Middlewares: []common.Middleware{
 					authMiddleware,
 				},
-				Handler: userProfileHandler,
+				Handler: http.HandlerFunc(userProfileHandler),
 			},
 			router.RouteConfigBase{ // Add explicit type
 				Path:    "/public",
@@ -218,7 +218,7 @@ func main() {
 						Strategy:   common.StrategyIP, // Use common.StrategyIP
 					},
 				},
-				Handler: publicEndpointHandler,
+				Handler: http.HandlerFunc(publicEndpointHandler),
 			},
 		},
 	}

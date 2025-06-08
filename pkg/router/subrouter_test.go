@@ -187,7 +187,7 @@ func TestExportedRegisterSubRouter(t *testing.T) {
 			RouteConfigBase{
 				Path:    "/route",
 				Methods: []HttpMethod{MethodGet},
-				Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) },
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }),
 				// AuthLevel is nil (omitted), will default to NoAuth effectively
 			},
 		},
@@ -229,7 +229,7 @@ func TestRegisterSubRouter(t *testing.T) {
 
 	// Register a sub-router with various configurations
 	r.registerSubRouter(SubRouterConfig{
-		PathPrefix:          "/api",
+		PathPrefix: "/api",
 		Overrides: common.RouteOverrides{
 			Timeout:     2 * time.Second,
 			MaxBodySize: 1024,
@@ -241,43 +241,43 @@ func TestRegisterSubRouter(t *testing.T) {
 				Path:      "/users",
 				Methods:   []HttpMethod{MethodGet},
 				AuthLevel: Ptr(NoAuth), // Changed
-				Handler: func(w http.ResponseWriter, r *http.Request) {
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
 					_, _ = w.Write([]byte(`{"users":["user1","user2"]}`))
-				},
+				}),
 			},
 			RouteConfigBase{ // Add explicit type
 				Path:      "/protected",
 				Methods:   []HttpMethod{MethodGet},
 				AuthLevel: Ptr(AuthRequired), // Changed
-				Handler: func(w http.ResponseWriter, r *http.Request) {
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
 					_, _ = w.Write([]byte(`{"message":"protected resource"}`))
-				},
+				}),
 			},
 			RouteConfigBase{ // Add explicit type
 				Path:      "/custom-timeout",
 				Methods:   []HttpMethod{MethodGet},
-				AuthLevel: Ptr(NoAuth),     // Changed
+				AuthLevel: Ptr(NoAuth),                                     // Changed
 				Overrides: common.RouteOverrides{Timeout: 1 * time.Second}, // Override sub-router timeout
-				Handler: func(w http.ResponseWriter, r *http.Request) {
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
 					_, _ = w.Write([]byte(`{"message":"custom timeout"}`))
-				},
+				}),
 			},
 			RouteConfigBase{ // Add explicit type
-				Path:        "/custom-body-size",
-				Methods:     []HttpMethod{MethodPost},
-				AuthLevel:   Ptr(NoAuth), // Changed
+				Path:      "/custom-body-size",
+				Methods:   []HttpMethod{MethodPost},
+				AuthLevel: Ptr(NoAuth),                             // Changed
 				Overrides: common.RouteOverrides{MaxBodySize: 512}, // Override sub-router max body size
-				Handler: func(w http.ResponseWriter, r *http.Request) {
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
 					_, _ = w.Write([]byte(`{"message":"custom body size"}`))
-				},
+				}),
 			},
 			RouteConfigBase{ // Add explicit type
 				Path:      "/custom-rate-limit",
@@ -289,11 +289,11 @@ func TestRegisterSubRouter(t *testing.T) {
 						Window: 30 * time.Second,
 					},
 				}, // Override sub-router rate limit
-				Handler: func(w http.ResponseWriter, r *http.Request) {
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
 					_, _ = w.Write([]byte(`{"message":"custom rate limit"}`))
-				},
+				}),
 			},
 			RouteConfigBase{ // Add explicit type
 				Path:      "/custom-middleware",
@@ -307,11 +307,11 @@ func TestRegisterSubRouter(t *testing.T) {
 						})
 					},
 				},
-				Handler: func(w http.ResponseWriter, r *http.Request) {
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
 					_, _ = w.Write([]byte(`{"message":"custom middleware"}`))
-				},
+				}),
 			},
 		},
 	})
@@ -411,11 +411,11 @@ func TestRegisterSubRouterWithoutCaching(t *testing.T) {
 				Path:      "/users",
 				Methods:   []HttpMethod{MethodGet},
 				AuthLevel: Ptr(NoAuth), // Changed
-				Handler: func(w http.ResponseWriter, r *http.Request) {
+				Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
 					_, _ = w.Write([]byte(`{"users":["user1","user2"]}`))
-				},
+				}),
 			},
 		},
 	})

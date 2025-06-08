@@ -40,9 +40,9 @@ func TestMetricsConfig(t *testing.T) {
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/test",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-		},
+		}),
 	})
 
 	// Verify the router was created successfully with metrics config
@@ -88,12 +88,12 @@ func TestMetrics(t *testing.T) {
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/test",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, err := w.Write([]byte("Hello, World!"))
 			if err != nil {
 				t.Fatalf("Failed to write response: %v", err)
 			}
-		},
+		}),
 	})
 
 	// Create a test request
@@ -224,12 +224,12 @@ func TestTracing(t *testing.T) {
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/test",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, err := w.Write([]byte("Hello, World!"))
 			if err != nil {
 				t.Fatalf("Failed to write response: %v", err)
 			}
-		},
+		}),
 	})
 
 	// Create a test request

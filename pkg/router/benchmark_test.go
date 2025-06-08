@@ -83,7 +83,7 @@ func BenchmarkSimpleRoute(b *testing.B) {
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/hello",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-		Handler: simpleHandler,
+		Handler: http.HandlerFunc(simpleHandler),
 	})
 
 	b.ReportAllocs()
@@ -105,12 +105,12 @@ func BenchmarkRouteWithParams(b *testing.B) {
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/users/:id/posts/:postId", // Using existing path with two params
 		Methods: []HttpMethod{MethodGet},    // Use HttpMethod enum
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id := GetParam(r, "id")
 			postId := GetParam(r, "postId")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(fmt.Sprintf("User ID: %s, Post ID: %s", id, postId)))
-		},
+		}),
 	})
 
 	b.ReportAllocs()
@@ -146,14 +146,14 @@ func BenchmarkMiddlewareStack(b *testing.B) {
 		Path:        "/secure",
 		Methods:     []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Middlewares: routeMiddleware,         // Already qualified above
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Check if context value was set
 			if val := r.Context().Value(testCtxKey); val != "testValue" {
 				http.Error(w, "Context value not found", http.StatusInternalServerError)
 				return
 			}
 			simpleHandler(w, r)
-		},
+		}),
 	})
 
 	b.ReportAllocs()
@@ -311,7 +311,7 @@ func BenchmarkRouterWithTimeout(b *testing.B) {
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/timeout",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-		Handler: simpleHandler,
+		Handler: http.HandlerFunc(simpleHandler),
 	})
 
 	b.ReportAllocs()
@@ -342,8 +342,8 @@ func BenchmarkMemoryUsage(b *testing.B) {
 		path := fmt.Sprintf("/route%d", i)
 		r.RegisterRoute(RouteConfigBase{
 			Path:    path,
-			Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-			Handler: simpleHandler,           // Use helper
+			Methods: []HttpMethod{MethodGet},         // Use HttpMethod enum
+			Handler: http.HandlerFunc(simpleHandler), // Use helper
 		})
 	}
 

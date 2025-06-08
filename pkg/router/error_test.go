@@ -44,22 +44,22 @@ func TestErrorHandling(t *testing.T) {
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/error",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// This will panic
 			_ = r.Context().Value(ParamsKey).(string) // Force a panic
-		},
+		}),
 	})
 
 	// Register a route that returns a custom error
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/custom-error",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Create a new HTTP error
 			err := NewHTTPError(http.StatusBadRequest, "Bad request")
 			// Write the error to the response
 			http.Error(w, err.Error(), err.StatusCode)
-		},
+		}),
 	})
 
 	// Create a test server

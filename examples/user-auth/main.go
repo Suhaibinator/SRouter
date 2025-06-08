@@ -135,7 +135,7 @@ func main() {
 						Path:      "/resource",
 						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.NoAuth), // Changed
-						Handler:   publicHandler,
+						Handler:   http.HandlerFunc(publicHandler),
 					},
 				},
 			},
@@ -158,7 +158,7 @@ func main() {
 								return exists
 							}, "authenticated"),
 						},
-						Handler: protectedHandler,
+						Handler: http.HandlerFunc(protectedHandler),
 					},
 				},
 			},
@@ -172,7 +172,7 @@ func main() {
 						Middlewares: []common.Middleware{ // Uncommented middleware
 							middleware.AuthenticationWithUser[*User, User](customUserAuth),
 						},
-						Handler: protectedUserHandler,
+						Handler: http.HandlerFunc(protectedUserHandler),
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:      "/bearer",
@@ -181,7 +181,7 @@ func main() {
 						Middlewares: []common.Middleware{ // Uncommented middleware
 							middleware.NewBearerTokenWithUserMiddleware[*User, User](bearerTokenUserAuth, logger),
 						},
-						Handler: protectedUserHandler,
+						Handler: http.HandlerFunc(protectedUserHandler),
 					},
 				},
 			},

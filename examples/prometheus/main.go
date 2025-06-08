@@ -548,17 +548,17 @@ func main() {
 					router.RouteConfigBase{
 						Path:    "/hello",
 						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: func(w http.ResponseWriter, r *http.Request) {
+						Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 							w.Header().Set("Content-Type", "application/json")
 							w.Write([]byte(`{"message":"Hello, World!"}`))
-						},
+						}),
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:    "/error",
 						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: func(w http.ResponseWriter, r *http.Request) {
+						Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 							http.Error(w, "Something went wrong", http.StatusInternalServerError)
-						},
+						}),
 					},
 				},
 			},

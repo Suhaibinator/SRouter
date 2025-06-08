@@ -127,7 +127,7 @@ func main() {
 						Path:      "/no-auth",
 						Methods:   []router.HttpMethod{router.MethodGet},
 						AuthLevel: router.Ptr(router.NoAuth), // Changed
-						Handler:   noAuthHandler,
+						Handler:   http.HandlerFunc(noAuthHandler),
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:      "/optional-auth",
@@ -136,7 +136,7 @@ func main() {
 						Middlewares: []common.Middleware{
 							middleware.AuthenticationWithUser[*User](customUserAuth), // Middleware to add user to context if authenticated
 						},
-						Handler: optionalAuthHandler,
+						Handler: http.HandlerFunc(optionalAuthHandler),
 					},
 					router.RouteConfigBase{ // Add explicit type
 						Path:      "/required-auth",
@@ -145,7 +145,7 @@ func main() {
 						Middlewares: []common.Middleware{
 							middleware.AuthenticationWithUser[*User](customUserAuth), // Middleware to add user to context if authenticated
 						},
-						Handler: requiredAuthHandler,
+						Handler: http.HandlerFunc(requiredAuthHandler),
 					},
 				},
 			},

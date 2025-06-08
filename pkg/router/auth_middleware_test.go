@@ -376,10 +376,10 @@ func TestAuthMiddlewareIntegration(t *testing.T) {
 		Path:      "/protected",
 		Methods:   []HttpMethod{MethodGet}, // Use HttpMethod enum
 		AuthLevel: Ptr(AuthRequired),
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("Protected"))
-		},
+		}),
 	})
 
 	// Test without Authorization header
