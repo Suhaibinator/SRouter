@@ -201,7 +201,7 @@ func BenchmarkGenericRouteBody(b *testing.B) {
 				ID:      "some-id",
 			}, nil
 		},
-	}, time.Duration(0), int64(0), nil) // Add missing arguments
+	}, time.Duration(0), int64(0), nil, nil) // Add missing arguments
 	// require.NoError(b, err) // Remove error check
 
 	// Prepare request body outside the parallel loop if possible, ensure it's thread-safe to read
@@ -278,7 +278,7 @@ func BenchmarkGenericRoutePathParam(b *testing.B) {
 		// Need to explicitly tell the router how to bind path params to the struct
 		// if the codec doesn't handle it automatically. This might involve custom logic
 		// or a specific codec implementation. For benchmark, manual extraction is okay.
-	}, time.Duration(0), int64(0), nil) // Add missing arguments
+	}, time.Duration(0), int64(0), nil, nil) // Add missing arguments
 	// require.NoError(b, err) // Remove error check
 
 	// Prepare encoded path parameter value

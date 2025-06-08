@@ -134,7 +134,7 @@ func main() {
 		Handler: GetUserHandler,
 		// SourceType defaults to Body, but GET requests usually don't send a body.
 		// The handler is adapted to check path params.
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	// 2. Base64 query parameter route
 	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
@@ -144,7 +144,7 @@ func main() {
 		Handler:    GetUserHandler,
 		SourceType: router.Base64QueryParameter,
 		SourceKey:  "data", // Will look for ?data=base64encodedstring
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	// 3. Base64 path parameter route
 	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
@@ -154,7 +154,7 @@ func main() {
 		Handler:    GetUserHandler,
 		SourceType: router.Base64PathParameter,
 		SourceKey:  "data", // Will use the :data path parameter
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	// Start the server
 	fmt.Println("Source Types Example Server listening on :8080")

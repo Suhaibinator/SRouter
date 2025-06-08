@@ -128,6 +128,7 @@ type RouterConfig struct {
 	GlobalTimeout       time.Duration                     // Default response timeout for all routes
 	GlobalMaxBodySize   int64                             // Default maximum request body size in bytes
 	GlobalRateLimit     *common.RateLimitConfig[any, any] // Use common.RateLimitConfig // Default rate limit for all routes
+	GlobalTransaction   *common.TransactionConfig         // Default transaction configuration for all routes
 	IPConfig            *IPConfig                         // Configuration for client IP extraction
 	EnableTraceLogging  bool                              // Enable trace logging
 	TraceLoggingUseInfo bool                              // Use Info level for trace logging
@@ -137,6 +138,7 @@ type RouterConfig struct {
 	Middlewares         []common.Middleware               // Global middlewares applied to all routes
 	AddUserObjectToCtx  bool                              // Add user object to context
 	CORSConfig          *CORSConfig                       // CORS configuration (optional, if nil CORS is disabled)
+	TransactionFactory  common.TransactionFactory         // Factory for creating database transactions (optional)
 }
 
 // RouteDefinition is an interface that all route types must implement.

@@ -203,7 +203,7 @@ func TestJSONCodec(t *testing.T) {
 	// Pass zero values for effective settings as this test doesn't involve sub-routers
 	RegisterGenericRoute(r, RouteConfig[RouterTestRequest, RouterTestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[RouterTestRequest, RouterTestResponse](), Handler: func(r *http.Request, req RouterTestRequest) (RouterTestResponse, error) {
 		return RouterTestResponse{Greeting: "Hello, " + req.Name + "!"}, nil
-	}}, time.Duration(0), int64(0), nil) // Added effective settings
+	}}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 	server := httptest.NewServer(r)
 	defer server.Close()
 	reqBody, _ := json.Marshal(RouterTestRequest{Name: "John"})
@@ -565,7 +565,7 @@ func TestRegisterGenericRouteCoverage(t *testing.T) { // Renamed to avoid confli
 	// Pass zero values for effective settings
 	RegisterGenericRoute(r, RouteConfig[TestRequest, TestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
 		return TestResponse{Greeting: "Hello, " + data.Name, Age: data.Age}, nil
-	}}, time.Duration(0), int64(0), nil) // Added effective settings
+	}}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 	req, _ := http.NewRequest("POST", "/greet", strings.NewReader(`{"name":"John","age":30}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -621,7 +621,7 @@ func TestRegisterGenericRouteWithErrorCoverage(t *testing.T) { // Renamed to avo
 	// Pass zero values for effective settings
 	RegisterGenericRoute(r, RouteConfig[TestRequest, TestResponse]{Path: "/greet-error", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
 		return TestResponse{}, errors.New("handler error")
-	}}, time.Duration(0), int64(0), nil) // Added effective settings
+	}}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 	req, _ := http.NewRequest("POST", "/greet-error", strings.NewReader(`{"name":"John","age":30}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -887,7 +887,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 		SourceKey:  "",                                     // Empty SourceKey, should use 'dataParam'
 		Codec:      codec.NewJSONCodec[TestData, string](), // Use JSON codec for request and response
 		Handler:    verifyHandler(testPayload.Value),
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Register Base62 route with empty SourceKey
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
@@ -897,7 +897,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 		SourceKey:  "",                                     // Empty SourceKey, should use 'valueParam'
 		Codec:      codec.NewJSONCodec[TestData, string](), // Use JSON codec for request and response
 		Handler:    verifyHandler(testPayload.Value),
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Register routes to test "no path parameters found" error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
@@ -907,7 +907,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 		SourceKey:  "", // Empty SourceKey
 		Codec:      codec.NewJSONCodec[TestData, string](),
 		Handler:    verifyHandler(testPayload.Value), // Handler shouldn't be reached
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
 		Path:       "/no-params-base62", // No path parameters
@@ -916,7 +916,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 		SourceKey:  "", // Empty SourceKey
 		Codec:      codec.NewJSONCodec[TestData, string](),
 		Handler:    verifyHandler(testPayload.Value), // Handler shouldn't be reached
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Create test server
 	server := httptest.NewServer(r)
@@ -1130,7 +1130,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on unmarshal error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Unmarshal Query Param Error (Base64)
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
@@ -1143,7 +1143,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on unmarshal error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Missing Query Param Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
@@ -1156,7 +1156,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on missing query param error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Body Decode Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
@@ -1168,7 +1168,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on body decode error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Unsupported SourceType Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
@@ -1180,7 +1180,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on unsupported source type error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Handler Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
@@ -1191,7 +1191,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 		Handler: func(req *http.Request, data TestData) (string, error) {
 			return "", errors.New("internal handler error") // Explicitly return error
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Response Encode Error
 	type UnencodableResponse struct {
@@ -1205,7 +1205,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 		Handler: func(req *http.Request, data TestData) (UnencodableResponse, error) {
 			return UnencodableResponse{Ch: make(chan int)}, nil // Return unencodable type
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Base64 Query Decode Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
@@ -1218,7 +1218,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on base64 decode error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Base62 Query Decode Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
@@ -1231,7 +1231,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on base62 decode error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Base64 Path Decode Error (already covered in TestGenericRoutePathParameterFallback, but good to have here too)
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
@@ -1244,7 +1244,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on base64 decode error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Base62 Path Decode Error (already covered in TestGenericRoutePathParameterFallback, but good to have here too)
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
@@ -1257,7 +1257,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on base62 decode error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// Context Deadline Exceeded Error
 	RegisterGenericRoute(r, RouteConfig[TestData, string]{
@@ -1268,7 +1268,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 		Handler: func(req *http.Request, data TestData) (string, error) {
 			return "", context.DeadlineExceeded // Explicitly return this error
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// --- Test Server ---
 	server := httptest.NewServer(r)
@@ -1899,7 +1899,7 @@ func TestConcurrentRequests(t *testing.T) {
 		Handler: func(req *http.Request, data ConcurrentReq) (ConcurrentResp, error) {
 			return ConcurrentResp{Res: "Generic OK: " + data.Data}, nil
 		},
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	// 4. Route with middleware
 	r.RegisterRoute(RouteConfigBase{
