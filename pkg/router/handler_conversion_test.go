@@ -155,11 +155,11 @@ func TestDirectHandlerFuncConversion(t *testing.T) {
 		var handler http.Handler = mockHandler
 		
 		// Type assertion should fail
-		handlerFunc, ok := handler.(http.HandlerFunc)
+		_, ok := handler.(http.HandlerFunc)
 		assert.False(t, ok)
 		
 		// Conversion should work
-		handlerFunc = http.HandlerFunc(handler.ServeHTTP)
+		handlerFunc := http.HandlerFunc(handler.ServeHTTP)
 		assert.NotNil(t, handlerFunc)
 		
 		// Test the converted handler
@@ -174,11 +174,6 @@ func TestDirectHandlerFuncConversion(t *testing.T) {
 
 // TestSubRouterWithNonHandlerFuncAfterTransaction simulates the exact scenario where conversion is needed
 func TestSubRouterWithNonHandlerFuncAfterTransaction(t *testing.T) {
-	// Custom router implementation that forces non-HandlerFunc return from wrapWithTransaction
-	type customRouter[T comparable, U any] struct {
-		*Router[T, U]
-	}
-	
 	// Override wrapWithTransaction to always return a non-HandlerFunc
 	wrapWithTransactionCalled := false
 	originalWrapWithTransaction := func(_ *Router[string, TestUser], _ http.Handler, _ *common.TransactionConfig) http.Handler {
@@ -205,11 +200,11 @@ func TestSubRouterWithNonHandlerFuncAfterTransaction(t *testing.T) {
 						wrapped := originalWrapWithTransaction(router, handler, nil)
 						
 						// This simulates the conversion code in router.go
-						handlerFunc, ok := wrapped.(http.HandlerFunc)
+						_, ok := wrapped.(http.HandlerFunc)
 						assert.False(t, ok, "wrapped should not be HandlerFunc")
 						
 						// Perform conversion
-						handlerFunc = http.HandlerFunc(wrapped.ServeHTTP)
+						handlerFunc := http.HandlerFunc(wrapped.ServeHTTP)
 						
 						// Continue with registration
 						finalHandler := router.wrapHandler(handlerFunc, nil, 0, 0, nil, nil)

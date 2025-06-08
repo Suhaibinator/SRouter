@@ -9,10 +9,7 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-// nonHandlerFuncWrapper wraps the router's wrapWithTransaction to force it to return non-HandlerFunc
-type nonHandlerFuncWrapper struct {
-	http.Handler
-}
+// Remove unused type
 
 // TestHandlerFuncConversionCoverage specifically tests the conversion lines
 func TestHandlerFuncConversionCoverage(t *testing.T) {
@@ -40,11 +37,11 @@ func TestHandlerFuncConversionCoverage(t *testing.T) {
 		finalHandler := r.wrapWithTransaction(customHandler, nil)
 		
 		// This is the exact code we're testing
-		handlerFunc, ok := finalHandler.(http.HandlerFunc)
+		_, ok := finalHandler.(http.HandlerFunc)
 		assert.False(t, ok, "should not be HandlerFunc after wrapping")
 		
 		// Trigger the conversion
-		handlerFunc = http.HandlerFunc(finalHandler.ServeHTTP)
+		handlerFunc := http.HandlerFunc(finalHandler.ServeHTTP)
 		
 		// Verify it works
 		req := httptest.NewRequest("GET", "/test", nil)
@@ -97,11 +94,11 @@ func TestHandlerFuncConversionCoverage(t *testing.T) {
 		wrappedWithTx := r.wrapWithTransaction(handler, nil)
 		
 		// This is the exact code in RegisterGenericRoute
-		handlerFunc, ok := wrappedWithTx.(http.HandlerFunc)
+		_, ok := wrappedWithTx.(http.HandlerFunc)
 		assert.False(t, ok)
 		
 		// Trigger conversion
-		handlerFunc = http.HandlerFunc(wrappedWithTx.ServeHTTP)
+		handlerFunc := http.HandlerFunc(wrappedWithTx.ServeHTTP)
 		
 		// Verify
 		req := httptest.NewRequest("GET", "/test", nil)
