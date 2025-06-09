@@ -82,7 +82,7 @@ func main() {
 	// Register the generic route directly on the router instance 'r'
 	// Provide zero/nil for effective settings (timeout, body size, rate limit)
 	// as these are not overridden at the route level here.
-	router.RegisterGenericRoute(r, routeCfg, 0, 0, nil)
+	router.RegisterGenericRoute(r, routeCfg, 0, 0, nil, nil)
 
 	// Start the HTTP server
 	port := ":8080"

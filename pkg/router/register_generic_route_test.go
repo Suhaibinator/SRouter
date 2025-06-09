@@ -132,7 +132,7 @@ func TestRegisterGenericRouteWithBody(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	reqBody := RequestType{ID: "123", Name: "John"}
 	reqBytes, _ := json.Marshal(reqBody)
@@ -180,7 +180,7 @@ func TestRegisterGenericRouteWithSanitizerSuccess(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType], // Handler should receive sanitized data
 		SourceType: Body,
 		Sanitizer:  nameSanitizer, // Add the successful sanitizer
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	reqBody := RequestType{ID: "sanitize1", Name: "Original"}
 	reqBytes, _ := json.Marshal(reqBody)
@@ -222,7 +222,7 @@ func TestRegisterGenericRouteWithSanitizerError(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
 		Sanitizer:  errorSanitizer, // Add the erroring sanitizer
-	}, time.Duration(0), int64(0), nil)
+	}, time.Duration(0), int64(0), nil, nil)
 
 	reqBody := RequestType{ID: "sanitize2", Name: "ErrorCase"}
 	reqBytes, _ := json.Marshal(reqBody)
@@ -259,7 +259,7 @@ func TestRegisterGenericRouteWithUnsupportedSourceType(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: SourceType(999), // Unsupported source type
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rr := httptest.NewRecorder()
@@ -285,7 +285,7 @@ func TestRegisterGenericRouteWithAuthRequired(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
 		AuthLevel:  Ptr(AuthRequired), // Changed
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	reqBody := RequestType{ID: "123", Name: "John"}
 	reqBytes, _ := json.Marshal(reqBody)
@@ -323,7 +323,7 @@ func TestRegisterGenericRouteWithAuthOptional(t *testing.T) {
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
 		AuthLevel:  Ptr(AuthOptional), // Changed
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	// With valid token
 	reqBody := RequestType{ID: "123", Name: "John"}
@@ -378,7 +378,7 @@ func TestRegisterGenericRouteWithBase62QueryParameter(t *testing.T) {
 		SourceType: Base62QueryParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	// Base62 encoded {"id":"123","name":"John"}
 	base62Data := "MeHBdAdIGZQif5kLNcARNp0cYy5QevNaNOX"
@@ -413,7 +413,7 @@ func TestRegisterGenericRouteWithBase62PathParameter(t *testing.T) {
 		SourceType: Base62PathParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	// Base62 encoded {"id":"123","name":"John"}
 	base62Data := "MeHBdAdIGZQif5kLNcARNp0cYy5QevNaNOX"
@@ -448,7 +448,7 @@ func TestRegisterGenericRouteWithBase62QueryParameterMissing(t *testing.T) {
 		SourceType: Base62QueryParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rr := httptest.NewRecorder()
@@ -473,7 +473,7 @@ func TestRegisterGenericRouteWithBase62QueryParameterInvalid(t *testing.T) {
 		SourceType: Base62QueryParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	req := httptest.NewRequest("GET", "/test?data=invalid!@#$", nil)
 	rr := httptest.NewRecorder()
@@ -498,7 +498,7 @@ func TestRegisterGenericRouteWithBase62PathParameterMissing(t *testing.T) {
 		SourceType: Base62PathParameter,
 		SourceKey:  "nonexistent",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	req := httptest.NewRequest("GET", "/test/somevalue", nil)
 	rr := httptest.NewRecorder()
@@ -523,7 +523,7 @@ func TestRegisterGenericRouteWithBase62PathParameterInvalid(t *testing.T) {
 		SourceType: Base62PathParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	req := httptest.NewRequest("GET", "/test/invalid!@#$", nil)
 	rr := httptest.NewRecorder()
@@ -550,7 +550,7 @@ func TestRegisterGenericRouteWithEncodeError(t *testing.T) {
 			}, nil
 		},
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	req, _ := http.NewRequest("POST", "/greet-encode-error", strings.NewReader(`{"name":"John","age":30}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -583,7 +583,7 @@ func TestRegisterGenericRouteWithMiddleware(t *testing.T) {
 		SourceType:  Body,
 		Middlewares: []common.Middleware{middleware},
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	reqBody := RequestType{ID: "123", Name: "John"}
 	reqBytes, _ := json.Marshal(reqBody)
@@ -636,7 +636,7 @@ func TestRegisterGenericRouteWithMaxBodySize(t *testing.T) {
 		SourceType:  Body,
 		Overrides: common.RouteOverrides{MaxBodySize: maxBodySize},
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), maxBodySize, nil) // Use maxBodySize here, timeout 0, rate limit nil
+	}, time.Duration(0), maxBodySize, nil, nil) // Use maxBodySize here, timeout 0, rate limit nil
 
 	// Request with small body (should succeed)
 	reqBodySmall := smallBody
@@ -684,7 +684,7 @@ func TestRegisterGenericRouteWithQueryParameter(t *testing.T) {
 		SourceType: Base64QueryParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	base64Data := "eyJpZCI6IjEyMyIsIm5hbWUiOiJKb2huIn0=" // Base64 encoded {"id":"123","name":"John"}
 	req := httptest.NewRequest("GET", "/test?data="+base64Data, nil)
@@ -718,7 +718,7 @@ func TestRegisterGenericRouteWithPathParameter(t *testing.T) {
 		SourceType: Base64PathParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	base64Data := "eyJpZCI6IjEyMyIsIm5hbWUiOiJKb2huIn0=" // Base64 encoded {"id":"123","name":"John"}
 	req := httptest.NewRequest("GET", "/test/"+base64Data, nil)
@@ -752,7 +752,7 @@ func TestRegisterGenericRouteWithBase64QueryParameterAgain(t *testing.T) {
 		SourceType: Base64QueryParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	}, time.Duration(0), int64(0), nil, nil) // Added effective settings
 
 	base64Data := "eyJpZCI6IjEyMyIsIm5hbWUiOiJKb2huIn0=" // Base64 encoded {"id":"123","name":"John"}
 	req := httptest.NewRequest("GET", "/test?data="+base64Data, nil)

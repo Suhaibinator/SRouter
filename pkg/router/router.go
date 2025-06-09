@@ -177,6 +177,11 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 		}
 	}
 
+	// Validate transaction configuration before registering routes
+	if err := r.validateTransactionConfig(); err != nil {
+		panic(fmt.Sprintf("Invalid transaction configuration: %v", err))
+	}
+
 	// Register routes from sub-routers
 	for _, sr := range config.SubRouters {
 		r.registerSubRouter(sr)
@@ -215,6 +220,7 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 			timeout := r.getEffectiveTimeout(route.Overrides.Timeout, sr.Overrides.Timeout)
 			maxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, sr.Overrides.MaxBodySize)
 			rateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, sr.Overrides.RateLimit)
+			transaction := r.getEffectiveTransaction(route.Overrides.Transaction, sr.Overrides.Transaction)
 			authLevel := route.AuthLevel // Use route-specific first
 			if authLevel == nil {
 				authLevel = sr.AuthLevel // Fallback to sub-router default
@@ -225,8 +231,16 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 			allMiddlewares = append(allMiddlewares, sr.Middlewares...)
 			allMiddlewares = append(allMiddlewares, route.Middlewares...)
 
+			// Wrap handler with transaction handling if enabled
+			finalHandler := r.wrapWithTransaction(route.Handler, transaction)
+
 			// Create a handler with all middlewares applied (global middlewares are added inside wrapHandler)
-			handler := r.wrapHandler(route.Handler, authLevel, timeout, maxBodySize, rateLimit, allMiddlewares)
+			// Convert to HandlerFunc if needed
+			handlerFunc, ok := finalHandler.(http.HandlerFunc)
+			if !ok {
+				handlerFunc = http.HandlerFunc(finalHandler.ServeHTTP)
+			}
+			handler := r.wrapHandler(handlerFunc, authLevel, timeout, maxBodySize, rateLimit, allMiddlewares)
 
 			// Register the route with httprouter
 			for _, method := range route.Methods {
@@ -484,11 +498,13 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 	var subRouterTimeout time.Duration
 	var subRouterMaxBodySize int64
 	var subRouterRateLimit *common.RateLimitConfig[any, any] // Use common type here
+	var subRouterTransaction *common.TransactionConfig
 	var subRouterMiddlewares []common.Middleware
 	if sr != nil {
 		subRouterTimeout = sr.Overrides.Timeout
 		subRouterMaxBodySize = sr.Overrides.MaxBodySize
 		subRouterRateLimit = sr.Overrides.RateLimit // This is already common.RateLimitConfig[any, any]
+		subRouterTransaction = sr.Overrides.Transaction
 		subRouterMiddlewares = sr.Middlewares
 	}
 
@@ -505,13 +521,14 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 	allMiddlewares = append(allMiddlewares, route.Middlewares...)    // Then route-specific
 	finalRouteConfig.Middlewares = allMiddlewares                    // Overwrite middlewares in the config passed down
 
-	// Get effective timeout, max body size, rate limit considering overrides
+	// Get effective timeout, max body size, rate limit, transaction considering overrides
 	effectiveTimeout := r.getEffectiveTimeout(route.Overrides.Timeout, subRouterTimeout)
 	effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, subRouterMaxBodySize)
 	effectiveRateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, subRouterRateLimit) // This returns *common.RateLimitConfig[UserID, User]
+	effectiveTransaction := r.getEffectiveTransaction(route.Overrides.Transaction, subRouterTransaction)
 
 	// Call the underlying generic registration function with the modified config
-	RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
+	RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit, effectiveTransaction)
 
 	return nil
 }
@@ -829,6 +846,39 @@ func (rw *metricsResponseWriter[T, U]) Flush() {
 	rw.baseResponseWriter.Flush()
 }
 
+// statusCapturingResponseWriter captures the HTTP status code written to the response.
+// It's used by transaction middleware to determine if a handler succeeded or failed.
+type statusCapturingResponseWriter struct {
+	http.ResponseWriter
+	status  int
+	written bool
+}
+
+// WriteHeader captures the status code and delegates to the underlying ResponseWriter.
+func (w *statusCapturingResponseWriter) WriteHeader(status int) {
+	if !w.written {
+		w.status = status
+		w.written = true
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+// Write implements http.ResponseWriter. If no status was set, it defaults to 200.
+func (w *statusCapturingResponseWriter) Write(b []byte) (int, error) {
+	if !w.written {
+		w.status = http.StatusOK
+		w.written = true
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// Flush implements http.Flusher if the underlying ResponseWriter supports it.
+func (w *statusCapturingResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // Shutdown gracefully shuts down the router.
 // It stops accepting new requests and waits for existing requests to complete.
 func (r *Router[T, U]) Shutdown(ctx context.Context) error {
@@ -925,6 +975,21 @@ func (r *Router[T, U]) getEffectiveRateLimit(routeRateLimit, subRouterRateLimit 
 		return convertConfig(subRouterRateLimit)
 	}
 	return convertConfig(r.config.GlobalRateLimit)
+}
+
+// getEffectiveTransaction returns the effective transaction configuration for a route.
+// Precedence order (first non-nil value wins):
+// 1. Route-specific transaction config
+// 2. Sub-router transaction config override (NOT inherited by nested sub-routers)
+// 3. Global transaction config from RouterConfig
+func (r *Router[T, U]) getEffectiveTransaction(routeTransaction, subRouterTransaction *common.TransactionConfig) *common.TransactionConfig {
+	if routeTransaction != nil {
+		return routeTransaction
+	}
+	if subRouterTransaction != nil {
+		return subRouterTransaction
+	}
+	return r.config.GlobalTransaction
 }
 
 // baseFields returns common log fields for the request.
@@ -1073,10 +1138,21 @@ func NewHTTPError(statusCode int, message string) *HTTPError {
 // recoveryMiddleware is a middleware that recovers from panics in handlers.
 // It logs the panic and returns a 500 Internal Server Error response.
 // This prevents the server from crashing when a handler panics.
+// If a transaction is active, it will be rolled back.
 func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
+				// Check for active transaction and roll it back
+				if tx, ok := scontext.GetTransaction[T, U](req.Context()); ok {
+					if err := tx.Rollback(); err != nil {
+						r.logger.Error("Failed to rollback transaction after panic",
+							zap.Error(err),
+							zap.Any("panic", rec),
+						)
+					}
+				}
+
 				fields := append([]zap.Field{zap.Any("panic", rec)}, r.baseFields(req)...)
 				fields = r.addTrace(fields, req)
 				r.logger.Error("Panic recovered", fields...)
@@ -1163,29 +1239,6 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// responseWriter is a wrapper around http.ResponseWriter that captures the status code.
-// This allows middleware to inspect the status code after the handler has completed.
-type responseWriter struct {
-	*baseResponseWriter
-	statusCode int
-}
-
-// WriteHeader captures the status code and calls the underlying ResponseWriter.WriteHeader.
-func (rw *responseWriter) WriteHeader(statusCode int) {
-	rw.statusCode = statusCode
-	rw.baseResponseWriter.WriteHeader(statusCode)
-}
-
-// Write calls the underlying ResponseWriter.Write.
-func (rw *responseWriter) Write(b []byte) (int, error) {
-	return rw.baseResponseWriter.Write(b)
-}
-
-// Flush calls the underlying ResponseWriter.Flush if it implements http.Flusher.
-func (rw *responseWriter) Flush() {
-	rw.baseResponseWriter.Flush()
-}
-
 // mutexResponseWriter is a wrapper around http.ResponseWriter that uses a mutex to protect access
 // and tracks if headers/body have been written.
 type mutexResponseWriter struct {
@@ -1226,4 +1279,59 @@ func (rw *mutexResponseWriter) Flush() {
 	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// validateTransactionConfig validates that transaction configuration is consistent.
+// It ensures that if any transaction is enabled at any level (global, sub-router, or route),
+// a TransactionFactory is provided in the router configuration.
+// Returns an error if validation fails, nil otherwise.
+func (r *Router[T, U]) validateTransactionConfig() error {
+	// Check global transaction config
+	if r.config.GlobalTransaction != nil && 
+		r.config.GlobalTransaction.Enabled && 
+		r.config.TransactionFactory == nil {
+		return fmt.Errorf("GlobalTransaction.Enabled is true but TransactionFactory is nil")
+	}
+	
+	// Check all sub-router and route configurations
+	for i, sr := range r.config.SubRouters {
+		if err := r.validateSubRouterTransactions(sr, fmt.Sprintf("SubRouters[%d]", i)); err != nil {
+			return err
+		}
+	}
+	
+	return nil
+}
+
+// validateSubRouterTransactions recursively validates transaction configuration for a sub-router
+// and all its nested sub-routers and routes.
+func (r *Router[T, U]) validateSubRouterTransactions(sr SubRouterConfig, path string) error {
+	// Check sub-router level transaction
+	if sr.Overrides.Transaction != nil && 
+		sr.Overrides.Transaction.Enabled && 
+		r.config.TransactionFactory == nil {
+		return fmt.Errorf("%s: Transaction.Enabled is true but TransactionFactory is nil", path)
+	}
+	
+	// Check each route
+	for j, routeDef := range sr.Routes {
+		if route, ok := routeDef.(RouteConfigBase); ok {
+			if route.Overrides.Transaction != nil && 
+				route.Overrides.Transaction.Enabled && 
+				r.config.TransactionFactory == nil {
+				return fmt.Errorf("%s.Routes[%d]: Transaction.Enabled is true but TransactionFactory is nil", path, j)
+			}
+		}
+		// Note: GenericRouteRegistrationFunc routes are validated when they're registered
+		// since their configuration is determined at registration time
+	}
+	
+	// Recursively check nested sub-routers
+	for k, nestedSr := range sr.SubRouters {
+		if err := r.validateSubRouterTransactions(nestedSr, fmt.Sprintf("%s.SubRouters[%d]", path, k)); err != nil {
+			return err
+		}
+	}
+	
+	return nil
 }

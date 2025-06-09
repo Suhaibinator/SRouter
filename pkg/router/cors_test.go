@@ -827,7 +827,7 @@ func TestCORSWithGenericRoutes(t *testing.T) {
 					return genericCORSTestResponse{Result: "Success: " + data.Value}, nil
 				},
 				Codec: &genericCORSTestCodec{}, // Use the package-level test codec
-			}, 0, 0, nil)
+			}, 0, 0, nil, nil)
 
 			// Create a request
 			reqBody := `{"value":"test"}`
