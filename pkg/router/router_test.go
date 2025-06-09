@@ -37,14 +37,14 @@ type TestData struct {
 // TestRouteMatching tests that routes are matched correctly
 func TestRouteMatching(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Routes: []RouteDefinition{RouteConfigBase{Path: "/users/:id", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r := NewRouter(RouterConfig{Logger: logger, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Routes: []RouteDefinition{RouteConfigBase{Path: "/users/:id", Methods: []HttpMethod{MethodGet}, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := GetParam(r, "id")
 		_, err := w.Write([]byte("User ID: " + id))
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
 			return
 		}
-	}}}}}}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	})}}}}}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	server := httptest.NewServer(r)
 	defer server.Close()
 	resp, err := http.Get(server.URL + "/api/users/123")
@@ -68,22 +68,22 @@ func TestRouteMatching(t *testing.T) {
 func TestSubRouterOverrides(t *testing.T) {
 	logger, _ := zap.NewProduction()
 	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 1 * time.Second, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Overrides: common.RouteOverrides{Timeout: 2 * time.Second}, Routes: []RouteDefinition{
-		RouteConfigBase{Path: "/slow", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
+		RouteConfigBase{Path: "/slow", Methods: []HttpMethod{MethodGet}, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(1500 * time.Millisecond)
 			_, err := w.Write([]byte("Slow response"))
 			if err != nil {
 				http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
 				return
 			}
-		}},
-		RouteConfigBase{Path: "/fast", Methods: []HttpMethod{MethodGet}, Overrides: common.RouteOverrides{Timeout: 500 * time.Millisecond}, Handler: func(w http.ResponseWriter, r *http.Request) {
+		})},
+		RouteConfigBase{Path: "/fast", Methods: []HttpMethod{MethodGet}, Overrides: common.RouteOverrides{Timeout: 500 * time.Millisecond}, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(750 * time.Millisecond)
 			_, err := w.Write([]byte("Fast response"))
 			if err != nil {
 				http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
 				return
 			}
-		}},
+		})},
 	}}}}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	server := httptest.NewServer(r)
 	defer server.Close()
@@ -109,7 +109,7 @@ func TestSubRouterOverrides(t *testing.T) {
 func TestBodySizeLimits(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger, GlobalMaxBodySize: 10, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Overrides: common.RouteOverrides{MaxBodySize: 20}, Routes: []RouteDefinition{
-		RouteConfigBase{Path: "/small", Methods: []HttpMethod{MethodPost}, Overrides: common.RouteOverrides{MaxBodySize: 5}, Handler: func(w http.ResponseWriter, r *http.Request) {
+		RouteConfigBase{Path: "/small", Methods: []HttpMethod{MethodPost}, Overrides: common.RouteOverrides{MaxBodySize: 5}, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, err := io.ReadAll(r.Body)
 			if err != nil {
 				// Check if the error is due to body size limit
@@ -125,8 +125,8 @@ func TestBodySizeLimits(t *testing.T) {
 				http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
 				return
 			}
-		}},
-		RouteConfigBase{Path: "/medium", Methods: []HttpMethod{MethodPost}, Handler: func(w http.ResponseWriter, r *http.Request) {
+		})},
+		RouteConfigBase{Path: "/medium", Methods: []HttpMethod{MethodPost}, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, err := io.ReadAll(r.Body)
 			if err != nil {
 				// Check if the error is due to body size limit
@@ -142,7 +142,7 @@ func TestBodySizeLimits(t *testing.T) {
 				http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
 				return
 			}
-		}},
+		})},
 	}}}}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 	server := httptest.NewServer(r)
 	defer server.Close()
@@ -246,13 +246,13 @@ func TestMiddlewareChaining(t *testing.T) {
 		Middlewares: []common.Middleware{
 			addHeaderMiddleware("Route", "true"),
 		},
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_, err := w.Write([]byte("OK"))
 			if err != nil {
 				http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
 				return
 			}
-		},
+		}),
 	}
 
 	// Define sub-router configuration
@@ -304,14 +304,14 @@ func TestMiddlewareChaining(t *testing.T) {
 func TestShutdown(t *testing.T) {
 	logger, _ := zap.NewProduction()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{Path: "/slow", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r.RegisterRoute(RouteConfigBase{Path: "/slow", Methods: []HttpMethod{MethodGet}, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(500 * time.Millisecond)
 		_, err := w.Write([]byte("OK"))
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
 			return
 		}
-	}})
+	})})
 	server := httptest.NewServer(r)
 	defer server.Close()
 	done := make(chan struct{})
@@ -352,13 +352,13 @@ func TestShutdown(t *testing.T) {
 func TestRegisterRouteCoverage(t *testing.T) { // Renamed to avoid conflict
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{Path: "/direct", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r.RegisterRoute(RouteConfigBase{Path: "/direct", Methods: []HttpMethod{MethodGet}, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, err := w.Write([]byte("Direct route"))
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
 			return
 		}
-	}})
+	})})
 	server := httptest.NewServer(r)
 	defer server.Close()
 	resp, err := http.Get(server.URL + "/direct")
@@ -382,7 +382,7 @@ func TestRegisterRouteCoverage(t *testing.T) { // Renamed to avoid conflict
 func TestGetParamsCoverage(t *testing.T) { // Renamed to avoid conflict
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{Path: "/users/:id/posts/:postId", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r.RegisterRoute(RouteConfigBase{Path: "/users/:id/posts/:postId", Methods: []HttpMethod{MethodGet}, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		params := GetParams(r)
 		if len(params) != 2 {
 			t.Errorf("Expected 2 params, got %d", len(params))
@@ -394,7 +394,7 @@ func TestGetParamsCoverage(t *testing.T) { // Renamed to avoid conflict
 			http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
 			return
 		}
-	}})
+	})})
 	server := httptest.NewServer(r)
 	defer server.Close()
 	resp, err := http.Get(server.URL + "/users/123/posts/456")
@@ -459,10 +459,10 @@ func TestUserAuthCoverage(t *testing.T) { // Renamed to avoid conflict
 func TestSimpleErrorCoverage(t *testing.T) { // Renamed to avoid conflict
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{Path: "/error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) { http.Error(w, "Bad request", http.StatusBadRequest) }})
-	r.RegisterRoute(RouteConfigBase{Path: "/regular-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) {
+	r.RegisterRoute(RouteConfigBase{Path: "/error", Methods: []HttpMethod{MethodGet}, Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { http.Error(w, "Bad request", http.StatusBadRequest) })})
+	r.RegisterRoute(RouteConfigBase{Path: "/regular-error", Methods: []HttpMethod{MethodGet}, Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "Internal error", http.StatusInternalServerError)
-	}})
+	})})
 	server := httptest.NewServer(r)
 	defer server.Close()
 	respErr, errErr := http.Get(server.URL + "/error")
@@ -629,27 +629,6 @@ func TestRegisterGenericRouteWithErrorCoverage(t *testing.T) { // Renamed to avo
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status code %d, got %d", http.StatusInternalServerError, rr.Code)
 	}
-}
-
-// TestResponseWriter tests the responseWriter type
-func TestResponseWriterCoverage(t *testing.T) { // Renamed to avoid conflict
-	rr := httptest.NewRecorder()
-	rw := &responseWriter{baseResponseWriter: &baseResponseWriter{ResponseWriter: rr}, statusCode: http.StatusOK}
-	rw.WriteHeader(http.StatusNotFound)
-	if rw.statusCode != http.StatusNotFound {
-		t.Errorf("Expected statusCode to be %d, got %d", http.StatusNotFound, rw.statusCode)
-	}
-	_, err := rw.Write([]byte("Hello, World!"))
-	if err != nil {
-		t.Fatalf("Failed to write response: %v", err)
-	}
-	if rr.Body.String() != "Hello, World!" {
-		t.Errorf("Expected response body %q, got %q", "Hello, World!", rr.Body.String())
-	}
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("Expected response code to be %d, got %d", http.StatusNotFound, rr.Code)
-	}
-	rw.Flush() // Test Flush method
 }
 
 // TestShutdownWithCancel tests the Shutdown method with a canceled context
@@ -1872,21 +1851,21 @@ func TestConcurrentRequests(t *testing.T) {
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/simple",
 		Methods: []HttpMethod{MethodGet},
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("Simple OK"))
-		},
+		}),
 	})
 
 	// 2. GET route with params
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/params/:id",
 		Methods: []HttpMethod{MethodGet},
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id := GetParam(r, "id")
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("Param OK: " + id))
-		},
+		}),
 	})
 
 	// 3. Generic POST route
@@ -1908,10 +1887,10 @@ func TestConcurrentRequests(t *testing.T) {
 		Middlewares: []common.Middleware{
 			addHeaderMiddleware("X-Route-Test", "true"),
 		},
-		Handler: func(w http.ResponseWriter, r *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("Middleware OK"))
-		},
+		}),
 	})
 
 	// Create test server
@@ -2036,7 +2015,7 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 	r.RegisterRoute(RouteConfigBase{
 		Path:    "/ping",
 		Methods: []HttpMethod{MethodGet},
-		Handler: func(w http.ResponseWriter, req *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			// Simulate middleware adding trace ID to context (for testing the logger)
 			// In real execution, the trace middleware does this.
 			// We need to ensure the context passed *down* has the ID.
@@ -2054,7 +2033,7 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("pong"))
-		},
+		}),
 	})
 
 	// 4. Make a request

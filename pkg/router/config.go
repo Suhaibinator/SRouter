@@ -122,6 +122,11 @@ type MetricsConfig struct {
 
 // RouterConfig defines the global configuration for the router.
 // It includes settings for logging, timeouts, metrics, and middleware.
+// 
+// Transaction Configuration:
+// If any transaction is enabled (at global, sub-router, or route level),
+// a TransactionFactory must be provided. The router will panic at startup
+// if transactions are enabled without a factory.
 type RouterConfig struct {
 	ServiceName         string                            // Name of the service, used for metrics tagging etc.
 	Logger              *zap.Logger                       // Logger for all router operations
@@ -138,7 +143,7 @@ type RouterConfig struct {
 	Middlewares         []common.Middleware               // Global middlewares applied to all routes
 	AddUserObjectToCtx  bool                              // Add user object to context
 	CORSConfig          *CORSConfig                       // CORS configuration (optional, if nil CORS is disabled)
-	TransactionFactory  common.TransactionFactory         // Factory for creating database transactions (optional)
+	TransactionFactory  common.TransactionFactory         // Factory for creating database transactions (required if any transaction is enabled)
 }
 
 // RouteDefinition is an interface that all route types must implement.

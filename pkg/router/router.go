@@ -177,6 +177,11 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 		}
 	}
 
+	// Validate transaction configuration before registering routes
+	if err := r.validateTransactionConfig(); err != nil {
+		panic(fmt.Sprintf("Invalid transaction configuration: %v", err))
+	}
+
 	// Register routes from sub-routers
 	for _, sr := range config.SubRouters {
 		r.registerSubRouter(sr)
@@ -845,8 +850,8 @@ func (rw *metricsResponseWriter[T, U]) Flush() {
 // It's used by transaction middleware to determine if a handler succeeded or failed.
 type statusCapturingResponseWriter struct {
 	http.ResponseWriter
-	status    int
-	written   bool
+	status  int
+	written bool
 }
 
 // WriteHeader captures the status code and delegates to the underlying ResponseWriter.
@@ -1234,29 +1239,6 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// responseWriter is a wrapper around http.ResponseWriter that captures the status code.
-// This allows middleware to inspect the status code after the handler has completed.
-type responseWriter struct {
-	*baseResponseWriter
-	statusCode int
-}
-
-// WriteHeader captures the status code and calls the underlying ResponseWriter.WriteHeader.
-func (rw *responseWriter) WriteHeader(statusCode int) {
-	rw.statusCode = statusCode
-	rw.baseResponseWriter.WriteHeader(statusCode)
-}
-
-// Write calls the underlying ResponseWriter.Write.
-func (rw *responseWriter) Write(b []byte) (int, error) {
-	return rw.baseResponseWriter.Write(b)
-}
-
-// Flush calls the underlying ResponseWriter.Flush if it implements http.Flusher.
-func (rw *responseWriter) Flush() {
-	rw.baseResponseWriter.Flush()
-}
-
 // mutexResponseWriter is a wrapper around http.ResponseWriter that uses a mutex to protect access
 // and tracks if headers/body have been written.
 type mutexResponseWriter struct {
@@ -1297,4 +1279,59 @@ func (rw *mutexResponseWriter) Flush() {
 	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// validateTransactionConfig validates that transaction configuration is consistent.
+// It ensures that if any transaction is enabled at any level (global, sub-router, or route),
+// a TransactionFactory is provided in the router configuration.
+// Returns an error if validation fails, nil otherwise.
+func (r *Router[T, U]) validateTransactionConfig() error {
+	// Check global transaction config
+	if r.config.GlobalTransaction != nil && 
+		r.config.GlobalTransaction.Enabled && 
+		r.config.TransactionFactory == nil {
+		return fmt.Errorf("GlobalTransaction.Enabled is true but TransactionFactory is nil")
+	}
+	
+	// Check all sub-router and route configurations
+	for i, sr := range r.config.SubRouters {
+		if err := r.validateSubRouterTransactions(sr, fmt.Sprintf("SubRouters[%d]", i)); err != nil {
+			return err
+		}
+	}
+	
+	return nil
+}
+
+// validateSubRouterTransactions recursively validates transaction configuration for a sub-router
+// and all its nested sub-routers and routes.
+func (r *Router[T, U]) validateSubRouterTransactions(sr SubRouterConfig, path string) error {
+	// Check sub-router level transaction
+	if sr.Overrides.Transaction != nil && 
+		sr.Overrides.Transaction.Enabled && 
+		r.config.TransactionFactory == nil {
+		return fmt.Errorf("%s: Transaction.Enabled is true but TransactionFactory is nil", path)
+	}
+	
+	// Check each route
+	for j, routeDef := range sr.Routes {
+		if route, ok := routeDef.(RouteConfigBase); ok {
+			if route.Overrides.Transaction != nil && 
+				route.Overrides.Transaction.Enabled && 
+				r.config.TransactionFactory == nil {
+				return fmt.Errorf("%s.Routes[%d]: Transaction.Enabled is true but TransactionFactory is nil", path, j)
+			}
+		}
+		// Note: GenericRouteRegistrationFunc routes are validated when they're registered
+		// since their configuration is determined at registration time
+	}
+	
+	// Recursively check nested sub-routers
+	for k, nestedSr := range sr.SubRouters {
+		if err := r.validateSubRouterTransactions(nestedSr, fmt.Sprintf("%s.SubRouters[%d]", path, k)); err != nil {
+			return err
+		}
+	}
+	
+	return nil
 }

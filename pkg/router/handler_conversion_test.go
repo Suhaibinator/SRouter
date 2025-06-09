@@ -28,7 +28,7 @@ func (h *customHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func TestWrapWithTransactionHandlerFuncConversion(t *testing.T) {
 	// Create mock transaction that tracks if it was used
 	mockTx := &mocks.MockTransaction{}
-	
+
 	// Create mock factory
 	mockFactory := &mocks.MockTransactionFactory{
 		BeginFunc: func(ctx context.Context, options map[string]any) (scontext.DatabaseTransaction, error) {
@@ -49,18 +49,18 @@ func TestWrapWithTransactionHandlerFuncConversion(t *testing.T) {
 	t.Run("transaction enabled returns HandlerFunc", func(t *testing.T) {
 		handler := &customHandler{}
 		txConfig := &common.TransactionConfig{Enabled: true}
-		
+
 		wrapped := r.wrapWithTransaction(handler, txConfig)
-		
+
 		// Should return a HandlerFunc when transaction is enabled
 		_, isHandlerFunc := wrapped.(http.HandlerFunc)
 		assert.True(t, isHandlerFunc, "wrapped handler should be http.HandlerFunc")
-		
+
 		// Test the wrapped handler works
 		req := httptest.NewRequest("GET", "/test", nil)
 		w := httptest.NewRecorder()
 		wrapped.ServeHTTP(w, req)
-		
+
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.True(t, handler.called)
 		assert.True(t, mockTx.IsCommitCalled())
@@ -69,13 +69,13 @@ func TestWrapWithTransactionHandlerFuncConversion(t *testing.T) {
 	// Test 2: When transaction is disabled, wrapWithTransaction returns original handler
 	t.Run("transaction disabled returns original handler", func(t *testing.T) {
 		handler := &customHandler{}
-		
+
 		// No transaction config
 		wrapped := r.wrapWithTransaction(handler, nil)
-		
+
 		// Should return the original handler
 		assert.Equal(t, handler, wrapped)
-		
+
 		// Verify it's NOT a HandlerFunc
 		_, isHandlerFunc := wrapped.(http.HandlerFunc)
 		assert.False(t, isHandlerFunc, "wrapped handler should not be http.HandlerFunc")
@@ -85,7 +85,7 @@ func TestWrapWithTransactionHandlerFuncConversion(t *testing.T) {
 // TestHandlerFuncConversionInRouteRegistration tests the conversion in actual route registration
 func TestHandlerFuncConversionInRouteRegistration(t *testing.T) {
 	// This test verifies the type assertion and conversion code path
-	
+
 	// Create router without transactions
 	r := NewRouter[string, TestUser](RouterConfig{
 		Logger: zaptest.NewLogger(t),
@@ -93,7 +93,7 @@ func TestHandlerFuncConversionInRouteRegistration(t *testing.T) {
 
 	// Track if conversion happened
 	conversionHappened := false
-	
+
 	// Create a wrapper handler that tracks the conversion
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		// Check if the handler was properly converted
@@ -136,37 +136,37 @@ func TestDirectHandlerFuncConversion(t *testing.T) {
 	// if !ok {
 	//     handlerFunc = http.HandlerFunc(finalHandler.ServeHTTP)
 	// }
-	
+
 	t.Run("already HandlerFunc - no conversion", func(t *testing.T) {
 		// Create a HandlerFunc
 		var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
-		
+
 		// Type assertion should succeed
 		handlerFunc, ok := handler.(http.HandlerFunc)
 		assert.True(t, ok)
 		assert.NotNil(t, handlerFunc)
 	})
-	
+
 	t.Run("not HandlerFunc - needs conversion", func(t *testing.T) {
 		// Create a non-HandlerFunc handler
 		mockHandler := &mockNonHandlerFunc{}
 		var handler http.Handler = mockHandler
-		
+
 		// Type assertion should fail
 		_, ok := handler.(http.HandlerFunc)
 		assert.False(t, ok)
-		
+
 		// Conversion should work
 		handlerFunc := http.HandlerFunc(handler.ServeHTTP)
 		assert.NotNil(t, handlerFunc)
-		
+
 		// Test the converted handler
 		req := httptest.NewRequest("GET", "/test", nil)
 		w := httptest.NewRecorder()
 		handlerFunc.ServeHTTP(w, req)
-		
+
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.True(t, mockHandler.serveHTTPUsedForConversion)
 	})
@@ -181,7 +181,7 @@ func TestSubRouterWithNonHandlerFuncAfterTransaction(t *testing.T) {
 		// Return a custom handler that is NOT http.HandlerFunc
 		return &customHandler{}
 	}
-	
+
 	// Create router
 	r := NewRouter[string, TestUser](RouterConfig{
 		Logger: zaptest.NewLogger(t),
@@ -195,17 +195,17 @@ func TestSubRouterWithNonHandlerFuncAfterTransaction(t *testing.T) {
 						handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 							w.WriteHeader(http.StatusOK)
 						})
-						
+
 						// Call wrapWithTransaction which returns non-HandlerFunc
 						wrapped := originalWrapWithTransaction(router, handler, nil)
-						
+
 						// This simulates the conversion code in router.go
 						_, ok := wrapped.(http.HandlerFunc)
 						assert.False(t, ok, "wrapped should not be HandlerFunc")
-						
+
 						// Perform conversion
 						handlerFunc := http.HandlerFunc(wrapped.ServeHTTP)
-						
+
 						// Continue with registration
 						finalHandler := router.wrapHandler(handlerFunc, nil, 0, 0, nil, nil)
 						router.router.Handle("GET", "/api/test", router.convertToHTTPRouterHandle(finalHandler, "/api/test"))
@@ -214,12 +214,12 @@ func TestSubRouterWithNonHandlerFuncAfterTransaction(t *testing.T) {
 			},
 		},
 	}, nil, nil)
-	
+
 	// Make request
 	req := httptest.NewRequest("GET", "/api/test", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	
+
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, wrapWithTransactionCalled)
 }
