@@ -67,6 +67,7 @@ type SRouterContext[T comparable, U any] struct {
 	AllowedOriginSet      bool
 	CredentialsAllowedSet bool
 	RequestedHeadersSet   bool // Flag for RequestedHeaders
+	// HandlerErrorSet is used to distinguish between an unset error and an explicitly set nil error.
 	HandlerErrorSet       bool
 
 	Flags map[string]bool
