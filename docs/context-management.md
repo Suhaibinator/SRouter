@@ -123,6 +123,8 @@ This approach offers several advantages over traditional `context.WithValue` nes
 
 Middleware should use the provided helper functions from the `pkg/scontext` package (like `scontext.WithUserID`, `scontext.WithUser`, `scontext.WithClientIP`, `scontext.WithUserAgent`, `scontext.WithTraceID`, `scontext.WithFlag`, `scontext.WithTransaction`, `scontext.WithRouteInfo`, `scontext.WithCORSInfo`, `scontext.WithCORSRequestedHeaders`, and `scontext.WithHandlerError`) to add values. These functions handle creating or updating the `SRouterContext` wrapper within the `context.Context`.
 
+**Note on Trace IDs**: The `scontext.WithTraceID` function preserves existing trace IDs and will not overwrite them. This is useful for distributed tracing scenarios where an upstream service has already set a trace ID that should be propagated through the system.
+
 ```go
 // Example within a middleware:
 func MyMiddleware() common.Middleware {
