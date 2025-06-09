@@ -7,6 +7,7 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common" // Ensure common is imported
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 )
 
 // RegisterRoute registers a standard (non-generic) route with the router.
@@ -229,6 +230,10 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 		// Call the handler
 		resp, err := route.Handler(req, data)
 		if err != nil {
+			// Store error in context for middleware to access
+			ctx := scontext.WithHandlerError[UserID, User](req.Context(), err)
+			req = req.WithContext(ctx)
+			
 			r.handleError(w, req, err, http.StatusInternalServerError, "Handler error")
 			return
 		}
