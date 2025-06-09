@@ -50,7 +50,7 @@ type RouterConfig struct {
 
 	// TraceIDBufferSize sets the buffer size for the background trace ID generator.
 	// If > 0, trace IDs are automatically generated and added to request context and logs.
-	// Setting to 0 disables automatic trace ID generation. See docs/trace-logging.md.
+	// Setting to 0 disables automatic trace ID generation. See docs/logging.md#trace-id-integration.
 	TraceIDBufferSize int
 
         // MetricsConfig holds detailed configuration for the v2 metrics system.
@@ -230,7 +230,7 @@ type RouteConfig[T any, U any] struct {
 	Middlewares []common.Middleware
 
 	// SourceType specifies where to retrieve the request data T from.
-	// Defaults to Body. See docs/source-types.md.
+	// Defaults to Body. See docs/generic-routes.md#source-types.
 	SourceType SourceType
 
 	// SourceKey is used when SourceType is not Body (e.g., query or path parameter name).

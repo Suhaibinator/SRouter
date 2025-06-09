@@ -215,14 +215,14 @@ SRouter provides several built-in middleware functions and applies others intern
 -   **`Recovery`**: Recovers from panics. Applied internally by SRouter, usually no need to add manually.
 -   **`MaxBodySize(limit int64)`**: Limits request body size. Applied internally based on config, usually no need to add manually.
 -   **`Timeout(timeout time.Duration)`**: Applies a request timeout using context. Applied internally based on config, usually no need to add manually.
-    -   **`CreateTraceMiddleware[T, U](idGen *IDGenerator)`**: Creates the trace ID middleware. Added automatically to global middleware if `RouterConfig.TraceIDBufferSize > 0`. See [Trace ID Logging](./trace-logging.md).
+    -   **`CreateTraceMiddleware[T, U](idGen *IDGenerator)`**: Creates the trace ID middleware. Added automatically to global middleware if `RouterConfig.TraceIDBufferSize > 0`. See [Trace ID Integration](./logging.md#trace-id-integration).
 -   **`RateLimit(config *common.RateLimitConfig[T, U], limiter common.RateLimiter, logger *zap.Logger)`**: Applies rate limiting. Applied internally based on config, usually no need to add manually. See [Rate Limiting](./rate-limiting.md).
 -   **`NewGormTransactionWrapper`**: Wrapper for GORM transactions (used with `scontext`). See [Context Management](./context-management.md).
 
 **Internal / Not Exported for Direct Use:**
 
 -   **Request Logging**: Handled internally by `Router.ServeHTTP` if `RouterConfig.EnableTraceLogging` is true. There is no separate `Logging` middleware to add. See [Logging](./logging.md).
--   **Authentication**: The built-in Bearer token authentication (`authRequiredMiddleware`, `authOptionalMiddleware`) is applied internally based on `AuthLevel` config. For other schemes (Basic, API Key, etc.), you need to implement custom middleware. See [Authentication](./authentication.md).
+-   **Authentication**: Applied internally based on `AuthLevel` config. See [Authentication](./authentication.md) for details on authentication providers and configuration.
 -   **IP Extraction**: Handled internally by `Router.ServeHTTP` based on `RouterConfig.IPConfig`. See [IP Configuration](./ip-configuration.md).
 -   **CORS**: Handled internally by `Router.ServeHTTP` based on `RouterConfig.CORSConfig`. See [CORS Configuration](./cors-configuration.md).
 

@@ -1,16 +1,70 @@
-# Security Considerations
+# Production Considerations
 
-This document provides security-related guidance for developers using the SRouter framework. While SRouter aims to provide secure defaults and mechanisms, the ultimate security of your application depends on its proper configuration, your specific implementation choices, and adherence to general security best practices. This guide highlights key areas to consider when building applications with SRouter.
+This guide covers important aspects of running SRouter applications in production, including performance optimization, security hardening, and graceful shutdown procedures.
 
-## IP Address Configuration
+## Performance Considerations
+
+SRouter is designed with performance in mind, building upon the speed of `julienschmidt/httprouter`. Here are some factors and tips related to performance:
+
+### Path Matching
+
+SRouter inherits the high-performance path matching capabilities of `julienschmidt/httprouter`. This router uses a radix tree structure, allowing for path lookups that are generally O(k), where k is the length of the path, or even O(1) in many practical scenarios, significantly faster than routers relying solely on regular expressions for every route.
+
+### Middleware Overhead
+
+Each middleware layer introduces some runtime cost. Limit global and route-specific middleware to what you actually need. For a detailed explanation of how SRouter orders and applies middleware, see [Custom Middleware](./middleware.md#middleware-execution-order).
+
+### Memory Allocation
+
+SRouter aims to minimize memory allocations in the hot path (request processing). However, certain operations can still lead to allocations:
+
+-   **Context Management**: While `SRouterContext` avoids deep nesting, adding values to the context still involves allocations.
+-   **Logging**: Structured logging (like with `zap`) involves allocations for creating log entries and fields. Ensure your logger is configured appropriately for production (e.g., sampling, appropriate level) to minimize performance impact.
+-   **Data Encoding/Decoding**: Codecs (JSON, Proto, etc.) inherently involve allocations for marshaling and unmarshaling data.
+-   **Custom Middleware**: Be mindful of allocations within your own middleware functions.
+
+**Tips for Reducing Allocations:**
+
+-   Use `sync.Pool` for frequently allocated temporary objects within handlers or middleware if profiling shows significant allocation pressure.
+-   Avoid unnecessary string formatting or concatenation within the request path.
+-   Reuse objects like HTTP clients or database connections instead of creating them per request.
+
+### Timeouts
+
+Setting appropriate timeouts via `GlobalTimeout`, `SubRouterConfig.Overrides.Timeout`, and route-level `Overrides.Timeout` is crucial for both performance and stability:
+
+-   Prevents slow client connections or long-running handlers from consuming server resources indefinitely.
+-   Helps protect against certain types of Denial-of-Service (DoS) attacks.
+-   Ensures predictable response times for clients.
+
+Set timeouts based on the expected latency of the underlying operations for each route or group of routes.
+
+### Body Size Limits
+
+Configuring maximum request body sizes using `GlobalMaxBodySize`, `SubRouterConfig.Overrides.MaxBodySize`, and route-level `Overrides.MaxBodySize` is important for:
+
+-   **Security**: Prevents DoS attacks where clients send excessively large request bodies to exhaust server memory or bandwidth.
+-   **Performance**: Avoids processing unnecessarily large amounts of data.
+
+Set limits based on the expected maximum payload size for each endpoint.
+
+### Benchmarks
+
+Consider running Go's built-in benchmarking tools (`go test -bench=.`) on your handlers and middleware to identify performance bottlenecks. SRouter itself likely includes benchmarks for its core routing and middleware components.
+
+## Security Considerations
+
+This section provides security-related guidance for developers using the SRouter framework. While SRouter aims to provide secure defaults and mechanisms, the ultimate security of your application depends on its proper configuration, your specific implementation choices, and adherence to general security best practices.
+
+### IP Address Configuration
 
 Correctly extracting the client IP is crucial for logging, rate limiting, and other security features. SRouter provides extensive configuration via `IPConfig` to handle proxies and custom headers. See the dedicated [IP Configuration](./ip-configuration.md) documentation for details and security recommendations.
 
-## Authentication
+### Authentication
 
 SRouter provides a flexible authentication framework through its `pkg/middleware/auth.go` package. It includes several built-in providers and allows for custom authentication logic.
 
-### Available Authentication Providers
+#### Available Authentication Providers
 
 *   **`BearerTokenProvider`**: Authenticates requests based on a bearer token provided in the `Authorization` header. It can validate tokens against a predefined map or a custom validator function.
 *   **`APIKeyProvider`**: Authenticates requests based on an API key that can be provided in a specified HTTP header or a URL query parameter. It validates keys against a predefined map.
@@ -20,7 +74,7 @@ SRouter provides a flexible authentication framework through its `pkg/middleware
 
 The framework also provides generic middleware functions like `AuthenticationWithProvider`, `Authentication`, `AuthenticationBool`, `AuthenticationWithUserProvider`, and `AuthenticationWithUser` that can be used with these providers or with custom authentication functions.
 
-### Security Best Practices for Authentication
+#### Security Best Practices for Authentication
 
 When implementing authentication, especially with custom validator functions (`Validator` in `BearerTokenProvider`, `GetUserFunc` in various `UserAuthProvider` implementations), it is crucial to follow security best practices:
 
@@ -37,18 +91,18 @@ When implementing authentication, especially with custom validator functions (`V
 *   **Rate Limiting and Account Lockout:** Consider implementing rate limiting on authentication attempts and account lockout mechanisms to protect against brute-force attacks. (SRouter may provide separate middleware for rate limiting, which should be used in conjunction with authentication).
 *   **Principle of Least Privilege:** Ensure that authenticated users or API keys only have the permissions necessary to perform their intended actions.
 
-## Rate Limiting
+### Rate Limiting
 
 SRouter includes a rate limiting middleware (`pkg/middleware/ratelimit.go`) to help protect your application from abuse, brute-force attacks, and Denial of Service (DoS) by limiting the number of requests a client can make to your API endpoints within a given time window.
 
-### Purpose of Rate Limiting
+#### Purpose of Rate Limiting
 
 *   **Prevent Abuse:** Stop malicious actors from overwhelming your service with requests.
 *   **Ensure Fair Usage:** Provide equitable access to resources for all users.
 *   **Prevent DoS/DDoS:** Mitigate the impact of denial-of-service attacks by limiting the request rate from individual sources.
 *   **Cost Control:** For services that incur costs per request, rate limiting can help manage expenses.
 
-### Available Strategies
+#### Available Strategies
 
 The rate limiting middleware in SRouter supports several strategies for identifying clients:
 
@@ -59,7 +113,7 @@ The rate limiting middleware in SRouter supports several strategies for identify
 *   **`StrategyCustom`**: Allows for a user-defined `KeyExtractor` function to determine the unique key for rate limiting.
     *   **Security Note:** The security and effectiveness of this strategy depend entirely on the implementation of the custom `KeyExtractor` function. Ensure that the extracted key accurately represents the entity you wish to rate limit and cannot be easily manipulated by attackers to bypass limits or affect other users.
 
-### Memory Consumption Considerations
+#### Memory Consumption Considerations
 
 SRouter's default rate limiter, `UberRateLimiter` (which uses `go.uber.org/ratelimit`), stores rate limiting state in memory for each unique key (e.g., each IP address or user ID).
 
@@ -69,7 +123,7 @@ SRouter's default rate limiter, `UberRateLimiter` (which uses `go.uber.org/ratel
     *   Using an external rate-limiting solution (e.g., Redis-based, or dedicated proxy/API gateway rate limiters).
     *   Implementing a custom `RateLimiter` for SRouter that uses a backend store with eviction policies (e.g., LRU cache, Redis with TTLs) to manage memory usage.
 
-### Standard Rate Limit Headers
+#### Standard Rate Limit Headers
 
 When a request is subject to rate limiting, SRouter's middleware will typically add the following standard HTTP headers to the response:
 
@@ -80,13 +134,13 @@ When a request is subject to rate limiting, SRouter's middleware will typically 
 
 These headers allow clients to understand the rate limits and adjust their request patterns accordingly.
 
-## Input Validation and Sanitization
+### Input Validation and Sanitization
 
 While SRouter provides robust mechanisms for request routing, middleware execution, encoding/decoding of request/response bodies (e.g., JSON), and setting limits like maximum request body size, the detailed validation of input *content* and the sanitization of data to prevent attacks like Cross-Site Scripting (XSS) are primarily the **developer's responsibility** within their route handlers.
 
 SRouter itself does not perform deep inspection or validation of the data fields within request bodies or parameters beyond basic parsing and type conversion where applicable.
 
-### SRouter's Built-in Mechanisms
+#### SRouter's Built-in Mechanisms
 
 *   **Body Size Limits:** The `RouteConfig` allows setting a `MaxBodyBytes` to limit the size of incoming request bodies, which can help prevent certain types of denial-of-service attacks caused by excessively large payloads.
 *   **Generic Route Sanitizer:** For routes registered using `router.RegisterGenericRoute`, the `RouteConfig` accepts an optional `Sanitizer` function with the signature `func(T) (T, error)`.
@@ -95,7 +149,7 @@ SRouter itself does not perform deep inspection or validation of the data fields
     *   If the `Sanitizer` function returns an error, the request is typically rejected by the framework with an appropriate HTTP error code (e.g., `400 Bad Request`), and the main handler is not called.
     *   Refer to the example at `examples/generic/main.go` for a demonstration of how to implement and use a `Sanitizer` function.
 
-### Developer Responsibilities and Recommendations
+#### Developer Responsibilities and Recommendations
 
 It is strongly recommended that developers implement robust input validation and sanitization for all incoming data sources within their application logic:
 
@@ -110,11 +164,11 @@ It is strongly recommended that developers implement robust input validation and
 *   **HTTP Headers:**
     *   Validate any custom or standard HTTP headers that your application relies on for its logic.
 
-### Tools and Libraries
+#### Tools and Libraries
 
 *   Consider using popular Go libraries for validation to simplify and standardize your validation logic. For instance, `go-playground/validator` is widely used for struct-based validation using tags, allowing you to define validation rules directly in your data structures.
 
-### Common Vulnerabilities to Mitigate
+#### Common Vulnerabilities to Mitigate
 
 While SRouter itself may not directly cause or prevent these, developers should be mindful of common web application vulnerabilities related to input/output handling:
 
@@ -131,13 +185,13 @@ While SRouter itself may not directly cause or prevent these, developers should 
 
 By diligently validating and sanitizing all inputs, and by being aware of common output encoding needs, developers can significantly improve the security posture of their SRouter-based applications.
 
-## Cross-Origin Resource Sharing (CORS)
+### Cross-Origin Resource Sharing (CORS)
 
 Cross-Origin Resource Sharing (CORS) is a browser security feature that restricts web pages from making requests to a different domain (origin) than the one that served the web page. This is a crucial security measure to prevent malicious websites from reading sensitive data from other websites or performing unauthorized actions on behalf of the user.
 
 SRouter provides a built-in CORS middleware that can be configured through the `CORSConfig` field in the main `RouterConfig`. This middleware automatically handles preflight `OPTIONS` requests and adds the necessary CORS headers to responses.
 
-### CORS Configuration Options
+#### CORS Configuration Options
 
 The `CORSConfig` struct within `RouterConfig` offers the following options to control CORS behavior:
 
@@ -151,7 +205,7 @@ The `CORSConfig` struct within `RouterConfig` offers the following options to co
 *   **`MaxAge` (`int`):** Specifies how long the results of a preflight request (an `OPTIONS` request) can be cached by the browser, in seconds.
 *   **`ExposeHeaders` (`[]string`):** A list of response headers that the browser should allow client-side JavaScript to access. By default, many headers are not exposed.
 
-### Security Implications and Best Practices
+#### Security Implications and Best Practices
 
 *   **`Origins` and Wildcards (`"*"`):**
     *   Using a wildcard `"*"` for `Origins` is the most permissive setting, allowing any domain to make requests to your API. While this is flexible, it may not always be the most secure choice.
@@ -176,7 +230,7 @@ The `CORSConfig` struct within `RouterConfig` offers the following options to co
 
 By carefully configuring these options, you can ensure that your SRouter application interacts securely with web browsers from different origins.
 
-## General Security Best Practices
+### General Security Best Practices
 
 Building a secure application is a multifaceted endeavor that goes beyond the scope of a single framework. While SRouter provides tools to help you build secure web applications, remember the following general principles:
 
@@ -196,3 +250,108 @@ Building a secure application is a multifaceted endeavor that goes beyond the sc
 *   **Stay Informed:** Keep abreast of the latest security threats and best practices in web application development.
 
 By combining the secure features of SRouter with these general best practices, you can significantly enhance the security posture of your applications.
+
+## Graceful Shutdown
+
+Properly shutting down your HTTP server is crucial to avoid abruptly terminating active connections and potentially losing data or leaving operations in an inconsistent state. SRouter provides mechanisms to support graceful shutdown.
+
+### Router Shutdown Method
+
+The SRouter instance (`*router.Router`) itself has a `Shutdown` method. Calling this marks the router as shutting down so no new requests are served, waits for any in‑flight requests to finish, and stops internal components such as the trace ID generator (if enabled).
+
+```go
+// func (r *Router[T, U]) Shutdown(ctx context.Context) error
+```
+
+It takes a `context.Context` which can be used to set a deadline for the shutdown process.
+
+### Integrating with `http.Server` Shutdown
+
+The standard Go `net/http` package provides the `http.Server.Shutdown` method for gracefully shutting down the server. This method stops the server from accepting new connections and waits for active requests to complete before returning.
+
+You should call both the `http.Server.Shutdown` and the `router.Router.Shutdown` methods when handling termination signals (like `SIGINT` or `SIGTERM`).
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall" // Use syscall for SIGTERM if needed
+	"time"
+
+	"github.com/Suhaibinator/SRouter/pkg/router" // Assuming router setup as 'r'
+	"go.uber.org/zap"                           // Assuming logger setup as 'logger'
+)
+
+func main() {
+	// --- Assume router 'r' is configured and created here ---
+	logger, _ := zap.NewProduction() // Example logger
+	defer logger.Sync()
+	// ... router config ...
+	r := router.NewRouter[string, string](/* ... config, auth funcs ... */)
+	// ... register routes ...
+
+	// Create the HTTP server
+	srv := &http.Server{
+		Addr:    ":8080",
+		Handler: r, // Use the SRouter instance as the handler
+		// Add other server configurations like ReadTimeout, WriteTimeout if desired
+	}
+
+	// Start the server in a separate goroutine so it doesn't block
+	go func() {
+		log.Println("Server starting on", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("ListenAndServe failed: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal (SIGINT) or termination signal (SIGTERM)
+	quit := make(chan os.Signal, 1)
+	// signal.Notify(quit, os.Interrupt) // Catch only Ctrl+C
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM) // Catch Ctrl+C and SIGTERM
+	receivedSignal := <-quit
+	log.Printf("Received signal: %s. Shutting down server...\n", receivedSignal)
+
+	// Create a context with a timeout for the shutdown process
+	// Give active requests time to finish (e.g., 5 seconds)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// --- Perform Shutdown ---
+
+        // 1. Shut down the SRouter instance (stops new requests and halts internal components like the trace ID generator)
+	// It's generally good practice to shut down the router logic first.
+	if err := r.Shutdown(ctx); err != nil {
+		log.Printf("SRouter shutdown failed: %v\n", err)
+		// Decide if this error is fatal or if you should proceed
+	} else {
+		log.Println("SRouter shut down successfully.")
+	}
+
+	// 2. Shut down the HTTP server (stops accepting new connections, waits for active requests)
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("HTTP server shutdown failed: %v", err) // Often fatal if server can't shut down
+	} else {
+		log.Println("HTTP server shut down successfully.")
+	}
+
+	log.Println("Server exited gracefully")
+}
+
+```
+
+### Shutdown Order
+
+1.  **Receive Signal**: Detect `SIGINT` or `SIGTERM`.
+2.  **Create Context**: Create a `context.WithTimeout` to limit the shutdown duration.
+3.  **Router Shutdown**: Call `r.Shutdown(ctx)` to signal SRouter's internal components.
+4.  **Server Shutdown**: Call `srv.Shutdown(ctx)` to stop accepting new connections and wait for existing requests handled by SRouter to complete.
+
+This ensures that the server stops accepting new work, SRouter components are notified, and active requests are given time to finish before the application exits.
+
+See the `examples/graceful-shutdown` directory for a runnable example.

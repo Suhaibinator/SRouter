@@ -10,13 +10,13 @@ SRouter is a high-performance HTTP router for Go that wraps [julienschmidt/httpr
 ## Table of Contents
 
 - **Getting Started**
-  - [Installation & Requirements](./docs/installation.md)
-  - [Basic Usage](./docs/basic-usage.md)
-  - [Sub-Routers](./docs/subrouters.md)
+  - [Installation & Requirements](./docs/getting-started.md#installation)
+  - [Basic Usage](./docs/getting-started.md#basic-usage)
+  - [Sub-Routers](./docs/routing.md#sub-routers)
   - [Generic Routes](./docs/generic-routes.md)
-  - [Path Parameters](./docs/path-parameters.md)
-  - [Trace ID Logging](./docs/trace-logging.md)
-  - [Graceful Shutdown](./docs/graceful-shutdown.md)
+  - [Path Parameters](./docs/routing.md#path-parameters)
+  - [Trace ID Logging](./docs/logging.md#trace-id-integration)
+  - [Graceful Shutdown](./docs/production.md#graceful-shutdown)
 - **Advanced Features**
   - [IP Configuration](./docs/ip-configuration.md)
   - [Rate Limiting](./docs/rate-limiting.md)
@@ -24,17 +24,17 @@ SRouter is a high-performance HTTP router for Go that wraps [julienschmidt/httpr
   - [Context Management](./docs/context-management.md)
   - [Custom Error Handling](./docs/error-handling.md)
   - [Custom Middleware](./docs/middleware.md)
-  - [Source Types](./docs/source-types.md)
+  - [Source Types](./docs/generic-routes.md#source-types)
   - [Custom Codecs](./docs/codecs.md)
   - [Metrics](./docs/metrics.md)
 - **Reference**
   - [Configuration Reference](./docs/configuration.md)
   - [Middleware Reference](./docs/middleware.md#middleware-reference)
   - [Codec Reference](./docs/codecs.md#codec-reference)
-  - [Path Parameter Reference](./docs/path-parameters.md#path-parameter-reference)
+  - [Path Parameter Reference](./docs/routing.md#path-parameter-reference)
   - [Error Handling Reference](./docs/error-handling.md#error-handling-reference)
 - **Other**
-  - [Performance Considerations](./docs/performance.md)
+  - [Performance Considerations](./docs/production.md#performance-considerations)
   - [Logging](./docs/logging.md)
   - [Examples](./docs/examples.md)
   - [License](./LICENSE)
@@ -1365,7 +1365,7 @@ See Metrics section and `docs/metrics.md`.
 
 ### TraceMiddleware
 
-Adds trace ID to the request context using `scontext`. Essential for log correlation. Recommended to enable via `RouterConfig.TraceIDBufferSize > 0` or add this middleware explicitly early in the chain. See `docs/trace-logging.md`.
+Adds trace ID to the request context using `scontext`. Essential for log correlation. Recommended to enable via `RouterConfig.TraceIDBufferSize > 0` or add this middleware explicitly early in the chain. See `docs/logging.md#trace-id-integration`.
 
 ```go
 middleware.CreateTraceMiddleware(generator *middleware.IDGenerator) common.Middleware

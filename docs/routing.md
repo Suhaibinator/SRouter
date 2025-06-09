@@ -1,8 +1,12 @@
-# Sub-Routers
+# Routing
+
+This guide covers the routing system in SRouter, including sub-routers for organizing routes and path parameters for capturing dynamic URL segments.
+
+## Sub-Routers
 
 Sub-routers allow you to group related routes under a common path prefix and apply shared configuration like middleware, timeouts, body size limits, and rate limits.
 
-## Defining Sub-Routers
+### Defining Sub-Routers
 
 Sub-routers are defined using the `SubRouterConfig` struct and added to the `SubRouters` slice within the main `RouterConfig`. Routes can be added declaratively within the sub-router configuration or imperatively after router creation using `RegisterGenericRouteOnSubRouter` or by registering entire sub-routers with `RegisterSubRouter`.
 
@@ -80,7 +84,7 @@ Key points:
 -   `Middlewares`: Middleware applied to routes within this sub-router. These are **added to** (not replacing) any global middlewares defined in RouterConfig.
 -   `AuthLevel`: Default authentication level for all routes in this sub-router (can be overridden at the route level).
 
-## Nested Sub-Routers
+### Nested Sub-Routers
 
 You can nest `SubRouterConfig` structs within the `SubRouters` field of another `SubRouterConfig` to create hierarchical routing structures. Path prefixes are concatenated automatically.
 
@@ -138,11 +142,11 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 - **Overrides** (timeouts, body size, rate limits, auth level): The most specific setting wins (Route > Sub-Router > Global). Each level must explicitly set overrides; they are not inherited.
 - **Middlewares**: These are combined additively in order: Global → Outer Sub-Router → Inner Sub-Router → Route-specific. All applicable middlewares run in this sequence.
 
-## Imperative Route Registration
+### Imperative Route Registration
 
 While routes are typically defined declaratively within `SubRouterConfig`, you can also register routes imperatively after router creation. This is useful for dynamic route registration or when working with routes that need to be conditionally added.
 
-### Registering Individual Routes
+#### Registering Individual Routes
 
 Use `RegisterGenericRouteOnSubRouter` to add a single generic route to an existing sub-router:
 
@@ -173,7 +177,7 @@ This function will:
 - Prefix the route path with the sub-router's path prefix
 - Register the route with all appropriate settings
 
-### Registering Entire Sub-Routers
+#### Registering Entire Sub-Routers
 
 You can also register complete sub-routers after router creation using `RegisterSubRouter`:
 
@@ -203,7 +207,7 @@ adminSubRouter := router.SubRouterConfig{
 r.RegisterSubRouter(adminSubRouter)
 ```
 
-### Programmatic Sub-Router Nesting
+#### Programmatic Sub-Router Nesting
 
 For building sub-router hierarchies programmatically, use `RegisterSubRouterWithSubRouter`:
 
@@ -226,3 +230,133 @@ router.RegisterSubRouterWithSubRouter(&apiRouter, v1Router)
 
 // Now apiRouter contains v1Router, resulting in routes under /api/v1
 ```
+
+## Path Parameters
+
+SRouter, using `julienschmidt/httprouter` internally, allows you to define routes with named parameters in the path. These parameters capture dynamic segments of the URL.
+
+### Defining Routes with Path Parameters
+
+Path parameters are defined using a colon (`:`) followed by the parameter name in the route path definition.
+
+```go
+// Example route definition within a SubRouterConfig or RouteConfigBase/RouteConfig
+router.RouteConfigBase{
+    Path:    "/users/:id", // ':id' is the path parameter
+    Methods: []router.HttpMethod{router.MethodGet},
+    Handler: GetUserHandler,
+}
+
+router.RouteConfigBase{
+    Path:    "/articles/:category/:slug", // Multiple parameters
+    Methods: []router.HttpMethod{router.MethodGet},
+    Handler: GetArticleHandler,
+}
+```
+
+### Accessing Path Parameters
+
+SRouter stores path parameters in the request context. In recent versions the parameters (and the original route template) are placed inside the `scontext.SRouterContext` wrapper. Convenience helpers are provided in both the `router` and `scontext` packages to retrieve them from handlers.
+
+#### `router.GetParam`
+
+Retrieves the value of a single named parameter.
+
+```go
+import "github.com/Suhaibinator/SRouter/pkg/router"
+
+func GetUserHandler(w http.ResponseWriter, r *http.Request) {
+    // Get the value of the 'id' parameter from the path /users/:id
+    userID := router.GetParam(r, "id")
+
+    if userID == "" {
+        // Handle case where parameter might be missing unexpectedly
+        http.Error(w, "User ID not found in path", http.StatusBadRequest)
+        return
+    }
+
+    fmt.Fprintf(w, "Fetching user with ID: %s", userID)
+    // ... fetch user data using userID ...
+}
+```
+
+#### `router.GetParams`
+
+Retrieves all path parameters captured for the request as `httprouter.Params`, which is a slice of `httprouter.Param`. Each `Param` struct has `Key` and `Value` fields.
+
+```go
+import (
+    "fmt"
+    "net/http"
+    "github.com/Suhaibinator/SRouter/pkg/router"
+    "github.com/julienschmidt/httprouter" // Import for Params type
+)
+
+func GetArticleHandler(w http.ResponseWriter, r *http.Request) {
+    params := router.GetParams(r)
+
+    var category, slug string
+    for _, p := range params {
+        switch p.Key {
+        case "category":
+            category = p.Value
+        case "slug":
+            slug = p.Value
+        }
+    }
+
+    if category == "" || slug == "" {
+        http.Error(w, "Category or slug missing from path", http.StatusBadRequest)
+        return
+    }
+
+    fmt.Fprintf(w, "Fetching article in category '%s' with slug '%s'", category, slug)
+    // ... fetch article data ...
+}
+
+// Alternative using ByName method
+func GetArticleHandlerAlternative(w http.ResponseWriter, r *http.Request) {
+    params := router.GetParams(r)
+
+    category := params.ByName("category")
+    slug := params.ByName("slug")
+
+     if category == "" || slug == "" {
+        http.Error(w, "Category or slug missing from path", http.StatusBadRequest)
+        return
+    }
+
+    fmt.Fprintf(w, "Fetching article in category '%s' with slug '%s'", category, slug)
+    // ... fetch article data ...
+}
+```
+
+#### `scontext.GetPathParamsFromRequest`
+
+Retrieves path parameters from the `scontext.SRouterContext`. Replace `string, any` with your router's type parameters.
+
+```go
+import "github.com/Suhaibinator/SRouter/pkg/scontext"
+
+func GetArticleHandlerTyped(w http.ResponseWriter, r *http.Request) {
+    params, ok := scontext.GetPathParamsFromRequest[string, any](r)
+    if !ok {
+        http.Error(w, "Path parameters missing", http.StatusBadRequest)
+        return
+    }
+    category := params.ByName("category")
+    slug := params.ByName("slug")
+    fmt.Fprintf(w, "Fetching article in category '%s' with slug '%s'", category, slug)
+}
+```
+
+You can also retrieve the original route pattern using `scontext.GetRouteTemplateFromRequest[string, any](r)` for logging or metrics.
+
+Generally, `router.GetParam` is more convenient when you know the specific parameter name you need. `router.GetParams` is useful if you need to iterate over all parameters or access them dynamically.
+
+### Path Parameter Reference
+
+-   **`router.GetParam(r *http.Request, name string) string`**: Retrieves a specific parameter by name from the request context. Returns an empty string if the parameter is not found.
+-   **`router.GetParams(r *http.Request) httprouter.Params`**: Retrieves all parameters from the request context as an `httprouter.Params` slice.
+-   **`scontext.GetPathParamsFromRequest[T, U](r *http.Request) (httprouter.Params, bool)`**: Returns all parameters from the generic `scontext` wrapper along with a boolean indicating presence.
+-   **`scontext.GetRouteTemplateFromRequest[T, U](r *http.Request) (string, bool)`**: Retrieves the original route pattern from the context for metrics or logging.
