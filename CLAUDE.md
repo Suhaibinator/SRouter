@@ -104,7 +104,15 @@ Always use scontext package helpers for type-safe context access:
 userID, ok := scontext.GetUserIDFromRequest[T, U](r)
 user, ok := scontext.GetUserFromRequest[T, U](r)  // Returns *U
 traceID := scontext.GetTraceIDFromRequest[T, U](r)
+handlerErr, ok := scontext.GetHandlerErrorFromRequest[T, U](r)  // For generic routes
 ```
+
+### Handler Error Context
+Generic routes automatically store handler errors in the request context, allowing middleware to access them after handler execution. This is useful for:
+- Transaction rollback decisions
+- Custom error logging
+- Circuit breaker patterns
+- Error metrics collection
 
 ### Trace ID Generation
 Enable trace ID generation by setting `TraceIDBufferSize > 0` in RouterConfig. This creates a background ID generator for efficient UUID generation and automatic request correlation.
