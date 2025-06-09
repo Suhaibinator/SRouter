@@ -41,7 +41,9 @@ func TestUberRateLimiter(t *testing.T) {
 		rps1 = 1
 	}
 	compositeKey1 := fmt.Sprintf("%s-%d", key, rps1)
-	_, exists := limiter.limiters.Load(compositeKey1)
+	limiter.mu.Lock()
+	_, exists := limiter.limiters[compositeKey1]
+	limiter.mu.Unlock()
 	if !exists {
 		t.Errorf("Expected limiter to be stored for composite key %s", compositeKey1)
 	}
@@ -63,7 +65,9 @@ func TestUberRateLimiter(t *testing.T) {
 		rps2 = 1
 	}
 	compositeKey2 := fmt.Sprintf("%s-%d", otherKey, rps2)
-	_, exists = limiter.limiters.Load(compositeKey2)
+	limiter.mu.Lock()
+	_, exists = limiter.limiters[compositeKey2]
+	limiter.mu.Unlock()
 	if !exists {
 		t.Errorf("Expected limiter to be stored for composite key %s", compositeKey2)
 	}
@@ -85,7 +89,9 @@ func TestUberRateLimiter(t *testing.T) {
 		rps3 = 1
 	}
 	compositeKey3 := fmt.Sprintf("%s-%d", key, rps3)
-	_, exists = limiter.limiters.Load(compositeKey3)
+	limiter.mu.Lock()
+	_, exists = limiter.limiters[compositeKey3]
+	limiter.mu.Unlock()
 	if !exists {
 		t.Errorf("Expected limiter to be stored for composite key %s (different limit/window)", compositeKey3)
 	}
@@ -768,5 +774,47 @@ func TestRateLimitMiddlewareDefaultStrategy(t *testing.T) {
 	retryAfterHeader := resp.Header.Get("Retry-After")
 	if retryAfterHeader == "" {
 		t.Errorf("Expected Retry-After header to be set")
+	}
+}
+
+func TestUberRateLimiterEviction(t *testing.T) {
+	limiter := NewUberRateLimiterWithMax(2)
+	key1 := "k1"
+	key2 := "k2"
+	key3 := "k3"
+	limit := 1
+	window := time.Second
+
+	limiter.Allow(key1, limit, window)
+	limiter.Allow(key2, limit, window)
+
+	limiter.mu.Lock()
+	if len(limiter.limiters) != 2 {
+		t.Fatalf("expected 2 limiters, got %d", len(limiter.limiters))
+	}
+	limiter.mu.Unlock()
+
+	limiter.Allow(key3, limit, window)
+
+	rps := int(float64(limit) / window.Seconds())
+	c1 := fmt.Sprintf("%s-%d", key1, rps)
+	c2 := fmt.Sprintf("%s-%d", key2, rps)
+	c3 := fmt.Sprintf("%s-%d", key3, rps)
+
+	limiter.mu.Lock()
+	_, ok1 := limiter.limiters[c1]
+	_, ok2 := limiter.limiters[c2]
+	_, ok3 := limiter.limiters[c3]
+	count := len(limiter.limiters)
+	limiter.mu.Unlock()
+
+	if count != 2 {
+		t.Fatalf("limiter count expected 2, got %d", count)
+	}
+	if ok1 {
+		t.Errorf("oldest entry was not evicted")
+	}
+	if !ok2 || !ok3 {
+		t.Errorf("expected newest entries to remain")
 	}
 }
