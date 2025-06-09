@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
@@ -68,8 +69,9 @@ func TestGenericRouteHandlerError(t *testing.T) {
 			Codec: &codec.JSONCodec[TestRequest, TestResponse]{},
 		}, 0, 0, nil)
 
-		// Make request
-		req := httptest.NewRequest("GET", "/error", nil)
+		// Make request with valid JSON body
+		req := httptest.NewRequest("GET", "/error", strings.NewReader(`{"value":"test"}`))
+		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		
 		router.ServeHTTP(rec, req)
@@ -107,8 +109,9 @@ func TestGenericRouteHandlerError(t *testing.T) {
 			Codec: &codec.JSONCodec[TestRequest, TestResponse]{},
 		}, 0, 0, nil)
 
-		// Make request
-		req := httptest.NewRequest("GET", "/success", nil)
+		// Make request with valid JSON body
+		req := httptest.NewRequest("GET", "/success", strings.NewReader(`{"value":"test"}`))
+		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		
 		router.ServeHTTP(rec, req)
@@ -151,8 +154,9 @@ func TestGenericRouteHandlerError(t *testing.T) {
 			Codec: &codec.JSONCodec[TestRequest, TestResponse]{},
 		}, 0, 0, nil)
 
-		// Make request
-		req := httptest.NewRequest("GET", "/custom-error", nil)
+		// Make request with valid JSON body
+		req := httptest.NewRequest("GET", "/custom-error", strings.NewReader(`{"value":"test"}`))
+		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		
 		router.ServeHTTP(rec, req)
@@ -225,8 +229,9 @@ func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
 			Codec: &codec.JSONCodec[TestRequest, TestResponse]{},
 		}, 0, 0, nil)
 
-		// Make request
-		req := httptest.NewRequest("GET", "/multi-middleware", nil)
+		// Make request with valid JSON body
+		req := httptest.NewRequest("GET", "/multi-middleware", strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		
 		router.ServeHTTP(rec, req)

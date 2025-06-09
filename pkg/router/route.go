@@ -231,8 +231,10 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 		resp, err := route.Handler(req, data)
 		if err != nil {
 			// Store error in context for middleware to access
-			ctx := scontext.WithHandlerError[UserID, User](req.Context(), err)
-			req = req.WithContext(ctx)
+			// Note: We don't need to update req with the returned context because
+			// if SRouterContext already exists (which it should), this modifies
+			// the existing pointer that middleware already has access to
+			scontext.WithHandlerError[UserID, User](req.Context(), err)
 			
 			r.handleError(w, req, err, http.StatusInternalServerError, "Handler error")
 			return
