@@ -10,6 +10,8 @@ Generic handlers (`GenericHandler[T, U]`) have the signature `func(*http.Request
 
 -   **`router.HTTPError`**: To send a specific HTTP status code and a custom message to the client, return an error of type `*router.HTTPError`.
 
+-   **Error Context Storage**: When a generic handler returns an error, SRouter stores this error in the request context using `scontext.WithHandlerError`. This allows middleware to access the error after the handler has executed, which is useful for scenarios like transaction rollback. See [Context Management](./context-management.md) for details on accessing handler errors from middleware.
+
 ## `router.HTTPError`
 
 This struct allows you to specify both the HTTP status code and the error message that should be sent to the client.

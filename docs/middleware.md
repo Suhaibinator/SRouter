@@ -91,6 +91,58 @@ func LogUserIDMiddleware(logger *zap.Logger) common.Middleware {
 }
 ```
 
+Here's an example of middleware that uses handler errors to make decisions (e.g., transaction rollback):
+
+```go
+package mymiddleware
+
+import (
+	"net/http"
+	"github.com/Suhaibinator/SRouter/pkg/common"
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
+	"go.uber.org/zap"
+)
+
+// TransactionMiddleware demonstrates using handler errors for transaction management.
+// This middleware starts a transaction before the handler and commits/rollbacks
+// based on whether the handler returned an error.
+func TransactionMiddleware(db *YourDBType, logger *zap.Logger) common.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Start transaction
+			tx := db.Begin()
+			if tx.Error != nil {
+				logger.Error("Failed to start transaction", zap.Error(tx.Error))
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+
+			// Add transaction to context
+			txWrapper := NewTransactionWrapper(tx) // Your wrapper implementation
+			ctx := scontext.WithTransaction[string, any](r.Context(), txWrapper)
+			r = r.WithContext(ctx)
+
+			// Execute the handler
+			next.ServeHTTP(w, r)
+
+			// Check if handler returned an error
+			// Note: This only works with generic routes that store errors in context
+			if handlerErr, ok := scontext.GetHandlerErrorFromRequest[string, any](r); ok && handlerErr != nil {
+				logger.Warn("Handler error detected, rolling back transaction", 
+					zap.Error(handlerErr))
+				tx.Rollback()
+			} else {
+				// No error or non-generic route, commit transaction
+				if err := tx.Commit().Error; err != nil {
+					logger.Error("Failed to commit transaction", zap.Error(err))
+					// Note: Response has already been written by handler
+				}
+			}
+		})
+	}
+}
+```
+
 ## Applying Middleware
 
 Middleware can be applied at three levels:

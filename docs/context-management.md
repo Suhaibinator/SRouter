@@ -58,6 +58,9 @@ type SRouterContext[T comparable, U any] struct {
         CredentialsAllowed bool
         RequestedHeaders   string // Stores the requested headers from CORS preflight requests
 
+        // HandlerError stores any error returned by the route handler
+        HandlerError error
+
         // --- Internal tracking flags ---
 
         // UserIDSet indicates if the UserID field has been explicitly set.
@@ -80,6 +83,8 @@ type SRouterContext[T comparable, U any] struct {
         CredentialsAllowedSet bool
         // RequestedHeadersSet indicates if RequestedHeaders has been set.
         RequestedHeadersSet bool
+        // HandlerErrorSet indicates if HandlerError has been set.
+        HandlerErrorSet bool
 
         // Flags allow storing arbitrary boolean flags.
         Flags map[string]bool
@@ -116,7 +121,7 @@ This approach offers several advantages over traditional `context.WithValue` nes
 
 ## Adding Values to Context (Middleware Authors)
 
-Middleware should use the provided helper functions from the `pkg/scontext` package (like `scontext.WithUserID`, `scontext.WithUser`, `scontext.WithClientIP`, `scontext.WithUserAgent`, `scontext.WithTraceID`, `scontext.WithFlag`, `scontext.WithTransaction`, `scontext.WithRouteInfo`, `scontext.WithCORSInfo`, and `scontext.WithCORSRequestedHeaders`) to add values. These functions handle creating or updating the `SRouterContext` wrapper within the `context.Context`.
+Middleware should use the provided helper functions from the `pkg/scontext` package (like `scontext.WithUserID`, `scontext.WithUser`, `scontext.WithClientIP`, `scontext.WithUserAgent`, `scontext.WithTraceID`, `scontext.WithFlag`, `scontext.WithTransaction`, `scontext.WithRouteInfo`, `scontext.WithCORSInfo`, `scontext.WithCORSRequestedHeaders`, and `scontext.WithHandlerError`) to add values. These functions handle creating or updating the `SRouterContext` wrapper within the `context.Context`.
 
 ```go
 // Example within a middleware:
@@ -236,6 +241,13 @@ func myHandler(w http.ResponseWriter, r *http.Request) {
     isAdmin, ok := scontext.GetFlagFromRequest[string, MyUserType](r, "is_admin")
     if ok {
         fmt.Printf("Is Admin Request: %t\n", isAdmin)
+    }
+
+    // Get Handler Error (typically used by middleware after handler execution)
+    handlerErr, ok := scontext.GetHandlerErrorFromRequest[string, MyUserType](r)
+    if ok && handlerErr != nil {
+        fmt.Printf("Handler returned error: %v\n", handlerErr)
+        // Middleware might use this to decide whether to rollback a transaction
     }
 
     // Get Database Transaction Interface

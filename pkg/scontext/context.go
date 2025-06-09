@@ -54,6 +54,9 @@ type SRouterContext[T comparable, U any] struct {
 	CredentialsAllowed bool
 	RequestedHeaders   string // Stores the requested headers from CORS preflight requests
 
+	// HandlerError stores any error returned by the route handler
+	HandlerError error
+
 	UserIDSet             bool
 	UserSet               bool
 	ClientIPSet           bool
@@ -64,6 +67,8 @@ type SRouterContext[T comparable, U any] struct {
 	AllowedOriginSet      bool
 	CredentialsAllowedSet bool
 	RequestedHeadersSet   bool // Flag for RequestedHeaders
+	// HandlerErrorSet is used to distinguish between an unset error and an explicitly set nil error.
+	HandlerErrorSet       bool
 
 	Flags map[string]bool
 }
@@ -443,4 +448,33 @@ func GetCORSRequestedHeaders[T comparable, U any](ctx context.Context) (string, 
 // T is the User ID type (comparable), U is the User object type (any).
 func GetCORSRequestedHeadersFromRequest[T comparable, U any](r *http.Request) (string, bool) {
 	return GetCORSRequestedHeaders[T, U](r.Context())
+}
+
+// WithHandlerError sets the handler error in the context. This is typically used by the framework
+// to store errors returned by generic route handlers, making them available to middleware.
+// T is the User ID type (comparable), U is the User object type (any).
+func WithHandlerError[T comparable, U any](ctx context.Context, err error) context.Context {
+	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.HandlerError = err
+	rc.HandlerErrorSet = true
+	return ctx
+}
+
+// GetHandlerError retrieves the handler error from the context if one was set.
+// This is useful for middleware that needs to react to errors returned by route handlers,
+// such as transaction middleware that might rollback on errors.
+// T is the User ID type (comparable), U is the User object type (any).
+func GetHandlerError[T comparable, U any](ctx context.Context) (error, bool) {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok || !rc.HandlerErrorSet {
+		return nil, false
+	}
+	return rc.HandlerError, true
+}
+
+// GetHandlerErrorFromRequest is a convenience function that extracts the handler error from an http.Request.
+// It is equivalent to calling GetHandlerError with r.Context().
+// T is the User ID type (comparable), U is the User object type (any).
+func GetHandlerErrorFromRequest[T comparable, U any](r *http.Request) (error, bool) {
+	return GetHandlerError[T, U](r.Context())
 }
