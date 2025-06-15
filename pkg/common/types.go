@@ -2,8 +2,11 @@
 package common
 
 import (
+	"context"
 	"net/http"
 	"time"
+
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 )
 
 // Middleware defines the type for HTTP middleware functions.
@@ -70,4 +73,15 @@ type RateLimitConfig[T comparable, U any] struct {
 	// ExceededHandler is an optional http.Handler to call when the rate limit is exceeded.
 	// If nil, a default 429 Too Many Requests response is sent.
 	ExceededHandler http.Handler
+}
+
+// TransactionFactory defines the interface for creating database transactions.
+// Implementations should handle database-specific transaction creation logic
+// and return a transaction that implements the scontext.DatabaseTransaction interface.
+type TransactionFactory interface {
+	// BeginTransaction starts a new database transaction.
+	// The context can be used for cancellation and deadline propagation.
+	// Options are database-specific configuration passed from TransactionConfig.
+	// Returns a DatabaseTransaction interface that can be committed or rolled back.
+	BeginTransaction(ctx context.Context, options map[string]any) (scontext.DatabaseTransaction, error)
 }

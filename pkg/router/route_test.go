@@ -83,7 +83,7 @@ func TestRegisterGenericRoute_QueryParamDecodeError(t *testing.T) {
 	// Use r.ServeHTTP for this test as it involves query params
 	req := httptest.NewRequest("GET", targetURL, nil)
 	rr := httptest.NewRecorder()
-	router.RegisterGenericRoute(r, routeConfig, 0, 0, nil) // Register the route
+	router.RegisterGenericRoute(r, routeConfig, 0, 0, nil, nil) // Register the route
 	r.ServeHTTP(rr, req)                                   // Serve the request
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code, "Expected status Bad Request")
@@ -108,7 +108,7 @@ func TestRegisterGenericRoute_MissingPathParam(t *testing.T) {
 	}
 
 	// Register the route
-	router.RegisterGenericRoute(r, routeConfig, 0, 0, nil)
+	router.RegisterGenericRoute(r, routeConfig, 0, 0, nil, nil)
 
 	// Create request that matches the path pattern
 	req := httptest.NewRequest("GET", "/test/someValue", nil) // Request matches /test/:actualParam
@@ -148,7 +148,7 @@ func TestRegisterGenericRoute_PathParamDecodeError(t *testing.T) {
 	// Use r.ServeHTTP for this test as it involves path params processed by httprouter
 	req := httptest.NewRequest("GET", targetURL, nil)
 	rr := httptest.NewRecorder()
-	router.RegisterGenericRoute(r, routeConfig, 0, 0, nil) // Register the route
+	router.RegisterGenericRoute(r, routeConfig, 0, 0, nil, nil) // Register the route
 	r.ServeHTTP(rr, req)                                   // Serve the request
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code, "Expected status Bad Request")

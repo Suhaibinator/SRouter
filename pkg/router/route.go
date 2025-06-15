@@ -22,15 +22,24 @@ import (
 //
 // For generic routes with type parameters, use RegisterGenericRoute function instead.
 func (r *Router[T, U]) RegisterRoute(route RouteConfigBase) {
-	// Get effective timeout, max body size, and rate limit for this route
+	// Get effective timeout, max body size, rate limit, and transaction for this route
 	timeout := r.getEffectiveTimeout(route.Overrides.Timeout, 0)
 	maxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, 0)
 	// Pass the specific route config (which is *common.RateLimitConfig[any, any])
 	// to getEffectiveRateLimit. The conversion happens inside getEffectiveRateLimit.
 	rateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, nil)
+	transaction := r.getEffectiveTransaction(route.Overrides.Transaction, nil)
+
+	// Wrap handler with transaction handling if enabled
+	finalHandler := r.wrapWithTransaction(route.Handler, transaction)
 
 	// Create a handler with all middlewares applied
-	handler := r.wrapHandler(route.Handler, route.AuthLevel, timeout, maxBodySize, rateLimit, route.Middlewares)
+	// Convert to HandlerFunc if needed
+	handlerFunc, ok := finalHandler.(http.HandlerFunc)
+	if !ok {
+		handlerFunc = http.HandlerFunc(finalHandler.ServeHTTP)
+	}
+	handler := r.wrapHandler(handlerFunc, route.AuthLevel, timeout, maxBodySize, rateLimit, route.Middlewares)
 
 	// Register the route with httprouter
 	for _, method := range route.Methods {
@@ -60,6 +69,7 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 	effectiveTimeout time.Duration,
 	effectiveMaxBodySize int64,
 	effectiveRateLimit *common.RateLimitConfig[UserID, User], // Use common.RateLimitConfig
+	effectiveTransaction *common.TransactionConfig,
 ) {
 	// Create a handler that uses the codec to decode the request and encode the response
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -249,8 +259,16 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 
 	})
 
+	// Wrap with transaction handling if enabled
+	wrappedWithTx := r.wrapWithTransaction(handler, effectiveTransaction)
+	// Convert back to HandlerFunc if needed
+	handlerFunc, ok := wrappedWithTx.(http.HandlerFunc)
+	if !ok {
+		handlerFunc = http.HandlerFunc(wrappedWithTx.ServeHTTP)
+	}
+
 	// Create a handler with all middlewares applied, using the effective settings passed in
-	wrappedHandler := r.wrapHandler(handler, route.AuthLevel, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit, route.Middlewares)
+	wrappedHandler := r.wrapHandler(handlerFunc, route.AuthLevel, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit, route.Middlewares)
 
 	// Register the route with httprouter
 	for _, method := range route.Methods {
@@ -294,14 +312,15 @@ func NewGenericRouteDefinition[Req any, Resp any, UserID comparable, User any](
 		}
 		finalRouteConfig.AuthLevel = authLevel // Set the effective auth level
 
-		// Get effective timeout, max body size, rate limit considering overrides
+		// Get effective timeout, max body size, rate limit, transaction considering overrides
 		effectiveTimeout := r.getEffectiveTimeout(route.Overrides.Timeout, sr.Overrides.Timeout)
 		effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, sr.Overrides.MaxBodySize)
 		// Pass the specific route config (which is *common.RateLimitConfig[any, any])
 		// to getEffectiveRateLimit. The conversion happens inside getEffectiveRateLimit.
 		effectiveRateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, sr.Overrides.RateLimit)
+		effectiveTransaction := r.getEffectiveTransaction(route.Overrides.Transaction, sr.Overrides.Transaction)
 
 		// Call the underlying generic registration function with the modified config and effective settings
-		RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
+		RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit, effectiveTransaction)
 	}
 }
