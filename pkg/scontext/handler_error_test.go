@@ -15,7 +15,7 @@ func TestHandlerError(t *testing.T) {
 
 		// Test setting and getting handler error
 		ctx = WithHandlerError[int, string](ctx, testErr)
-		
+
 		err, ok := GetHandlerError[int, string](ctx)
 		if !ok {
 			t.Error("Expected handler error to be set")
@@ -27,7 +27,7 @@ func TestHandlerError(t *testing.T) {
 
 	t.Run("GetHandlerError with no error set", func(t *testing.T) {
 		ctx := context.Background()
-		
+
 		err, ok := GetHandlerError[int, string](ctx)
 		if ok {
 			t.Error("Expected no handler error to be found")
@@ -39,10 +39,10 @@ func TestHandlerError(t *testing.T) {
 
 	t.Run("GetHandlerError with nil error", func(t *testing.T) {
 		ctx := context.Background()
-		
+
 		// Explicitly set nil error
 		ctx = WithHandlerError[int, string](ctx, nil)
-		
+
 		err, ok := GetHandlerError[int, string](ctx)
 		if !ok {
 			t.Error("Expected handler error to be set (even if nil)")
@@ -54,12 +54,12 @@ func TestHandlerError(t *testing.T) {
 
 	t.Run("GetHandlerErrorFromRequest", func(t *testing.T) {
 		testErr := errors.New("request handler error")
-		
+
 		// Create request with context containing error
 		req := httptest.NewRequest("GET", "/test", nil)
 		ctx := WithHandlerError[int, string](req.Context(), testErr)
 		req = req.WithContext(ctx)
-		
+
 		err, ok := GetHandlerErrorFromRequest[int, string](req)
 		if !ok {
 			t.Error("Expected handler error to be set in request")
@@ -73,10 +73,10 @@ func TestHandlerError(t *testing.T) {
 		ctx := context.Background()
 		err1 := errors.New("first error")
 		err2 := errors.New("second error")
-		
+
 		ctx = WithHandlerError[int, string](ctx, err1)
 		ctx = WithHandlerError[int, string](ctx, err2)
-		
+
 		err, ok := GetHandlerError[int, string](ctx)
 		if !ok {
 			t.Error("Expected handler error to be set")
@@ -89,16 +89,16 @@ func TestHandlerError(t *testing.T) {
 	t.Run("Type safety with different type parameters", func(t *testing.T) {
 		ctx := context.Background()
 		testErr := errors.New("type-specific error")
-		
+
 		// Set error with one type parameter set
 		ctx = WithHandlerError[string, interface{}](ctx, testErr)
-		
+
 		// Try to get with different type parameters - should not find it
 		_, ok := GetHandlerError[int, string](ctx)
 		if ok {
 			t.Error("Expected no error when using different type parameters")
 		}
-		
+
 		// Get with correct type parameters
 		err, ok := GetHandlerError[string, interface{}](ctx)
 		if !ok {
@@ -116,7 +116,7 @@ func TestHandlerErrorInMiddleware(t *testing.T) {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Call the next handler
 			next.ServeHTTP(w, r)
-			
+
 			// After handler execution, check for errors
 			if err, ok := GetHandlerErrorFromRequest[int, string](r); ok && err != nil {
 				// In real middleware, you might rollback a transaction here
@@ -124,51 +124,51 @@ func TestHandlerErrorInMiddleware(t *testing.T) {
 			}
 		})
 	}
-	
+
 	t.Run("Middleware detects handler error", func(t *testing.T) {
 		testErr := errors.New("handler failed")
-		
+
 		// Simulate a handler that sets an error in context
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// This simulates what RegisterGenericRoute does when handler returns error
 			ctx := WithHandlerError[int, string](r.Context(), testErr)
 			*r = *r.WithContext(ctx)
-			
+
 			// Write response (normally handleError would do this)
 			w.WriteHeader(http.StatusInternalServerError)
 		})
-		
+
 		// Wrap handler with middleware
 		wrapped := errorCheckingMiddleware(handler)
-		
+
 		// Make request
 		req := httptest.NewRequest("GET", "/test", nil)
 		rec := httptest.NewRecorder()
-		
+
 		wrapped.ServeHTTP(rec, req)
-		
+
 		// Check that middleware detected the error
 		if rec.Header().Get("X-Handler-Error") != testErr.Error() {
-			t.Errorf("Expected middleware to detect error '%s', got '%s'", 
+			t.Errorf("Expected middleware to detect error '%s', got '%s'",
 				testErr.Error(), rec.Header().Get("X-Handler-Error"))
 		}
 	})
-	
+
 	t.Run("Middleware with no handler error", func(t *testing.T) {
 		// Handler that succeeds (no error in context)
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
-		
+
 		// Wrap handler with middleware
 		wrapped := errorCheckingMiddleware(handler)
-		
+
 		// Make request
 		req := httptest.NewRequest("GET", "/test", nil)
 		rec := httptest.NewRecorder()
-		
+
 		wrapped.ServeHTTP(rec, req)
-		
+
 		// Check that middleware didn't set error header
 		if rec.Header().Get("X-Handler-Error") != "" {
 			t.Errorf("Expected no error header, got '%s'", rec.Header().Get("X-Handler-Error"))
