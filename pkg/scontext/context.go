@@ -482,7 +482,7 @@ func GetHandlerErrorFromRequest[T comparable, U any](r *http.Request) (error, bo
 
 // SRouter Context Copying Functions
 //
-// The scontext package provides three functions for copying SRouterContext between contexts,
+// The scontext package provides two functions for copying SRouterContext between contexts,
 // each with different behavior for handling destination contexts:
 //
 // 1. CopySRouterContext: Standard deep copy operation
@@ -490,17 +490,12 @@ func GetHandlerErrorFromRequest[T comparable, U any](r *http.Request) (error, bo
 //    - Automatically creates SRouterContext in destination if needed
 //    - Returns destination unchanged if source has no SRouterContext
 //
-// 2. CopySRouterContextMerge: Alias for CopySRouterContext
-//    - Identical behavior to CopySRouterContext
-//    - Provided for semantic clarity when merging contexts
-//    - Use when intent is to merge two contexts together
-//
-// 3. CopySRouterContextOverlay: Conditional copy operation
+// 2. CopySRouterContextOverlay: Conditional copy operation
 //    - Only copies if destination already has an SRouterContext
 //    - No-op if destination lacks SRouterContext (preserves original destination)
 //    - Use when you want to update existing context without creating new structures
 //
-// All functions perform deep copies to ensure independence between source and destination.
+// Both functions perform deep copies to ensure independence between source and destination.
 
 // cloneSRouterContext creates a deep copy of an existing SRouterContext.
 // This is an internal helper function used by the various copy functions.
@@ -570,28 +565,6 @@ func CopySRouterContext[T comparable, U any](dst, src context.Context) context.C
 	return WithSRouterContext(dst, dstRC)
 }
 
-// CopySRouterContextMerge creates a deep copy of the SRouterContext from the source context
-// and adds it to the destination context. This function behaves identically to CopySRouterContext
-// and is provided as an alias for clarity when the intent is to merge contexts.
-//
-// If no SRouterContext exists in the source, the destination context is returned unchanged.
-// If the source contains an SRouterContext, all values (including flags) are deep copied
-// to ensure the destination has its own independent copy. The destination context will
-// automatically have an SRouterContext added if none exists.
-//
-// This function is useful when you want to emphasize that you're merging contexts rather
-// than just copying, improving code readability and intent.
-//
-// T is the User ID type (comparable), U is the User object type (any).
-func CopySRouterContextMerge[T comparable, U any](dst, src context.Context) context.Context {
-	srcRC, ok := GetSRouterContext[T, U](src)
-	if !ok {
-		return dst
-	}
-
-	dstRC := cloneSRouterContext(srcRC)
-	return WithSRouterContext(dst, dstRC)
-}
 
 // CopySRouterContextOverlay creates a deep copy of the SRouterContext from the source context
 // and overlays it onto the destination context only if the destination already has an
