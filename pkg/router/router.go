@@ -139,10 +139,7 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 	// Initialize trace ID generator if trace ID is enabled
 	if config.TraceIDBufferSize > 0 {
 		r.traceIDGenerator = middleware.NewIDGenerator(config.TraceIDBufferSize)
-		// Create trace middleware using the router's generator, providing the router's T and U types
-		traceMW := middleware.CreateTraceMiddleware[T, U](r.traceIDGenerator)
-		// Add trace middleware as the first middleware (before any other middleware)
-		r.middlewares = append([]common.Middleware{traceMW}, r.middlewares...)
+		// Note: trace middleware now added in wrapHandler, not here
 	}
 
 	// Add metrics middleware if configured
@@ -319,7 +316,13 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLeve
 	// 1. Recovery (Innermost before handler)
 	chain = chain.Append(r.recoveryMiddleware)
 
-	// 2. Authentication (Runs early)
+	// 2. Trace middleware (if enabled) - positioned early so all middlewares have access to trace ID
+	if r.traceIDGenerator != nil {
+		traceMW := middleware.CreateTraceMiddleware[T, U](r.traceIDGenerator)
+		chain = chain.Append(traceMW)
+	}
+
+	// 3. Authentication (Runs early)
 	if authLevel != nil {
 		switch *authLevel {
 		case AuthRequired:
@@ -329,28 +332,28 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLeve
 		}
 	}
 
-	// 3. Rate Limiting
+	// 4. Rate Limiting
 	if rateLimit != nil {
 		// Ensure the rate limiter implementation is compatible
 		// Since r.rateLimiter is common.RateLimiter, this should work directly
 		chain = chain.Append(middleware.RateLimit(rateLimit, r.rateLimiter, r.logger))
 	}
 
-	// 4. Route-Specific Middlewares
+	// 5. Route-Specific Middlewares
 	chain = chain.Append(middlewares...)
 
-	// 5. Global Middlewares (defined in RouterConfig)
+	// 6. Global Middlewares (defined in RouterConfig)
 	chain = chain.Append(r.middlewares...) // Note: This now includes ClientIPMiddleware added in NewRouter
 
-	// 6. Timeout Handling (Sets context deadline)
+	// 7. Timeout Handling (Sets context deadline)
 	if timeout > 0 {
 		chain = chain.Append(r.timeoutMiddleware(timeout))
 	}
 
-	// 7. Body Size Limit (Applied within the base handler 'h' now)
+	// 8. Body Size Limit (Applied within the base handler 'h' now)
 	// No separate middleware needed here anymore.
 
-	// 8. Shutdown Handling (Applied within the base handler 'h' now)
+	// 9. Shutdown Handling (Applied within the base handler 'h' now)
 	// No separate middleware needed here anymore.
 
 	// Apply the chain to the base handler 'h'
