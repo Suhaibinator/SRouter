@@ -8,6 +8,7 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common" // Ensure common is imported
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
+	"go.uber.org/zap"
 )
 
 // RegisterRoute registers a standard (non-generic) route with the router.
@@ -217,6 +218,20 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 			return
 		}
 
+		// Warn if no sanitizer function is provided
+		if route.Sanitizer == nil {
+			r.logger.Warn("Route registered without sanitizer function",
+				zap.String("path", route.Path),
+				zap.Strings("methods", func() []string {
+					methods := make([]string, len(route.Methods))
+					for i, method := range route.Methods {
+						methods[i] = string(method)
+					}
+					return methods
+				}()),
+			)
+		}
+
 		// Apply sanitizer if provided
 		if route.Sanitizer != nil {
 			sanitizedData, err := route.Sanitizer(data)
@@ -235,7 +250,7 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 			// if SRouterContext already exists (which it should), this modifies
 			// the existing pointer that middleware already has access to
 			scontext.WithHandlerError[UserID, User](req.Context(), err)
-			
+
 			r.handleError(w, req, err, http.StatusInternalServerError, "Handler error")
 			return
 		}
