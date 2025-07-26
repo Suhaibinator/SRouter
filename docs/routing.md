@@ -41,7 +41,7 @@ apiV1SubRouter := router.SubRouterConfig{
 				AuthLevel: router.Ptr(router.AuthRequired), // Example: Requires authentication
 				Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Assume codec exists
 				Handler:   CreateUserHandler, // Assume this generic handler exists
-				// Middlewares, Timeout, MaxBodySize, RateLimit can be set here too, overriding sub-router settings
+				// Middlewares, Overrides can be set here too, overriding sub-router settings
 			},
 		),
 	},
@@ -60,6 +60,7 @@ apiV2SubRouter := router.SubRouterConfig{
 
 // Create a router with sub-routers
 routerConfig := router.RouterConfig{
+	ServiceName:       "api-service", // Required field
 	Logger:            logger, // Assume logger exists
 	GlobalTimeout:     2 * time.Second,
 	GlobalMaxBodySize: 1 << 20, // 1 MB
@@ -155,7 +156,7 @@ Use `RegisterGenericRouteOnSubRouter` to add a single generic route to an existi
 r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
 // Register a generic route on a specific sub-router
-err := router.RegisterGenericRouteOnSubRouter(
+err := router.RegisterGenericRouteOnSubRouter[CreateUserReq, CreateUserResp](
     r,
     "/api/v1", // Target sub-router path prefix
     router.RouteConfig[CreateUserReq, CreateUserResp]{

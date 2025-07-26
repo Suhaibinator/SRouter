@@ -12,7 +12,6 @@ package router
 import (
 	"time"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	// "github.com/Suhaibinator/SRouter/pkg/middleware" // No longer needed for core config structs
 	"go.uber.org/zap"
 )
 
@@ -36,13 +35,13 @@ type RouterConfig struct {
 	// Uses common.RateLimitConfig. Can be overridden. Nil means no global rate limit.
 	GlobalRateLimit *common.RateLimitConfig[any, any]
 
-        // IPConfig defines how client IP addresses are extracted.
-        // See docs/ip-configuration.md. Nil uses default (IPSourceXForwardedFor, TrustProxy: true).
-        IPConfig *IPConfig // Defined in router package
+	// IPConfig defines how client IP addresses are extracted.
+	// See docs/ip-configuration.md. Nil uses default (IPSourceXForwardedFor, TrustProxy: true).
+	IPConfig *IPConfig // Defined in router package
 
-        // EnableTraceLogging enables detailed request/response logging including timing, status, etc.
-        // Often used in conjunction with TraceIDBufferSize > 0.
-        EnableTraceLogging bool
+	// EnableTraceLogging enables detailed request/response logging including timing, status, etc.
+	// Often used in conjunction with TraceIDBufferSize > 0.
+	EnableTraceLogging bool
 
 	// TraceLoggingUseInfo controls the log level for trace logging.
 	// If true, logs at Info level; otherwise, logs at Debug level.
@@ -53,9 +52,9 @@ type RouterConfig struct {
 	// Setting to 0 disables automatic trace ID generation. See docs/logging.md#trace-id-integration.
 	TraceIDBufferSize int
 
-        // MetricsConfig holds detailed configuration for the v2 metrics system.
-        // Metrics are enabled when this field is non-nil. See docs/metrics.md.
-        MetricsConfig *MetricsConfig
+	// MetricsConfig holds detailed configuration for the v2 metrics system.
+	// Metrics are enabled when this field is non-nil. See docs/metrics.md.
+	MetricsConfig *MetricsConfig
 
 	// SubRouters is a slice of SubRouterConfig structs defining sub-routers. Required.
 	SubRouters []SubRouterConfig
@@ -69,6 +68,10 @@ type RouterConfig struct {
 	// (if used) should attempt to add the full user object (U) to the context,
 	// in addition to the user ID (T). Often true if U provides useful info.
 	AddUserObjectToCtx bool
+
+	// CORSConfig defines the CORS configuration for cross-origin requests.
+	// If nil, CORS is disabled. See CORSConfig struct for details.
+	CORSConfig *CORSConfig
 }
 ```
 
@@ -79,33 +82,33 @@ Used within `RouterConfig` to configure the metrics system.
 ```go
 package router
 
-import "github.com/Suhaibinator/SRouter/pkg/metrics" // Assuming interfaces are here
+// No import needed - MetricsConfig uses any type for flexibility
 
 type MetricsConfig struct {
-        // Collector provides the implementation for creating and managing metric instruments.
-        // Must implement metrics.MetricsRegistry. Required when metrics are enabled.
-        Collector any // Typically metrics.MetricsRegistry
+	// Collector is the metrics collector to use.
+	// If nil, a default collector will be used if metrics are enabled.
+	Collector any // metrics.Collector
 
-	// MiddlewareFactory creates the metrics middleware.
-	// Optional. If nil, SRouter likely uses a default factory. Must implement metrics.MiddlewareFactory.
-	MiddlewareFactory any
+	// MiddlewareFactory is the factory for creating metrics middleware.
+	// If nil, a default middleware factory will be used if metrics are enabled.
+	MiddlewareFactory any // metrics.MiddlewareFactory
 
-	// Namespace for metrics (e.g., "myapp"). Used as a prefix.
+	// Namespace for metrics.
 	Namespace string
 
-	// Subsystem for metrics (e.g., "http", "api"). Used as a prefix after Namespace.
+	// Subsystem for metrics.
 	Subsystem string
 
-	// EnableLatency enables collection of request latency metrics (histogram/summary).
+	// EnableLatency enables latency metrics.
 	EnableLatency bool
 
-	// EnableThroughput enables collection of request/response size metrics (histogram/summary).
+	// EnableThroughput enables throughput metrics.
 	EnableThroughput bool
 
-	// EnableQPS enables collection of request count metrics (counter, often labeled 'requests_total').
+	// EnableQPS enables queries per second metrics.
 	EnableQPS bool
 
-	// EnableErrors enables collection of HTTP error count metrics (counter, often labeled 'http_errors_total').
+	// EnableErrors enables error metrics.
 	EnableErrors bool
 }
 ```
@@ -120,7 +123,6 @@ package router
 import (
 	"time"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	// "github.com/Suhaibinator/SRouter/pkg/middleware" // No longer needed for core config structs
 )
 
 type SubRouterConfig struct {
@@ -134,7 +136,7 @@ type SubRouterConfig struct {
 
         // Routes is a slice containing route definitions. Must contain RouteConfigBase
         // or GenericRouteRegistrationFunc values.
-        Routes []router.RouteDefinition
+        Routes []RouteDefinition
 
         // Middlewares is a slice of middlewares applied only to routes within this
         // sub-router (and its children), executed before global/parent middleware.
@@ -158,9 +160,7 @@ package router
 
 import (
 	"net/http"
-	"time"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	// "github.com/Suhaibinator/SRouter/pkg/middleware" // No longer needed for core config structs
 )
 
 type RouteConfigBase struct {
@@ -196,9 +196,8 @@ package router
 
 import (
 	"net/http"
-	"time"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	// "github.com/Suhaibinator/SRouter/pkg/middleware" // No longer needed for core config structs
+	"github.com/Suhaibinator/SRouter/pkg/codec"
 )
 
 // GenericHandler is the function signature for generic route handlers.
@@ -220,8 +219,8 @@ type RouteConfig[T any, U any] struct {
         Overrides common.RouteOverrides
 
 	// Codec is the encoder/decoder implementation for types T and U. Required.
-	// Must implement the router.Codec[T, U] interface.
-	Codec Codec[T, U]
+	// Must implement the codec.Codec[T, U] interface.
+	Codec codec.Codec[T, U]
 
 	// Handler is the generic handler function. Required.
 	Handler GenericHandler[T, U]
@@ -235,6 +234,10 @@ type RouteConfig[T any, U any] struct {
 
 	// SourceKey is used when SourceType is not Body (e.g., query or path parameter name).
 	SourceKey string
+
+	// Sanitizer is an optional function to validate/transform request data after decoding.
+	// Called after successful decoding but before handler execution.
+	Sanitizer func(T) (T, error)
 }
 ```
 
@@ -285,3 +288,24 @@ const (
 	// Empty does not decode anything. Acts as a no-op for decoding.
 	Empty
 )
+```
+
+## `CORSConfig`
+
+**MISSING FROM DOCUMENTATION** - This struct exists in the implementation but is not documented.
+
+```go
+package router
+
+import "time"
+
+// CORSConfig defines the configuration for Cross-Origin Resource Sharing (CORS).
+type CORSConfig struct {
+	Origins          []string      // Allowed origins (e.g., "http://example.com", "*"). Required.
+	Methods          []string      // Allowed methods (e.g., "GET", "POST"). Defaults to simple methods if empty.
+	Headers          []string      // Allowed headers. Defaults to simple headers if empty.
+	ExposeHeaders    []string      // Headers the browser is allowed to access.
+	AllowCredentials bool          // Whether to allow credentials (cookies, authorization headers).
+	MaxAge           time.Duration // How long the results of a preflight request can be cached.
+}
+```
