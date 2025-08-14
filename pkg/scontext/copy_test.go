@@ -221,7 +221,6 @@ func TestCopySRouterContext_Independence(t *testing.T) {
 	}
 }
 
-
 func TestCopySRouterContextOverlay(t *testing.T) {
 	t.Run("FullCopy_DestinationHasContext", func(t *testing.T) {
 		srcCtx := createFullSRouterContext()

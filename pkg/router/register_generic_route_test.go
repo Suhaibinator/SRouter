@@ -629,12 +629,12 @@ func TestRegisterGenericRouteWithMaxBodySize(t *testing.T) {
 	maxBodySize := int64(smallSize + 5) // Small buffer to ensure small body passes
 
 	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
-		Path:        "/test",
-		Methods:     []HttpMethod{MethodPost}, // Use HttpMethod enum
-		Codec:       codec.NewJSONCodec[RequestType, ResponseType](),
-		Handler:     testGenericHandler[RequestType, ResponseType],
-		SourceType:  Body,
-		Overrides: common.RouteOverrides{MaxBodySize: maxBodySize},
+		Path:       "/test",
+		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
+		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
+		Handler:    testGenericHandler[RequestType, ResponseType],
+		SourceType: Body,
+		Overrides:  common.RouteOverrides{MaxBodySize: maxBodySize},
 		// AuthLevel: nil (default NoAuth)
 	}, time.Duration(0), maxBodySize, nil) // Use maxBodySize here, timeout 0, rate limit nil
 

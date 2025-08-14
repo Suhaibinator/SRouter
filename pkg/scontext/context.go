@@ -565,7 +565,6 @@ func CopySRouterContext[T comparable, U any](dst, src context.Context) context.C
 	return WithSRouterContext(dst, dstRC)
 }
 
-
 // CopySRouterContextOverlay creates a deep copy of the SRouterContext from the source context
 // and overlays it onto the destination context only if the destination already has an
 // SRouterContext. If the destination does not have an SRouterContext, this function

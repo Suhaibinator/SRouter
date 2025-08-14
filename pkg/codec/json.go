@@ -93,7 +93,8 @@ func (c *JSONCodec[T, U]) Encode(w http.ResponseWriter, resp U) error {
 // handle JSON marshaling and unmarshaling of request and response data.
 //
 // Example:
-//   codec := NewJSONCodec[CreateUserReq, CreateUserResp]()
+//
+//	codec := NewJSONCodec[CreateUserReq, CreateUserResp]()
 func NewJSONCodec[T any, U any]() *JSONCodec[T, U] {
 	return &JSONCodec[T, U]{}
 }

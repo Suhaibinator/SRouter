@@ -229,7 +229,7 @@ func TestRegisterSubRouter(t *testing.T) {
 
 	// Register a sub-router with various configurations
 	r.registerSubRouter(SubRouterConfig{
-		PathPrefix:          "/api",
+		PathPrefix: "/api",
 		Overrides: common.RouteOverrides{
 			Timeout:     2 * time.Second,
 			MaxBodySize: 1024,
@@ -260,7 +260,7 @@ func TestRegisterSubRouter(t *testing.T) {
 			RouteConfigBase{ // Add explicit type
 				Path:      "/custom-timeout",
 				Methods:   []HttpMethod{MethodGet},
-				AuthLevel: Ptr(NoAuth),     // Changed
+				AuthLevel: Ptr(NoAuth),                                     // Changed
 				Overrides: common.RouteOverrides{Timeout: 1 * time.Second}, // Override sub-router timeout
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
@@ -269,9 +269,9 @@ func TestRegisterSubRouter(t *testing.T) {
 				},
 			},
 			RouteConfigBase{ // Add explicit type
-				Path:        "/custom-body-size",
-				Methods:     []HttpMethod{MethodPost},
-				AuthLevel:   Ptr(NoAuth), // Changed
+				Path:      "/custom-body-size",
+				Methods:   []HttpMethod{MethodPost},
+				AuthLevel: Ptr(NoAuth),                             // Changed
 				Overrides: common.RouteOverrides{MaxBodySize: 512}, // Override sub-router max body size
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")

@@ -20,8 +20,9 @@ import (
 // to process the response, following the "onion" model of middleware.
 //
 // Example:
-//   chain := Chain(logging, auth, rateLimit)
-//   // Results in: logging(auth(rateLimit(handler)))
+//
+//	chain := Chain(logging, auth, rateLimit)
+//	// Results in: logging(auth(rateLimit(handler)))
 func Chain(middlewares ...Middleware) Middleware {
 	return func(next http.Handler) http.Handler {
 		for i := len(middlewares) - 1; i >= 0; i-- {

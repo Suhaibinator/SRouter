@@ -305,8 +305,8 @@ func TestMaxBodySizeOverrides(t *testing.T) {
 						},
 					},
 					RouteConfigBase{ // Add explicit type
-						Path:        "/large",
-						Methods:     []HttpMethod{MethodPost}, // Use HttpMethod enum
+						Path:    "/large",
+						Methods: []HttpMethod{MethodPost}, // Use HttpMethod enum
 						Overrides: common.RouteOverrides{
 							MaxBodySize: 100, // 100 bytes
 						},

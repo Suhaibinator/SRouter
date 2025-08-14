@@ -62,6 +62,20 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 	effectiveMaxBodySize int64,
 	effectiveRateLimit *common.RateLimitConfig[UserID, User], // Use common.RateLimitConfig
 ) {
+	// Warn if no sanitizer function is provided (only at registration time)
+	if route.Sanitizer == nil {
+		r.logger.Warn("Route registered without sanitizer function",
+			zap.String("path", route.Path),
+			zap.Strings("methods", func() []string {
+				methods := make([]string, len(route.Methods))
+				for i, method := range route.Methods {
+					methods[i] = string(method)
+				}
+				return methods
+			}()),
+		)
+	}
+
 	// Create a handler that uses the codec to decode the request and encode the response
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		// Note: MaxBytesReader is applied in wrapHandler, no need to apply it again here.
@@ -216,20 +230,6 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 			r.handleError(w, req, errors.New("unsupported source type"),
 				http.StatusInternalServerError, "Unsupported source type")
 			return
-		}
-
-		// Warn if no sanitizer function is provided
-		if route.Sanitizer == nil {
-			r.logger.Warn("Route registered without sanitizer function",
-				zap.String("path", route.Path),
-				zap.Strings("methods", func() []string {
-					methods := make([]string, len(route.Methods))
-					for i, method := range route.Methods {
-						methods[i] = string(method)
-					}
-					return methods
-				}()),
-			)
 		}
 
 		// Apply sanitizer if provided

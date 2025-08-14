@@ -49,10 +49,10 @@ func TransactionMiddleware(next http.Handler) http.Handler {
 		// Begin transaction
 		tx := &Transaction{}
 		log.Println("Transaction started")
-		
+
 		// Execute the handler
 		next.ServeHTTP(w, r)
-		
+
 		// Check if handler returned an error
 		if err, ok := scontext.GetHandlerErrorFromRequest[string, interface{}](r); ok && err != nil {
 			log.Printf("Handler error detected: %v", err)
@@ -70,13 +70,13 @@ func ErrorLoggingMiddleware(logger *zap.Logger) common.Middleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Execute the handler
 			next.ServeHTTP(w, r)
-			
+
 			// Check for handler errors and log them with context
 			if err, ok := scontext.GetHandlerErrorFromRequest[string, interface{}](r); ok && err != nil {
 				// Extract additional context
 				path := r.URL.Path
 				method := r.Method
-				
+
 				// Log with structured fields
 				logger.Error("Handler error occurred",
 					zap.Error(err),
@@ -121,7 +121,7 @@ func main() {
 			if data.Name == "" || data.Email == "" {
 				return CreateUserResponse{}, errors.New("name and email are required")
 			}
-			
+
 			// Simulate successful user creation
 			return CreateUserResponse{
 				ID:      "user-123",
@@ -171,9 +171,9 @@ func main() {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tx := &Transaction{}
 			log.Println("Custom transaction started")
-			
+
 			next.ServeHTTP(w, r)
-			
+
 			if err, ok := scontext.GetHandlerErrorFromRequest[string, interface{}](r); ok && err != nil {
 				// Check if it's a client error (4xx) - don't rollback for these
 				var httpErr *router.HTTPError
@@ -227,7 +227,7 @@ func main() {
 	log.Println("Internal error: curl -X POST http://localhost:8080/users/internal-error -d '{\"name\":\"John\",\"email\":\"john@example.com\"}'")
 	log.Println("Custom (client error): curl -X POST http://localhost:8080/users/custom-transaction -d '{\"name\":\"client-error\",\"email\":\"test@example.com\"}'")
 	log.Println("Custom (server error): curl -X POST http://localhost:8080/users/custom-transaction -d '{\"name\":\"server-error\",\"email\":\"test@example.com\"}'")
-	
+
 	if err := http.ListenAndServe(addr, r); err != nil {
 		log.Fatal(err)
 	}

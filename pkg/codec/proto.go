@@ -26,9 +26,10 @@ type ProtoCodec[T proto.Message, U proto.Message] struct {
 // The factory function is used to create new instances of the request type without reflection.
 //
 // Example:
-//   codec := NewProtoCodec[*pb.CreateUserReq, *pb.CreateUserResp](func() *pb.CreateUserReq {
-//       return &pb.CreateUserReq{}
-//   })
+//
+//	codec := NewProtoCodec[*pb.CreateUserReq, *pb.CreateUserResp](func() *pb.CreateUserReq {
+//	    return &pb.CreateUserReq{}
+//	})
 func NewProtoCodec[T proto.Message, U proto.Message](factory ProtoRequestFactory[T]) *ProtoCodec[T, U] {
 	return &ProtoCodec[T, U]{
 		newRequest: factory,
