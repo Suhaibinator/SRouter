@@ -127,7 +127,10 @@ func (g *IDGenerator) Stop() {
 
 func generateUUID() string {
 	// Generate a new UUID and return it as a string
-	id := uuid.New()
+	id, err := uuid.NewV7()
+	if err != nil {
+		id = uuid.New()
+	}
 	return hex.EncodeToString(id[:])
 }
 
