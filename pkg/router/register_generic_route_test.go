@@ -13,6 +13,7 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Import the new mocks package
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -617,9 +618,9 @@ func TestRegisterGenericRouteWithTimeout(t *testing.T) {
 	timeout := 50 * time.Millisecond
 
 	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
-		Path:       "/test",
-		Methods:    []HttpMethod{MethodPost},
-		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
+		Path:    "/test",
+		Methods: []HttpMethod{MethodPost},
+		Codec:   codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler: func(r *http.Request, req RequestType) (ResponseType, error) {
 			time.Sleep(timeout * 2) // Sleep longer than the timeout
 			return ResponseType{Message: "Should have timed out"}, nil
