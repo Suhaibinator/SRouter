@@ -629,7 +629,8 @@ func TestRegisterGenericRouteWithTimeout(t *testing.T) {
 	}, timeout, 0, nil)
 
 	reqBody := RequestType{ID: "123", Name: "John"}
-	reqBytes, _ := json.Marshal(reqBody)
+	reqBytes, err := json.Marshal(reqBody)
+	require.NoError(t, err)
 	req := httptest.NewRequest("POST", "/test", strings.NewReader(string(reqBytes)))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
