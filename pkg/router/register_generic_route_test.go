@@ -13,6 +13,7 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Import the new mocks package
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 )
 
@@ -611,7 +612,34 @@ func TestRegisterGenericRouteWithMiddleware(t *testing.T) {
 // TestRegisterGenericRouteWithTimeout tests RegisterGenericRoute with timeout
 // (from register_generic_route_middleware_test.go)
 func TestRegisterGenericRouteWithTimeout(t *testing.T) {
-	t.Skip("Skipping flaky test") // Kept the skip from original file
+	logger := zap.NewNop()
+	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	timeout := 50 * time.Millisecond
+
+	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+		Path:    "/test",
+		Methods: []HttpMethod{MethodPost},
+		Codec:   codec.NewJSONCodec[RequestType, ResponseType](),
+		Handler: func(r *http.Request, req RequestType) (ResponseType, error) {
+			time.Sleep(timeout * 2) // Sleep longer than the timeout
+			return ResponseType{Message: "Should have timed out"}, nil
+		},
+		SourceType: Body,
+		Overrides:  common.RouteOverrides{Timeout: timeout},
+	}, timeout, 0, nil)
+
+	reqBody := RequestType{ID: "123", Name: "John"}
+	reqBytes, err := json.Marshal(reqBody)
+	require.NoError(t, err)
+	req := httptest.NewRequest("POST", "/test", strings.NewReader(string(reqBytes)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusRequestTimeout {
+		t.Errorf("Expected status code %d, got %d", http.StatusRequestTimeout, rr.Code)
+	}
 }
 
 // TestRegisterGenericRouteWithMaxBodySize tests RegisterGenericRoute with max body size
