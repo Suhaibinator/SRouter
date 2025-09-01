@@ -615,15 +615,17 @@ func TestRegisterGenericRouteWithTimeout(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	timeout := 50 * time.Millisecond
+	timeout := 1 * time.Millisecond
+	ctxErrCh := make(chan error, 1)
 
 	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
 		Path:    "/test",
 		Methods: []HttpMethod{MethodPost},
 		Codec:   codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler: func(r *http.Request, req RequestType) (ResponseType, error) {
-			time.Sleep(timeout * 2) // Sleep longer than the timeout
-			return ResponseType{Message: "Should have timed out"}, nil
+			<-r.Context().Done()
+			ctxErrCh <- r.Context().Err()
+			return ResponseType{Message: "Should have timed out"}, r.Context().Err()
 		},
 		SourceType: Body,
 		Overrides:  common.RouteOverrides{Timeout: timeout},
@@ -639,6 +641,15 @@ func TestRegisterGenericRouteWithTimeout(t *testing.T) {
 
 	if rr.Code != http.StatusRequestTimeout {
 		t.Errorf("Expected status code %d, got %d", http.StatusRequestTimeout, rr.Code)
+	}
+
+	select {
+	case err := <-ctxErrCh:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("Expected context deadline exceeded, got %v", err)
+		}
+	default:
+		t.Error("Handler did not receive context cancellation")
 	}
 }
 
