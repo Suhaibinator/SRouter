@@ -91,10 +91,68 @@ func TestUberRateLimiter(t *testing.T) {
 	}
 }
 
+type captureLimiter struct {
+	lastKey string
+}
+
+func (c *captureLimiter) Allow(key string, limit int, window time.Duration) (bool, int, time.Duration) {
+	c.lastKey = key
+	return true, limit, 0
+}
+
 func TestRateLimitExtractIP(t *testing.T) {
-	// Note: The internal extractIP function was removed from ratelimit.go.
-	// Testing IP extraction logic should be done in pkg/router/ip_test.go.
-	// This test is removed as it tested an internal, now removed, function.
+	logger := zap.NewNop()
+
+	t.Run("uses IP from context", func(t *testing.T) {
+		limiter := &captureLimiter{}
+		config := &common.RateLimitConfig[string, any]{
+			BucketName: "test-bucket",
+			Limit:      1,
+			Window:     time.Second,
+			Strategy:   common.StrategyIP,
+		}
+
+		middleware := RateLimit(config, limiter, logger)
+		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+		req.RemoteAddr = "10.0.0.1:1234" // ensure remote addr differs from context IP
+		ctx := scontext.WithClientIP[string, any](req.Context(), "203.0.113.9")
+
+		handler.ServeHTTP(httptest.NewRecorder(), req.WithContext(ctx))
+
+		expectedKey := "test-bucket:203.0.113.9"
+		if limiter.lastKey != expectedKey {
+			t.Fatalf("expected limiter key %s, got %s", expectedKey, limiter.lastKey)
+		}
+	})
+
+	t.Run("falls back to RemoteAddr", func(t *testing.T) {
+		limiter := &captureLimiter{}
+		config := &common.RateLimitConfig[string, any]{
+			BucketName: "test-bucket",
+			Limit:      1,
+			Window:     time.Second,
+			Strategy:   common.StrategyIP,
+		}
+
+		middleware := RateLimit(config, limiter, logger)
+		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+		req.RemoteAddr = "10.0.0.2:4321"
+
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+
+		expectedKey := "test-bucket:10.0.0.2:4321"
+		if limiter.lastKey != expectedKey {
+			t.Fatalf("expected limiter key %s, got %s", expectedKey, limiter.lastKey)
+		}
+	})
 }
 
 // TestConvertUserIDToString tests the internal helper function (still present in ratelimit.go)
