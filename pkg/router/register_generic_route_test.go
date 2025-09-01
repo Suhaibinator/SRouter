@@ -698,101 +698,57 @@ func TestRegisterGenericRouteWithMaxBodySize(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithQueryParameter tests RegisterGenericRoute with query parameter source type
-// (from register_generic_route_query_test.go)
-func TestRegisterGenericRouteWithQueryParameter(t *testing.T) {
+// TestRegisterGenericRouteWithBase64Parameters verifies base64 data from query and path sources.
+func TestRegisterGenericRouteWithBase64Parameters(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	base64Data := "eyJpZCI6IjEyMyIsIm5hbWUiOiJKb2huIn0=" // {"id":"123","name":"John"}
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
-		Path:       "/test",
-		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
-		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
-		Handler:    testGenericHandler[RequestType, ResponseType],
-		SourceType: Base64QueryParameter,
-		SourceKey:  "data",
-		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
-
-	base64Data := "eyJpZCI6IjEyMyIsIm5hbWUiOiJKb2huIn0=" // Base64 encoded {"id":"123","name":"John"}
-	req := httptest.NewRequest("GET", "/test?data="+base64Data, nil)
-	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
+	tests := []struct {
+		name       string
+		path       string
+		requestURL string
+		sourceType SourceType
+	}{
+		{
+			name:       "query parameter",
+			path:       "/test",
+			requestURL: "/test?data=" + base64Data,
+			sourceType: Base64QueryParameter,
+		},
+		{
+			name:       "path parameter",
+			path:       "/test/:data",
+			requestURL: "/test/" + base64Data,
+			sourceType: Base64PathParameter,
+		},
 	}
-	var resp ResponseType
-	err := json.Unmarshal(rr.Body.Bytes(), &resp)
-	if err != nil {
-		t.Errorf("Failed to unmarshal response: %v", err)
-	}
-	if resp.Message != "Hello, John!" {
-		t.Errorf("Expected message %q, got %q", "Hello, John!", resp.Message)
-	}
-}
 
-// TestRegisterGenericRouteWithPathParameter tests RegisterGenericRoute with path parameter source type
-// (from register_generic_route_query_test.go)
-func TestRegisterGenericRouteWithPathParameter(t *testing.T) {
-	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
-		Path:       "/test/:data",
-		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
-		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
-		Handler:    testGenericHandler[RequestType, ResponseType],
-		SourceType: Base64PathParameter,
-		SourceKey:  "data",
-		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+			RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+				Path:       tc.path,
+				Methods:    []HttpMethod{MethodGet},
+				Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
+				Handler:    testGenericHandler[RequestType, ResponseType],
+				SourceType: tc.sourceType,
+				SourceKey:  "data",
+			}, time.Duration(0), int64(0), nil)
 
-	base64Data := "eyJpZCI6IjEyMyIsIm5hbWUiOiJKb2huIn0=" // Base64 encoded {"id":"123","name":"John"}
-	req := httptest.NewRequest("GET", "/test/"+base64Data, nil)
-	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
+			req := httptest.NewRequest("GET", tc.requestURL, nil)
+			rr := httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
-	}
-	var resp ResponseType
-	err := json.Unmarshal(rr.Body.Bytes(), &resp)
-	if err != nil {
-		t.Errorf("Failed to unmarshal response: %v", err)
-	}
-	if resp.Message != "Hello, John!" {
-		t.Errorf("Expected message %q, got %q", "Hello, John!", resp.Message)
-	}
-}
+			require.Equal(t, http.StatusOK, rr.Code)
 
-// TestRegisterGenericRouteWithBase64QueryParameter tests RegisterGenericRoute with base64 query parameter source type
-// (from register_generic_route_query_test.go - duplicate name, keeping content)
-func TestRegisterGenericRouteWithBase64QueryParameterAgain(t *testing.T) {
-	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
-		Path:       "/test",
-		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
-		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
-		Handler:    testGenericHandler[RequestType, ResponseType],
-		SourceType: Base64QueryParameter,
-		SourceKey:  "data",
-		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
-
-	base64Data := "eyJpZCI6IjEyMyIsIm5hbWUiOiJKb2huIn0=" // Base64 encoded {"id":"123","name":"John"}
-	req := httptest.NewRequest("GET", "/test?data="+base64Data, nil)
-	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
-	}
-	var resp ResponseType
-	err := json.Unmarshal(rr.Body.Bytes(), &resp)
-	if err != nil {
-		t.Errorf("Failed to unmarshal response: %v", err)
+			var resp ResponseType
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+			require.Equal(t, ResponseType{
+				Message: "Hello, John!",
+				ID:      "123",
+				Name:    "John",
+			}, resp)
+		})
 	}
 }
