@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
@@ -108,9 +109,11 @@ func (g *IDGenerator) init() {
 						return
 					case g.idChan <- generateUUID():
 						// Successfully added a new UUID
-					default:
-						// Channel is full, yield to scheduler
+						// Yield briefly to avoid monopolizing CPU during refill
 						runtime.Gosched()
+					default:
+						// Channel is full, sleep to avoid tight spin loop
+						time.Sleep(1 * time.Millisecond)
 					}
 				}
 
