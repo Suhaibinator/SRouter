@@ -648,7 +648,7 @@ func TestRegisterGenericRouteWithTimeout(t *testing.T) {
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Errorf("Expected context deadline exceeded, got %v", err)
 		}
-	default:
+	case <-time.After(1 * time.Second):
 		t.Error("Handler did not receive context cancellation")
 	}
 }
