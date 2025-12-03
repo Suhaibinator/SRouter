@@ -415,19 +415,16 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 				fields = r.addTrace(fields, req)
 				r.logger.Error("Request timed out", fields...)
 
-				// Acquire lock to safely check and potentially write timeout response.
-				wrappedW.mu.Lock()
-				// Check if handler already started writing. Use Swap for atomic check-and-set.
-				if !wrappedW.wroteHeader.Swap(true) {
-					// Handler hasn't written yet, we can write the timeout error.
-					// Hold the lock while writing headers and body for timeout.
-					// Use the new JSON error writer, passing the request
-					traceID := scontext.GetTraceIDFromRequest[T, U](req)
-					r.writeJSONError(wrappedW.ResponseWriter, req, http.StatusRequestTimeout, "Request Timeout", traceID)
-				}
-				// If wroteHeader was already true, handler won the race, do nothing here.
-				// Unlock should happen regardless of whether we wrote the error or not.
-				wrappedW.mu.Unlock()
+				// Write timeout response using the wrapped writer.
+				// writeJSONError will atomically claim the write via wroteHeader,
+				// preventing races with the handler goroutine.
+				traceID := scontext.GetTraceIDFromRequest[T, U](req)
+				r.writeJSONError(wrappedW, req, http.StatusRequestTimeout, "Request Timeout", traceID)
+
+				// Wait for handler goroutine to finish before returning.
+				// This prevents races where the test reads the response while
+				// the handler is still writing (if handler won the CAS race).
+				<-done
 				return
 			}
 		})
@@ -988,6 +985,20 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 // It includes the trace ID in the JSON payload if available and enabled.
 // It also adds CORS headers based on information stored in the context by the CORS middleware.
 func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, statusCode int, message string, traceID string) { // Add req parameter
+	// If this is a mutexResponseWriter, atomically claim the write.
+	// This prevents races with the timeout handler which may also be trying to write.
+	if mrw, ok := w.(*mutexResponseWriter); ok {
+		// Try to claim the write atomically. If someone else already claimed it, abort.
+		if !mrw.wroteHeader.CompareAndSwap(false, true) {
+			return
+		}
+		// We claimed it. Hold the mutex while writing to prevent concurrent access.
+		mrw.mu.Lock()
+		defer mrw.mu.Unlock()
+		// Use the underlying writer directly since we hold the mutex
+		w = mrw.ResponseWriter
+	}
+
 	// Retrieve CORS info from context using the passed-in request
 	allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfoFromRequest[T, U](req)
 
