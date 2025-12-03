@@ -52,8 +52,8 @@ func (g *IDGenerator) init() {
 			// Pre-allocate a batch of UUIDs to insert quickly when needed
 			const batchSize = 1000
 			batchUUIDs := make([]string, batchSize)
-			batchIndex := 0  // Current position in batch (0 means batch is empty/consumed)
-			batchLen := 0    // Number of valid UUIDs in batch
+			batchIndex := 0 // Current position in batch (0 means batch is empty/consumed)
+			batchLen := 0   // Number of valid UUIDs in batch
 
 			// Used to determine if we need to batch-fill when channel is getting empty
 			lastChannelLen := g.size
@@ -94,9 +94,6 @@ func (g *IDGenerator) init() {
 						default:
 							// Channel is full, stop batch insertion without blocking
 							break addingBatch
-						}
-						if len(g.idChan) == g.size {
-							break
 						}
 					}
 
