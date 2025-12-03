@@ -421,10 +421,6 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 				traceID := scontext.GetTraceIDFromRequest[T, U](req)
 				r.writeJSONError(wrappedW, req, http.StatusRequestTimeout, "Request Timeout", traceID)
 
-				// Wait for handler goroutine to finish before returning.
-				// This prevents races where the test reads the response while
-				// the handler is still writing (if handler won the CAS race).
-				<-done
 				return
 			}
 		})

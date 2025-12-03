@@ -106,7 +106,7 @@ func TestIDGeneratorStopWhileBatchLoopActive(t *testing.T) {
 }
 
 // TestIDGeneratorBatchFillChannelFull tests the default case in batch fill loop.
-// This covers `default: goto doneAdding` when channel fills during batch insertion.
+// This covers the `default` branch that exits batch insertion when the channel fills.
 func TestIDGeneratorBatchFillChannelFull(t *testing.T) {
 	// Use a very small buffer - the batch fill precomputes 1000 UUIDs,
 	// so a small buffer will fill up quickly and trigger the default case

@@ -83,6 +83,7 @@ func (g *IDGenerator) init() {
 					}
 
 					// Add from our batch as many as we can
+				addingBatch:
 					for batchIndex < batchLen {
 						select {
 						case <-g.stop:
@@ -90,6 +91,9 @@ func (g *IDGenerator) init() {
 						case g.idChan <- batchUUIDs[batchIndex]:
 							// Successfully added one from batch
 							batchIndex++
+						default:
+							// Channel is full, stop batch insertion without blocking
+							break addingBatch
 						}
 						if len(g.idChan) == g.size {
 							break
