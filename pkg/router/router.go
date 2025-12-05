@@ -433,19 +433,19 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 				fields = r.addTrace(fields, req)
 				r.logger.Error("Request timed out", fields...)
 
-				// Acquire lock to safely check and potentially write timeout response.
-				wrappedW.mu.Lock()
-				// Check if handler already started writing. Use Swap for atomic check-and-set.
-				if !wrappedW.wroteHeader.Swap(true) {
-					// Handler hasn't written yet, we can write the timeout error.
-					// Hold the lock while writing headers and body for timeout.
-					// Use the new JSON error writer, passing the request
+				// Attempt to write a timeout response only if the handler hasn't written yet.
+				if !wrappedW.wroteHeader.Load() {
 					traceID := scontext.GetTraceIDFromRequest[T, U](req)
-					r.writeJSONError(wrappedW.ResponseWriter, req, http.StatusRequestTimeout, "Request Timeout", traceID)
+					r.writeJSONError(wrappedW, req, http.StatusRequestTimeout, "Request Timeout", traceID)
 				}
-				// If wroteHeader was already true, handler won the race, do nothing here.
-				// Unlock should happen regardless of whether we wrote the error or not.
-				wrappedW.mu.Unlock()
+				// Ensure the handler observes cancellation before returning to avoid races in tests
+				// and potential goroutine leaks. Cancel explicitly (in addition to deferred cancel)
+				// and wait briefly for the handler goroutine to exit.
+				cancel()
+				select {
+				case <-done:
+				case <-time.After(25 * time.Millisecond):
+				}
 				return
 			}
 		})
@@ -1006,6 +1006,27 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 // It includes the trace ID in the JSON payload if available and enabled.
 // It also adds CORS headers based on information stored in the context by the CORS middleware.
 func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, statusCode int, message string, traceID string) { // Add req parameter
+	// If the writer is mutexResponseWriter, lock it to prevent concurrent header writes
+	// and short-circuit if a response has already been sent.
+	if mw, ok := w.(*mutexResponseWriter); ok {
+		mw.mu.Lock()
+		defer mw.mu.Unlock()
+		if mw.wroteHeader.Load() {
+			return
+		}
+		// Write using the underlying ResponseWriter while holding the lock and
+		// mark the response as written so subsequent attempts are skipped.
+		mw.wroteHeader.Store(true)
+		r.writeJSONErrorLocked(mw.ResponseWriter, req, statusCode, message, traceID)
+		return
+	}
+
+	r.writeJSONErrorLocked(w, req, statusCode, message, traceID)
+}
+
+// writeJSONErrorLocked performs the actual write of the JSON error response. It assumes any
+// necessary synchronization has already been handled by the caller when needed.
+func (r *Router[T, U]) writeJSONErrorLocked(w http.ResponseWriter, req *http.Request, statusCode int, message string, traceID string) {
 	// Retrieve CORS info from context using the passed-in request
 	allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfoFromRequest[T, U](req)
 
@@ -1025,15 +1046,6 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 			w.Header().Add("Vary", "Origin")
 		}
 	}
-
-	// Check if headers have already been written (best effort)
-	// This check might not be foolproof depending on the ResponseWriter implementation.
-	// http.Error handles this internally, but we need to be careful here.
-	// A common pattern is to use a custom ResponseWriter wrapper that tracks this state.
-	// Since we have mutexResponseWriter and metricsResponseWriter, they might offer ways,
-	// but for simplicity, we'll rely on the fact that these error handlers are often
-	// called before the main handler writes anything. If a panic/timeout happens *after*
-	// writing has started, writing the JSON error might fail or corrupt the response.
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	// Ensure the status code is written *before* the body.
