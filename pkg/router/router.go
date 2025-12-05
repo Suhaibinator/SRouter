@@ -440,11 +440,11 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 				}
 				// Ensure the handler observes cancellation before returning to avoid races in tests
 				// and potential goroutine leaks. Cancel explicitly (in addition to deferred cancel)
-				// and wait briefly for the handler goroutine to exit.
+				// and yield once to see if the goroutine already exited, but don't block on it.
 				cancel()
 				select {
 				case <-done:
-				case <-time.After(25 * time.Millisecond):
+				default:
 				}
 				return
 			}
