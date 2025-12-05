@@ -168,7 +168,7 @@ func (c *WebSocketConnection[T, U]) RemoteAddr() string {
 // This method blocks until a message is received or an error occurs.
 func (c *WebSocketConnection[T, U]) ReadMessage() (MessageType, []byte, error) {
 	if c.overrides.ReadTimeout > 0 {
-		c.conn.SetReadDeadline(time.Now().Add(c.overrides.ReadTimeout))
+		_ = c.conn.SetReadDeadline(time.Now().Add(c.overrides.ReadTimeout))
 	}
 	msgType, data, err := c.conn.ReadMessage()
 	return MessageType(msgType), data, err
@@ -178,7 +178,7 @@ func (c *WebSocketConnection[T, U]) ReadMessage() (MessageType, []byte, error) {
 // The message type must be TextMessage or BinaryMessage.
 func (c *WebSocketConnection[T, U]) WriteMessage(messageType MessageType, data []byte) error {
 	if c.overrides.WriteTimeout > 0 {
-		c.conn.SetWriteDeadline(time.Now().Add(c.overrides.WriteTimeout))
+		_ = c.conn.SetWriteDeadline(time.Now().Add(c.overrides.WriteTimeout))
 	}
 	return c.conn.WriteMessage(int(messageType), data)
 }
@@ -198,7 +198,7 @@ func (c *WebSocketConnection[T, U]) WriteBinary(data []byte) error {
 // WriteJSON writes a JSON-encoded value to the connection.
 func (c *WebSocketConnection[T, U]) WriteJSON(v any) error {
 	if c.overrides.WriteTimeout > 0 {
-		c.conn.SetWriteDeadline(time.Now().Add(c.overrides.WriteTimeout))
+		_ = c.conn.SetWriteDeadline(time.Now().Add(c.overrides.WriteTimeout))
 	}
 	return c.conn.WriteJSON(v)
 }
@@ -206,7 +206,7 @@ func (c *WebSocketConnection[T, U]) WriteJSON(v any) error {
 // ReadJSON reads a JSON-encoded message from the connection.
 func (c *WebSocketConnection[T, U]) ReadJSON(v any) error {
 	if c.overrides.ReadTimeout > 0 {
-		c.conn.SetReadDeadline(time.Now().Add(c.overrides.ReadTimeout))
+		_ = c.conn.SetReadDeadline(time.Now().Add(c.overrides.ReadTimeout))
 	}
 	return c.conn.ReadJSON(v)
 }
@@ -236,8 +236,8 @@ func (c *WebSocketConnection[T, U]) CloseWithCode(code WebSocketCloseCode, messa
 
 	// Send close message
 	closeMessage := websocket.FormatCloseMessage(int(code), message)
-	c.conn.SetWriteDeadline(time.Now().Add(time.Second))
-	c.conn.WriteMessage(websocket.CloseMessage, closeMessage)
+	_ = c.conn.SetWriteDeadline(time.Now().Add(time.Second))
+	_ = c.conn.WriteMessage(websocket.CloseMessage, closeMessage)
 
 	return c.conn.Close()
 }
@@ -282,10 +282,9 @@ func (c *WebSocketConnection[T, U]) startPingLoop() {
 		pongTimeout = c.overrides.PingInterval + 10*time.Second
 	}
 
-	c.conn.SetReadDeadline(time.Now().Add(pongTimeout))
+	_ = c.conn.SetReadDeadline(time.Now().Add(pongTimeout))
 	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(pongTimeout))
-		return nil
+		return c.conn.SetReadDeadline(time.Now().Add(pongTimeout))
 	})
 
 	c.pingTicker = time.NewTicker(c.overrides.PingInterval)

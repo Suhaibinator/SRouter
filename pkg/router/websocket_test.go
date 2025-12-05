@@ -493,7 +493,7 @@ func TestWebSocketCloseHandling(t *testing.T) {
 	}
 
 	// Close the connection from client side
-	ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 	ws.Close()
 
 	// Wait for the handler to detect the close
@@ -698,7 +698,7 @@ func TestWebSocketDoneChannel(t *testing.T) {
 	}
 
 	// Send a message to trigger server-side close
-	ws.WriteMessage(websocket.TextMessage, []byte("trigger close"))
+	_ = ws.WriteMessage(websocket.TextMessage, []byte("trigger close"))
 	ws.Close()
 
 	// Wait for handler to complete
@@ -813,7 +813,7 @@ func TestWebSocketShutdown(t *testing.T) {
 	}
 
 	// Close the client connection to allow handler to complete
-	ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 	ws.Close()
 
 	// Wait for handler to finish
