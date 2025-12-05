@@ -74,7 +74,7 @@ func TestWebSocketBasicConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Send a text message
 	testMessage := "Hello, WebSocket!"
@@ -136,7 +136,7 @@ func TestWebSocketWithSubRouter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	msgType, data, err := ws.ReadMessage()
 	if err != nil {
@@ -199,7 +199,7 @@ func TestWebSocketWithNewWebSocketRouteDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Test echo
 	testMessage := "test message"
@@ -276,7 +276,7 @@ func TestWebSocketAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect with valid token: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	_, data, err := ws.ReadMessage()
 	if err != nil {
@@ -323,7 +323,7 @@ func TestWebSocketJSONMessaging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Send JSON message
 	sendMsg := Message{Type: "request", Content: "Hello"}
@@ -371,7 +371,7 @@ func TestWebSocketBinaryMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Send binary data
 	binaryData := []byte{0x00, 0x01, 0x02, 0x03, 0xFF}
@@ -443,7 +443,7 @@ func TestWebSocketOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Test with a message within the limit
 	testMessage := "short message"
@@ -494,7 +494,7 @@ func TestWebSocketCloseHandling(t *testing.T) {
 
 	// Close the connection from client side
 	_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-	ws.Close()
+	_ = ws.Close()
 
 	// Wait for the handler to detect the close
 	select {
@@ -535,7 +535,7 @@ func TestWebSocketConcurrentMessages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Send multiple messages
 	numMessages := 5
@@ -642,7 +642,7 @@ func TestWebSocketConnectionMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	_, data, err := ws.ReadMessage()
 	if err != nil {
@@ -674,7 +674,7 @@ func TestWebSocketDoneChannel(t *testing.T) {
 			}
 
 			// Close the connection from server side, which signals Done()
-			conn.Close()
+			_ = conn.Close()
 
 			// Verify Done() channel is closed
 			select {
@@ -699,7 +699,7 @@ func TestWebSocketDoneChannel(t *testing.T) {
 
 	// Send a message to trigger server-side close
 	_ = ws.WriteMessage(websocket.TextMessage, []byte("trigger close"))
-	ws.Close()
+	_ = ws.Close()
 
 	// Wait for handler to complete
 	select {
@@ -759,7 +759,7 @@ func TestWebSocketMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Read the message to ensure handler executed
 	_, _, err = ws.ReadMessage()
@@ -825,7 +825,7 @@ func TestWebSocketShutdown(t *testing.T) {
 	// Now close the client connection - this should allow the handler to complete
 	// and subsequently allow shutdown to complete
 	_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-	ws.Close()
+	_ = ws.Close()
 
 	// Wait for handler to finish
 	select {
@@ -878,7 +878,7 @@ func TestWebSocketRejectsDuringShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
-	defer ws1.Close()
+	defer func() { _ = ws1.Close() }()
 
 	// Wait for handler to start
 	select {
@@ -891,7 +891,7 @@ func TestWebSocketRejectsDuringShutdown(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		router.Shutdown(ctx)
+		_ = router.Shutdown(ctx)
 	}()
 
 	// Give shutdown time to set the flag
@@ -907,7 +907,7 @@ func TestWebSocketRejectsDuringShutdown(t *testing.T) {
 	}
 
 	// Clean up - close ws1 to allow shutdown to complete
-	ws1.Close()
+	_ = ws1.Close()
 }
 
 // TestIsWebSocketUpgrade tests the IsWebSocketUpgrade helper function
@@ -1012,7 +1012,7 @@ func TestWebSocketCheckOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect with allowed origin: %v", err)
 	}
-	ws.Close()
+	_ = ws.Close()
 }
 
 // TestWebSocketSubprotocols tests subprotocol negotiation
@@ -1056,7 +1056,7 @@ func TestWebSocketSubprotocols(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Verify the negotiated subprotocol
 	if ws.Subprotocol() != "graphql-ws" {
@@ -1093,7 +1093,7 @@ func TestWebSocketWriteText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	msgType, data, err := ws.ReadMessage()
 	if err != nil {
@@ -1131,7 +1131,7 @@ func TestWebSocketWriteBinary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	msgType, data, err := ws.ReadMessage()
 	if err != nil {
@@ -1168,7 +1168,7 @@ func TestWebSocketCloseWithCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Read the close message
 	_, _, err = ws.ReadMessage()
@@ -1222,7 +1222,7 @@ func TestWebSocketPing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Wait for ping to be sent
 	select {
@@ -1292,7 +1292,7 @@ func TestWebSocketUserAndClientIP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	_, data, err := ws.ReadMessage()
 	if err != nil {
@@ -1398,7 +1398,7 @@ func TestWebSocketPingLoop(t *testing.T) {
 		t.Log("Note: No ping received, but this can happen due to timing")
 	}
 
-	ws.Close()
+	_ = ws.Close()
 }
 
 // TestWebSocketCloseWithShortWriteTimeout tests close deadline with short WriteTimeout
@@ -1425,7 +1425,7 @@ func TestWebSocketCloseWithShortWriteTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Read the close message
 	_, _, err = ws.ReadMessage()
@@ -1472,10 +1472,10 @@ func TestWebSocketReadWithTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Don't send anything, just wait for response (which comes after timeout)
-	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = ws.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, data, err := ws.ReadMessage()
 	if err != nil {
 		t.Fatalf("Failed to read message: %v", err)
@@ -1520,10 +1520,10 @@ func TestWebSocketReadJSONWithTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
-	defer ws.Close()
+	defer func() { _ = ws.Close() }()
 
 	// Don't send anything, just wait for response (which comes after timeout)
-	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_ = ws.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, data, err := ws.ReadMessage()
 	if err != nil {
 		t.Fatalf("Failed to read message: %v", err)

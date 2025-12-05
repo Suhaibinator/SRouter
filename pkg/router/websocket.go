@@ -321,7 +321,7 @@ func (c *WebSocketConnection[T, U]) startPingLoop() {
 						zap.Error(err),
 						zap.String("remote_addr", c.RemoteAddr()),
 					)
-					c.Close()
+					_ = c.Close()
 					return
 				}
 			case <-c.closeChan:
@@ -448,7 +448,7 @@ func (r *Router[T, U]) wrapWebSocketHandler(
 		// Ensure connection is closed when handler returns
 		defer func() {
 			if !wsConn.IsClosed() {
-				wsConn.Close()
+				_ = wsConn.Close()
 			}
 		}()
 
