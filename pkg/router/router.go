@@ -235,6 +235,24 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 			// The function itself will handle calculating effective settings and calling RegisterGenericRoute
 			route(r, sr) // Call the registration function
 
+		case WebSocketRouteConfig:
+			fullPath := sr.PathPrefix + route.Path
+
+			timeout := r.getEffectiveTimeout(route.Overrides.Timeout, sr.Overrides.Timeout)
+			maxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, sr.Overrides.MaxBodySize)
+			rateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, sr.Overrides.RateLimit)
+			authLevel := route.AuthLevel
+			if authLevel == nil {
+				authLevel = sr.AuthLevel
+			}
+
+			allMiddlewares := make([]common.Middleware, 0, len(sr.Middlewares)+len(route.Middlewares))
+			allMiddlewares = append(allMiddlewares, sr.Middlewares...)
+			allMiddlewares = append(allMiddlewares, route.Middlewares...)
+
+			wrapped := r.wrapHandler(r.wrapWebSocketHandler(route), authLevel, timeout, maxBodySize, rateLimit, allMiddlewares)
+			r.router.Handle(http.MethodGet, fullPath, r.convertToHTTPRouterHandle(wrapped, fullPath))
+
 		default:
 			// Log or handle unexpected type in Routes slice
 			r.logger.Warn("Unsupported type found in SubRouterConfig.Routes",

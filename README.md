@@ -24,6 +24,7 @@ SRouter is a high-performance HTTP router for Go that wraps [julienschmidt/httpr
   - [Context Management](./docs/context-management.md)
   - [Custom Error Handling](./docs/error-handling.md)
   - [Custom Middleware](./docs/middleware.md)
+  - [WebSockets](./docs/websockets.md)
   - [Source Types](./docs/generic-routes.md#source-types)
   - [Custom Codecs](./docs/codecs.md)
   - [Metrics](./docs/metrics.md)
@@ -52,6 +53,7 @@ SRouter is a high-performance HTTP router for Go that wraps [julienschmidt/httpr
 - **Path Parameters**: Easy access to path parameters via request context
 - **Graceful Shutdown**: Properly handle in-flight requests during shutdown
 - **Flexible Metrics System**: Support for multiple metric formats, custom collectors, and dependency injection
+- **WebSocket Endpoints**: Register WebSocket handlers while reusing the same middleware, authentication, and logging pipeline
 - **Intelligent Logging**: Structured logging using `zap` with appropriate log levels for different types of events. Requires a logger instance in config.
 - **Trace ID Logging**: Automatically generate and include a unique trace ID for each request in context and log entries.
 - **Flexible Request Data Sources**: Support for retrieving request data from various sources including request body, query parameters, and path parameters with automatic decoding
