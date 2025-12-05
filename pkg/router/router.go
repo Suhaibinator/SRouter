@@ -210,6 +210,12 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 
 			// Get effective settings considering overrides
 			timeout := r.getEffectiveTimeout(route.Overrides.Timeout, sr.Overrides.Timeout)
+
+			// If route is a WebSocket, disable timeout
+			if route.IsWebSocket {
+				timeout = 0
+			}
+
 			maxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, sr.Overrides.MaxBodySize)
 			rateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, sr.Overrides.RateLimit)
 			authLevel := route.AuthLevel // Use route-specific first

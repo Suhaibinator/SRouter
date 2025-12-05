@@ -195,6 +195,7 @@ type RouteConfigBase struct {
 	Overrides   common.RouteOverrides // Configuration overrides for this specific route
 	Handler     http.HandlerFunc      // Standard HTTP handler function
 	Middlewares []common.Middleware   // Middlewares applied to this specific route (combined with sub-router and global middlewares)
+	IsWebSocket bool                  // Indicates if this route is a WebSocket route. If true, timeout is disabled.
 }
 
 // Implement RouteDefinition for RouteConfigBase

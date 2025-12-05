@@ -25,6 +25,12 @@ import (
 func (r *Router[T, U]) RegisterRoute(route RouteConfigBase) {
 	// Get effective timeout, max body size, and rate limit for this route
 	timeout := r.getEffectiveTimeout(route.Overrides.Timeout, 0)
+
+	// If route is a WebSocket, disable timeout
+	if route.IsWebSocket {
+		timeout = 0
+	}
+
 	maxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, 0)
 	// Pass the specific route config (which is *common.RateLimitConfig[any, any])
 	// to getEffectiveRateLimit. The conversion happens inside getEffectiveRateLimit.
