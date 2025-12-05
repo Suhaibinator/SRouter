@@ -104,11 +104,16 @@ const (
 // WebSocketConnection wraps a gorilla/websocket connection with additional functionality.
 // It provides a type-safe interface for WebSocket communication with access to SRouter's
 // context management features.
+//
+// Thread Safety: All write operations (WriteMessage, WriteText, WriteBinary, WriteJSON, Ping,
+// Close, CloseWithCode) are protected by an internal mutex and are safe for concurrent use.
+// Read operations are NOT protected - only one goroutine should read at a time.
 type WebSocketConnection[T comparable, U any] struct {
 	conn       *websocket.Conn
 	request    *http.Request
 	overrides  WebSocketOverrides
 	logger     *zap.Logger
+	writeMu    sync.Mutex // Protects all write operations
 	closeMu    sync.Mutex
 	closed     bool
 	closeChan  chan struct{}
@@ -176,7 +181,10 @@ func (c *WebSocketConnection[T, U]) ReadMessage() (MessageType, []byte, error) {
 
 // WriteMessage writes a message to the connection.
 // The message type must be TextMessage or BinaryMessage.
+// This method is safe for concurrent use.
 func (c *WebSocketConnection[T, U]) WriteMessage(messageType MessageType, data []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	if c.overrides.WriteTimeout > 0 {
 		_ = c.conn.SetWriteDeadline(time.Now().Add(c.overrides.WriteTimeout))
 	}
@@ -196,7 +204,10 @@ func (c *WebSocketConnection[T, U]) WriteBinary(data []byte) error {
 }
 
 // WriteJSON writes a JSON-encoded value to the connection.
+// This method is safe for concurrent use.
 func (c *WebSocketConnection[T, U]) WriteJSON(v any) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	if c.overrides.WriteTimeout > 0 {
 		_ = c.conn.SetWriteDeadline(time.Now().Add(c.overrides.WriteTimeout))
 	}
@@ -217,6 +228,7 @@ func (c *WebSocketConnection[T, U]) Close() error {
 }
 
 // CloseWithCode closes the WebSocket connection with the specified close code and message.
+// This method is safe for concurrent use.
 func (c *WebSocketConnection[T, U]) CloseWithCode(code WebSocketCloseCode, message string) error {
 	c.closeMu.Lock()
 	defer c.closeMu.Unlock()
@@ -234,10 +246,17 @@ func (c *WebSocketConnection[T, U]) CloseWithCode(code WebSocketCloseCode, messa
 	// Signal close to any goroutines waiting on closeChan
 	close(c.closeChan)
 
-	// Send close message
+	// Send close message with write mutex protection
+	c.writeMu.Lock()
 	closeMessage := websocket.FormatCloseMessage(int(code), message)
-	_ = c.conn.SetWriteDeadline(time.Now().Add(time.Second))
+	// Use min(1 second, WriteTimeout) for close message deadline
+	closeDeadline := time.Second
+	if c.overrides.WriteTimeout > 0 && c.overrides.WriteTimeout < closeDeadline {
+		closeDeadline = c.overrides.WriteTimeout
+	}
+	_ = c.conn.SetWriteDeadline(time.Now().Add(closeDeadline))
 	_ = c.conn.WriteMessage(websocket.CloseMessage, closeMessage)
+	c.writeMu.Unlock()
 
 	return c.conn.Close()
 }
@@ -263,9 +282,12 @@ func (c *WebSocketConnection[T, U]) SetReadLimit(limit int64) {
 }
 
 // Ping sends a ping message to the peer and waits for a pong response.
+// This method is safe for concurrent use.
 func (c *WebSocketConnection[T, U]) Ping() error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	if c.overrides.WriteTimeout > 0 {
-		c.conn.SetWriteDeadline(time.Now().Add(c.overrides.WriteTimeout))
+		_ = c.conn.SetWriteDeadline(time.Now().Add(c.overrides.WriteTimeout))
 	}
 	return c.conn.WriteMessage(websocket.PingMessage, nil)
 }

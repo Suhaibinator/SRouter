@@ -102,7 +102,10 @@ func authChatHandler(conn *router.WebSocketConnection[string, string]) error {
 			Time:    time.Now().Format(time.RFC3339),
 		}
 
-		jsonData, _ := json.Marshal(response)
+		jsonData, err := json.Marshal(response)
+		if err != nil {
+			return fmt.Errorf("failed to marshal response: %w", err)
+		}
 		if err := conn.WriteMessage(msgType, jsonData); err != nil {
 			return err
 		}

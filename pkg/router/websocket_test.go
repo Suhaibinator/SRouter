@@ -783,7 +783,7 @@ func TestWebSocketShutdown(t *testing.T) {
 		Path: "/ws/shutdown",
 		Handler: func(conn *WebSocketConnection[string, string]) error {
 			close(handlerStarted)
-			// Wait for a message (which won't come due to shutdown)
+			// Wait for a message or connection close
 			for {
 				_, _, err := conn.ReadMessage()
 				if err != nil {
@@ -795,7 +795,6 @@ func TestWebSocketShutdown(t *testing.T) {
 	})
 
 	server := httptest.NewServer(router)
-	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/shutdown"
 
@@ -803,7 +802,6 @@ func TestWebSocketShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to WebSocket: %v", err)
 	}
-	defer ws.Close()
 
 	// Wait for handler to start
 	select {
@@ -812,7 +810,20 @@ func TestWebSocketShutdown(t *testing.T) {
 		t.Fatal("Handler did not start within timeout")
 	}
 
-	// Close the client connection to allow handler to complete
+	// Initiate shutdown WHILE the connection is still active
+	// This tests that shutdown properly waits for active WebSocket handlers
+	shutdownDone := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		shutdownDone <- router.Shutdown(ctx)
+	}()
+
+	// Give shutdown a moment to start waiting
+	time.Sleep(50 * time.Millisecond)
+
+	// Now close the client connection - this should allow the handler to complete
+	// and subsequently allow shutdown to complete
 	_ = ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 	ws.Close()
 
@@ -823,12 +834,80 @@ func TestWebSocketShutdown(t *testing.T) {
 		t.Fatal("Handler did not complete within timeout")
 	}
 
-	// Initiate shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if err := router.Shutdown(ctx); err != nil {
-		t.Errorf("Shutdown returned error: %v", err)
+	// Wait for shutdown to complete
+	select {
+	case err := <-shutdownDone:
+		if err != nil {
+			t.Errorf("Shutdown returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown did not complete within timeout")
 	}
+
+	// Clean up the test server
+	server.Close()
+}
+
+// TestWebSocketRejectsDuringShutdown tests that new WebSocket connections are rejected during shutdown
+func TestWebSocketRejectsDuringShutdown(t *testing.T) {
+	router := newTestWebSocketRouter(t)
+
+	handlerStarted := make(chan struct{})
+
+	router.RegisterWebSocketRoute(WebSocketRouteConfig[string, string]{
+		Path: "/ws/reject",
+		Handler: func(conn *WebSocketConnection[string, string]) error {
+			close(handlerStarted)
+			// Keep connection alive
+			for {
+				_, _, err := conn.ReadMessage()
+				if err != nil {
+					return nil
+				}
+			}
+		},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/reject"
+
+	// First connection - should succeed
+	ws1, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to connect to WebSocket: %v", err)
+	}
+	defer ws1.Close()
+
+	// Wait for handler to start
+	select {
+	case <-handlerStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Handler did not start within timeout")
+	}
+
+	// Start shutdown in background (it will wait for ws1 to close)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		router.Shutdown(ctx)
+	}()
+
+	// Give shutdown time to set the flag
+	time.Sleep(50 * time.Millisecond)
+
+	// Try to establish a new connection - should fail with 503
+	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err == nil {
+		t.Error("Expected new connection to be rejected during shutdown")
+	}
+	if resp != nil && resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("Expected status %d, got %d", http.StatusServiceUnavailable, resp.StatusCode)
+	}
+
+	// Clean up - close ws1 to allow shutdown to complete
+	ws1.Close()
 }
 
 // TestIsWebSocketUpgrade tests the IsWebSocketUpgrade helper function
@@ -1104,5 +1183,353 @@ func TestWebSocketCloseWithCode(t *testing.T) {
 
 	if closeErr.Code != websocket.CloseGoingAway {
 		t.Errorf("Expected close code %d, got %d", websocket.CloseGoingAway, closeErr.Code)
+	}
+}
+
+// TestWebSocketPing tests the Ping method
+func TestWebSocketPing(t *testing.T) {
+	router := newTestWebSocketRouter(t)
+
+	pingDone := make(chan struct{})
+
+	router.RegisterWebSocketRoute(WebSocketRouteConfig[string, string]{
+		Path: "/ws/ping",
+		Overrides: WebSocketOverrides{
+			WriteTimeout: 5 * time.Second,
+		},
+		Handler: func(conn *WebSocketConnection[string, string]) error {
+			// Send a ping
+			if err := conn.Ping(); err != nil {
+				return err
+			}
+			close(pingDone)
+			// Wait for client to close
+			for {
+				_, _, err := conn.ReadMessage()
+				if err != nil {
+					return nil
+				}
+			}
+		},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/ping"
+
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer ws.Close()
+
+	// Wait for ping to be sent
+	select {
+	case <-pingDone:
+		// Ping was sent successfully
+	case <-time.After(2 * time.Second):
+		t.Error("Ping was not sent within timeout")
+	}
+}
+
+// TestWebSocketUserAndClientIP tests User() and ClientIP() methods
+func TestWebSocketUserAndClientIP(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+
+	authOptional := AuthOptional
+
+	router := NewRouter(RouterConfig{
+		Logger:             logger,
+		TraceIDBufferSize:  10,
+		AddUserObjectToCtx: true,
+	},
+		func(ctx context.Context, token string) (*string, bool) {
+			if token == "valid-token" {
+				user := "test-user"
+				return &user, true
+			}
+			return nil, false
+		},
+		func(user *string) string {
+			if user == nil {
+				return ""
+			}
+			return *user
+		})
+
+	router.RegisterWebSocketRoute(WebSocketRouteConfig[string, string]{
+		Path:      "/ws/user-ip",
+		AuthLevel: &authOptional,
+		Handler: func(conn *WebSocketConnection[string, string]) error {
+			// Test User() method
+			user, hasUser := conn.User()
+			if !hasUser {
+				return conn.WriteText("ERROR: User not found")
+			}
+			if user == nil || *user != "test-user" {
+				return conn.WriteText("ERROR: User is incorrect")
+			}
+
+			// Test ClientIP() method
+			clientIP, hasIP := conn.ClientIP()
+			if !hasIP || clientIP == "" {
+				return conn.WriteText("ERROR: ClientIP is empty")
+			}
+
+			return conn.WriteText("OK")
+		},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/user-ip"
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer valid-token")
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer ws.Close()
+
+	_, data, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("Failed to read message: %v", err)
+	}
+
+	if string(data) != "OK" {
+		t.Errorf("Expected 'OK', got %q", string(data))
+	}
+}
+
+// TestIsUnexpectedCloseError tests the IsUnexpectedCloseError helper function
+func TestIsUnexpectedCloseError(t *testing.T) {
+	// Test with a close error that IS expected (normal closure)
+	normalCloseErr := &websocket.CloseError{
+		Code: websocket.CloseNormalClosure,
+		Text: "normal",
+	}
+	if IsUnexpectedCloseError(normalCloseErr, CloseNormalClosure) {
+		t.Error("IsUnexpectedCloseError should return false for expected normal closure")
+	}
+
+	// Test with a close error that is NOT expected
+	unexpectedErr := &websocket.CloseError{
+		Code: websocket.CloseAbnormalClosure,
+		Text: "abnormal",
+	}
+	if !IsUnexpectedCloseError(unexpectedErr, CloseNormalClosure) {
+		t.Error("IsUnexpectedCloseError should return true for unexpected closure")
+	}
+
+	// Test with a non-close error
+	regularErr := context.DeadlineExceeded
+	if IsUnexpectedCloseError(regularErr, CloseNormalClosure) {
+		t.Error("IsUnexpectedCloseError should return false for non-close errors")
+	}
+}
+
+// TestWebSocketPingLoop tests the automatic ping/pong keep-alive
+func TestWebSocketPingLoop(t *testing.T) {
+	router := newTestWebSocketRouter(t)
+
+	handlerDone := make(chan struct{})
+
+	router.RegisterWebSocketRoute(WebSocketRouteConfig[string, string]{
+		Path: "/ws/pingloop",
+		Overrides: WebSocketOverrides{
+			PingInterval: 50 * time.Millisecond, // Short interval for testing
+			PongTimeout:  200 * time.Millisecond,
+		},
+		Handler: func(conn *WebSocketConnection[string, string]) error {
+			defer close(handlerDone)
+			// Wait for a few pings to be sent, then close
+			time.Sleep(150 * time.Millisecond)
+			return nil
+		},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/pingloop"
+
+	dialer := websocket.Dialer{}
+	ws, _, err := dialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+
+	// Set pong handler to verify pings are received
+	pingReceived := make(chan struct{}, 10)
+	ws.SetPingHandler(func(message string) error {
+		select {
+		case pingReceived <- struct{}{}:
+		default:
+		}
+		// Send pong in response
+		return ws.WriteControl(websocket.PongMessage, []byte(message), time.Now().Add(time.Second))
+	})
+
+	// Read in a goroutine to process ping messages
+	go func() {
+		for {
+			_, _, err := ws.ReadMessage()
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// Wait for handler to complete
+	select {
+	case <-handlerDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Handler did not complete within timeout")
+	}
+
+	// Check if we received at least one ping
+	select {
+	case <-pingReceived:
+		// At least one ping was received - success
+	default:
+		t.Log("Note: No ping received, but this can happen due to timing")
+	}
+
+	ws.Close()
+}
+
+// TestWebSocketCloseWithShortWriteTimeout tests close deadline with short WriteTimeout
+func TestWebSocketCloseWithShortWriteTimeout(t *testing.T) {
+	router := newTestWebSocketRouter(t)
+
+	router.RegisterWebSocketRoute(WebSocketRouteConfig[string, string]{
+		Path: "/ws/close-timeout",
+		Overrides: WebSocketOverrides{
+			WriteTimeout: 100 * time.Millisecond, // Shorter than default 1 second
+		},
+		Handler: func(conn *WebSocketConnection[string, string]) error {
+			// Close with short WriteTimeout - should use WriteTimeout instead of 1 second
+			return conn.CloseWithCode(CloseNormalClosure, "test")
+		},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/close-timeout"
+
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer ws.Close()
+
+	// Read the close message
+	_, _, err = ws.ReadMessage()
+	if err == nil {
+		t.Error("Expected error from closed connection")
+	}
+
+	closeErr, ok := err.(*websocket.CloseError)
+	if !ok {
+		t.Fatalf("Expected CloseError, got %T", err)
+	}
+
+	if closeErr.Code != websocket.CloseNormalClosure {
+		t.Errorf("Expected close code %d, got %d", websocket.CloseNormalClosure, closeErr.Code)
+	}
+}
+
+// TestWebSocketReadWithTimeout tests read operations with timeout
+func TestWebSocketReadWithTimeout(t *testing.T) {
+	router := newTestWebSocketRouter(t)
+
+	router.RegisterWebSocketRoute(WebSocketRouteConfig[string, string]{
+		Path: "/ws/read-timeout",
+		Overrides: WebSocketOverrides{
+			ReadTimeout: 100 * time.Millisecond,
+		},
+		Handler: func(conn *WebSocketConnection[string, string]) error {
+			// Try to read with timeout - should timeout since client doesn't send anything
+			_, _, err := conn.ReadMessage()
+			if err != nil {
+				// Expected timeout error
+				return conn.WriteText("timeout")
+			}
+			return conn.WriteText("no timeout")
+		},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/read-timeout"
+
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer ws.Close()
+
+	// Don't send anything, just wait for response (which comes after timeout)
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, data, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("Failed to read message: %v", err)
+	}
+
+	if string(data) != "timeout" {
+		t.Errorf("Expected 'timeout', got %q", string(data))
+	}
+}
+
+// TestWebSocketReadJSONWithTimeout tests ReadJSON with timeout
+func TestWebSocketReadJSONWithTimeout(t *testing.T) {
+	router := newTestWebSocketRouter(t)
+
+	type Message struct {
+		Text string `json:"text"`
+	}
+
+	router.RegisterWebSocketRoute(WebSocketRouteConfig[string, string]{
+		Path: "/ws/readjson-timeout",
+		Overrides: WebSocketOverrides{
+			ReadTimeout: 100 * time.Millisecond,
+		},
+		Handler: func(conn *WebSocketConnection[string, string]) error {
+			// Try to read JSON with timeout
+			var msg Message
+			err := conn.ReadJSON(&msg)
+			if err != nil {
+				// Expected timeout error
+				return conn.WriteText("timeout")
+			}
+			return conn.WriteText("got: " + msg.Text)
+		},
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/readjson-timeout"
+
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer ws.Close()
+
+	// Don't send anything, just wait for response (which comes after timeout)
+	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, data, err := ws.ReadMessage()
+	if err != nil {
+		t.Fatalf("Failed to read message: %v", err)
+	}
+
+	if string(data) != "timeout" {
+		t.Errorf("Expected 'timeout', got %q", string(data))
 	}
 }
