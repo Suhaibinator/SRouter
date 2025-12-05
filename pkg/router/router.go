@@ -3,10 +3,12 @@
 package router
 
 import (
+	"bufio"
 	"context"
 	"encoding/json" // Added for JSON marshalling
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"slices"  // Added for CORS
 	"strconv" // Added for CORS
@@ -234,6 +236,11 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 			// Handle generic route registration function
 			// The function itself will handle calculating effective settings and calling RegisterGenericRoute
 			route(r, sr) // Call the registration function
+
+		case WebSocketRouteConfig[T, U]:
+			// Handle WebSocket route configuration
+			fullPath := sr.PathPrefix + route.Path
+			r.registerWebSocketRoute(fullPath, route, sr.Middlewares, sr.AuthLevel)
 
 		default:
 			// Log or handle unexpected type in Routes slice
@@ -803,6 +810,14 @@ func (bw *baseResponseWriter) Flush() {
 	}
 }
 
+// Hijack implements http.Hijacker interface to support WebSocket upgrades.
+func (bw *baseResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := bw.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, fmt.Errorf("http.Hijacker not supported by underlying ResponseWriter")
+}
+
 // metricsResponseWriter is a wrapper around http.ResponseWriter that captures metrics.
 // It tracks the status code, bytes written, and timing information for each response.
 type metricsResponseWriter[T comparable, U any] struct {
@@ -830,6 +845,11 @@ func (rw *metricsResponseWriter[T, U]) Write(b []byte) (int, error) {
 // Flush calls the underlying ResponseWriter.Flush if it implements http.Flusher.
 func (rw *metricsResponseWriter[T, U]) Flush() {
 	rw.baseResponseWriter.Flush()
+}
+
+// Hijack implements http.Hijacker interface to support WebSocket upgrades.
+func (rw *metricsResponseWriter[T, U]) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return rw.baseResponseWriter.Hijack()
 }
 
 // Shutdown gracefully shuts down the router.
