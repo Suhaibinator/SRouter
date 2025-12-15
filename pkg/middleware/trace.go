@@ -4,6 +4,7 @@ package middleware
 import (
 	"encoding/hex"
 	"net/http"
+	"runtime"
 	"sync"
 	"time"
 
@@ -50,7 +51,9 @@ func (g *IDGenerator) init() {
 		go func() {
 			// Pre-allocate a batch of UUIDs to insert quickly when needed
 			const batchSize = 1000
-			batchUUIDs := make([]string, 0, batchSize)
+			batchUUIDs := make([]string, batchSize)
+			batchIndex := 0 // Current position in batch (0 means batch is empty/consumed)
+			batchLen := 0   // Number of valid UUIDs in batch
 
 			// Used to determine if we need to batch-fill when channel is getting empty
 			lastChannelLen := g.size
@@ -70,32 +73,32 @@ func (g *IDGenerator) init() {
 				// batch-fill it immediately with multiple UUIDs
 				if currentLen < emptyThreshold && lastChannelLen > currentLen {
 					// Channel is being consumed quickly, pre-generate a batch
-					if len(batchUUIDs) == 0 {
-						// Refill our batch
-						batchUUIDs = batchUUIDs[:0] // Clear without deallocating
-						for range batchSize {
-							batchUUIDs = append(batchUUIDs, generateUUID())
+					if batchIndex >= batchLen {
+						// Refill our batch using index-based access to avoid slice header garbage
+						for i := range batchSize {
+							batchUUIDs[i] = generateUUID()
 						}
+						batchIndex = 0
+						batchLen = batchSize
 					}
 
-					// Add from our batch as many as we can without blocking
-					for len(batchUUIDs) > 0 {
+					// Add from our batch as many as we can
+				addingBatch:
+					for batchIndex < batchLen {
 						select {
 						case <-g.stop:
 							return
-						case g.idChan <- batchUUIDs[0]:
+						case g.idChan <- batchUUIDs[batchIndex]:
 							// Successfully added one from batch
-							batchUUIDs = batchUUIDs[1:]
+							batchIndex++
 						default:
-							// Channel is now full, stop adding
-						}
-						if len(g.idChan) == g.size {
-							break
+							// Channel is full, stop batch insertion without blocking
+							break addingBatch
 						}
 					}
 
-					// Very short sleep to prevent CPU thrashing but still be responsive
-					time.Sleep(100 * time.Microsecond) // 100μs instead of 10ms
+					// Yield to scheduler instead of fixed sleep for better efficiency
+					runtime.Gosched()
 				} else {
 					// Normal case: channel has plenty of capacity, add one at a time
 					select {
@@ -103,9 +106,11 @@ func (g *IDGenerator) init() {
 						return
 					case g.idChan <- generateUUID():
 						// Successfully added a new UUID
+						// Yield briefly to avoid monopolizing CPU during refill
+						runtime.Gosched()
 					default:
-						// Channel is full, sleep longer to save CPU
-						time.Sleep(1 * time.Millisecond) // 1ms instead of 10ms
+						// Channel is full, sleep to avoid tight spin loop
+						time.Sleep(1 * time.Millisecond)
 					}
 				}
 
@@ -131,7 +136,10 @@ func generateUUID() string {
 	if err != nil {
 		id = uuid.New()
 	}
-	return hex.EncodeToString(id[:])
+	// Use stack-allocated buffer to avoid heap allocation
+	var buf [32]byte
+	hex.Encode(buf[:], id[:])
+	return string(buf[:])
 }
 
 // GetID returns a precomputed UUID from the buffer channel.
