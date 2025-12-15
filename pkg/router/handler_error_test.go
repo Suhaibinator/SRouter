@@ -23,7 +23,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		return 0
 	}
 
-	router := NewRouter[int, interface{}](RouterConfig{
+	router := NewRouter(RouterConfig{
 		Logger: zap.NewNop(),
 	}, getUserByID, getUserID)
 
@@ -177,11 +177,11 @@ func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
 	getUserByID := func(ctx context.Context, userID string) (*interface{}, bool) {
 		return nil, false
 	}
-	getUserID := func(user *interface{}) int {
+	getUserID := func(user *any) int {
 		return 0
 	}
 
-	router := NewRouter[int, interface{}](RouterConfig{
+	router := NewRouter(RouterConfig{
 		Logger: zap.NewNop(),
 	}, getUserByID, getUserID)
 
