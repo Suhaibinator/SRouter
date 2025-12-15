@@ -21,9 +21,9 @@ type hijackableRecorder struct {
 	serverConn net.Conn
 	clientConn net.Conn
 
-	readDeadline       time.Time
-	writeDeadline      time.Time
-	fullDuplexEnabled  bool
+	readDeadline      time.Time
+	writeDeadline     time.Time
+	fullDuplexEnabled bool
 }
 
 func newHijackableRecorder() *hijackableRecorder {

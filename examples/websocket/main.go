@@ -39,7 +39,7 @@ func main() {
 	}
 	userIdFunc := func(user *string) string { return *user }
 
-	r := router.NewRouter[string, string](routerConfig, authFunc, userIdFunc)
+	r := router.NewRouter(routerConfig, authFunc, userIdFunc)
 
 	// REST Endpoint
 	r.RegisterRoute(router.RouteConfigBase{
