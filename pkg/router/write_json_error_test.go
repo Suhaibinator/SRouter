@@ -9,6 +9,7 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks"
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
@@ -128,4 +129,28 @@ func TestWriteJSONError_MutexResponseWriter_LogsOnEncodeFailure(t *testing.T) {
 	if !foundTrace {
 		t.Fatalf("expected trace_id field to be present")
 	}
+}
+
+func TestWriteJSONError_MutexResponseWriter_NoOpWhenHeaderAlreadyWritten(t *testing.T) {
+	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/test", nil)
+	rr := httptest.NewRecorder()
+	rr.Header().Set("X-Existing", "1")
+
+	var mu sync.Mutex
+	mrw := &mutexResponseWriter{ResponseWriter: rr, mu: &mu}
+
+	// Simulate the handler having already started the response.
+	mrw.WriteHeader(http.StatusCreated)
+
+	r.writeJSONError(mrw, req, http.StatusBadRequest, "Bad Request", "trace-ignored")
+
+	require.Equal(t, http.StatusCreated, rr.Code)
+	require.Equal(t, "1", rr.Header().Get("X-Existing"))
+	require.Equal(t, "", rr.Header().Get("Content-Type"))
+	require.Equal(t, "", rr.Header().Get("Access-Control-Allow-Origin"))
+	require.Equal(t, "", rr.Header().Get("Access-Control-Allow-Credentials"))
+	require.Equal(t, "", rr.Header().Get("Vary"))
+	require.Equal(t, "", rr.Body.String())
 }
