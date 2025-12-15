@@ -44,7 +44,7 @@ func createFullSRouterContext() context.Context {
 
 	// Set all values in context
 	ctx = WithUserID[int, testUser](ctx, userID)
-	ctx = WithUser[int, testUser](ctx, user)
+	ctx = WithUser[int](ctx, user)
 	ctx = WithTraceID[int, testUser](ctx, traceID)
 	ctx = WithClientIP[int, testUser](ctx, clientIP)
 	ctx = WithUserAgent[int, testUser](ctx, userAgent)
