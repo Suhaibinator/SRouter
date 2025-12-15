@@ -20,6 +20,10 @@ type hijackableRecorder struct {
 	hijacked   bool
 	serverConn net.Conn
 	clientConn net.Conn
+
+	readDeadline       time.Time
+	writeDeadline      time.Time
+	fullDuplexEnabled  bool
 }
 
 func newHijackableRecorder() *hijackableRecorder {
@@ -34,6 +38,21 @@ func (rw *hijackableRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	rw.hijacked = true
 	rw.clientConn, rw.serverConn = net.Pipe()
 	return rw.serverConn, bufio.NewReadWriter(bufio.NewReader(rw.serverConn), bufio.NewWriter(rw.serverConn)), nil
+}
+
+func (rw *hijackableRecorder) SetReadDeadline(deadline time.Time) error {
+	rw.readDeadline = deadline
+	return nil
+}
+
+func (rw *hijackableRecorder) SetWriteDeadline(deadline time.Time) error {
+	rw.writeDeadline = deadline
+	return nil
+}
+
+func (rw *hijackableRecorder) EnableFullDuplex() error {
+	rw.fullDuplexEnabled = true
+	return nil
 }
 
 func (rw *hijackableRecorder) Close() {
@@ -202,6 +221,74 @@ func TestWebSocketRouteHijackNotSupportedIsWrapped(t *testing.T) {
 	}
 	if !strings.Contains(hijackErr.Error(), "does not support hijacking") {
 		t.Fatalf("expected Hijack error to include context, got %q", hijackErr.Error())
+	}
+}
+
+func TestWebSocketRouteResponseControllerCanReachOptionalInterfaces(t *testing.T) {
+	logger := zap.NewNop()
+	config := router.RouterConfig{
+		Logger:            logger,
+		GlobalTimeout:     100 * time.Millisecond,
+		TraceIDBufferSize: 1, // ensures the router wraps the ResponseWriter
+	}
+
+	r := router.NewRouter[string, string](config, nil, nil)
+
+	var controllerErr error
+	var sawDeadlines bool
+	var sawFullDuplex bool
+
+	r.RegisterRoute(router.RouteConfigBase{
+		Path:        "/ws",
+		Methods:     []router.HttpMethod{router.MethodGet},
+		IsWebSocket: true,
+		Handler: func(w http.ResponseWriter, _ *http.Request) {
+			rc := http.NewResponseController(w)
+			deadline := time.Now().Add(5 * time.Second)
+
+			if err := rc.SetReadDeadline(deadline); err != nil {
+				controllerErr = err
+				return
+			}
+			if err := rc.SetWriteDeadline(deadline); err != nil {
+				controllerErr = err
+				return
+			}
+			if err := rc.EnableFullDuplex(); err != nil {
+				controllerErr = err
+				return
+			}
+
+			// Also exercise Hijack through ResponseController, which is commonly used by WebSocket implementations.
+			conn, _, err := rc.Hijack()
+			if err != nil {
+				controllerErr = err
+				return
+			}
+			_ = conn.Close()
+
+			sawDeadlines = true
+			sawFullDuplex = true
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	rr := newHijackableRecorder()
+	defer rr.Close()
+
+	r.ServeHTTP(rr, req)
+
+	if controllerErr != nil {
+		t.Fatalf("expected ResponseController methods to succeed, got %v", controllerErr)
+	}
+	if !sawDeadlines || rr.readDeadline.IsZero() || rr.writeDeadline.IsZero() {
+		t.Fatalf("expected ResponseController to reach SetReadDeadline/SetWriteDeadline on the underlying writer")
+	}
+	if !sawFullDuplex || !rr.fullDuplexEnabled {
+		t.Fatalf("expected ResponseController to reach EnableFullDuplex on the underlying writer")
+	}
+	if !rr.hijacked {
+		t.Fatalf("expected Hijack to be delegated to the underlying response writer")
 	}
 }
 
