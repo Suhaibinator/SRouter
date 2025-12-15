@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,6 +159,49 @@ func TestWebSocketRoutePreservesHijackerWithTracingEnabled(t *testing.T) {
 	}
 	if !rr.hijacked {
 		t.Fatalf("expected Hijack to be delegated to the underlying response writer")
+	}
+}
+
+func TestWebSocketRouteHijackNotSupportedIsWrapped(t *testing.T) {
+	logger := zap.NewNop()
+	config := router.RouterConfig{
+		Logger:            logger,
+		GlobalTimeout:     100 * time.Millisecond,
+		TraceIDBufferSize: 1,
+	}
+
+	r := router.NewRouter[string, string](config, nil, nil)
+
+	var hijackErr error
+
+	r.RegisterRoute(router.RouteConfigBase{
+		Path:        "/ws",
+		Methods:     []router.HttpMethod{router.MethodGet},
+		IsWebSocket: true,
+		Handler: func(w http.ResponseWriter, _ *http.Request) {
+			h, ok := w.(http.Hijacker)
+			if !ok {
+				hijackErr = errors.New("response writer does not implement http.Hijacker")
+				return
+			}
+
+			_, _, hijackErr = h.Hijack()
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	rr := httptest.NewRecorder()
+
+	r.ServeHTTP(rr, req)
+
+	if hijackErr == nil {
+		t.Fatalf("expected Hijack to fail")
+	}
+	if !errors.Is(hijackErr, http.ErrNotSupported) {
+		t.Fatalf("expected errors.Is(hijackErr, http.ErrNotSupported) to be true, got %v", hijackErr)
+	}
+	if !strings.Contains(hijackErr.Error(), "does not support hijacking") {
+		t.Fatalf("expected Hijack error to include context, got %q", hijackErr.Error())
 	}
 }
 

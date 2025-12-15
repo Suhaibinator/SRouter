@@ -795,7 +795,8 @@ type baseResponseWriter struct {
 }
 
 // Unwrap returns the underlying ResponseWriter.
-// This enables http.ResponseController to reach optional interfaces on the original writer.
+// This enables Go 1.20+'s http.ResponseController to reach optional interfaces (e.g. Flusher, Hijacker)
+// implemented by the original writer when this writer is wrapped.
 func (bw *baseResponseWriter) Unwrap() http.ResponseWriter {
 	return bw.ResponseWriter
 }
@@ -822,7 +823,7 @@ func (bw *baseResponseWriter) Flush() {
 func (bw *baseResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	h, ok := bw.ResponseWriter.(http.Hijacker)
 	if !ok {
-		return nil, nil, http.ErrNotSupported
+		return nil, nil, fmt.Errorf("underlying ResponseWriter (%T) does not support hijacking: %w", bw.ResponseWriter, http.ErrNotSupported)
 	}
 	return h.Hijack()
 }
