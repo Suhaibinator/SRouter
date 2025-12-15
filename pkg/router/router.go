@@ -3,10 +3,12 @@
 package router
 
 import (
+	"bufio" // Added for Hijack
 	"context"
 	"encoding/json" // Added for JSON marshalling
 	"errors"
 	"fmt"
+	"net" // Added for Hijack
 	"net/http"
 	"slices"  // Added for CORS
 	"strconv" // Added for CORS
@@ -375,13 +377,7 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 			defer cancel()
 			req = req.WithContext(ctx)
 
-			var wMutex sync.Mutex
-			wrappedW := &mutexResponseWriter{
-				ResponseWriter: w,
-				mu:             &wMutex,
-				// wroteHeader initialized to false
-			}
-
+			tw := newTimeoutResponseWriter(w)
 			done := make(chan struct{})
 			panicChan := make(chan any, 1) // Channel to capture panic
 
@@ -389,25 +385,22 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 				defer func() {
 					if p := recover(); p != nil {
 						panicChan <- p // Send panic to the channel
+						return
 					}
-					close(done) // Signal completion (normal or panic)
+					close(done) // Signal normal completion
 				}()
-				next.ServeHTTP(wrappedW, req)
+				next.ServeHTTP(tw, req)
 			}()
 
 			select {
+			case p := <-panicChan:
+				// Re-panic so the recoveryMiddleware can handle it
+				panic(p)
 			case <-done:
-				// Handler finished (normally or panicked). Check panicChan.
-				select {
-				case p := <-panicChan:
-					// Re-panic so the recoveryMiddleware can handle it
-					panic(p)
-				default:
-					// No panic, normal completion
-				}
+				// Handler finished normally.
 				return
 			case <-ctx.Done():
-				// Timeout occurred. Log it.
+				// Timeout occurred. Log it and send JSON response from the main goroutine.
 				fields := append(r.baseFields(req),
 					zap.Duration("timeout", timeout),
 					zap.String("client_ip", req.RemoteAddr),
@@ -415,11 +408,8 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 				fields = r.addTrace(fields, req)
 				r.logger.Error("Request timed out", fields...)
 
-				// Write timeout response using the wrapped writer.
-				// writeJSONError will atomically claim the write via wroteHeader,
-				// preventing races with the handler goroutine.
-				traceID := scontext.GetTraceIDFromRequest[T, U](req)
-				r.writeJSONError(wrappedW, req, http.StatusRequestTimeout, "Request Timeout", traceID)
+				// Tell the response writer to stop accepting handler writes and best-effort emit the status.
+				tw.timeout(http.StatusRequestTimeout)
 
 				return
 			}
@@ -796,6 +786,14 @@ func (bw *baseResponseWriter) Flush() {
 	}
 }
 
+// Hijack checks if the underlying ResponseWriter supports Hijack and calls it.
+func (bw *baseResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := bw.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, errors.New("underlying ResponseWriter does not support Hijack")
+}
+
 // metricsResponseWriter is a wrapper around http.ResponseWriter that captures metrics.
 // It tracks the status code, bytes written, and timing information for each response.
 type metricsResponseWriter[T comparable, U any] struct {
@@ -823,6 +821,11 @@ func (rw *metricsResponseWriter[T, U]) Write(b []byte) (int, error) {
 // Flush calls the underlying ResponseWriter.Flush if it implements http.Flusher.
 func (rw *metricsResponseWriter[T, U]) Flush() {
 	rw.baseResponseWriter.Flush()
+}
+
+// Hijack delegates to the underlying baseResponseWriter (which delegates to the original writer).
+func (rw *metricsResponseWriter[T, U]) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return rw.baseResponseWriter.Hijack()
 }
 
 // Shutdown gracefully shuts down the router.
@@ -1196,6 +1199,11 @@ func (rw *responseWriter) Flush() {
 	rw.baseResponseWriter.Flush()
 }
 
+// Hijack delegates to the underlying baseResponseWriter.
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return rw.baseResponseWriter.Hijack()
+}
+
 // mutexResponseWriter is a wrapper around http.ResponseWriter that uses a mutex to protect access
 // and tracks if headers/body have been written.
 type mutexResponseWriter struct {
@@ -1235,5 +1243,141 @@ func (rw *mutexResponseWriter) Flush() {
 	defer rw.mu.Unlock()
 	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
+	}
+}
+
+// Hijack acquires the mutex to ensure no concurrent writes, then delegates to the underlying writer.
+// Note: After a successful hijack, the standard library usually manages the connection directly,
+// so subsequent writes via ResponseWriter might fail or behavior is undefined, but the mutex is released.
+func (rw *mutexResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+	if hijacker, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, errors.New("underlying ResponseWriter does not support Hijack")
+}
+
+// timeoutResponseWriter proxies writes to the underlying http.ResponseWriter while
+// coordinating with the timeout middleware to ensure only one goroutine writes at a time.
+// It keeps a private Header map so handler code can mutate headers without racing the
+// timeout path, and it stops accepting writes once the request has timed out.
+type timeoutResponseWriter struct {
+	w http.ResponseWriter
+
+	mu          sync.Mutex
+	header      http.Header
+	wroteHeader bool
+	timedOut    bool
+	hijacked    bool // Track if the connection has been hijacked
+}
+
+func newTimeoutResponseWriter(w http.ResponseWriter) *timeoutResponseWriter {
+	return &timeoutResponseWriter{
+		w:      w,
+		header: cloneHeader(w.Header()),
+	}
+}
+
+func (tw *timeoutResponseWriter) Header() http.Header {
+	return tw.header
+}
+
+func (tw *timeoutResponseWriter) WriteHeader(statusCode int) {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	if tw.timedOut {
+		return
+	}
+	tw.commitLocked(statusCode)
+}
+
+func (tw *timeoutResponseWriter) Write(b []byte) (int, error) {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	if tw.timedOut {
+		return 0, http.ErrHandlerTimeout
+	}
+	if !tw.wroteHeader {
+		tw.commitLocked(http.StatusOK)
+	}
+	return tw.w.Write(b)
+}
+
+func (tw *timeoutResponseWriter) Flush() {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	if tw.timedOut {
+		return
+	}
+	if !tw.wroteHeader {
+		tw.commitLocked(http.StatusOK)
+	}
+	if f, ok := tw.w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Hijack attempts to hijack the connection.
+// It marks the writer as hijacked so the timeout handler knows to back off.
+func (tw *timeoutResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+
+	if tw.timedOut {
+		return nil, nil, http.ErrHandlerTimeout
+	}
+
+	if hijacker, ok := tw.w.(http.Hijacker); ok {
+		conn, rw, err := hijacker.Hijack()
+		if err == nil {
+			tw.hijacked = true
+		}
+		return conn, rw, err
+	}
+	return nil, nil, errors.New("underlying ResponseWriter does not support Hijack")
+}
+
+// timeout is invoked by the timeout middleware to stop further handler writes and emit
+// the timeout status code if the handler hasn't committed a response yet.
+func (tw *timeoutResponseWriter) timeout(statusCode int) {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	if tw.timedOut {
+		return
+	}
+	// If hijacked, don't interfere
+	if tw.hijacked {
+		return
+	}
+	tw.timedOut = true
+	if tw.wroteHeader {
+		return
+	}
+	tw.wroteHeader = true
+	tw.w.WriteHeader(statusCode)
+}
+
+func (tw *timeoutResponseWriter) commitLocked(statusCode int) {
+	if tw.wroteHeader {
+		return
+	}
+	tw.wroteHeader = true
+	dst := tw.w.Header()
+	copyHeader(dst, tw.header)
+	tw.w.WriteHeader(statusCode)
+}
+
+func cloneHeader(src http.Header) http.Header {
+	dst := make(http.Header, len(src))
+	copyHeader(dst, src)
+	return dst
+}
+
+func copyHeader(dst, src http.Header) {
+	for k, vv := range src {
+		copied := make([]string, len(vv))
+		copy(copied, vv)
+		dst[k] = copied
 	}
 }

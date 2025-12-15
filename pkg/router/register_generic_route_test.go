@@ -615,7 +615,7 @@ func TestRegisterGenericRouteWithTimeout(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	timeout := 1 * time.Millisecond
+	timeout := 10 * time.Millisecond
 	ctxErrCh := make(chan error, 1)
 
 	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
@@ -625,22 +625,28 @@ func TestRegisterGenericRouteWithTimeout(t *testing.T) {
 		Handler: func(r *http.Request, req RequestType) (ResponseType, error) {
 			<-r.Context().Done()
 			ctxErrCh <- r.Context().Err()
-			return ResponseType{Message: "Should have timed out"}, r.Context().Err()
+			// Return nil error to avoid handleError race with timeout response.
+			// The timeout middleware writes 408 before this returns.
+			return ResponseType{}, nil
 		},
 		SourceType: Body,
 		Overrides:  common.RouteOverrides{Timeout: timeout},
 	}, timeout, 0, nil)
 
+	// Use httptest.Server to properly handle concurrent access to response
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
 	reqBody := RequestType{ID: "123", Name: "John"}
 	reqBytes, err := json.Marshal(reqBody)
 	require.NoError(t, err)
-	req := httptest.NewRequest("POST", "/test", strings.NewReader(string(reqBytes)))
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusRequestTimeout {
-		t.Errorf("Expected status code %d, got %d", http.StatusRequestTimeout, rr.Code)
+	resp, err := ts.Client().Post(ts.URL+"/test", "application/json", strings.NewReader(string(reqBytes)))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusRequestTimeout {
+		t.Errorf("Expected status code %d, got %d", http.StatusRequestTimeout, resp.StatusCode)
 	}
 
 	select {

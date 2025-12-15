@@ -1,6 +1,9 @@
 package metrics
 
 import (
+	"bufio"  // Added for Hijack
+	"errors" // Added for error handling
+	"net"    // Added for Hijack
 	"net/http"
 	"time"
 
@@ -151,4 +154,13 @@ type responseWriter struct {
 func (rw *responseWriter) WriteHeader(statusCode int) {
 	rw.statusCode = statusCode
 	rw.ResponseWriter.WriteHeader(statusCode)
+}
+
+// Hijack attempts to hijack the connection for the underlying response writer.
+// This allows the metrics middleware to support WebSocket upgrades.
+func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := rw.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, errors.New("underlying ResponseWriter does not support Hijack")
 }
