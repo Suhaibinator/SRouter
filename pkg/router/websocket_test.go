@@ -1,6 +1,9 @@
 package router_test
 
 import (
+	"bufio"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +13,36 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"go.uber.org/zap"
 )
+
+type hijackableRecorder struct {
+	*httptest.ResponseRecorder
+	hijacked   bool
+	serverConn net.Conn
+	clientConn net.Conn
+}
+
+func newHijackableRecorder() *hijackableRecorder {
+	return &hijackableRecorder{ResponseRecorder: httptest.NewRecorder()}
+}
+
+func (rw *hijackableRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if rw.serverConn != nil || rw.clientConn != nil {
+		return nil, nil, errors.New("connection already hijacked")
+	}
+
+	rw.hijacked = true
+	rw.clientConn, rw.serverConn = net.Pipe()
+	return rw.serverConn, bufio.NewReadWriter(bufio.NewReader(rw.serverConn), bufio.NewWriter(rw.serverConn)), nil
+}
+
+func (rw *hijackableRecorder) Close() {
+	if rw.serverConn != nil {
+		_ = rw.serverConn.Close()
+	}
+	if rw.clientConn != nil {
+		_ = rw.clientConn.Close()
+	}
+}
 
 func TestWebSocketRoute(t *testing.T) {
 	logger := zap.NewNop()
@@ -75,6 +108,57 @@ func TestWebSocketRoute(t *testing.T) {
 			t.Errorf("/normal: expected 408 Timeout, got %d", resp.StatusCode)
 		}
 	})
+}
+
+func TestWebSocketRoutePreservesHijackerWithTracingEnabled(t *testing.T) {
+	logger := zap.NewNop()
+	config := router.RouterConfig{
+		Logger:            logger,
+		GlobalTimeout:     100 * time.Millisecond,
+		TraceIDBufferSize: 1,
+	}
+
+	r := router.NewRouter[string, string](config, nil, nil)
+
+	var sawHijacker bool
+	var hijackErr error
+
+	r.RegisterRoute(router.RouteConfigBase{
+		Path:        "/ws",
+		Methods:     []router.HttpMethod{router.MethodGet},
+		IsWebSocket: true,
+		Handler: func(w http.ResponseWriter, _ *http.Request) {
+			h, ok := w.(http.Hijacker)
+			if !ok {
+				hijackErr = errors.New("response writer does not implement http.Hijacker")
+				return
+			}
+			sawHijacker = true
+
+			conn, _, err := h.Hijack()
+			if err != nil {
+				hijackErr = err
+				return
+			}
+			_ = conn.Close()
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	rr := newHijackableRecorder()
+	defer rr.Close()
+
+	r.ServeHTTP(rr, req)
+
+	if !sawHijacker {
+		t.Fatalf("expected handler to receive an http.Hijacker when tracing is enabled")
+	}
+	if hijackErr != nil {
+		t.Fatalf("expected Hijack to succeed, got %v", hijackErr)
+	}
+	if !rr.hijacked {
+		t.Fatalf("expected Hijack to be delegated to the underlying response writer")
+	}
 }
 
 func TestSubRouterWebSocketRoute(t *testing.T) {

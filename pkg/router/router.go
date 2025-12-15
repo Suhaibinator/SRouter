@@ -3,10 +3,12 @@
 package router
 
 import (
+	"bufio"
 	"context"
 	"encoding/json" // Added for JSON marshalling
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"slices"  // Added for CORS
 	"strconv" // Added for CORS
@@ -792,6 +794,12 @@ type baseResponseWriter struct {
 	http.ResponseWriter
 }
 
+// Unwrap returns the underlying ResponseWriter.
+// This enables http.ResponseController to reach optional interfaces on the original writer.
+func (bw *baseResponseWriter) Unwrap() http.ResponseWriter {
+	return bw.ResponseWriter
+}
+
 // WriteHeader calls the underlying ResponseWriter's WriteHeader.
 func (bw *baseResponseWriter) WriteHeader(statusCode int) {
 	bw.ResponseWriter.WriteHeader(statusCode)
@@ -807,6 +815,16 @@ func (bw *baseResponseWriter) Flush() {
 	if f, ok := bw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Hijack delegates to the underlying ResponseWriter when it supports http.Hijacker.
+// This is required for WebSocket upgrades to work through ResponseWriter wrappers.
+func (bw *baseResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := bw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, http.ErrNotSupported
+	}
+	return h.Hijack()
 }
 
 // metricsResponseWriter is a wrapper around http.ResponseWriter that captures metrics.
