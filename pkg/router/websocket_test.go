@@ -76,8 +76,8 @@ func TestWebSocketRoute(t *testing.T) {
 	// Register a "WebSocket" route that sleeps longer than the global timeout
 	// Since DisableTimeout is true, it should NOT timeout.
 	r.RegisterRoute(router.RouteConfigBase{
-		Path:        "/ws",
-		Methods:     []router.HttpMethod{router.MethodGet},
+		Path:           "/ws",
+		Methods:        []router.HttpMethod{router.MethodGet},
 		DisableTimeout: true,
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Simulate long-lived connection
@@ -144,8 +144,8 @@ func TestWebSocketRoutePreservesHijackerWithTracingEnabled(t *testing.T) {
 	var hijackErr error
 
 	r.RegisterRoute(router.RouteConfigBase{
-		Path:        "/ws",
-		Methods:     []router.HttpMethod{router.MethodGet},
+		Path:           "/ws",
+		Methods:        []router.HttpMethod{router.MethodGet},
 		DisableTimeout: true,
 		Handler: func(w http.ResponseWriter, _ *http.Request) {
 			h, ok := w.(http.Hijacker)
@@ -194,8 +194,8 @@ func TestWebSocketRouteHijackNotSupportedIsWrapped(t *testing.T) {
 	var hijackErr error
 
 	r.RegisterRoute(router.RouteConfigBase{
-		Path:        "/ws",
-		Methods:     []router.HttpMethod{router.MethodGet},
+		Path:           "/ws",
+		Methods:        []router.HttpMethod{router.MethodGet},
 		DisableTimeout: true,
 		Handler: func(w http.ResponseWriter, _ *http.Request) {
 			h, ok := w.(http.Hijacker)
@@ -239,8 +239,8 @@ func TestWebSocketRouteResponseControllerCanReachOptionalInterfaces(t *testing.T
 	var sawFullDuplex bool
 
 	r.RegisterRoute(router.RouteConfigBase{
-		Path:        "/ws",
-		Methods:     []router.HttpMethod{router.MethodGet},
+		Path:           "/ws",
+		Methods:        []router.HttpMethod{router.MethodGet},
 		DisableTimeout: true,
 		Handler: func(w http.ResponseWriter, _ *http.Request) {
 			rc := http.NewResponseController(w)
@@ -305,8 +305,8 @@ func TestSubRouterWebSocketRoute(t *testing.T) {
 				},
 				Routes: []router.RouteDefinition{
 					router.RouteConfigBase{
-						Path:        "/ws",
-						Methods:     []router.HttpMethod{router.MethodGet},
+						Path:           "/ws",
+						Methods:        []router.HttpMethod{router.MethodGet},
 						DisableTimeout: true,
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							// Simulate long-lived connection

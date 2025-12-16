@@ -53,8 +53,8 @@ func main() {
 
 	// WebSocket Endpoint
 	r.RegisterRoute(router.RouteConfigBase{
-		Path:        "/ws",
-		Methods:     []router.HttpMethod{router.MethodGet},
+		Path:           "/ws",
+		Methods:        []router.HttpMethod{router.MethodGet},
 		DisableTimeout: true, // Crucial: disables global timeout
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			conn, err := upgrader.Upgrade(w, r, nil)
