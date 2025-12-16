@@ -3,10 +3,12 @@
 package router
 
 import (
+	"bufio"
 	"context"
 	"encoding/json" // Added for JSON marshalling
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"slices"  // Added for CORS
 	"strconv" // Added for CORS
@@ -210,6 +212,12 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 
 			// Get effective settings considering overrides
 			timeout := r.getEffectiveTimeout(route.Overrides.Timeout, sr.Overrides.Timeout)
+
+			// If route has timeout disabled, set timeout to 0
+			if route.DisableTimeout {
+				timeout = 0
+			}
+
 			maxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, sr.Overrides.MaxBodySize)
 			rateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, sr.Overrides.RateLimit)
 			authLevel := route.AuthLevel // Use route-specific first
@@ -415,19 +423,48 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 				fields = r.addTrace(fields, req)
 				r.logger.Error("Request timed out", fields...)
 
-				// Acquire lock to safely check and potentially write timeout response.
-				wrappedW.mu.Lock()
-				// Check if handler already started writing. Use Swap for atomic check-and-set.
-				if !wrappedW.wroteHeader.Swap(true) {
-					// Handler hasn't written yet, we can write the timeout error.
-					// Hold the lock while writing headers and body for timeout.
-					// Use the new JSON error writer, passing the request
-					traceID := scontext.GetTraceIDFromRequest[T, U](req)
-					r.writeJSONError(wrappedW.ResponseWriter, req, http.StatusRequestTimeout, "Request Timeout", traceID)
+				// If the handler already started writing, don't attempt to take over the response.
+				// Wait for the handler to finish to avoid returning while another goroutine is writing.
+				if wrappedW.wroteHeader.Load() {
+					<-done
+					select {
+					case p := <-panicChan:
+						panic(p)
+					default:
+					}
+					return
 				}
-				// If wroteHeader was already true, handler won the race, do nothing here.
-				// Unlock should happen regardless of whether we wrote the error or not.
+
+				// Mark timed out so any in-flight handler writes fail fast and don't touch the underlying writer.
+				wrappedW.timedOut.Store(true)
+
+				// Reserve the response so the handler can't race to write its own error response.
+				if !wrappedW.wroteHeader.CompareAndSwap(false, true) {
+					<-done
+					select {
+					case p := <-panicChan:
+						panic(p)
+					default:
+					}
+					return
+				}
+
+				// Serialize the timeout response write with any handler goroutine currently inside rw methods.
+				wrappedW.mu.Lock()
+				traceID := scontext.GetTraceIDFromRequest[T, U](req)
+				r.writeJSONError(wrappedW.ResponseWriter, req, http.StatusRequestTimeout, "Request Timeout", traceID)
 				wrappedW.mu.Unlock()
+
+				// Give the handler a chance to observe cancellation and exit promptly.
+				select {
+				case <-done:
+					select {
+					case p := <-panicChan:
+						panic(p)
+					default:
+					}
+				case <-time.After(50 * time.Millisecond):
+				}
 				return
 			}
 		})
@@ -786,6 +823,13 @@ type baseResponseWriter struct {
 	http.ResponseWriter
 }
 
+// Unwrap returns the underlying ResponseWriter.
+// This enables Go 1.20+'s http.ResponseController to reach optional interfaces (e.g. Flusher, Hijacker)
+// implemented by the original writer when this writer is wrapped.
+func (bw *baseResponseWriter) Unwrap() http.ResponseWriter {
+	return bw.ResponseWriter
+}
+
 // WriteHeader calls the underlying ResponseWriter's WriteHeader.
 func (bw *baseResponseWriter) WriteHeader(statusCode int) {
 	bw.ResponseWriter.WriteHeader(statusCode)
@@ -801,6 +845,16 @@ func (bw *baseResponseWriter) Flush() {
 	if f, ok := bw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Hijack delegates to the underlying ResponseWriter when it supports http.Hijacker.
+// This is required for WebSocket upgrades to work through ResponseWriter wrappers.
+func (bw *baseResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := bw.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("underlying ResponseWriter (%T) does not support hijacking: %w", bw.ResponseWriter, http.ErrNotSupported)
+	}
+	return h.Hijack()
 }
 
 // metricsResponseWriter is a wrapper around http.ResponseWriter that captures metrics.
@@ -988,6 +1042,56 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 // It includes the trace ID in the JSON payload if available and enabled.
 // It also adds CORS headers based on information stored in the context by the CORS middleware.
 func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, statusCode int, message string, traceID string) { // Add req parameter
+	if mrw, ok := w.(*mutexResponseWriter); ok {
+		if mrw.timedOut.Load() {
+			return
+		}
+		if !mrw.wroteHeader.CompareAndSwap(false, true) {
+			return
+		}
+
+		mrw.mu.Lock()
+		defer mrw.mu.Unlock()
+
+		allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfoFromRequest[T, U](req)
+		header := mrw.ResponseWriter.Header()
+
+		if corsOK {
+			if allowedOrigin != "" {
+				header.Set("Access-Control-Allow-Origin", allowedOrigin)
+			}
+			if credentialsAllowed {
+				header.Set("Access-Control-Allow-Credentials", "true")
+			}
+			if allowedOrigin != "" && allowedOrigin != "*" {
+				header.Add("Vary", "Origin")
+			}
+		}
+
+		header.Set("Content-Type", "application/json; charset=utf-8")
+		mrw.ResponseWriter.WriteHeader(statusCode)
+
+		errorPayload := map[string]any{
+			"error": map[string]string{
+				"message": message,
+			},
+		}
+		if r.config.TraceIDBufferSize > 0 && traceID != "" {
+			errorMap := errorPayload["error"].(map[string]string)
+			errorMap["trace_id"] = traceID
+		}
+
+		if err := json.NewEncoder(mrw.ResponseWriter).Encode(errorPayload); err != nil {
+			r.logger.Error("Failed to write JSON error response",
+				zap.Error(err),
+				zap.Int("original_status", statusCode),
+				zap.String("original_message", message),
+				zap.String("trace_id", traceID),
+			)
+		}
+		return
+	}
+
 	// Retrieve CORS info from context using the passed-in request
 	allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfoFromRequest[T, U](req)
 
@@ -1195,10 +1299,14 @@ type mutexResponseWriter struct {
 	http.ResponseWriter
 	mu          *sync.Mutex
 	wroteHeader atomic.Bool // Tracks if WriteHeader or Write has been called
+	timedOut    atomic.Bool // When true, reject all writes to the underlying writer
 }
 
 // Header acquires the mutex and returns the underlying Header map.
 func (rw *mutexResponseWriter) Header() http.Header {
+	if rw.timedOut.Load() {
+		return make(http.Header)
+	}
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 	return rw.ResponseWriter.Header()
@@ -1206,6 +1314,9 @@ func (rw *mutexResponseWriter) Header() http.Header {
 
 // WriteHeader acquires the mutex, marks headers as written, and calls the underlying ResponseWriter.WriteHeader.
 func (rw *mutexResponseWriter) WriteHeader(statusCode int) {
+	if rw.timedOut.Load() {
+		return
+	}
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 	if !rw.wroteHeader.Swap(true) { // Atomically set flag and check previous value
@@ -1216,6 +1327,9 @@ func (rw *mutexResponseWriter) WriteHeader(statusCode int) {
 
 // Write acquires the mutex, marks headers/body as written, and calls the underlying ResponseWriter.Write.
 func (rw *mutexResponseWriter) Write(b []byte) (int, error) {
+	if rw.timedOut.Load() {
+		return 0, http.ErrHandlerTimeout
+	}
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 	rw.wroteHeader.Store(true) // Mark as written (headers might be implicitly written here)
@@ -1224,6 +1338,9 @@ func (rw *mutexResponseWriter) Write(b []byte) (int, error) {
 
 // Flush acquires the mutex and calls the underlying ResponseWriter.Flush if it implements http.Flusher.
 func (rw *mutexResponseWriter) Flush() {
+	if rw.timedOut.Load() {
+		return
+	}
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 	if f, ok := rw.ResponseWriter.(http.Flusher); ok {

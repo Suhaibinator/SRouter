@@ -189,12 +189,13 @@ type SubRouterConfig struct {
 // - Sub-router settings override global settings
 // - Middlewares are additive (not replaced)
 type RouteConfigBase struct {
-	Path        string                // Route path (will be prefixed with sub-router path prefix if applicable)
-	Methods     []HttpMethod          // HTTP methods this route handles (use constants like MethodGet)
-	AuthLevel   *AuthLevel            // Authentication level for this route. If nil, inherits from sub-router or defaults to NoAuth
-	Overrides   common.RouteOverrides // Configuration overrides for this specific route
-	Handler     http.HandlerFunc      // Standard HTTP handler function
-	Middlewares []common.Middleware   // Middlewares applied to this specific route (combined with sub-router and global middlewares)
+	Path           string                // Route path (will be prefixed with sub-router path prefix if applicable)
+	Methods        []HttpMethod          // HTTP methods this route handles (use constants like MethodGet)
+	AuthLevel      *AuthLevel            // Authentication level for this route. If nil, inherits from sub-router or defaults to NoAuth
+	Overrides      common.RouteOverrides // Configuration overrides for this specific route
+	Handler        http.HandlerFunc      // Standard HTTP handler function
+	Middlewares    []common.Middleware   // Middlewares applied to this specific route (combined with sub-router and global middlewares)
+	DisableTimeout bool                  // Indicates if the timeout should be disabled for this route (e.g., for WebSockets or long-lived connections).
 }
 
 // Implement RouteDefinition for RouteConfigBase
