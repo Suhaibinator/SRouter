@@ -26,8 +26,8 @@ func (r *Router[T, U]) RegisterRoute(route RouteConfigBase) {
 	// Get effective timeout, max body size, and rate limit for this route
 	timeout := r.getEffectiveTimeout(route.Overrides.Timeout, 0)
 
-	// If route is a WebSocket, disable timeout
-	if route.IsWebSocket {
+	// If route has timeout disabled, set timeout to 0
+	if route.DisableTimeout {
 		timeout = 0
 	}
 

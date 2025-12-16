@@ -29,7 +29,7 @@ func main() {
 	routerConfig := router.RouterConfig{
 		ServiceName:   "websocket-example",
 		Logger:        logger,
-		GlobalTimeout: 5 * time.Second, // Global timeout to test IsWebSocket bypass
+		GlobalTimeout: 5 * time.Second, // Global timeout to test DisableTimeout bypass
 	}
 
 	// Simple auth - accept everything
@@ -55,7 +55,7 @@ func main() {
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:        "/ws",
 		Methods:     []router.HttpMethod{router.MethodGet},
-		IsWebSocket: true, // Crucial: disables global timeout
+		DisableTimeout: true, // Crucial: disables global timeout
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			conn, err := upgrader.Upgrade(w, r, nil)
 			if err != nil {

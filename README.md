@@ -326,14 +326,14 @@ func GetUserHandler(w http.ResponseWriter, r *http.Request) {
 
 SRouter supports WebSocket connections by allowing you to disable the automatic request timeout for specific routes. This is crucial for long-lived connections.
 
-To enable WebSocket support for a route, set the `IsWebSocket` flag to `true` in your `RouteConfigBase`. This will prevent the global or sub-router timeout from terminating the connection.
+To enable WebSocket support for a route, set the `DisableTimeout` flag to `true` in your `RouteConfigBase`. This will prevent the global or sub-router timeout from terminating the connection. This is also useful for other long-lived connections such as Server-Sent Events (SSE).
 
 ```go
 // Register a WebSocket route
 r.RegisterRoute(router.RouteConfigBase{
     Path:        "/ws",
     Methods:     []router.HttpMethod{router.MethodGet},
-    IsWebSocket: true, // Disables timeout for this route
+    DisableTimeout: true, // Disables timeout for this route
     Handler: func(w http.ResponseWriter, r *http.Request) {
         // Upgrade the connection to a WebSocket
         // conn, err := upgrader.Upgrade(w, r, nil)
@@ -1245,7 +1245,7 @@ type RouteConfigBase struct {
  Overrides   common.RouteOverrides             // Optional per-route overrides
  Handler     http.HandlerFunc                  // Standard HTTP handler function
  Middlewares []common.Middleware               // Middlewares applied to this specific route
- IsWebSocket bool                          // Indicates if this route is a WebSocket route. If true, timeout is disabled.
+ DisableTimeout bool                          // Indicates if the timeout should be disabled for this route (e.g., for WebSockets or long-lived connections).
 }
 ```
 

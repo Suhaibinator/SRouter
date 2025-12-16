@@ -74,11 +74,11 @@ func TestWebSocketRoute(t *testing.T) {
 	r := router.NewRouter[string, string](config, nil, nil)
 
 	// Register a "WebSocket" route that sleeps longer than the global timeout
-	// Since IsWebSocket is true, it should NOT timeout.
+	// Since DisableTimeout is true, it should NOT timeout.
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:        "/ws",
 		Methods:     []router.HttpMethod{router.MethodGet},
-		IsWebSocket: true,
+		DisableTimeout: true,
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Simulate long-lived connection
 			time.Sleep(200 * time.Millisecond)
@@ -146,7 +146,7 @@ func TestWebSocketRoutePreservesHijackerWithTracingEnabled(t *testing.T) {
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:        "/ws",
 		Methods:     []router.HttpMethod{router.MethodGet},
-		IsWebSocket: true,
+		DisableTimeout: true,
 		Handler: func(w http.ResponseWriter, _ *http.Request) {
 			h, ok := w.(http.Hijacker)
 			if !ok {
@@ -196,7 +196,7 @@ func TestWebSocketRouteHijackNotSupportedIsWrapped(t *testing.T) {
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:        "/ws",
 		Methods:     []router.HttpMethod{router.MethodGet},
-		IsWebSocket: true,
+		DisableTimeout: true,
 		Handler: func(w http.ResponseWriter, _ *http.Request) {
 			h, ok := w.(http.Hijacker)
 			if !ok {
@@ -241,7 +241,7 @@ func TestWebSocketRouteResponseControllerCanReachOptionalInterfaces(t *testing.T
 	r.RegisterRoute(router.RouteConfigBase{
 		Path:        "/ws",
 		Methods:     []router.HttpMethod{router.MethodGet},
-		IsWebSocket: true,
+		DisableTimeout: true,
 		Handler: func(w http.ResponseWriter, _ *http.Request) {
 			rc := http.NewResponseController(w)
 			deadline := time.Now().Add(5 * time.Second)
@@ -307,7 +307,7 @@ func TestSubRouterWebSocketRoute(t *testing.T) {
 					router.RouteConfigBase{
 						Path:        "/ws",
 						Methods:     []router.HttpMethod{router.MethodGet},
-						IsWebSocket: true,
+						DisableTimeout: true,
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							// Simulate long-lived connection
 							time.Sleep(200 * time.Millisecond)
