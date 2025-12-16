@@ -213,8 +213,8 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 			// Get effective settings considering overrides
 			timeout := r.getEffectiveTimeout(route.Overrides.Timeout, sr.Overrides.Timeout)
 
-			// If route is a WebSocket, disable timeout
-			if route.IsWebSocket {
+			// If route has timeout disabled, set timeout to 0
+			if route.DisableTimeout {
 				timeout = 0
 			}
 
