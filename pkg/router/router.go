@@ -51,6 +51,8 @@ type Router[T comparable, U any] struct {
 
 const defaultAuthHeaderName = "Authorization"
 
+type authTokenExtractor func(*http.Request) (string, bool, string)
+
 // RegisterSubRouterWithSubRouter registers a nested SubRouter with a parent SubRouter.
 // This helper function enables hierarchical route organization by adding a child
 // SubRouter to the parent's SubRouters slice.
@@ -953,6 +955,46 @@ func normalizeAuthTokenConfig(config common.AuthTokenConfig) common.AuthTokenCon
 	return config
 }
 
+func buildAuthTokenExtractor(config common.AuthTokenConfig) authTokenExtractor {
+	switch config.Source {
+	case common.AuthTokenSourceHeader:
+		headerName := config.HeaderName
+		if headerName == "" {
+			headerName = defaultAuthHeaderName
+		}
+		missingReason := "no auth header"
+		if headerName == defaultAuthHeaderName {
+			missingReason = "no authorization header"
+		}
+		return func(req *http.Request) (string, bool, string) {
+			authHeader := req.Header.Get(headerName)
+			if authHeader == "" {
+				return "", false, missingReason
+			}
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			return token, true, ""
+		}
+	case common.AuthTokenSourceCookie:
+		cookieName := config.CookieName
+		if cookieName == "" {
+			return func(*http.Request) (string, bool, string) {
+				return "", false, "auth cookie name not configured"
+			}
+		}
+		return func(req *http.Request) (string, bool, string) {
+			cookie, err := req.Cookie(cookieName)
+			if err != nil {
+				return "", false, "no auth cookie"
+			}
+			return cookie.Value, true, ""
+		}
+	default:
+		return func(*http.Request) (string, bool, string) {
+			return "", false, "unsupported auth token source"
+		}
+	}
+}
+
 // getEffectiveAuthTokenConfig returns the effective auth token config for a route.
 // Precedence order (first non-nil value wins):
 // 1. Route-specific auth token config
@@ -1238,34 +1280,10 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 // authenticateRequest attempts to authenticate the request and, if successful,
 // returns a new request with user information stored in the context.
 // It does not perform any logging; callers handle logging based on the result.
-func (r *Router[T, U]) authenticateRequest(req *http.Request, authTokenConfig common.AuthTokenConfig) (*http.Request, bool, string) {
-	var token string
-
-	switch authTokenConfig.Source {
-	case common.AuthTokenSourceHeader:
-		headerName := authTokenConfig.HeaderName
-		if headerName == "" {
-			headerName = defaultAuthHeaderName
-		}
-		authHeader := req.Header.Get(headerName)
-		if authHeader == "" {
-			if headerName == defaultAuthHeaderName {
-				return req, false, "no authorization header"
-			}
-			return req, false, "no auth header"
-		}
-		token = strings.TrimPrefix(authHeader, "Bearer ")
-	case common.AuthTokenSourceCookie:
-		if authTokenConfig.CookieName == "" {
-			return req, false, "auth cookie name not configured"
-		}
-		cookie, err := req.Cookie(authTokenConfig.CookieName)
-		if err != nil {
-			return req, false, "no auth cookie"
-		}
-		token = cookie.Value
-	default:
-		return req, false, "unsupported auth token source"
+func (r *Router[T, U]) authenticateRequest(req *http.Request, extractToken authTokenExtractor) (*http.Request, bool, string) {
+	token, ok, reason := extractToken(req)
+	if !ok {
+		return req, false, reason
 	}
 
 	if user, valid := r.authFunction(req.Context(), token); valid {
@@ -1292,11 +1310,12 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 
 func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.AuthTokenConfig) common.Middleware {
 	authTokenConfig = normalizeAuthTokenConfig(authTokenConfig)
+	extractToken := buildAuthTokenExtractor(authTokenConfig)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			var ok bool
 			var reason string
-			req, ok, reason = r.authenticateRequest(req, authTokenConfig)
+			req, ok, reason = r.authenticateRequest(req, extractToken)
 			if !ok {
 				fields := append(r.baseFields(req),
 					zap.String("remote_addr", req.RemoteAddr),
@@ -1326,10 +1345,11 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 
 func (r *Router[T, U]) authOptionalMiddlewareWithConfig(authTokenConfig common.AuthTokenConfig) common.Middleware {
 	authTokenConfig = normalizeAuthTokenConfig(authTokenConfig)
+	extractToken := buildAuthTokenExtractor(authTokenConfig)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			var ok bool
-			req, ok, _ = r.authenticateRequest(req, authTokenConfig)
+			req, ok, _ = r.authenticateRequest(req, extractToken)
 			if ok {
 				fields := r.addTrace(r.baseFields(req), req)
 				r.logger.Debug("Authentication successful", fields...)
