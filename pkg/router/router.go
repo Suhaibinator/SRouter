@@ -955,6 +955,12 @@ func normalizeAuthTokenConfig(config common.AuthTokenConfig) common.AuthTokenCon
 	return config
 }
 
+func (r *Router[T, U]) warnOnInvalidAuthTokenConfig(config common.AuthTokenConfig) {
+	if config.Source == common.AuthTokenSourceCookie && config.CookieName == "" {
+		r.logger.Warn("Auth token cookie name not configured")
+	}
+}
+
 func buildAuthTokenExtractor(config common.AuthTokenConfig) authTokenExtractor {
 	switch config.Source {
 	case common.AuthTokenSourceHeader:
@@ -1310,6 +1316,7 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 
 func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.AuthTokenConfig) common.Middleware {
 	authTokenConfig = normalizeAuthTokenConfig(authTokenConfig)
+	r.warnOnInvalidAuthTokenConfig(authTokenConfig)
 	extractToken := buildAuthTokenExtractor(authTokenConfig)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -1345,6 +1352,7 @@ func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 
 func (r *Router[T, U]) authOptionalMiddlewareWithConfig(authTokenConfig common.AuthTokenConfig) common.Middleware {
 	authTokenConfig = normalizeAuthTokenConfig(authTokenConfig)
+	r.warnOnInvalidAuthTokenConfig(authTokenConfig)
 	extractToken := buildAuthTokenExtractor(authTokenConfig)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
