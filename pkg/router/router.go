@@ -49,6 +49,8 @@ type Router[T comparable, U any] struct {
 	corsMaxAge        string
 }
 
+const defaultAuthHeaderName = "Authorization"
+
 // RegisterSubRouterWithSubRouter registers a nested SubRouter with a parent SubRouter.
 // This helper function enables hierarchical route organization by adding a child
 // SubRouter to the parent's SubRouters slice.
@@ -220,6 +222,7 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 
 			maxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, sr.Overrides.MaxBodySize)
 			rateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, sr.Overrides.RateLimit)
+			authTokenConfig := r.getEffectiveAuthTokenConfig(route.Overrides.AuthToken, sr.Overrides.AuthToken)
 			authLevel := route.AuthLevel // Use route-specific first
 			if authLevel == nil {
 				authLevel = sr.AuthLevel // Fallback to sub-router default
@@ -231,7 +234,7 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 			allMiddlewares = append(allMiddlewares, route.Middlewares...)
 
 			// Create a handler with all middlewares applied (global middlewares are added inside wrapHandler)
-			handler := r.wrapHandler(route.Handler, authLevel, timeout, maxBodySize, rateLimit, allMiddlewares)
+			handler := r.wrapHandler(route.Handler, authLevel, authTokenConfig, timeout, maxBodySize, rateLimit, allMiddlewares)
 
 			// Register the route with httprouter
 			for _, method := range route.Methods {
@@ -292,7 +295,7 @@ func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler, routeTemp
 // 7. Shutdown check and body size limit (in the base handler)
 //
 // Middlewares are combined additively, not replaced.
-func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLevel, timeout time.Duration, maxBodySize int64, rateLimit *common.RateLimitConfig[T, U], middlewares []common.Middleware) http.Handler { // Use common.RateLimitConfig
+func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLevel, authTokenConfig common.AuthTokenConfig, timeout time.Duration, maxBodySize int64, rateLimit *common.RateLimitConfig[T, U], middlewares []common.Middleware) http.Handler { // Use common.RateLimitConfig
 	// Create a base handler that only handles shutdown check and body size limit directly
 	// Timeout is now handled by timeoutMiddleware setting the context.
 	h := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -334,9 +337,9 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLeve
 	if authLevel != nil {
 		switch *authLevel {
 		case AuthRequired:
-			chain = chain.Append(r.authRequiredMiddleware)
+			chain = chain.Append(r.authRequiredMiddlewareWithConfig(authTokenConfig))
 		case AuthOptional:
-			chain = chain.Append(r.authOptionalMiddleware)
+			chain = chain.Append(r.authOptionalMiddlewareWithConfig(authTokenConfig))
 		}
 	}
 
@@ -549,6 +552,8 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 	effectiveTimeout := r.getEffectiveTimeout(route.Overrides.Timeout, subRouterTimeout)
 	effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, subRouterMaxBodySize)
 	effectiveRateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, subRouterRateLimit) // This returns *common.RateLimitConfig[UserID, User]
+	effectiveAuthTokenConfig := r.getEffectiveAuthTokenConfig(route.Overrides.AuthToken, sr.Overrides.AuthToken)
+	finalRouteConfig.Overrides.AuthToken = &effectiveAuthTokenConfig
 
 	// Call the underlying generic registration function with the modified config
 	RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
@@ -934,6 +939,35 @@ func (r *Router[T, U]) getEffectiveTimeout(routeTimeout, subRouterTimeout time.D
 	return r.config.GlobalTimeout
 }
 
+func defaultAuthTokenConfig() common.AuthTokenConfig {
+	return common.AuthTokenConfig{
+		Source:     common.AuthTokenSourceHeader,
+		HeaderName: defaultAuthHeaderName,
+	}
+}
+
+func normalizeAuthTokenConfig(config common.AuthTokenConfig) common.AuthTokenConfig {
+	if config.Source == common.AuthTokenSourceHeader && config.HeaderName == "" {
+		config.HeaderName = defaultAuthHeaderName
+	}
+	return config
+}
+
+// getEffectiveAuthTokenConfig returns the effective auth token config for a route.
+// Precedence order (first non-nil value wins):
+// 1. Route-specific auth token config
+// 2. Sub-router auth token override (NOT inherited by nested sub-routers)
+// 3. Default header-based auth token config
+func (r *Router[T, U]) getEffectiveAuthTokenConfig(routeAuth, subRouterAuth *common.AuthTokenConfig) common.AuthTokenConfig {
+	if routeAuth != nil {
+		return normalizeAuthTokenConfig(*routeAuth)
+	}
+	if subRouterAuth != nil {
+		return normalizeAuthTokenConfig(*subRouterAuth)
+	}
+	return defaultAuthTokenConfig()
+}
+
 // getEffectiveMaxBodySize returns the effective max body size for a route.
 // Precedence order (first non-zero value wins):
 // 1. Route-specific max body size
@@ -1204,13 +1238,36 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 // authenticateRequest attempts to authenticate the request and, if successful,
 // returns a new request with user information stored in the context.
 // It does not perform any logging; callers handle logging based on the result.
-func (r *Router[T, U]) authenticateRequest(req *http.Request) (*http.Request, bool, string) {
-	authHeader := req.Header.Get("Authorization")
-	if authHeader == "" {
-		return req, false, "no authorization header"
+func (r *Router[T, U]) authenticateRequest(req *http.Request, authTokenConfig common.AuthTokenConfig) (*http.Request, bool, string) {
+	var token string
+
+	switch authTokenConfig.Source {
+	case common.AuthTokenSourceHeader:
+		headerName := authTokenConfig.HeaderName
+		if headerName == "" {
+			headerName = defaultAuthHeaderName
+		}
+		authHeader := req.Header.Get(headerName)
+		if authHeader == "" {
+			if headerName == defaultAuthHeaderName {
+				return req, false, "no authorization header"
+			}
+			return req, false, "no auth header"
+		}
+		token = strings.TrimPrefix(authHeader, "Bearer ")
+	case common.AuthTokenSourceCookie:
+		if authTokenConfig.CookieName == "" {
+			return req, false, "auth cookie name not configured"
+		}
+		cookie, err := req.Cookie(authTokenConfig.CookieName)
+		if err != nil {
+			return req, false, "no auth cookie"
+		}
+		token = cookie.Value
+	default:
+		return req, false, "unsupported auth token source"
 	}
 
-	token := strings.TrimPrefix(authHeader, "Bearer ")
 	if user, valid := r.authFunction(req.Context(), token); valid {
 		id := r.getUserIdFromUser(user)
 		ctx := scontext.WithUserID[T, U](req.Context(), id)
@@ -1230,26 +1287,33 @@ func (r *Router[T, U]) authenticateRequest(req *http.Request) (*http.Request, bo
 // If authentication fails, it returns a 401 Unauthorized response.
 // It uses the middleware.AuthenticationWithUser function with a configurable authentication function.
 func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		var ok bool
-		var reason string
-		req, ok, reason = r.authenticateRequest(req)
-		if !ok {
-			fields := append(r.baseFields(req),
-				zap.String("remote_addr", req.RemoteAddr),
-				zap.String("error", reason),
-			)
-			fields = r.addTrace(fields, req)
-			r.logger.Warn("Authentication failed", fields...)
-			traceID := scontext.GetTraceIDFromRequest[T, U](req)
-			r.writeJSONError(w, req, http.StatusUnauthorized, "Unauthorized", traceID)
-			return
-		}
+	return r.authRequiredMiddlewareWithConfig(defaultAuthTokenConfig())(next)
+}
 
-		fields := r.addTrace(r.baseFields(req), req)
-		r.logger.Debug("Authentication successful", fields...)
-		next.ServeHTTP(w, req)
-	})
+func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.AuthTokenConfig) common.Middleware {
+	authTokenConfig = normalizeAuthTokenConfig(authTokenConfig)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			var ok bool
+			var reason string
+			req, ok, reason = r.authenticateRequest(req, authTokenConfig)
+			if !ok {
+				fields := append(r.baseFields(req),
+					zap.String("remote_addr", req.RemoteAddr),
+					zap.String("error", reason),
+				)
+				fields = r.addTrace(fields, req)
+				r.logger.Warn("Authentication failed", fields...)
+				traceID := scontext.GetTraceIDFromRequest[T, U](req)
+				r.writeJSONError(w, req, http.StatusUnauthorized, "Unauthorized", traceID)
+				return
+			}
+
+			fields := r.addTrace(r.baseFields(req), req)
+			r.logger.Debug("Authentication successful", fields...)
+			next.ServeHTTP(w, req)
+		})
+	}
 }
 
 // authOptionalMiddleware is a middleware that attempts authentication for a request,
@@ -1257,17 +1321,24 @@ func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 // It tries to authenticate the request and adds the user ID to the context if successful,
 // but allows the request to proceed even if authentication fails.
 func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		var ok bool
-		req, ok, _ = r.authenticateRequest(req)
-		if ok {
-			fields := r.addTrace(r.baseFields(req), req)
-			r.logger.Debug("Authentication successful", fields...)
-		}
+	return r.authOptionalMiddlewareWithConfig(defaultAuthTokenConfig())(next)
+}
 
-		// Call the next handler regardless of authentication result
-		next.ServeHTTP(w, req)
-	})
+func (r *Router[T, U]) authOptionalMiddlewareWithConfig(authTokenConfig common.AuthTokenConfig) common.Middleware {
+	authTokenConfig = normalizeAuthTokenConfig(authTokenConfig)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			var ok bool
+			req, ok, _ = r.authenticateRequest(req, authTokenConfig)
+			if ok {
+				fields := r.addTrace(r.baseFields(req), req)
+				r.logger.Debug("Authentication successful", fields...)
+			}
+
+			// Call the next handler regardless of authentication result
+			next.ServeHTTP(w, req)
+		})
+	}
 }
 
 // responseWriter is a wrapper around http.ResponseWriter that captures the status code.
