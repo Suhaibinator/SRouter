@@ -696,6 +696,8 @@ SRouter supports three authentication levels, specified in `RouteConfig` or `Rou
 2. **AuthOptional**: Authentication is attempted (e.g., by middleware). If successful, user info is added to the context. The request proceeds regardless.
 3. **AuthRequired**: Authentication is required (e.g., by middleware). If authentication fails, the middleware should reject the request (e.g., with 401 Unauthorized). If successful, user info is added to the context.
 
+When using the built-in `AuthOptional`/`AuthRequired` middleware, the token is extracted from the configured auth token source (`common.RouteOverrides.AuthToken`). The default source is the `Authorization` header. Cookie-based auth is supported by setting `AuthToken` to a cookie source on a sub-router or route.
+
 ```go
 // Example route configurations
 routePublic := router.RouteConfigBase{ AuthLevel: router.Ptr(router.NoAuth), ... }
