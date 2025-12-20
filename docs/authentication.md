@@ -9,9 +9,9 @@ SRouter defines three authentication levels using the `router.AuthLevel` type. Y
 Setting `AuthLevel` to `AuthOptional` or `AuthRequired` activates **built-in middleware** within the router. This middleware performs the following based on the level:
 
 1.  **`router.NoAuth`**: No authentication is required or attempted by the built-in middleware. The request proceeds directly to the next middleware or handler. This is the default if `AuthLevel` is not set.
-2.  **`router.AuthOptional`**: The built-in authentication middleware is activated. It attempts to validate credentials (currently expects a Bearer token in the `Authorization` header) using the `authFunction` provided to `NewRouter`.
+2.  **`router.AuthOptional`**: The built-in authentication middleware is activated. It attempts to validate credentials using the `authFunction` provided to `NewRouter`. The token is extracted from the configured auth token source (see "Auth Token Source" below); the default is the `Authorization` header.
     *   If authentication succeeds, the middleware populates the user ID (using the `userIdFromUserFunction` from `NewRouter`) and optionally the user object into the request context using `scontext.WithUserID` and `scontext.WithUser`. Storing the user object requires `RouterConfig.AddUserObjectToCtx` to be `true`. The request then proceeds to the next middleware or handler.
-    *   If authentication fails (or no `Authorization` header is provided), the request *still proceeds* to the next middleware or handler, but without user information in the context. The handler must check for the presence of user information using `scontext.GetUserIDFromRequest` or `scontext.GetUserFromRequest`.
+    *   If authentication fails (or no token is provided from the configured source), the request *still proceeds* to the next middleware or handler, but without user information in the context. The handler must check for the presence of user information using `scontext.GetUserIDFromRequest` or `scontext.GetUserFromRequest`.
 3.  **`router.AuthRequired`**: The built-in authentication middleware is activated and authentication is mandatory. It attempts validation as described for `AuthOptional`.
     *   If authentication succeeds, the middleware populates the context (as above) and proceeds to the next middleware or handler.
     *   If authentication fails, the built-in middleware **rejects** the request by sending an HTTP `401 Unauthorized` response and stops the middleware chain. The handler is not called.
@@ -51,7 +51,7 @@ The core of the built-in authentication mechanism relies on two functions you **
 
 1.  **`authFunction func(ctx context.Context, token string) (*UserObjectType, bool)`**:
     *   This function is called by the built-in middleware when `AuthLevel` is `AuthOptional` or `AuthRequired`.
-    *   It receives the request context and the token string extracted from the `Authorization: Bearer <token>` header.
+    *   It receives the request context and the token string extracted from the configured auth token source (header or cookie).
     *   It should validate the token (e.g., check a database, validate a JWT signature).
     *   It must return the corresponding `UserObjectType` (your application's user struct/type) and `true` if the token is valid, or a zero-value `UserObjectType` and `false` if invalid.
 
@@ -83,9 +83,27 @@ r := router.NewRouter[string, MyUserType](routerConfig, myAuthValidator, myGetID
 
 **If you do not intend to use the built-in `AuthLevel` mechanism** (e.g., you rely solely on custom authentication middleware), you must still provide non-nil functions to `NewRouter`. These can be simple dummy functions that always return `false` or zero values.
 
+## Auth Token Source
+
+By default, the built-in middleware reads the token from the `Authorization` header and trims a `Bearer ` prefix if present. You can override the source per sub-router or per route via `common.RouteOverrides.AuthToken`:
+
+```go
+Overrides: common.RouteOverrides{
+    AuthToken: &common.AuthTokenConfig{
+        Source:     common.AuthTokenSourceCookie,
+        CookieName: "auth_token",
+    },
+},
+```
+
+Notes:
+- Only the configured source is honored (no fallback to other sources).
+- If `Source` is `AuthTokenSourceHeader` and `HeaderName` is empty, it defaults to `Authorization`.
+- If `Source` is `AuthTokenSourceCookie` and `CookieName` is empty, the built-in middleware logs a warning at registration time.
+
 ## Custom Authentication Middleware
 
-While the `AuthLevel` setting provides convenient Bearer token authentication via the built-in mechanism, you can implement **custom authentication middleware** for other schemes (Cookies, API Keys, Basic Auth, etc.) or more complex logic.
+While the `AuthLevel` setting provides convenient token authentication via the built-in mechanism, you can implement **custom authentication middleware** for other schemes (Cookies, API Keys, Basic Auth, etc.) or more complex logic.
 
 Your custom middleware is responsible for:
 

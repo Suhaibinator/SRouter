@@ -35,9 +35,10 @@ func (r *Router[T, U]) RegisterRoute(route RouteConfigBase) {
 	// Pass the specific route config (which is *common.RateLimitConfig[any, any])
 	// to getEffectiveRateLimit. The conversion happens inside getEffectiveRateLimit.
 	rateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, nil)
+	authTokenConfig := r.getEffectiveAuthTokenConfig(route.Overrides.AuthToken, nil)
 
 	// Create a handler with all middlewares applied
-	handler := r.wrapHandler(route.Handler, route.AuthLevel, timeout, maxBodySize, rateLimit, route.Middlewares)
+	handler := r.wrapHandler(route.Handler, route.AuthLevel, authTokenConfig, timeout, maxBodySize, rateLimit, route.Middlewares)
 
 	// Register the route with httprouter
 	for _, method := range route.Methods {
@@ -271,7 +272,8 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 	})
 
 	// Create a handler with all middlewares applied, using the effective settings passed in
-	wrappedHandler := r.wrapHandler(handler, route.AuthLevel, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit, route.Middlewares)
+	authTokenConfig := r.getEffectiveAuthTokenConfig(route.Overrides.AuthToken, nil)
+	wrappedHandler := r.wrapHandler(handler, route.AuthLevel, authTokenConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit, route.Middlewares)
 
 	// Register the route with httprouter
 	for _, method := range route.Methods {
@@ -321,6 +323,8 @@ func NewGenericRouteDefinition[Req any, Resp any, UserID comparable, User any](
 		// Pass the specific route config (which is *common.RateLimitConfig[any, any])
 		// to getEffectiveRateLimit. The conversion happens inside getEffectiveRateLimit.
 		effectiveRateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, sr.Overrides.RateLimit)
+		effectiveAuthTokenConfig := r.getEffectiveAuthTokenConfig(route.Overrides.AuthToken, sr.Overrides.AuthToken)
+		finalRouteConfig.Overrides.AuthToken = &effectiveAuthTokenConfig
 
 		// Call the underlying generic registration function with the modified config and effective settings
 		RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)

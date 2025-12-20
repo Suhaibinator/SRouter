@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Suhaibinator/SRouter/pkg/common"
 	// Keep middleware alias if needed for other types
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Use centralized mocks
 	"github.com/Suhaibinator/SRouter/pkg/scontext"              // Added scontext import
@@ -310,6 +311,47 @@ func TestAuthRequiredMiddlewareWithUserObject(t *testing.T) {
 	}
 	if rr.Body.String() != "OK" {
 		t.Errorf("Expected response body %q, got %q", "OK", rr.Body.String())
+	}
+}
+
+func TestAuthRequiredMiddlewareWithCookieSource(t *testing.T) {
+	logger := zap.NewNop()
+	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID, ok := scontext.GetUserIDFromRequest[string, string](r)
+		if !ok {
+			t.Error("Expected user ID to be in context")
+		}
+		if userID != "user123" {
+			t.Errorf("Expected user ID %q, got %q", "user123", userID)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+
+	authTokenConfig := common.AuthTokenConfig{
+		Source:     common.AuthTokenSourceCookie,
+		CookieName: "auth_token",
+	}
+	wrappedHandler := r.authRequiredMiddlewareWithConfig(authTokenConfig)(handler)
+
+	// Test with valid auth cookie
+	req, _ := http.NewRequest("GET", "/test", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "valid-token"})
+	rr := httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, rr.Code)
+	}
+
+	// Test with valid Authorization header but no cookie (should not fallback)
+	req, _ = http.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	rr = httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status code %d, got %d", http.StatusUnauthorized, rr.Code)
 	}
 }
 

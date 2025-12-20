@@ -4,7 +4,7 @@ This guide covers the routing system in SRouter, including sub-routers for organ
 
 ## Sub-Routers
 
-Sub-routers allow you to group related routes under a common path prefix and apply shared configuration like middleware, timeouts, body size limits, and rate limits.
+Sub-routers allow you to group related routes under a common path prefix and apply shared configuration like middleware, timeouts, body size limits, rate limits, and auth token source settings.
 
 ### Defining Sub-Routers
 
@@ -18,6 +18,7 @@ apiV1SubRouter := router.SubRouterConfig{
                 Timeout:     3 * time.Second,     // Overrides GlobalTimeout
                 MaxBodySize: 2 << 20,         // 2 MB, overrides GlobalMaxBodySize
                 // RateLimit: &common.RateLimitConfig[any, any]{...},
+                // AuthToken: &common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "auth_token"},
         },
         // Middlewares specific to /api/v1 routes can be added here
         // Middlewares: []common.Middleware{ myV1Middleware },
@@ -80,7 +81,7 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 Key points:
 
 -   `PathPrefix`: Defines the base path for all routes within the sub-router.
--   `Overrides`: `common.RouteOverrides` allowing timeout, body size, or rate limit overrides specific to this sub-router.
+-   `Overrides`: `common.RouteOverrides` allowing timeout, body size, rate limit, or auth token source overrides specific to this sub-router.
 -   `Routes`: A slice of `router.RouteDefinition` that can contain `RouteConfigBase` or `GenericRouteDefinition`. Paths within these routes are relative to the `PathPrefix`.
 -   `Middlewares`: Middleware applied to routes within this sub-router. These are **added to** (not replacing) any global middlewares defined in RouterConfig.
 -   `AuthLevel`: Default authentication level for all routes in this sub-router (can be overridden at the route level).
@@ -140,7 +141,7 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 ```
 
 **Configuration precedence:**
-- **Overrides** (timeouts, body size, rate limits, auth level): The most specific setting wins (Route > Sub-Router > Global). Each level must explicitly set overrides; they are not inherited.
+- **Overrides** (timeouts, body size, rate limits, auth token source): The most specific setting wins (Route > Sub-Router > Global). Each level must explicitly set overrides; they are not inherited.
 - **Middlewares**: These are combined additively in order: Global → Outer Sub-Router → Inner Sub-Router → Route-specific. All applicable middlewares run in this sequence.
 
 ### Imperative Route Registration

@@ -113,7 +113,7 @@ func main() {
 ### Key Components
 
 - **`RouterConfig`**: Holds global settings like logger, timeouts, body size limits, and global middleware.
-- **`authFunction`**: A function `func(ctx context.Context, token string) (UserObjectType, bool)` that validates an authentication token (currently expects Bearer token) and returns the user object and a boolean indicating success. Used by the built-in middleware when `AuthLevel` is set.
+- **`authFunction`**: A function `func(ctx context.Context, token string) (UserObjectType, bool)` that validates an authentication token and returns the user object and a boolean indicating success. The token is extracted from the configured auth token source (default is the `Authorization` header). Used by the built-in middleware when `AuthLevel` is set.
 - **`userIdFromUserFunction`**: A function `func(user UserObjectType) UserIDType` that extracts the comparable User ID from the user object returned by `authFunction`. Used by the built-in middleware.
 - **`NewRouter[UserIDType, UserObjectType]`**: The constructor for the router. The type parameters define the type used for user IDs (`UserIDType`, must be comparable) and the type used for the user object (`UserObjectType`, can be any type) potentially stored in the context.
 - **`RouterConfig.SubRouters`**: A slice of `SubRouterConfig` where routes are defined. Each `SubRouterConfig` has a `PathPrefix` and a `Routes` slice.

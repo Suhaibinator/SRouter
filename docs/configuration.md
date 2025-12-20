@@ -130,7 +130,8 @@ type SubRouterConfig struct {
         // within this group (e.g., "/api/v1").
         PathPrefix string
 
-        // Overrides allows this sub-router to specify timeout, body size, or rate limit
+        // Overrides allows this sub-router to specify timeout, body size, rate limit,
+        // or auth token source settings that override the global configuration.
         // settings that override the global configuration. Zero values mean no override.
         Overrides common.RouteOverrides
 
@@ -174,8 +175,9 @@ type RouteConfigBase struct {
 	// Nil inherits from parent sub-router or defaults to NoAuth.
 	AuthLevel *AuthLevel
 
-        // Overrides allows this route to specify timeout, body size, or rate limit
-        // settings. Zero values mean inherit from the sub-router or global configuration.
+        // Overrides allows this route to specify timeout, body size, rate limit,
+        // or auth token source settings. Zero values mean inherit from the sub-router
+        // or global configuration.
         Overrides common.RouteOverrides
 
 	// Handler is the standard Go HTTP handler function. Required.
@@ -184,6 +186,44 @@ type RouteConfigBase struct {
         // Middlewares is a slice of middlewares applied only to this route, executed
         // before global middlewares.
 	Middlewares []common.Middleware
+}
+```
+
+## `common.RouteOverrides` and Auth Token Source
+
+Route overrides control per-route and per-sub-router settings, including the auth token source used by the built-in authentication middleware.
+
+```go
+package common
+
+import "time"
+
+type AuthTokenSource int
+
+const (
+	// AuthTokenSourceHeader reads the token from a request header.
+	AuthTokenSourceHeader AuthTokenSource = iota
+	// AuthTokenSourceCookie reads the token from a request cookie.
+	AuthTokenSourceCookie
+)
+
+type AuthTokenConfig struct {
+	// Source determines where to look for the token.
+	Source AuthTokenSource
+
+	// HeaderName is used when Source is AuthTokenSourceHeader.
+	// If empty, defaults to "Authorization".
+	HeaderName string
+
+	// CookieName is used when Source is AuthTokenSourceCookie.
+	CookieName string
+}
+
+type RouteOverrides struct {
+	Timeout     time.Duration
+	MaxBodySize int64
+	RateLimit   *RateLimitConfig[any, any]
+	AuthToken   *AuthTokenConfig
 }
 ```
 
@@ -214,7 +254,8 @@ type RouteConfig[T any, U any] struct {
 	// Nil inherits.
 	AuthLevel *AuthLevel
 
-        // Overrides allows this route to specify timeout, body size, or rate limit
+        // Overrides allows this route to specify timeout, body size, rate limit,
+        // or auth token source settings.
         // settings. Zero values mean inherit from the sub-router or global configuration.
         Overrides common.RouteOverrides
 
