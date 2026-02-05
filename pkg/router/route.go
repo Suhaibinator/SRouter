@@ -2,7 +2,9 @@ package router
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
@@ -71,15 +73,15 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 ) {
 	// Warn if no sanitizer function is provided (only at registration time)
 	if route.Sanitizer == nil {
-		r.logger.Warn("Route registered without sanitizer function",
+		methods := make([]string, len(route.Methods))
+		for i, method := range route.Methods {
+			methods[i] = string(method)
+		}
+
+		r.logger.Warn(
+			fmt.Sprintf("Route registered without sanitizer function: %s %s", strings.Join(methods, ","), route.Path),
 			zap.String("path", route.Path),
-			zap.Strings("methods", func() []string {
-				methods := make([]string, len(route.Methods))
-				for i, method := range route.Methods {
-					methods[i] = string(method)
-				}
-				return methods
-			}()),
+			zap.Strings("methods", methods),
 		)
 	}
 
