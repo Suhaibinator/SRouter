@@ -60,7 +60,7 @@ route := router.RouteConfig[MyRequest, MyResponse]{
 
 Handles Protocol Buffers encoding and decoding using Google's `protobuf` libraries (e.g., `google.golang.org/protobuf/proto`).
 
-**Important:** The `ProtoCodec` requires a non-nil prototype of the request message type when being constructed. This gives the codec the concrete request type so it can allocate fresh zero-value messages for unmarshaling without reflection.
+**Important:** `ProtoCodec` infers the concrete request message type from `T`, so it can allocate fresh zero-value messages for unmarshaling without reflection.
 
 ```go
 import (
@@ -68,9 +68,9 @@ import (
 	pb "path/to/your/generated/proto/package" // Import your generated proto package
 )
 
-// Create a new Proto codec with a non-nil prototype request message.
+// Create a new Proto codec.
 // T is *pb.MyRequestProto, U is *pb.MyResponseProto (or appropriate response type)
-protoCodec := codec.NewProtoCodec[*pb.MyRequestProto, *pb.MyResponseProto](&pb.MyRequestProto{})
+protoCodec := codec.NewProtoCodec[*pb.MyRequestProto, *pb.MyResponseProto]()
 
 
 // Use it in RouteConfig
@@ -187,6 +187,6 @@ Remember to handle errors appropriately within your codec methods, potentially r
 
 -   **`codec.Codec[T, U]`**: Interface defining methods `NewRequest() T`, `Decode(*http.Request) (T, error)`, `DecodeBytes([]byte) (T, error)`, and `Encode(http.ResponseWriter, U) error`.
 -   **`codec.NewJSONCodec[T, U]() *codec.JSONCodec[T, U]`**: Constructor for the built-in JSON codec.
--   **`codec.NewProtoCodec[T, U](prototype T) *codec.ProtoCodec[T, U]`**: Constructor for the built-in Protocol Buffers codec, requiring a non-nil prototype for the request type `T`.
+-   **`codec.NewProtoCodec[T, U]() *codec.ProtoCodec[T, U]`**: Constructor for the built-in Protocol Buffers codec.
 
 See the `examples/codec` directory for runnable examples using different codecs.

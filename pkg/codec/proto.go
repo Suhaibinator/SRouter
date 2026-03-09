@@ -16,13 +16,12 @@ type ProtoCodec[T proto.Message, U proto.Message] struct {
 }
 
 // NewProtoCodec creates a new ProtoCodec instance for protobuf request/response types.
-// The provided prototype must be a non-nil pointer to the request message type (for example, &pb.MyRequest{}).
-// It is only used to establish the concrete request type; each call to NewRequest allocates a fresh zero-value message
+// It infers the underlying message type from T and allocates fresh zero-value messages
 // without reflection by using Go's new(expr) support.
 //
 // Example:
 //
-//	codec := NewProtoCodec[*pb.CreateUserReq, *pb.CreateUserResp](&pb.CreateUserReq{})
+//	codec := NewProtoCodec[*pb.CreateUserReq, *pb.CreateUserResp]()
 func NewProtoCodec[T interface {
 	proto.Message
 	*M

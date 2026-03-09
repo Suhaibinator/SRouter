@@ -26,7 +26,7 @@ Here's a brief overview of the available examples (refer to the source code and 
 -   **`/examples/trace-logging`**: Demonstrates enabling and using trace IDs for correlating logs within a request lifecycle.
 -   **`/examples/cors-error-test`**: Demonstrates handling CORS preflight and error scenarios, including how SRouter writes CORS headers on error responses.
 -   **`/examples/source-types`**: Shows how to use different `SourceType` options (Body, Base64QueryParameter, Base64PathParameter, etc.) for generic routes.
--   **`/examples/codec`**: Illustrates using different codecs, particularly `JSONCodec` and `ProtoCodec` (including the required request prototype for proto).
+-   **`/examples/codec`**: Illustrates using different codecs, particularly `JSONCodec` and `ProtoCodec`.
 -   **`/examples/prometheus`**: Example of integrating SRouter's metrics system with Prometheus by providing a Prometheus-based implementation of the `metrics.MetricsRegistry` interface and showing how the application can expose the metrics via an HTTP handler.
 -   **`/examples/custom-metrics`**: Demonstrates implementing a custom `metrics.MetricsRegistry` or `metrics.MetricsMiddleware`.
 -   **`/examples/handler-error-middleware`**: Shows how middleware can access errors returned by generic handlers to make decisions (e.g., transaction rollback, custom error logging) using `scontext.GetHandlerErrorFromRequest`.

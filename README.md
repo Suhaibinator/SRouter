@@ -1411,11 +1411,10 @@ codec.NewJSONCodec[T, U]() *codec.JSONCodec[T, U]
 
 ### ProtoCodec
 
-Uses Protocol Buffers for marshaling and unmarshaling. Requires a non-nil prototype request message so the codec can allocate fresh request messages without reflection.
+Uses Protocol Buffers for marshaling and unmarshaling. It allocates fresh request messages without reflection.
 
 ```go
-// Pass a non-nil prototype for your specific proto message type (e.g., *MyProto)
-codec.NewProtoCodec[T, U](&pb.MyProto{}) *codec.ProtoCodec[T, U]
+codec.NewProtoCodec[T, U]() *codec.ProtoCodec[T, U]
 ```
 
 ### Codec Interface
