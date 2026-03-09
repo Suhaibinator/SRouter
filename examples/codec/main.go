@@ -65,10 +65,7 @@ func main() {
 	}, placeholderAuth, placeholderGetUserID)
 
 	// Instantiate the ProtoCodec (can be done once outside the handler if reused)
-	// Create a factory function for User messages
-	userFactory := func() *pb.User { return &pb.User{} }
-	// Create a ProtoCodec for User messages, providing the factory
-	protoCodec := codec.NewProtoCodec[*pb.User, *pb.User](userFactory)
+	protoCodec := codec.NewProtoCodec[*pb.User, *pb.User]()
 
 	// Define the generic route configuration
 	routeCfg := router.RouteConfig[*pb.User, *pb.User]{

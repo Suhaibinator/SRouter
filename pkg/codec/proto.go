@@ -8,31 +8,31 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// ProtoRequestFactory is a function type that creates new instances of protobuf request messages.
-// It returns a pointer to a type implementing proto.Message. This factory pattern is used
-// to avoid reflection when creating new message instances for decoding.
-// T must be a pointer type (e.g., *MyRequest) that implements proto.Message.
-type ProtoRequestFactory[T proto.Message] func() T
-
 // ProtoCodec implements the Codec interface for Protocol Buffers.
 // It handles marshaling and unmarshaling of protobuf messages for use with generic routes.
 // Both T and U must be pointer types that implement proto.Message (e.g., *MyRequest, *MyResponse).
 type ProtoCodec[T proto.Message, U proto.Message] struct {
-	// Factory function to create new request objects without reflection.
-	newRequest ProtoRequestFactory[T]
+	newRequest func() T
 }
 
-// NewProtoCodec creates a new ProtoCodec instance with the provided request factory.
-// The factory function is used to create new instances of the request type without reflection.
+// NewProtoCodec creates a new ProtoCodec instance for protobuf request/response types.
+// The provided prototype must be a non-nil pointer to the request message type (for example, &pb.MyRequest{}).
+// It is only used to establish the concrete request type; each call to NewRequest allocates a fresh zero-value message
+// without reflection by using Go's new(expr) support.
 //
 // Example:
 //
-//	codec := NewProtoCodec[*pb.CreateUserReq, *pb.CreateUserResp](func() *pb.CreateUserReq {
-//	    return &pb.CreateUserReq{}
-//	})
-func NewProtoCodec[T proto.Message, U proto.Message](factory ProtoRequestFactory[T]) *ProtoCodec[T, U] {
+//	codec := NewProtoCodec[*pb.CreateUserReq, *pb.CreateUserResp](&pb.CreateUserReq{})
+func NewProtoCodec[T interface {
+	proto.Message
+	*M
+}, U proto.Message, M any]() *ProtoCodec[T, U] {
+
+	var zero M
 	return &ProtoCodec[T, U]{
-		newRequest: factory,
+		newRequest: func() T {
+			return new(zero)
+		},
 	}
 }
 
@@ -40,9 +40,8 @@ func NewProtoCodec[T proto.Message, U proto.Message](factory ProtoRequestFactory
 var protoUnmarshal = proto.Unmarshal
 var protoMarshal = proto.Marshal
 
-// NewRequest creates a new instance of the request protobuf message using the factory.
-// It implements the Codec interface. The factory pattern avoids the need for reflection
-// when creating new message instances.
+// NewRequest creates a new instance of the request protobuf message.
+// It implements the Codec interface.
 func (c *ProtoCodec[T, U]) NewRequest() T {
 	return c.newRequest()
 }
@@ -52,7 +51,7 @@ func (c *ProtoCodec[T, U]) NewRequest() T {
 // body is closed after reading. Returns an error if the data is not valid protobuf
 // or doesn't match the expected message type.
 func (c *ProtoCodec[T, U]) Decode(r *http.Request) (T, error) {
-	msg := c.NewRequest() // Use the factory to create a new message instance
+	msg := c.NewRequest()
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -73,7 +72,7 @@ func (c *ProtoCodec[T, U]) Decode(r *http.Request) (T, error) {
 // data comes from sources other than the request body (e.g., base64-encoded
 // query parameters). Returns an error if the data is invalid.
 func (c *ProtoCodec[T, U]) DecodeBytes(data []byte) (T, error) {
-	msg := c.NewRequest() // Use the factory to create a new message instance
+	msg := c.NewRequest()
 
 	// Unmarshal directly from the provided data
 	if err := protoUnmarshal(data, msg); err != nil {
@@ -96,5 +95,3 @@ func (c *ProtoCodec[T, U]) Encode(w http.ResponseWriter, resp U) error {
 	_, err = w.Write(bytes)
 	return err
 }
-
-// newMessage function is removed as it's replaced by the factory approach.
