@@ -60,7 +60,7 @@ route := router.RouteConfig[MyRequest, MyResponse]{
 
 Handles Protocol Buffers encoding and decoding using Google's `protobuf` libraries (e.g., `google.golang.org/protobuf/proto`).
 
-**Important:** Due to the nature of Protocol Buffers, the `ProtoCodec` requires a factory function (`codec.ProtoRequestFactory`) when being constructed. This function must return a new, zero-value instance of the specific *request* proto message type (`T`). This is needed internally to provide a concrete type for unmarshaling without relying on reflection.
+**Important:** `ProtoCodec` infers the concrete request message type from `T`, so it can allocate fresh zero-value messages for unmarshaling without reflection.
 
 ```go
 import (
@@ -68,15 +68,9 @@ import (
 	pb "path/to/your/generated/proto/package" // Import your generated proto package
 )
 
-// Define the factory function for your request proto message type
-// It must return the specific pointer type (e.g., *pb.MyRequestProto)
-var myRequestFactory = func() *pb.MyRequestProto {
-	return &pb.MyRequestProto{}
-}
-
-// Create a new Proto codec, providing the factory function
+// Create a new Proto codec.
 // T is *pb.MyRequestProto, U is *pb.MyResponseProto (or appropriate response type)
-protoCodec := codec.NewProtoCodec[*pb.MyRequestProto, *pb.MyResponseProto](myRequestFactory)
+protoCodec := codec.NewProtoCodec[*pb.MyRequestProto, *pb.MyResponseProto]()
 
 
 // Use it in RouteConfig
@@ -193,6 +187,6 @@ Remember to handle errors appropriately within your codec methods, potentially r
 
 -   **`codec.Codec[T, U]`**: Interface defining methods `NewRequest() T`, `Decode(*http.Request) (T, error)`, `DecodeBytes([]byte) (T, error)`, and `Encode(http.ResponseWriter, U) error`.
 -   **`codec.NewJSONCodec[T, U]() *codec.JSONCodec[T, U]`**: Constructor for the built-in JSON codec.
--   **`codec.NewProtoCodec[T, U](factory codec.ProtoRequestFactory[T]) *codec.ProtoCodec[T, U]`**: Constructor for the built-in Protocol Buffers codec, requiring a factory function for the request type `T`.
+-   **`codec.NewProtoCodec[T, U]() *codec.ProtoCodec[T, U]`**: Constructor for the built-in Protocol Buffers codec.
 
 See the `examples/codec` directory for runnable examples using different codecs.

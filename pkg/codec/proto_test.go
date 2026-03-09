@@ -21,26 +21,30 @@ func (m *TestProtoMessage) String() string                     { return string(m
 func (m *TestProtoMessage) ProtoMessage()                      {}
 func (m *TestProtoMessage) ProtoReflect() protoreflect.Message { return nil }
 
-// testProtoFactory creates a new TestProtoMessage instance.
-func testProtoFactory() *TestProtoMessage {
-	return &TestProtoMessage{}
-}
-
 // TestNewProtoCodec tests the NewProtoCodec function
 func TestNewProtoCodec(t *testing.T) {
-	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage]()
 	if codec == nil {
 		t.Error("Expected non-nil codec")
 	}
 	if codec == nil || codec.newRequest == nil {
 		t.Error("Expected codec.newRequest to be set")
 	}
+
+	req := codec.NewRequest()
+	if req == nil {
+		t.Fatal("Expected NewRequest to allocate a message")
+	}
+
+	if req == codec.NewRequest() {
+		t.Error("Expected NewRequest to return a distinct message instance")
+	}
 }
 
 // TestProtoCodecDecode tests the Decode method of ProtoCodec
 func TestProtoCodecDecode(t *testing.T) {
 	// Create a codec
-	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage]()
 
 	// Create a request with test data
 	reqBody := []byte("test data")
@@ -81,7 +85,7 @@ func TestProtoCodecDecode(t *testing.T) {
 // TestProtoCodecEncode tests the Encode method of ProtoCodec
 func TestProtoCodecEncode(t *testing.T) {
 	// Create a codec
-	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage]()
 
 	// Create a mock implementation of proto.Marshal
 	originalMarshal := protoMarshal
@@ -125,7 +129,7 @@ func TestProtoCodecEncode(t *testing.T) {
 // TestProtoCodecDecodeBytes tests the DecodeBytes method of ProtoCodec
 func TestProtoCodecDecodeBytes(t *testing.T) {
 	// Create a codec
-	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage]()
 
 	// Test data (simulating decoded bytes from Base64/Base62)
 	testBytes := []byte("test byte data")
@@ -177,7 +181,7 @@ func TestProtoCodecDecodeBytes(t *testing.T) {
 // TestProtoCodecDecodeErrors tests error handling in the Decode method of ProtoCodec
 func TestProtoCodecDecodeErrors(t *testing.T) {
 	// Create a codec
-	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage]()
 
 	// Test Decode with read error
 	req := httptest.NewRequest("POST", "/test", &errorReader{})
@@ -209,7 +213,7 @@ func TestProtoCodecDecodeErrors(t *testing.T) {
 // TestProtoCodecEncodeErrors tests error handling in the Encode method of ProtoCodec
 func TestProtoCodecEncodeErrors(t *testing.T) {
 	// Create a codec
-	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage](testProtoFactory)
+	codec := NewProtoCodec[*TestProtoMessage, *TestProtoMessage]()
 
 	// Test Encode with marshal error
 	rr := httptest.NewRecorder()
@@ -241,5 +245,3 @@ func TestProtoCodecEncodeErrors(t *testing.T) {
 		t.Error("Expected error when writing response fails")
 	}
 }
-
-// TestNewMessage is removed as the newMessage function no longer exists.

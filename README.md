@@ -1411,14 +1411,10 @@ codec.NewJSONCodec[T, U]() *codec.JSONCodec[T, U]
 
 ### ProtoCodec
 
-Uses Protocol Buffers for marshaling and unmarshaling. Requires a factory function to create new request message instances without reflection.
+Uses Protocol Buffers for marshaling and unmarshaling. It allocates fresh request messages without reflection.
 
 ```go
-// Define a factory function for your specific proto message type (e.g., *MyProto)
-myProtoFactory := func() *pb.MyProto { return &pb.MyProto{} } // Use generated type
-
-// Pass the factory to the constructor
-codec.NewProtoCodec[T, U](myProtoFactory) *codec.ProtoCodec[T, U] // T must match factory return type
+codec.NewProtoCodec[T, U]() *codec.ProtoCodec[T, U]
 ```
 
 ### Codec Interface
