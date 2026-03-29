@@ -15,6 +15,11 @@ type ProtoCodec[T proto.Message, U proto.Message] struct {
 	newRequest func() T
 }
 
+// Name returns codec identifier.
+func (c *ProtoCodec[T, U]) Name() string {
+	return "proto"
+}
+
 // NewProtoCodec creates a new ProtoCodec instance for protobuf request/response types.
 // It infers the underlying message type from T and allocates fresh zero-value messages
 // without reflection by using Go's new(expr) support.

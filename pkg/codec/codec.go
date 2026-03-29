@@ -7,6 +7,9 @@ import "net/http"
 // response data. This allows for different data formats (e.g., JSON, Protocol Buffers).
 // The framework includes implementations for JSON and Protocol Buffers in the codec package.
 type Codec[T any, U any] interface {
+	// Name returns codec identifier for metadata export ("json", "proto", ...).
+	Name() string
+
 	// NewRequest creates a new zero-value instance of the request type T.
 	// This is used by the framework to get an instance for decoding, avoiding reflection.
 	NewRequest() T

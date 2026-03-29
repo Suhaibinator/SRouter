@@ -3,6 +3,7 @@ package router
 import (
 	"errors"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
@@ -44,6 +45,18 @@ func (r *Router[T, U]) RegisterRoute(route RouteConfigBase) {
 	for _, method := range route.Methods {
 		r.router.Handle(string(method), route.Path, r.convertToHTTPRouterHandle(handler, route.Path)) // Convert HttpMethod to string
 	}
+
+	metadata := RouteMetadata{
+		Path:           route.Path,
+		Methods:        routeMethodsToStrings(route.Methods),
+		AuthLevel:      authLevelString(route.AuthLevel),
+		Timeout:        durationString(timeout),
+		MaxBodySize:    maxBodySize,
+		RateLimit:      rateLimitMetadataFromRuntimeConfig(rateLimit),
+		AuthToken:      authTokenMetadataFromConfig(authTokenConfig),
+		DisableTimeout: route.DisableTimeout,
+	}
+	r.appendRouteMetadata(metadata)
 }
 
 // RegisterGenericRoute registers a route with generic request and response types.
@@ -68,6 +81,17 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 	effectiveTimeout time.Duration,
 	effectiveMaxBodySize int64,
 	effectiveRateLimit *common.RateLimitConfig[UserID, User], // Use common.RateLimitConfig
+) {
+	registerGenericRouteInternal(r, route, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit, "")
+}
+
+func registerGenericRouteInternal[Req any, Resp any, UserID comparable, User any](
+	r *Router[UserID, User],
+	route RouteConfig[Req, Resp],
+	effectiveTimeout time.Duration,
+	effectiveMaxBodySize int64,
+	effectiveRateLimit *common.RateLimitConfig[UserID, User],
+	subRouterPrefix string,
 ) {
 	// Warn if no sanitizer function is provided (only at registration time)
 	if route.Sanitizer == nil {
@@ -279,6 +303,28 @@ func RegisterGenericRoute[Req any, Resp any, UserID comparable, User any](
 	for _, method := range route.Methods {
 		r.router.Handle(string(method), route.Path, r.convertToHTTPRouterHandle(wrappedHandler, route.Path)) // Convert HttpMethod to string
 	}
+
+	reqType := reflect.TypeOf((*Req)(nil)).Elem()
+	respType := reflect.TypeOf((*Resp)(nil)).Elem()
+	metadata := RouteMetadata{
+		Path:        route.Path,
+		Methods:     routeMethodsToStrings(route.Methods),
+		AuthLevel:   authLevelString(route.AuthLevel),
+		Timeout:     durationString(effectiveTimeout),
+		MaxBodySize: effectiveMaxBodySize,
+		RateLimit:   rateLimitMetadataFromRuntimeConfig(effectiveRateLimit),
+		AuthToken:   authTokenMetadataFromConfig(authTokenConfig),
+		SubRouter:   subRouterPrefix,
+		Request: &RequestSchema{
+			Source:       sourceTypeString(route.SourceType),
+			SourceKey:    route.SourceKey,
+			Codec:        route.Codec.Name(),
+			Schema:       buildTypeSchema(reqType),
+			HasSanitizer: route.Sanitizer != nil,
+		},
+		Response: buildTypeSchema(respType),
+	}
+	r.appendRouteMetadata(metadata)
 }
 
 // NewGenericRouteDefinition creates a GenericRouteRegistrationFunc for declarative configuration.
@@ -327,6 +373,14 @@ func NewGenericRouteDefinition[Req any, Resp any, UserID comparable, User any](
 		finalRouteConfig.Overrides.AuthToken = &effectiveAuthTokenConfig
 
 		// Call the underlying generic registration function with the modified config and effective settings
-		RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
+		registerGenericRouteInternal(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit, sr.PathPrefix)
 	}
+}
+
+func routeMethodsToStrings(methods []HttpMethod) []string {
+	out := make([]string, len(methods))
+	for i, method := range methods {
+		out[i] = string(method)
+	}
+	return out
 }
