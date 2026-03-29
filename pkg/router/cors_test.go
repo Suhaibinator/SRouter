@@ -24,6 +24,10 @@ type genericCORSTestResponse struct {
 // genericCORSTestCodec implements the Codec interface for testing generic routes with CORS.
 type genericCORSTestCodec struct{}
 
+func (c *genericCORSTestCodec) Name() string {
+	return "json"
+}
+
 func (c *genericCORSTestCodec) NewRequest() genericCORSTestRequest {
 	return genericCORSTestRequest{}
 }

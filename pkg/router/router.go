@@ -47,6 +47,9 @@ type Router[T comparable, U any] struct {
 	corsAllowHeaders  string
 	corsExposeHeaders string
 	corsMaxAge        string
+
+	metadataMu    sync.RWMutex
+	routeMetadata []RouteMetadata
 }
 
 const defaultAuthHeaderName = "Authorization"
@@ -242,6 +245,19 @@ func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
 			for _, method := range route.Methods {
 				r.router.Handle(string(method), fullPath, r.convertToHTTPRouterHandle(handler, fullPath)) // Convert HttpMethod to string
 			}
+
+			metadata := RouteMetadata{
+				Path:           fullPath,
+				Methods:        routeMethodsToStrings(route.Methods),
+				AuthLevel:      authLevelString(authLevel),
+				Timeout:        durationString(timeout),
+				MaxBodySize:    maxBodySize,
+				RateLimit:      rateLimitMetadataFromRuntimeConfig(rateLimit),
+				AuthToken:      authTokenMetadataFromConfig(authTokenConfig),
+				SubRouter:      sr.PathPrefix,
+				DisableTimeout: route.DisableTimeout,
+			}
+			r.appendRouteMetadata(metadata)
 
 		case GenericRouteRegistrationFunc[T, U]:
 			// Handle generic route registration function
@@ -558,7 +574,7 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 	finalRouteConfig.Overrides.AuthToken = &effectiveAuthTokenConfig
 
 	// Call the underlying generic registration function with the modified config
-	RegisterGenericRoute(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit)
+	registerGenericRouteInternal(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit, pathPrefix)
 
 	return nil
 }

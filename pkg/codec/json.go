@@ -14,6 +14,11 @@ type JSONCodec[T any, U any] struct {
 	// For example, custom field naming strategies, etc.
 }
 
+// Name returns codec identifier.
+func (c *JSONCodec[T, U]) Name() string {
+	return "json"
+}
+
 // NewRequest creates a new zero-value instance of the request type T.
 // This method is required by the Codec interface and is used internally
 // by the framework to get an instance for decoding without using reflection.

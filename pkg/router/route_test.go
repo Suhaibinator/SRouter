@@ -17,6 +17,10 @@ import (
 // Mock Codec for testing decoding errors
 type mockErrorCodec struct{}
 
+func (c *mockErrorCodec) Name() string {
+	return "json"
+}
+
 func (m *mockErrorCodec) Encode(w http.ResponseWriter, v testResponse) error { // Correct signature
 	// Not needed for these tests, but must match interface
 	return nil
