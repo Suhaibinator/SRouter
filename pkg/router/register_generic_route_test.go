@@ -285,7 +285,7 @@ func TestRegisterGenericRouteWithAuthRequired(t *testing.T) {
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
-		AuthLevel:  Ptr(AuthRequired), // Changed
+		AuthLevel:  new(AuthRequired), // Changed
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	reqBody := RequestType{ID: "123", Name: "John"}
@@ -323,7 +323,7 @@ func TestRegisterGenericRouteWithAuthOptional(t *testing.T) {
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
-		AuthLevel:  Ptr(AuthOptional), // Changed
+		AuthLevel:  new(AuthOptional), // Changed
 	}, time.Duration(0), int64(0), nil) // Added effective settings
 
 	// With valid token

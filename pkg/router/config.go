@@ -8,6 +8,7 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
+
 	// Removed: "github.com/Suhaibinator/SRouter/pkg/middleware"
 	"go.uber.org/zap"
 )
@@ -231,9 +232,3 @@ type RouteConfig[T any, U any] struct {
 // When used with RegisterGenericRoute, the framework automatically handles decoding the
 // request and encoding the response using the specified Codec.
 type GenericHandler[T any, U any] func(r *http.Request, data T) (U, error)
-
-// Ptr returns a pointer to the given AuthLevel value.
-// Useful for setting AuthLevel fields in configurations.
-func Ptr(level AuthLevel) *AuthLevel {
-	return &level
-}

@@ -176,7 +176,7 @@ routerConfig := router.RouterConfig{
                         mymiddleware.LogUserIDMiddleware(logger), // Route: Runs last before handler
                     },
                     Handler: GetUsersHandler,
-                    AuthLevel: router.Ptr(router.AuthRequired), // Example: Requires authentication
+                    AuthLevel: new(router.AuthRequired), // Example: Requires authentication
                 },
                 // ... other v1 routes
             },

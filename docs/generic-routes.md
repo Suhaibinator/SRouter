@@ -50,7 +50,7 @@ type CreateUserResp struct {
 createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
  Path:      "/users",
  Methods:   []router.HttpMethod{router.MethodPost},
- AuthLevel: router.Ptr(router.AuthRequired), // Example: Requires authentication
+ AuthLevel: new(router.AuthRequired), // Example: Requires authentication
  Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Specify the codec
  Handler:   CreateUserHandler, // Assign the generic handler
  // Optional overrides for timeout, body size, or rate limit

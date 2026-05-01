@@ -417,7 +417,7 @@ func TestAuthMiddlewareIntegration(t *testing.T) {
 	r.RegisterRoute(RouteConfigBase{
 		Path:      "/protected",
 		Methods:   []HttpMethod{MethodGet}, // Use HttpMethod enum
-		AuthLevel: Ptr(AuthRequired),
+		AuthLevel: new(AuthRequired),
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("Protected"))
