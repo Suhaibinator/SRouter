@@ -39,7 +39,7 @@ apiV1SubRouter := router.SubRouterConfig{
 			router.RouteConfig[CreateUserReq, CreateUserResp]{
 				Path:      "/users", // Path relative to the sub-router prefix (/api/v1/users)
 				Methods:   []router.HttpMethod{router.MethodPost},
-				AuthLevel: router.Ptr(router.AuthRequired), // Example: Requires authentication
+				AuthLevel: new(router.AuthRequired), // Example: Requires authentication
 				Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Assume codec exists
 				Handler:   CreateUserHandler, // Assume this generic handler exists
 				// Middlewares, Overrides can be set here too, overriding sub-router settings
@@ -163,7 +163,7 @@ err := router.RegisterGenericRouteOnSubRouter[CreateUserReq, CreateUserResp](
     router.RouteConfig[CreateUserReq, CreateUserResp]{
         Path:      "/users", // Path relative to the sub-router prefix
         Methods:   []router.HttpMethod{router.MethodPost},
-        AuthLevel: router.Ptr(router.AuthRequired),
+        AuthLevel: new(router.AuthRequired),
         Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
         Handler:   CreateUserHandler,
     },
@@ -190,7 +190,7 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 // Define a new sub-router
 adminSubRouter := router.SubRouterConfig{
     PathPrefix: "/admin",
-    AuthLevel:  router.Ptr(router.AuthRequired), // All admin routes require auth by default
+    AuthLevel:  new(router.AuthRequired), // All admin routes require auth by default
     Routes: []router.RouteDefinition{
         router.RouteConfigBase{
             Path:    "/users",

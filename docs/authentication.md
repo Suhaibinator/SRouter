@@ -27,23 +27,23 @@ routePublic := router.RouteConfigBase{
     Path: "/public/info",
     // AuthLevel: nil, // Defaults to NoAuth
     // Or explicitly:
-    AuthLevel: router.Ptr(router.NoAuth),
+    AuthLevel: new(router.NoAuth),
     // ... handler, methods
 }
 
 routeOptional := router.RouteConfigBase{
     Path: "/user/profile", // Maybe shows generic profile if not logged in, specific if logged in
-    AuthLevel: router.Ptr(router.AuthOptional),
+    AuthLevel: new(router.AuthOptional),
     // ... handler, methods
 }
 
 routeProtected := router.RouteConfig[UpdateSettingsReq, UpdateSettingsResp]{
     Path: "/user/settings",
-    AuthLevel: router.Ptr(router.AuthRequired), // Must be logged in
+    AuthLevel: new(router.AuthRequired), // Must be logged in
     // ... handler, methods, codec
 }
 ```
-*(Note: `router.Ptr()` is a simple helper function to get a pointer to an `AuthLevel` value, as the config fields expect pointers)*
+*(Note: `new()` is a simple helper function to get a pointer to an `AuthLevel` value, as the config fields expect pointers)*
 
 ## Authentication Functions (`NewRouter`)
 
@@ -140,7 +140,7 @@ dummyGetIDFunc := func(user *MyUserType) string { return "" }
 // UserIDType and UserObjectType for NewRouter must match what MyApiKeyMiddleware puts in context
 r := router.NewRouter[string, MyUserType](routerConfig, dummyAuthFunc, dummyGetIDFunc)
 
-// Routes using this custom middleware might set AuthLevel: router.Ptr(router.NoAuth)
+// Routes using this custom middleware might set AuthLevel: new(router.NoAuth)
 // if MyApiKeyMiddleware handles all required/optional logic itself.
 ```
 

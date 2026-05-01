@@ -65,7 +65,7 @@ func main() {
 					router.RouteConfigBase{
 						Path:      "/health",
 						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: router.Ptr(router.NoAuth), // Changed
+						AuthLevel: new(router.NoAuth), // Changed
 						Handler:   HealthCheckHandler,
 					},
 				},
@@ -100,7 +100,7 @@ func main() {
 	userRouteConfig := router.RouteConfig[CreateUserReq, CreateUserResp]{
 		Path:      "/users", // Relative path
 		Methods:   []router.HttpMethod{router.MethodPost},
-		AuthLevel: router.Ptr(router.AuthRequired), // Changed
+		AuthLevel: new(router.AuthRequired), // Changed
 		Overrides: common.RouteOverrides{
 			Timeout: 3 * time.Second, // Route-specific override (will be used by getEffectiveTimeout)
 		},

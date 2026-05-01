@@ -134,7 +134,7 @@ func main() {
 					router.RouteConfigBase{
 						Path:      "/resource",
 						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: router.Ptr(router.NoAuth), // Changed
+						AuthLevel: new(router.NoAuth), // Changed
 						Handler:   publicHandler,
 					},
 				},
@@ -145,7 +145,7 @@ func main() {
 					router.RouteConfigBase{
 						Path:      "/resource",
 						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: router.Ptr(router.AuthRequired), // Changed
+						AuthLevel: new(router.AuthRequired), // Changed
 						Middlewares: []common.Middleware{
 							middleware.AuthenticationBool[*User, User](func(r *http.Request) bool {
 								// Simple boolean authentication
@@ -168,7 +168,7 @@ func main() {
 					router.RouteConfigBase{
 						Path:      "/custom",
 						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: router.Ptr(router.AuthRequired), // Changed
+						AuthLevel: new(router.AuthRequired), // Changed
 						Middlewares: []common.Middleware{ // Uncommented middleware
 							middleware.AuthenticationWithUser[*User, User](customUserAuth),
 						},
@@ -177,7 +177,7 @@ func main() {
 					router.RouteConfigBase{ // Add explicit type
 						Path:      "/bearer",
 						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: router.Ptr(router.AuthRequired), // Changed
+						AuthLevel: new(router.AuthRequired), // Changed
 						Middlewares: []common.Middleware{ // Uncommented middleware
 							middleware.NewBearerTokenWithUserMiddleware[*User, User](bearerTokenUserAuth, logger),
 						},

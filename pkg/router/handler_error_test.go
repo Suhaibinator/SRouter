@@ -61,7 +61,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		RegisterGenericRoute(router, RouteConfig[TestRequest, TestResponse]{
 			Path:        "/error",
 			Methods:     []HttpMethod{MethodGet},
-			AuthLevel:   Ptr(NoAuth),
+			AuthLevel:   new(NoAuth),
 			Middlewares: []common.Middleware{errorCheckingMiddleware},
 			Handler: func(r *http.Request, req TestRequest) (TestResponse, error) {
 				return TestResponse{}, expectedErr
@@ -101,7 +101,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		RegisterGenericRoute(router, RouteConfig[TestRequest, TestResponse]{
 			Path:        "/success",
 			Methods:     []HttpMethod{MethodGet},
-			AuthLevel:   Ptr(NoAuth),
+			AuthLevel:   new(NoAuth),
 			Middlewares: []common.Middleware{errorCheckingMiddleware},
 			Handler: func(r *http.Request, req TestRequest) (TestResponse, error) {
 				return TestResponse{Result: "success"}, nil
@@ -146,7 +146,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		RegisterGenericRoute(router, RouteConfig[TestRequest, TestResponse]{
 			Path:        "/custom-error",
 			Methods:     []HttpMethod{MethodGet},
-			AuthLevel:   Ptr(NoAuth),
+			AuthLevel:   new(NoAuth),
 			Middlewares: []common.Middleware{errorCheckingMiddleware},
 			Handler: func(r *http.Request, req TestRequest) (TestResponse, error) {
 				return TestResponse{}, customErr
@@ -217,7 +217,7 @@ func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
 		RegisterGenericRoute(router, RouteConfig[TestRequest, TestResponse]{
 			Path:      "/multi-middleware",
 			Methods:   []HttpMethod{MethodGet},
-			AuthLevel: Ptr(NoAuth),
+			AuthLevel: new(NoAuth),
 			Middlewares: []common.Middleware{
 				createMiddleware("outer"),
 				createMiddleware("inner"),

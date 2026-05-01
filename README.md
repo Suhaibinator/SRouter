@@ -182,7 +182,7 @@ apiV1SubRouter := router.SubRouterConfig{
 			router.RouteConfig[CreateUserReq, CreateUserResp]{
 				Path:      "/users", // Path relative to the sub-router prefix (/api/v1/users)
 				Methods:   []router.HttpMethod{router.MethodPost},
-				AuthLevel: router.Ptr(router.AuthRequired),
+				AuthLevel: new(router.AuthRequired),
 				Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
 				Handler:   CreateUserHandler,
 				// Middlewares, Timeout, MaxBodySize, RateLimit can be set here too
@@ -291,7 +291,7 @@ router.RegisterGenericRoute[CreateUserReq, CreateUserResp, string, string](r,
 	router.RouteConfig[CreateUserReq, CreateUserResp]{
 		Path:        "/standalone/users",
 		Methods:     []router.HttpMethod{router.MethodPost},
-		AuthLevel:   router.Ptr(router.AuthRequired), // Use Ptr helper
+		AuthLevel:   new(router.AuthRequired), // Use Ptr helper
 		Codec:       codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
 		Handler:     CreateUserHandler,
 	},
@@ -700,9 +700,9 @@ When using the built-in `AuthOptional`/`AuthRequired` middleware, the token is e
 
 ```go
 // Example route configurations
-routePublic := router.RouteConfigBase{ AuthLevel: router.Ptr(router.NoAuth), ... }
-routeOptional := router.RouteConfigBase{ AuthLevel: router.Ptr(router.AuthOptional), ... }
-routeProtected := router.RouteConfigBase{ AuthLevel: router.Ptr(router.AuthRequired), ... }
+routePublic := router.RouteConfigBase{ AuthLevel: new(router.NoAuth), ... }
+routeOptional := router.RouteConfigBase{ AuthLevel: new(router.AuthOptional), ... }
+routeProtected := router.RouteConfigBase{ AuthLevel: new(router.AuthRequired), ... }
 ```
 
 #### Authentication Middleware
@@ -1060,7 +1060,7 @@ xmlRouteDef := router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, s
     router.RouteConfig[CreateUserReq, CreateUserResp]{
         Path:        "/api/users",
         Methods:     []router.HttpMethod{router.MethodPost},
-        AuthLevel:   router.Ptr(router.NoAuth), // Use Ptr helper
+        AuthLevel:   new(router.NoAuth), // Use Ptr helper
         Codec:       NewXMLCodec[CreateUserReq, CreateUserResp](),
         Handler:     CreateUserHandler, // Assume handler exists
     },

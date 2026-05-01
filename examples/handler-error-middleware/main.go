@@ -111,7 +111,7 @@ func main() {
 	router.RegisterGenericRoute(r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users/success",
 		Methods:   []router.HttpMethod{router.MethodPost},
-		AuthLevel: router.Ptr(router.NoAuth),
+		AuthLevel: new(router.NoAuth),
 		Middlewares: []common.Middleware{
 			TransactionMiddleware,
 			ErrorLoggingMiddleware(logger),
@@ -135,7 +135,7 @@ func main() {
 	router.RegisterGenericRoute(r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users/validation-error",
 		Methods:   []router.HttpMethod{router.MethodPost},
-		AuthLevel: router.Ptr(router.NoAuth),
+		AuthLevel: new(router.NoAuth),
 		Middlewares: []common.Middleware{
 			TransactionMiddleware,
 			ErrorLoggingMiddleware(logger),
@@ -154,7 +154,7 @@ func main() {
 	router.RegisterGenericRoute(r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users/internal-error",
 		Methods:   []router.HttpMethod{router.MethodPost},
-		AuthLevel: router.Ptr(router.NoAuth),
+		AuthLevel: new(router.NoAuth),
 		Middlewares: []common.Middleware{
 			TransactionMiddleware,
 			ErrorLoggingMiddleware(logger),
@@ -194,7 +194,7 @@ func main() {
 	router.RegisterGenericRoute(r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users/custom-transaction",
 		Methods:   []router.HttpMethod{router.MethodPost},
-		AuthLevel: router.Ptr(router.NoAuth),
+		AuthLevel: new(router.NoAuth),
 		Middlewares: []common.Middleware{
 			customTransactionMiddleware,
 			ErrorLoggingMiddleware(logger),

@@ -301,7 +301,7 @@ const (
 )
 
 // Ptr returns a pointer to an AuthLevel value (helper for config).
-func Ptr(level AuthLevel) *AuthLevel {
+funcnew(level AuthLevel) *AuthLevel {
 	return &level
 }
 ```
