@@ -92,7 +92,8 @@ You can nest `SubRouterConfig` structs within the `SubRouters` field of another 
 
 **Important notes about nested sub-routers:**
 - Path prefixes are concatenated (e.g., `/api` + `/v1` = `/api/v1`)
-- Configuration overrides (timeout, max body size, rate limit) are **not inherited** - each sub-router level must explicitly set its own overrides
+- Configuration overrides (timeout, max body size, rate limit, auth token source) are inherited by nested sub-routers
+- Set `IsolateOverrides: true` on a sub-router to ignore parent sub-router overrides while still using `RouterConfig` globals
 - Middlewares are **additive** - they combine as you go deeper (global + parent sub-router + child sub-router + route)
 - The most specific setting takes precedence for overrides
 
@@ -111,7 +112,7 @@ usersV1SubRouter := router.SubRouterConfig{
 
 apiV1SubRouter := router.SubRouterConfig{
         PathPrefix: "/v1", // Relative to /api -> /api/v1
-        Overrides: common.RouteOverrides{Timeout: 3 * time.Second}, // Applies to routes in this sub-router only, NOT inherited by nested sub-routers
+        Overrides: common.RouteOverrides{Timeout: 3 * time.Second}, // Applies to routes in this sub-router and nested sub-routers
         SubRouters: []router.SubRouterConfig{usersV1SubRouter}, // Nest the users sub-router
         Routes: []router.RouteDefinition{
 		router.RouteConfigBase{ Path: "/status", Methods: []router.HttpMethod{router.MethodGet}, Handler: V1StatusHandler }, // /api/v1/status
@@ -141,7 +142,7 @@ r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUser
 ```
 
 **Configuration precedence:**
-- **Overrides** (timeouts, body size, rate limits, auth token source): The most specific setting wins (Route > Sub-Router > Global). Each level must explicitly set overrides; they are not inherited.
+- **Overrides** (timeouts, body size, rate limits, auth token source): The most specific setting wins (Route > current or inherited Sub-Router > Global > field default). Nested sub-routers inherit overrides unless `IsolateOverrides` is true.
 - **Middlewares**: These are combined additively in order: Global → Outer Sub-Router → Inner Sub-Router → Route-specific. All applicable middlewares run in this sequence.
 
 ### Imperative Route Registration

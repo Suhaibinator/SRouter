@@ -50,7 +50,7 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 	})
 
 	// Apply the authOptionalMiddleware to the test handler
-	middleware := router.authOptionalMiddleware(baseHandler)
+	middleware := router.authOptionalMiddlewareWithConfig(defaultAuthTokenConfig())(baseHandler)
 
 	// Test case 1: Request with valid auth header (checks context)
 	t.Run("with valid auth header", func(t *testing.T) {
@@ -81,7 +81,7 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		validTokenMiddleware := router.authOptionalMiddleware(validTokenHandler)
+		validTokenMiddleware := router.authOptionalMiddlewareWithConfig(defaultAuthTokenConfig())(validTokenHandler)
 		validTokenMiddleware.ServeHTTP(rr, req)
 
 		if !handlerCalled {
@@ -152,7 +152,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 		_, _ = w.Write([]byte("OK"))
 	})
 
-	wrappedHandler := r.authRequiredMiddleware(handler)
+	wrappedHandler := r.authRequiredMiddlewareWithConfig(defaultAuthTokenConfig())(handler)
 
 	// Test with no Authorization header
 	req, _ := http.NewRequest("GET", "/test", nil)
@@ -205,7 +205,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 	debugCore, debugLogs := observer.New(zap.DebugLevel)
 	debugLogger := zap.New(debugCore)
 	r = NewRouter(RouterConfig{Logger: debugLogger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	wrappedHandler = r.authRequiredMiddleware(handler) // Re-wrap with new router instance
+	wrappedHandler = r.authRequiredMiddlewareWithConfig(defaultAuthTokenConfig())(handler) // Re-wrap with new router instance
 
 	req, _ = http.NewRequest("GET", "/test", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
@@ -298,7 +298,7 @@ func TestAuthRequiredMiddlewareWithUserObject(t *testing.T) {
 		_, _ = w.Write([]byte("OK"))
 	})
 
-	wrappedHandler := router.authRequiredMiddleware(handler)
+	wrappedHandler := router.authRequiredMiddlewareWithConfig(defaultAuthTokenConfig())(handler)
 
 	// Test with valid Authorization header
 	req, _ := http.NewRequest("GET", "/test", nil)
@@ -368,7 +368,7 @@ func TestAuthRequiredMiddlewareWithTraceID(t *testing.T) {
 		_, _ = w.Write([]byte("OK"))
 	})
 
-	wrappedHandler := r.authRequiredMiddleware(handler)
+	wrappedHandler := r.authRequiredMiddlewareWithConfig(defaultAuthTokenConfig())(handler)
 
 	req, _ := http.NewRequest("GET", "/test", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")

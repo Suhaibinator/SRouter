@@ -696,7 +696,7 @@ SRouter supports three authentication levels, specified in `RouteConfig` or `Rou
 2. **AuthOptional**: Authentication is attempted (e.g., by middleware). If successful, user info is added to the context. The request proceeds regardless.
 3. **AuthRequired**: Authentication is required (e.g., by middleware). If authentication fails, the middleware should reject the request (e.g., with 401 Unauthorized). If successful, user info is added to the context.
 
-When using the built-in `AuthOptional`/`AuthRequired` middleware, the token is extracted from the configured auth token source (`common.RouteOverrides.AuthToken`). The default source is the `Authorization` header. Cookie-based auth is supported by setting `AuthToken` to a cookie source on a sub-router or route.
+When using the built-in `AuthOptional`/`AuthRequired` middleware, the token is extracted from the configured auth token source. The default source is the `Authorization` header. Cookie-based auth can be enabled globally with `RouterConfig.GlobalAuthToken`, or overridden on a sub-router or route with `common.RouteOverrides.AuthToken`. Precedence is route override, current or inherited sub-router override, global config, then the built-in `Authorization` header default.
 
 ```go
 // Example route configurations
@@ -1180,6 +1180,7 @@ type RouterConfig struct {
  GlobalTimeout      time.Duration                     // Default response timeout for all routes
  GlobalMaxBodySize  int64                             // Default maximum request body size in bytes
  GlobalRateLimit    *common.RateLimitConfig[any, any] // Default rate limit for all routes (uses common.RateLimitConfig)
+ GlobalAuthToken    *common.AuthTokenConfig           // Default auth token source for built-in auth middleware
  IPConfig           *router.IPConfig                  // Configuration for client IP extraction (uses router.IPConfig)
  EnableTraceLogging bool                              // Enable detailed trace logging (default: false, uses Debug level)
 TraceLoggingUseInfo bool                             // Log traces at Info level instead of Debug (default: false)
@@ -1227,12 +1228,13 @@ type MetricsConfig struct {
 
 ```go
 type SubRouterConfig struct {
- PathPrefix string                            // Common path prefix for all routes in this sub-router
- Overrides  common.RouteOverrides             // Timeout/body size/rate limit overrides for this sub-router
- Routes     []RouteDefinition                 // Routes (RouteConfigBase or GenericRouteDefinition)
- Middlewares         []common.Middleware               // Middlewares applied to all routes in this sub-router
- SubRouters          []SubRouterConfig                 // Nested sub-routers
- AuthLevel           *AuthLevel                        // Default auth level for routes in this sub-router (nil inherits)
+ PathPrefix       string                // Common path prefix for all routes in this sub-router
+ Overrides        common.RouteOverrides // Timeout/body size/rate limit/auth token overrides for this sub-router
+ IsolateOverrides bool                  // Ignore parent sub-router overrides; globals still apply
+ Routes           []RouteDefinition     // Routes (RouteConfigBase or GenericRouteDefinition)
+ Middlewares      []common.Middleware   // Middlewares applied to all routes in this sub-router
+ SubRouters       []SubRouterConfig     // Nested sub-routers
+ AuthLevel        *AuthLevel            // Default auth level for routes in this sub-router (nil inherits)
  // CacheResponse, CacheKeyPrefix removed - implement caching via middleware if needed
 }
 ```
