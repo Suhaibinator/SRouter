@@ -1424,9 +1424,15 @@ func (r *Router[T, U]) authenticateRequest(req *http.Request, extractToken authT
 	return req, false, "invalid token"
 }
 
-// authRequiredMiddleware is a middleware that requires authentication for a request.
-// If authentication fails, it returns a 401 Unauthorized response.
-// It uses the middleware.AuthenticationWithUser function with a configurable authentication function.
+// authRequiredMiddleware wraps next with authentication using the router's
+// effective default auth token config (RouterConfig.GlobalAuthToken, or the
+// built-in Authorization header default when unset). It returns 401 Unauthorized
+// when authentication fails.
+//
+// Route registration calls authRequiredMiddlewareWithConfig directly so it can
+// honor per-route and per-sub-router AuthToken overrides; this no-config form is
+// the default-config entry point (used in tests and by callers that only need
+// the router-wide default).
 func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
 	return r.authRequiredMiddlewareWithConfig(r.getEffectiveAuthTokenConfig(nil, nil))(next)
 }
@@ -1459,10 +1465,15 @@ func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.A
 	}
 }
 
-// authOptionalMiddleware is a middleware that attempts authentication for a request,
-// but allows the request to proceed even if authentication fails.
-// It tries to authenticate the request and adds the user ID to the context if successful,
-// but allows the request to proceed even if authentication fails.
+// authOptionalMiddleware wraps next with optional authentication using the
+// router's effective default auth token config (RouterConfig.GlobalAuthToken, or
+// the built-in Authorization header default when unset). On success it adds the
+// user to the context; the request proceeds regardless of the outcome.
+//
+// Route registration calls authOptionalMiddlewareWithConfig directly so it can
+// honor per-route and per-sub-router AuthToken overrides; this no-config form is
+// the default-config entry point (used in tests and by callers that only need
+// the router-wide default).
 func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
 	return r.authOptionalMiddlewareWithConfig(r.getEffectiveAuthTokenConfig(nil, nil))(next)
 }
