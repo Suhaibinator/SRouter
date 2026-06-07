@@ -129,6 +129,7 @@ type RouterConfig struct {
 	GlobalTimeout       time.Duration                     // Default response timeout for all routes
 	GlobalMaxBodySize   int64                             // Default maximum request body size in bytes
 	GlobalRateLimit     *common.RateLimitConfig[any, any] // Use common.RateLimitConfig // Default rate limit for all routes
+	GlobalAuthToken     *common.AuthTokenConfig           // Default auth token source for built-in auth middleware
 	IPConfig            *IPConfig                         // Configuration for client IP extraction
 	EnableTraceLogging  bool                              // Enable trace logging
 	TraceLoggingUseInfo bool                              // Use Info level for trace logging
@@ -166,17 +167,18 @@ func (GenericRouteRegistrationFunc[T, U]) isRouteDefinition() {}
 //
 // Important behaviors:
 // - Path prefixes are concatenated when nesting (e.g., "/api" + "/v1" = "/api/v1")
-// - Configuration overrides (timeout, max body size, rate limit) are NOT inherited by nested sub-routers
+// - Configuration overrides are inherited by nested sub-routers unless IsolateOverrides is true
 // - Middlewares are additive - they combine with parent and global middlewares
 // - Routes can be added declaratively via the Routes field or imperatively after router creation
 type SubRouterConfig struct {
-	PathPrefix  string                // Common path prefix for all routes in this sub-router
-	Overrides   common.RouteOverrides // Configuration overrides for routes in this sub-router (not inherited by nested sub-routers)
-	Routes      []RouteDefinition     // Routes in this sub-router. Can contain RouteConfigBase or GenericRouteRegistrationFunc
-	Middlewares []common.Middleware   // Middlewares applied to all routes in this sub-router (additive with global middlewares)
+	PathPrefix       string                // Common path prefix for all routes in this sub-router
+	Overrides        common.RouteOverrides // Configuration overrides for routes in this sub-router
+	IsolateOverrides bool                  // If true, nested override inheritance starts fresh at this sub-router
+	Routes           []RouteDefinition     // Routes in this sub-router. Can contain RouteConfigBase or GenericRouteRegistrationFunc
+	Middlewares      []common.Middleware   // Middlewares applied to all routes in this sub-router (additive with global middlewares)
 	// SubRouters is a slice of nested sub-routers.
-	// Nested sub-routers inherit the parent's path prefix (concatenated) but NOT configuration overrides.
-	// Each nested sub-router must explicitly set its own overrides if needed.
+	// Nested sub-routers inherit the parent's path prefix (concatenated) and configuration overrides
+	// unless IsolateOverrides is set on the nested sub-router.
 	SubRouters []SubRouterConfig // Nested sub-routers with concatenated path prefixes
 	AuthLevel  *AuthLevel        // Default authentication level for all routes in this sub-router (overridden by route-specific AuthLevel)
 }

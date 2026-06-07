@@ -85,7 +85,16 @@ r := router.NewRouter[string, MyUserType](routerConfig, myAuthValidator, myGetID
 
 ## Auth Token Source
 
-By default, the built-in middleware reads the token from the `Authorization` header and trims a `Bearer ` prefix if present. You can override the source per sub-router or per route via `common.RouteOverrides.AuthToken`:
+By default, the built-in middleware reads the token from the `Authorization` header and trims a `Bearer ` prefix if present. You can set an application-wide source via `RouterConfig.GlobalAuthToken`, then override it per sub-router or per route via `common.RouteOverrides.AuthToken`:
+
+```go
+routerConfig := router.RouterConfig{
+    GlobalAuthToken: &common.AuthTokenConfig{
+        Source:     common.AuthTokenSourceCookie,
+        CookieName: "auth_token",
+    },
+}
+```
 
 ```go
 Overrides: common.RouteOverrides{
@@ -98,8 +107,11 @@ Overrides: common.RouteOverrides{
 
 Notes:
 - Only the configured source is honored (no fallback to other sources).
+- Auth token source precedence is route override, current or inherited sub-router override, global config, then the built-in `Authorization` header default.
+- Nested sub-routers inherit auth token overrides unless `SubRouterConfig.IsolateOverrides` is true.
 - If `Source` is `AuthTokenSourceHeader` and `HeaderName` is empty, it defaults to `Authorization`.
 - If `Source` is `AuthTokenSourceCookie` and `CookieName` is empty, the built-in middleware logs a warning at registration time.
+- If an `AuthRequired` route falls all the way back to the built-in default because no route, sub-router, or global auth token source is configured, SRouter logs a registration-time warning.
 
 ## Custom Authentication Middleware
 

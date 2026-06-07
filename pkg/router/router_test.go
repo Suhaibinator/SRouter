@@ -679,42 +679,163 @@ func TestShutdownStopsIDGenerator(t *testing.T) {
 
 // --- Tests for Refactored Generic SubRouter Registration ---
 
-// TestFindSubRouterConfig tests the helper function for finding sub-router configs
-func TestFindSubRouterConfig(t *testing.T) {
-	nestedSR := SubRouterConfig{PathPrefix: "/api/v1/users"}
-	v1SR := SubRouterConfig{PathPrefix: "/api/v1", SubRouters: []SubRouterConfig{nestedSR}}
+// TestResolveSubRouterConfigForPrefix tests lookup of sub-router configs with resolved prefixes and overrides.
+func TestResolveSubRouterConfigForPrefix(t *testing.T) {
+	assertFound := func(t *testing.T, subRouters []SubRouterConfig, targetPrefix string, expectedPrefix string) SubRouterConfig {
+		t.Helper()
+
+		foundSR, found := resolveSubRouterConfigForPrefix(subRouters, targetPrefix, "", common.RouteOverrides{})
+		if !found {
+			t.Fatalf("Expected to find sub-router with prefix %s", targetPrefix)
+		}
+		if foundSR.PathPrefix != expectedPrefix {
+			t.Fatalf("Expected resolved prefix %q for target %q, got %q", expectedPrefix, targetPrefix, foundSR.PathPrefix)
+		}
+		return foundSR
+	}
+
+	nestedSR := SubRouterConfig{PathPrefix: "/users"}
+	v1SR := SubRouterConfig{
+		PathPrefix: "/api/v1",
+		Overrides:  common.RouteOverrides{Timeout: 2 * time.Second},
+		SubRouters: []SubRouterConfig{nestedSR},
+	}
 	v2SR := SubRouterConfig{PathPrefix: "/api/v2"}
 	subRouters := []SubRouterConfig{v1SR, v2SR}
 
 	// Test finding top-level
-	foundSR, found := findSubRouterConfig(subRouters, "/api/v1")
-	if !found {
-		t.Errorf("Expected to find sub-router with prefix /api/v1")
-	}
-	if foundSR == nil || foundSR.PathPrefix != "/api/v1" {
-		t.Errorf("Found incorrect sub-router or nil for /api/v1")
-	}
+	assertFound(t, subRouters, "/api/v1", "/api/v1")
 
 	// Test finding nested
-	foundSR, found = findSubRouterConfig(subRouters, "/api/v1/users")
-	if !found {
-		t.Errorf("Expected to find nested sub-router with prefix /api/v1/users")
-	}
-	if foundSR == nil || foundSR.PathPrefix != "/api/v1/users" {
-		t.Errorf("Found incorrect sub-router or nil for /api/v1/users")
+	foundSR := assertFound(t, subRouters, "/api/v1/users", "/api/v1/users")
+	if foundSR.Overrides.Timeout != 2*time.Second {
+		t.Errorf("Expected nested sub-router to inherit timeout override")
 	}
 
 	// Test finding non-existent
-	_, found = findSubRouterConfig(subRouters, "/api/v3")
+	_, found := resolveSubRouterConfigForPrefix(subRouters, "/api/v3", "", common.RouteOverrides{})
 	if found {
 		t.Errorf("Did not expect to find sub-router with prefix /api/v3")
 	}
 
 	// Test finding non-existent nested
-	_, found = findSubRouterConfig(subRouters, "/api/v1/posts")
+	_, found = resolveSubRouterConfigForPrefix(subRouters, "/api/v1/posts", "", common.RouteOverrides{})
 	if found {
 		t.Errorf("Did not expect to find sub-router with prefix /api/v1/posts")
 	}
+
+	t.Run("full prefix wins over earlier nested relative prefix", func(t *testing.T) {
+		subRouters := []SubRouterConfig{
+			{
+				PathPrefix: "/api",
+				SubRouters: []SubRouterConfig{
+					{PathPrefix: "/v1", Overrides: common.RouteOverrides{Timeout: time.Second}},
+				},
+			},
+			{
+				PathPrefix: "/v1",
+				Overrides:  common.RouteOverrides{Timeout: 3 * time.Second},
+			},
+		}
+
+		foundSR := assertFound(t, subRouters, "/v1", "/v1")
+		if foundSR.Overrides.Timeout != 3*time.Second {
+			t.Errorf("Expected top-level full match timeout, got %s", foundSR.Overrides.Timeout)
+		}
+	})
+
+	t.Run("relative prefix fallback remains supported", func(t *testing.T) {
+		subRouters := []SubRouterConfig{
+			{
+				PathPrefix: "/api",
+				Overrides:  common.RouteOverrides{Timeout: 7 * time.Second},
+				SubRouters: []SubRouterConfig{{PathPrefix: "/v1"}},
+			},
+		}
+
+		foundSR := assertFound(t, subRouters, "/v1", "/api/v1")
+		if foundSR.Overrides.Timeout != 7*time.Second {
+			t.Errorf("Expected fallback match to inherit parent timeout, got %s", foundSR.Overrides.Timeout)
+		}
+	})
+
+	t.Run("later nested full prefix beats earlier relative fallback", func(t *testing.T) {
+		subRouters := []SubRouterConfig{
+			{
+				PathPrefix: "/api",
+				SubRouters: []SubRouterConfig{
+					{PathPrefix: "/public/v1", Overrides: common.RouteOverrides{Timeout: time.Second}},
+				},
+			},
+			{
+				PathPrefix: "/public",
+				SubRouters: []SubRouterConfig{
+					{PathPrefix: "/v1", Overrides: common.RouteOverrides{Timeout: 4 * time.Second}},
+				},
+			},
+		}
+
+		foundSR := assertFound(t, subRouters, "/public/v1", "/public/v1")
+		if foundSR.Overrides.Timeout != 4*time.Second {
+			t.Errorf("Expected later full match timeout, got %s", foundSR.Overrides.Timeout)
+		}
+	})
+
+	t.Run("deep full prefix resolves deepest config", func(t *testing.T) {
+		subRouters := []SubRouterConfig{
+			{
+				PathPrefix: "/api",
+				SubRouters: []SubRouterConfig{
+					{
+						PathPrefix: "/v1",
+						SubRouters: []SubRouterConfig{
+							{
+								PathPrefix: "/users",
+								SubRouters: []SubRouterConfig{
+									{
+										PathPrefix: "/admin",
+										Overrides:  common.RouteOverrides{MaxBodySize: 128},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		foundSR := assertFound(t, subRouters, "/api/v1/users/admin", "/api/v1/users/admin")
+		if foundSR.Overrides.MaxBodySize != 128 {
+			t.Errorf("Expected deepest max body size override, got %d", foundSR.Overrides.MaxBodySize)
+		}
+	})
+
+	t.Run("exact full prefix respects isolated overrides", func(t *testing.T) {
+		subRouters := []SubRouterConfig{
+			{
+				PathPrefix: "/api",
+				Overrides: common.RouteOverrides{
+					Timeout:     5 * time.Second,
+					MaxBodySize: 64,
+				},
+				SubRouters: []SubRouterConfig{
+					{
+						PathPrefix:       "/v1",
+						IsolateOverrides: true,
+						Overrides:        common.RouteOverrides{MaxBodySize: 256},
+					},
+				},
+			},
+		}
+
+		foundSR := assertFound(t, subRouters, "/api/v1", "/api/v1")
+		if foundSR.Overrides.Timeout != 0 {
+			t.Errorf("Expected isolated sub-router not to inherit timeout, got %s", foundSR.Overrides.Timeout)
+		}
+		if foundSR.Overrides.MaxBodySize != 256 {
+			t.Errorf("Expected isolated sub-router max body size override, got %d", foundSR.Overrides.MaxBodySize)
+		}
+	})
 }
 
 // TestRegisterGenericRouteOnSubRouter tests the functional registration method
@@ -729,7 +850,7 @@ func TestRegisterGenericRouteOnSubRouter(t *testing.T) {
 	}
 
 	// Define sub-routers first
-	usersV1SR := SubRouterConfig{PathPrefix: "/api/v1/users"}
+	usersV1SR := SubRouterConfig{PathPrefix: "/users"}
 	apiV1SR := SubRouterConfig{PathPrefix: "/api/v1", SubRouters: []SubRouterConfig{usersV1SR}}
 
 	// Create router with sub-router structure
@@ -780,6 +901,62 @@ func TestRegisterGenericRouteOnSubRouter(t *testing.T) {
 	err = RegisterGenericRouteOnSubRouter(r, "/api/v2", routeCfg)
 	if err == nil {
 		t.Errorf("Expected an error when registering on non-existent prefix, but got nil")
+	}
+}
+
+func TestRegisterGenericRouteOnSubRouterRelativeNestedPrefixUsesResolvedPath(t *testing.T) {
+	logger := zap.NewNop()
+	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user"; return &user, true }
+	userIDFunc := func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}
+
+	r := NewRouter(RouterConfig{
+		Logger: logger,
+		SubRouters: []SubRouterConfig{
+			{
+				PathPrefix: "/api",
+				SubRouters: []SubRouterConfig{
+					{PathPrefix: "/v1"},
+				},
+			},
+		},
+	}, authFunc, userIDFunc)
+
+	routeCfg := RouteConfig[TestRequest, TestResponse]{
+		Path:    "/info",
+		Methods: []HttpMethod{MethodPost},
+		Codec:   codec.NewJSONCodec[TestRequest, TestResponse](),
+		Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
+			return TestResponse{Greeting: "Info for " + data.Name, Age: data.Age}, nil
+		},
+	}
+
+	err := RegisterGenericRouteOnSubRouter(r, "/v1", routeCfg)
+	if err != nil {
+		t.Fatalf("RegisterGenericRouteOnSubRouter failed: %v", err)
+	}
+
+	reqBody := `{"name":"Relative","age":42}`
+	req := httptest.NewRequest("POST", "/api/v1/info", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected status OK (200) for resolved full path, got %d", rr.Code)
+	}
+
+	req = httptest.NewRequest("POST", "/v1/info", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Expected raw relative path to remain unregistered, got %d", rr.Code)
 	}
 }
 

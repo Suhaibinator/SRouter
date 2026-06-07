@@ -35,6 +35,11 @@ type RouterConfig struct {
 	// Uses common.RateLimitConfig. Can be overridden. Nil means no global rate limit.
 	GlobalRateLimit *common.RateLimitConfig[any, any]
 
+	// GlobalAuthToken specifies the default auth token source for built-in auth middleware.
+	// Can be overridden by inherited sub-router or route overrides.
+	// Nil falls back to the built-in Authorization header default.
+	GlobalAuthToken *common.AuthTokenConfig
+
 	// IPConfig defines how client IP addresses are extracted.
 	// See docs/ip-configuration.md. Nil uses default (IPSourceXForwardedFor, TrustProxy: true).
 	IPConfig *IPConfig // Defined in router package
@@ -131,9 +136,13 @@ type SubRouterConfig struct {
         PathPrefix string
 
         // Overrides allows this sub-router to specify timeout, body size, rate limit,
-        // or auth token source settings that override the global configuration.
-        // settings that override the global configuration. Zero values mean no override.
+        // or auth token source settings. Nested sub-routers inherit these values
+        // unless they set IsolateOverrides.
         Overrides common.RouteOverrides
+
+        // IsolateOverrides prevents this sub-router from inheriting parent
+        // sub-router overrides. RouterConfig global defaults still apply.
+        IsolateOverrides bool
 
         // Routes is a slice containing route definitions. Must contain RouteConfigBase
         // or GenericRouteRegistrationFunc values.
@@ -191,7 +200,7 @@ type RouteConfigBase struct {
 
 ## `common.RouteOverrides` and Auth Token Source
 
-Route overrides control per-route and per-sub-router settings, including the auth token source used by the built-in authentication middleware.
+Route overrides control per-route and per-sub-router settings, including the auth token source used by the built-in authentication middleware. Nested sub-routers inherit parent overrides unless `SubRouterConfig.IsolateOverrides` is true. Effective precedence is route override, current or inherited sub-router override, `RouterConfig` global setting, then the field default.
 
 ```go
 package common
