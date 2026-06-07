@@ -1864,7 +1864,7 @@ func TestAuthRequiredMiddleware_OptionsRequireAuth(t *testing.T) {
 	})
 
 	// Apply the middleware directly for testing its behavior
-	wrappedHandler := r.authRequiredMiddleware(handler)
+	wrappedHandler := r.authRequiredMiddlewareWithConfig(defaultAuthTokenConfig())(handler)
 	server := httptest.NewServer(wrappedHandler)
 	defer server.Close()
 
@@ -1962,7 +1962,7 @@ func TestAuthOptionalMiddleware_OptionsBypass(t *testing.T) {
 	})
 
 	// Apply the middleware directly
-	wrappedHandler := r.authOptionalMiddleware(handler)
+	wrappedHandler := r.authOptionalMiddlewareWithConfig(defaultAuthTokenConfig())(handler)
 	server := httptest.NewServer(wrappedHandler)
 	defer server.Close()
 

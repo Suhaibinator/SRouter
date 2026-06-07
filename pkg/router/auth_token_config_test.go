@@ -89,7 +89,7 @@ func TestGetEffectiveAuthTokenConfigUsesSubRouter(t *testing.T) {
 		Source: common.AuthTokenSourceHeader,
 	}
 
-	config := r.getEffectiveAuthTokenConfig(nil, &subRouterAuth)
+	config := r.getEffectiveAuthTokenConfigWithOrigin(nil, &subRouterAuth).config
 	if config.HeaderName != defaultAuthHeaderName {
 		t.Fatalf("expected header name %q, got %q", defaultAuthHeaderName, config.HeaderName)
 	}
@@ -105,7 +105,7 @@ func TestGetEffectiveAuthTokenConfigUsesGlobal(t *testing.T) {
 		GlobalAuthToken: &globalAuth,
 	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	config := r.getEffectiveAuthTokenConfig(nil, nil)
+	config := r.getEffectiveAuthTokenConfigWithOrigin(nil, nil).config
 	if config.Source != common.AuthTokenSourceCookie {
 		t.Fatalf("expected cookie auth source, got %v", config.Source)
 	}
@@ -114,36 +114,12 @@ func TestGetEffectiveAuthTokenConfigUsesGlobal(t *testing.T) {
 	}
 }
 
-func TestAuthRequiredMiddlewareUsesGlobalAuthToken(t *testing.T) {
-	globalAuth := common.AuthTokenConfig{
-		Source:     common.AuthTokenSourceCookie,
-		CookieName: "auth_token",
-	}
-	r := NewRouter(RouterConfig{
-		Logger:          zap.NewNop(),
-		GlobalAuthToken: &globalAuth,
-	}, tokenAuthFunction, tokenUserIDFromUser)
-
-	handler := r.authRequiredMiddleware(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	req.AddCookie(&http.Cookie{Name: "auth_token", Value: "valid-token"})
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected status %d, got %d", http.StatusOK, rr.Code)
-	}
-}
-
 func TestGlobalAuthTokenCookieUsedAcrossRegistrationStyles(t *testing.T) {
 	globalAuth := common.AuthTokenConfig{
 		Source:     common.AuthTokenSourceCookie,
 		CookieName: "auth_token",
 	}
-	authLevel := authLevelPtr(AuthRequired)
+	authLevel := new(AuthRequired)
 	r := NewRouter(RouterConfig{
 		Logger:          zap.NewNop(),
 		GlobalAuthToken: &globalAuth,
@@ -223,7 +199,7 @@ func TestAuthTokenPrecedence(t *testing.T) {
 	childAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "child_token"}
 	subAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "sub_token"}
 	routeAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceHeader, HeaderName: "X-Route-Token"}
-	authLevel := authLevelPtr(AuthRequired)
+	authLevel := new(AuthRequired)
 
 	r := NewRouter(RouterConfig{
 		Logger:          zap.NewNop(),
@@ -322,7 +298,7 @@ func TestAuthTokenPrecedence(t *testing.T) {
 func TestIsolateOverridesPreventsParentAuthInheritanceButKeepsGlobal(t *testing.T) {
 	globalAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "global_token"}
 	parentAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "parent_token"}
-	authLevel := authLevelPtr(AuthRequired)
+	authLevel := new(AuthRequired)
 
 	r := NewRouter(RouterConfig{
 		Logger:          zap.NewNop(),
@@ -379,7 +355,7 @@ func TestAuthRequiredBuiltInFallbackWarning(t *testing.T) {
 					RouteConfigBase{
 						Path:      "/protected",
 						Methods:   []HttpMethod{MethodGet},
-						AuthLevel: authLevelPtr(AuthRequired),
+						AuthLevel: new(AuthRequired),
 						Handler:   okHandler,
 					},
 				},
@@ -411,13 +387,13 @@ func TestNoBuiltInFallbackWarningWhenNotRisky(t *testing.T) {
 				RouteConfigBase{
 					Path:      "/optional",
 					Methods:   []HttpMethod{MethodGet},
-					AuthLevel: authLevelPtr(AuthOptional),
+					AuthLevel: new(AuthOptional),
 					Handler:   okHandler,
 				},
 				RouteConfigBase{
 					Path:      "/public",
 					Methods:   []HttpMethod{MethodGet},
-					AuthLevel: authLevelPtr(NoAuth),
+					AuthLevel: new(NoAuth),
 					Handler:   okHandler,
 				},
 			},
@@ -446,7 +422,7 @@ func TestNoBuiltInFallbackWarningWhenNotRisky(t *testing.T) {
 					Routes: []RouteDefinition{RouteConfigBase{
 						Path:      "/required",
 						Methods:   []HttpMethod{MethodGet},
-						AuthLevel: authLevelPtr(AuthRequired),
+						AuthLevel: new(AuthRequired),
 						Handler:   okHandler,
 					}},
 				}},
@@ -462,7 +438,7 @@ func TestNoBuiltInFallbackWarningWhenNotRisky(t *testing.T) {
 					Routes: []RouteDefinition{RouteConfigBase{
 						Path:      "/required",
 						Methods:   []HttpMethod{MethodGet},
-						AuthLevel: authLevelPtr(AuthRequired),
+						AuthLevel: new(AuthRequired),
 						Handler:   okHandler,
 					}},
 				}},
@@ -477,7 +453,7 @@ func TestNoBuiltInFallbackWarningWhenNotRisky(t *testing.T) {
 					Routes: []RouteDefinition{RouteConfigBase{
 						Path:      "/required",
 						Methods:   []HttpMethod{MethodGet},
-						AuthLevel: authLevelPtr(AuthRequired),
+						AuthLevel: new(AuthRequired),
 						Overrides: common.RouteOverrides{AuthToken: &routeAuth},
 						Handler:   okHandler,
 					}},
@@ -573,10 +549,6 @@ func tokenUserIDFromUser(user *string) string {
 		return ""
 	}
 	return *user
-}
-
-func authLevelPtr(level AuthLevel) *AuthLevel {
-	return &level
 }
 
 func okHandler(w http.ResponseWriter, req *http.Request) {

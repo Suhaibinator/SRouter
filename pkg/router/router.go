@@ -1098,16 +1098,13 @@ func buildAuthTokenExtractor(config common.AuthTokenConfig) authTokenExtractor {
 	}
 }
 
-// getEffectiveAuthTokenConfig returns the effective auth token config for a route.
+// getEffectiveAuthTokenConfigWithOrigin returns the effective auth token config
+// for a route along with the origin it was resolved from.
 // Precedence order (first non-nil value wins):
 // 1. Route-specific auth token config
 // 2. Sub-router auth token override
 // 3. Global auth token config from RouterConfig
 // 4. Default header-based auth token config
-func (r *Router[T, U]) getEffectiveAuthTokenConfig(routeAuth, subRouterAuth *common.AuthTokenConfig) common.AuthTokenConfig {
-	return r.getEffectiveAuthTokenConfigWithOrigin(routeAuth, subRouterAuth).config
-}
-
 func (r *Router[T, U]) getEffectiveAuthTokenConfigWithOrigin(routeAuth, subRouterAuth *common.AuthTokenConfig) authTokenConfigResolution {
 	if routeAuth != nil {
 		return authTokenConfigResolution{
@@ -1424,19 +1421,6 @@ func (r *Router[T, U]) authenticateRequest(req *http.Request, extractToken authT
 	return req, false, "invalid token"
 }
 
-// authRequiredMiddleware wraps next with authentication using the router's
-// effective default auth token config (RouterConfig.GlobalAuthToken, or the
-// built-in Authorization header default when unset). It returns 401 Unauthorized
-// when authentication fails.
-//
-// Route registration calls authRequiredMiddlewareWithConfig directly so it can
-// honor per-route and per-sub-router AuthToken overrides; this no-config form is
-// the default-config entry point (used in tests and by callers that only need
-// the router-wide default).
-func (r *Router[T, U]) authRequiredMiddleware(next http.Handler) http.Handler {
-	return r.authRequiredMiddlewareWithConfig(r.getEffectiveAuthTokenConfig(nil, nil))(next)
-}
-
 func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.AuthTokenConfig) common.Middleware {
 	authTokenConfig = normalizeAuthTokenConfig(authTokenConfig)
 	r.warnOnInvalidAuthTokenConfig(authTokenConfig)
@@ -1463,19 +1447,6 @@ func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.A
 			next.ServeHTTP(w, req)
 		})
 	}
-}
-
-// authOptionalMiddleware wraps next with optional authentication using the
-// router's effective default auth token config (RouterConfig.GlobalAuthToken, or
-// the built-in Authorization header default when unset). On success it adds the
-// user to the context; the request proceeds regardless of the outcome.
-//
-// Route registration calls authOptionalMiddlewareWithConfig directly so it can
-// honor per-route and per-sub-router AuthToken overrides; this no-config form is
-// the default-config entry point (used in tests and by callers that only need
-// the router-wide default).
-func (r *Router[T, U]) authOptionalMiddleware(next http.Handler) http.Handler {
-	return r.authOptionalMiddlewareWithConfig(r.getEffectiveAuthTokenConfig(nil, nil))(next)
 }
 
 func (r *Router[T, U]) authOptionalMiddlewareWithConfig(authTokenConfig common.AuthTokenConfig) common.Middleware {
