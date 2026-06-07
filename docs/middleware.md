@@ -192,17 +192,19 @@ routerConfig := router.RouterConfig{
 
 ## Middleware Execution Order
 
-SRouter applies middleware in a specific order by wrapping the final handler. The effective order, from outermost (runs first) to innermost (runs last before handler), based on the internal `wrapHandler` and `registerSubRouter` logic, is:
+SRouter applies middleware by wrapping the final handler in `wrapHandler`. The effective order, from outermost (runs first) to innermost (runs last before the handler), is:
 
-1.  **Recovery Middleware** (Applied internally)
-2.  **Authentication Middleware** (Applied internally if `AuthLevel` is `AuthRequired` or `AuthOptional`)
-3.  **Rate Limiting Middleware** (Applied internally if `rateLimit` config exists)
-4.  **Route-Specific and Sub-Router Middlewares** (`SubRouterConfig.Middlewares` and `RouteConfig.Middlewares`)
-5.  **Global Middlewares** (`RouterConfig.Middlewares`, including Trace if enabled)
-6.  **Timeout Middleware** (Applied if `timeout > 0`)
-7.  **Your Actual Handler** (`http.HandlerFunc` or `GenericHandler`)
+1.  **Recovery Middleware** (Applied internally; outermost so it can catch panics from everything below)
+2.  **Trace ID Middleware** (Applied internally if `RouterConfig.TraceIDBufferSize > 0`)
+3.  **Authentication Middleware** (Applied internally if `AuthLevel` is `AuthRequired` or `AuthOptional`)
+4.  **Rate Limiting Middleware** (Applied internally if a rate limit config applies)
+5.  **Route-Specific and Sub-Router Middlewares** (`SubRouterConfig.Middlewares` then `RouteConfig.Middlewares`)
+6.  **Global Middlewares** (`RouterConfig.Middlewares`, plus internally-added middleware such as the metrics middleware)
+7.  **Timeout Middleware** (Applied if `timeout > 0` and the route does not set `DisableTimeout`)
+8.  **Base Handler** (shutdown check and request body size limit)
+9.  **Your Actual Handler** (`http.HandlerFunc` or `GenericHandler`)
 
-Note: The `registerSubRouter` function combines sub-router and route-specific middleware before passing the combined list to `wrapHandler`. `wrapHandler` then applies global middleware before this combined list.
+Note: Sub-router and route-specific middlewares are combined (sub-router first, then route-specific) and run *outside* the global middlewares — that is, route/sub-router middleware wraps the global middleware chain.
 
 Middleware within the *same slice* (e.g., `RouterConfig.Middlewares`) are applied in the order they appear in the slice; the first one in the slice becomes the outermost wrapper.
 
@@ -215,7 +217,7 @@ SRouter provides several built-in middleware functions and applies others intern
 -   **`Recovery`**: Recovers from panics. Applied internally by SRouter, usually no need to add manually.
 -   **`MaxBodySize(limit int64)`**: Limits request body size. Applied internally based on config, usually no need to add manually.
 -   **`Timeout(timeout time.Duration)`**: Applies a request timeout using context. Applied internally based on config, usually no need to add manually.
-    -   **`CreateTraceMiddleware[T, U](idGen *IDGenerator)`**: Creates the trace ID middleware. Added automatically to global middleware if `RouterConfig.TraceIDBufferSize > 0`. See [Trace ID Integration](./logging.md#trace-id-integration).
+-   **`CreateTraceMiddleware[T, U](idGen *IDGenerator)`**: Creates the trace ID middleware. Added automatically if `RouterConfig.TraceIDBufferSize > 0`. See [Trace ID Integration](./logging.md#trace-id-integration).
 -   **`RateLimit(config *common.RateLimitConfig[T, U], limiter common.RateLimiter, logger *zap.Logger)`**: Applies rate limiting. Applied internally based on config, usually no need to add manually. See [Rate Limiting](./rate-limiting.md).
 -   **`NewGormTransactionWrapper`**: Wrapper for GORM transactions (used with `scontext`). See [Context Management](./context-management.md).
 

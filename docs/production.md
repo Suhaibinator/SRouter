@@ -142,9 +142,9 @@ SRouter itself does not perform deep inspection or validation of the data fields
 
 #### SRouter's Built-in Mechanisms
 
-*   **Body Size Limits:** The `RouteConfig` allows setting a `MaxBodyBytes` to limit the size of incoming request bodies, which can help prevent certain types of denial-of-service attacks caused by excessively large payloads.
-*   **Generic Route Sanitizer:** For routes registered using `router.RegisterGenericRoute`, the `RouteConfig` accepts an optional `Sanitizer` function with the signature `func(T) (T, error)`.
-    *   This function is executed *before* the main handler and *after* the request body has been read (up to `MaxBodyBytes`).
+*   **Body Size Limits:** Request body size is limited via `Overrides.MaxBodySize` (an `int64` on `common.RouteOverrides`, settable at the global, sub-router, or route level), which can help prevent certain types of denial-of-service attacks caused by excessively large payloads.
+*   **Generic Route Sanitizer:** A generic `RouteConfig` accepts an optional `Sanitizer` function with the signature `func(T) (T, error)`.
+    *   This function is executed *before* the main handler and *after* the request body has been read (subject to the effective `MaxBodySize` limit).
     *   It can be used to perform both **sanitization** (modifying the input to remove malicious parts) and **validation** (checking if the input conforms to expected formats, ranges, or patterns).
     *   If the `Sanitizer` function returns an error, the request is typically rejected by the framework with an appropriate HTTP error code (e.g., `400 Bad Request`), and the main handler is not called.
     *   Refer to the example at `examples/generic/main.go` for a demonstration of how to implement and use a `Sanitizer` function.
@@ -202,7 +202,7 @@ The `CORSConfig` struct within `RouterConfig` offers the following options to co
 *   **`Headers` (`[]string`):** A list of allowed HTTP headers that the client can send in a cross-origin request.
 *   **`AllowCredentials` (`bool`):** If set to `true`, the browser will allow cookies and other credentials (like HTTP Basic authentication) to be sent with cross-origin requests.
     *   **Security Note:** This requires careful consideration and alignment with `Origins` settings.
-*   **`MaxAge` (`int`):** Specifies how long the results of a preflight request (an `OPTIONS` request) can be cached by the browser, in seconds.
+*   **`MaxAge` (`time.Duration`):** Specifies how long the results of a preflight request (an `OPTIONS` request) can be cached by the browser.
 *   **`ExposeHeaders` (`[]string`):** A list of response headers that the browser should allow client-side JavaScript to access. By default, many headers are not exposed.
 
 #### Security Implications and Best Practices

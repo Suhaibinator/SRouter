@@ -30,5 +30,6 @@ Here's a brief overview of the available examples (refer to the source code and 
 -   **`/examples/prometheus`**: Example of integrating SRouter's metrics system with Prometheus by providing a Prometheus-based implementation of the `metrics.MetricsRegistry` interface and showing how the application can expose the metrics via an HTTP handler.
 -   **`/examples/custom-metrics`**: Demonstrates implementing a custom `metrics.MetricsRegistry` or `metrics.MetricsMiddleware`.
 -   **`/examples/handler-error-middleware`**: Shows how middleware can access errors returned by generic handlers to make decisions (e.g., transaction rollback, custom error logging) using `scontext.GetHandlerErrorFromRequest`.
+-   **`/examples/websocket`**: Demonstrates handling WebSocket connections by setting `DisableTimeout: true` on a route so long-lived connections are not terminated by the global or sub-router timeout.
 
 Exploring these examples is highly recommended to understand how to effectively use SRouter's various features.
