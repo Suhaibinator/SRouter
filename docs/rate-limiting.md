@@ -68,7 +68,7 @@ Key `RateLimitConfig` fields:
 -   `UserIDFromUser`: (Only for `StrategyUser`) Function that extracts the user ID from the user object stored in context.
 -   `UserIDToString`: (Only for `StrategyUser`) Converts the user ID to a string for use as a key.
 -   `KeyExtractor`: (Used only with `StrategyCustom`) A function to extract a custom key for rate limiting.
--   `ExceededHandler`: (Optional) An `http.HandlerFunc` to customize the response when the rate limit is exceeded (defaults to a standard 429 Too Many Requests response).
+-   `ExceededHandler`: (Optional) An `http.Handler` to customize the response when the rate limit is exceeded (defaults to a standard 429 Too Many Requests response).
 
 ## Rate Limiting Strategies
 

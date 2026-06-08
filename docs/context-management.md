@@ -12,7 +12,8 @@ package scontext // Defined in pkg/scontext
 import (
 	"context"
 	"net/http"
-	"gorm.io/gorm" // Needed for DatabaseTransaction interface definition
+	"github.com/julienschmidt/httprouter" // Needed for the PathParams field type
+	"gorm.io/gorm"                         // Needed for DatabaseTransaction interface definition
 )
 
 // sRouterContextKey is a private type for the context key to avoid collisions

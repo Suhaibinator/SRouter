@@ -67,7 +67,7 @@ go get github.com/Suhaibinator/SRouter
 
 ## Requirements
 
-- Go 1.24.0 or higher
+- Go 1.26.0 or higher
 - [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter) v1.3.0 or higher for high-performance routing
 - [go.uber.org/zap](https://github.com/uber-go/zap) v1.27.0 or higher for structured logging
 - [github.com/google/uuid](https://github.com/google/uuid) v1.6.0 or higher for trace ID generation
@@ -95,8 +95,8 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/router"
-	"github.com/Suhaibinator/SRouter/pkg/common" // Import common types
-	"github.com/Suhaibinator/SRouter/pkg/middleware" // Import middleware package
+	"github.com/Suhaibinator/SRouter/pkg/common"   // Import common types
+	"github.com/Suhaibinator/SRouter/pkg/scontext" // Import scontext for context helpers
 	"go.uber.org/zap"
 )
 
@@ -118,16 +118,17 @@ func main() {
 	}
 
 	// Define a simple auth function (replace with your actual logic or use auth middleware)
-	authFunction := func(ctx context.Context, token string) (string, bool) {
+	authFunction := func(ctx context.Context, token string) (*string, bool) {
 		if token == "valid-token" {
-			return "user-id-from-token", true
+			user := "user-id-from-token"
+			return &user, true
 		}
-		return "", false
+		return nil, false
 	}
 
 	// Define a function to extract a comparable UserID from the User object
-	userIdFromUserFunction := func(user string) string {
-		return user
+	userIdFromUserFunction := func(user *string) string {
+		return *user
 	}
 
 	// Create a router.
@@ -291,17 +292,17 @@ router.RegisterGenericRoute[CreateUserReq, CreateUserResp, string, string](r,
 	router.RouteConfig[CreateUserReq, CreateUserResp]{
 		Path:        "/standalone/users",
 		Methods:     []router.HttpMethod{router.MethodPost},
-		AuthLevel:   new(router.AuthRequired), // Use Ptr helper
+		AuthLevel:   new(router.AuthRequired), // pointer to an AuthLevel value
 		Codec:       codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
 		Handler:     CreateUserHandler,
 	},
-	r.config.GlobalTimeout,     // Pass effective timeout (global default here)
-	r.config.GlobalMaxBodySize, // Pass effective max body size (global default here)
-	nil,                        // Pass effective rate limit (nil for global default here)
+	2*time.Second, // Pass effective timeout (supply your desired/global value)
+	1<<20,         // Pass effective max body size
+	nil,           // Pass effective rate limit (nil for none)
 )
 ```
 
-Note that the `RegisterGenericRoute` function takes five type parameters: the request type, the response type, the user ID type (`T`), and the user object type (`U`). The last two should match the type parameters of your router. It also requires the *effective* timeout, max body size, and rate limit configuration to be passed explicitly. These effective values are calculated based on global, sub-router, and route-specific settings. When registering directly on the root router, you typically pass the global defaults (or `nil` for rate limit if inheriting). Use `NewGenericRouteDefinition` within `SubRouterConfig.Routes` for declarative registration within sub-routers, as it handles the calculation of effective settings automatically.
+Note that the `RegisterGenericRoute` function takes four type parameters: the request type, the response type, the user ID type (`T`), and the user object type (`U`). The last two should match the type parameters of your router. It also requires the *effective* timeout, max body size, and rate limit configuration to be passed explicitly. These effective values are calculated based on global, sub-router, and route-specific settings. When registering directly on the root router, you typically pass the global defaults (or `nil` for rate limit if inheriting). Use `NewGenericRouteDefinition` within `SubRouterConfig.Routes` for declarative registration within sub-routers, as it handles the calculation of effective settings automatically.
 
 ### Using Path Parameters
 
@@ -507,10 +508,12 @@ routerConfig := router.RouterConfig{
 
 SRouter supports several IP source types (defined as `router.IPSourceType`):
 
-1. **`router.IPSourceRemoteAddr`**: Uses the request's RemoteAddr field (default if no source is specified)
+1. **`router.IPSourceRemoteAddr`**: Uses the request's RemoteAddr field
 2. **`router.IPSourceXForwardedFor`**: Uses the X-Forwarded-For header (common for most reverse proxies)
 3. **`router.IPSourceXRealIP`**: Uses the X-Real-IP header (used by Nginx and some other proxies)
 4. **`router.IPSourceCustomHeader`**: Uses a custom header specified in the configuration
+
+When `IPConfig` is `nil`, the client IP is taken directly from `RemoteAddr`. When `IPConfig` is non-nil but `Source` is left unset, it defaults to `IPSourceXForwardedFor` (matching `router.DefaultIPConfig()`). For any header-based source, if `TrustProxy` is `false` or the header is empty, SRouter falls back to `RemoteAddr`.
 
 ```go
 // Configure IP extraction to use a custom header
@@ -794,8 +797,8 @@ type SRouterContext[T comparable, U any] struct {
     TraceIDSet     bool
     TransactionSet bool
 
-    // Additional flags (flexible storage)
-    Flags map[string]any
+    // Additional boolean flags (e.g. set via AuthenticationBool middleware)
+    Flags map[string]bool
 }
 
 // DatabaseTransaction interface (pkg/scontext/db.go)
@@ -826,12 +829,12 @@ The SRouterContext approach offers several advantages:
    SRouter uses a single context wrapper, updated via helper functions:
    ```go
    ctx := scontext.WithUserID[T, U](r.Context(), userID)
-   ctx = scontext.WithUser[T](ctx, user)
+   ctx = scontext.WithUser[T, U](ctx, user)
    ```
 
 2. **Type Safety**: The generic type parameters ensure proper type handling without the need for type assertions.
 
-3. **Extensibility**: New fields can be added to the `SRouterContext` struct without creating more nested contexts. The `Flags` map allows custom middleware to add values.
+3. **Extensibility**: New fields can be added to the `SRouterContext` struct without creating more nested contexts. The `Flags` map allows custom middleware to record boolean flags.
 
 4. **Organization**: Related context values are grouped logically, making the code more maintainable.
 
@@ -904,6 +907,11 @@ func GetUserHandler(r *http.Request, req GetUserReq) (GetUserResp, error) {
 You can create custom middleware to add functionality to your routes:
 
 ```go
+// Define an unexported context key type to avoid collisions
+type contextKey string
+
+const requestIDKey contextKey = "request_id"
+
 // Create a custom middleware that adds a request ID to the context
 func RequestIDMiddleware() common.Middleware {
  return func(next http.Handler) http.Handler {
@@ -911,9 +919,9 @@ func RequestIDMiddleware() common.Middleware {
    // Generate a request ID
    requestID := uuid.New().String()
 
-   // Add it to the context using the SRouterContext flags
-   // Replace string, string with your router's T, U types
-   ctx := scontext.WithFlag[string, string](r.Context(), "request_id", requestID)
+   // SRouterContext flags only store booleans (scontext.WithFlag), so use the
+   // standard context API to store arbitrary string values like a request ID.
+   ctx := context.WithValue(r.Context(), requestIDKey, requestID)
 
    // Add it to the response headers
    w.Header().Set("X-Request-ID", requestID)
@@ -1060,7 +1068,7 @@ xmlRouteDef := router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, s
     router.RouteConfig[CreateUserReq, CreateUserResp]{
         Path:        "/api/users",
         Methods:     []router.HttpMethod{router.MethodPost},
-        AuthLevel:   new(router.NoAuth), // Use Ptr helper
+        AuthLevel:   new(router.NoAuth), // pointer to an AuthLevel value
         Codec:       NewXMLCodec[CreateUserReq, CreateUserResp](),
         Handler:     CreateUserHandler, // Assume handler exists
     },
@@ -1083,18 +1091,18 @@ routerConfig := router.RouterConfig{
     GlobalTimeout:     2 * time.Second,
     GlobalMaxBodySize: 1 << 20, // 1 MB
     MetricsConfig: &router.MetricsConfig{
-        // Provide your implementations of metrics interfaces (MetricsRegistry, MetricsMiddleware)
-        // If nil, SRouter might use default implementations if available.
-        Collector:        myMetricsCollector, // Must implement metrics.MetricsRegistry
-        MiddlewareFactory: myMiddlewareFactory, // Optional: Must implement metrics.MetricsMiddleware
+        // Collector must implement metrics.MetricsRegistry. If nil (or it does not
+        // implement the interface), no metrics middleware is installed.
+        Collector: myMetricsCollector, // Must implement metrics.MetricsRegistry
+        // MiddlewareFactory is currently not consumed by the router; SRouter builds
+        // its own middleware from Collector.
 
-        // Configure which default metrics the built-in middleware should collect
-        // if MiddlewareFactory is nil. These flags are used by metrics.NewMetricsMiddleware.
+        // Configure which default metrics the built-in middleware should collect.
         // Note: Namespace and Subsystem are typically configured within your MetricsRegistry implementation.
         Namespace:        "myapp",
         Subsystem:        "api",
         EnableLatency:    true,  // Collect request latency
-        EnableThroughput: true,  // Collect request/response size
+        EnableThroughput: true,  // Collect request body bytes
         EnableQPS:        true,  // Collect requests per second
         EnableErrors:     true,  // Collect error counts by status code
     },
@@ -1128,16 +1136,16 @@ mux.Handle("/", r)
 The system revolves around these key interfaces (you'll need to provide implementations):
 
 1.  **`Collector`** (field in `MetricsConfig`, must implement `metrics.MetricsRegistry`): Responsible for creating and managing individual metric types (Counters, Gauges, Histograms, Summaries). Your implementation will interact with your chosen metrics library (e.g., `prometheus.NewCounterVec`).
-2.  **`MiddlewareFactory`** (field in `MetricsConfig`, optional, must implement `metrics.MetricsMiddleware`): Creates the actual `http.Handler` middleware that intercepts requests, records metrics using the `Collector`, and passes the request down the chain. SRouter likely provides a default factory if this is nil in the config.
+2.  **`MiddlewareFactory`** (field in `MetricsConfig`): Reserved for supplying a custom metrics middleware factory. It is currently not consumed by the router — when `Collector` implements `metrics.MetricsRegistry`, SRouter builds its own metrics middleware from it.
 
 #### Collected Metrics
 
-When enabled via `MetricsConfig`, the default middleware typically collects:
+When enabled via `MetricsConfig`, the built-in middleware collects:
 
--   **Latency**: Request duration.
--   **Throughput**: Request and response sizes.
--   **QPS**: Request rate.
--   **Errors**: Count of requests resulting in different HTTP error status codes.
+-   **Latency**: Request duration (Histogram, tagged with `route`).
+-   **Throughput**: Request body bytes (Counter; response sizes are not tracked).
+-   **QPS**: Request count (Counter, tagged with `route`).
+-   **Errors**: Count of requests with status code `>= 400` (Counter, tagged with `route` and `status_code`).
 
 #### Implementing Your Own Metrics Backend
 
@@ -1200,9 +1208,10 @@ type MetricsConfig struct {
  // Must implement metrics.MetricsRegistry. Required when metrics are enabled.
  Collector any // Must implement metrics.MetricsRegistry
 
- // MiddlewareFactory is the factory for creating metrics middleware.
- // Optional. If nil, SRouter likely uses a default factory. Must implement metrics.MetricsMiddleware.
- MiddlewareFactory any // Must implement metrics.MetricsMiddleware
+ // MiddlewareFactory is reserved for a custom metrics middleware factory.
+ // Currently not consumed by the router: when Collector implements
+ // metrics.MetricsRegistry, the router builds its own metrics middleware.
+ MiddlewareFactory any // metrics.MetricsMiddleware
 
  // Namespace for metrics.
  Namespace string
@@ -1266,7 +1275,7 @@ type RouteConfig[T any, U any] struct {
  Middlewares []common.Middleware               // Middlewares applied to this specific route
  SourceType  SourceType                        // How to retrieve request data (defaults to Body)
  SourceKey   string                            // Parameter name for query or path parameters (if SourceType != Body)
- // CacheResponse, CacheKeyPrefix removed - implement caching via middleware if needed
+ Sanitizer   func(T) (T, error)                // Optional: validate/transform request data after decoding
 }
 ```
 
@@ -1307,6 +1316,9 @@ const (
 
  // Base62PathParameter retrieves data from a base62-encoded path parameter.
  Base62PathParameter
+
+ // Empty does not decode anything; it acts as a no-op for decoding.
+ Empty
 )
 ```
 
@@ -1331,8 +1343,8 @@ SRouter provides several authentication middleware constructors in `pkg/middlewa
 ```go
 // T = UserID type, U = User object type
 // Note: NewBasicAuthMiddleware (returning only UserID) is not provided.
-// Use a UserAuthProvider for Basic Auth.
-middleware.NewBasicUserAuthProvider[U any](getUserFunc func(username, password string) (*U, error)) // Provider for user objects
+// Use a UserAuthProvider for Basic Auth. Construct the provider directly:
+provider := &middleware.BasicUserAuthProvider[U]{GetUserFunc: getUserFunc} // getUserFunc: func(username, password string) (*U, error)
 middleware.AuthenticationWithUserProvider[T comparable, U any](provider middleware.UserAuthProvider[U], logger *zap.Logger) common.Middleware // Middleware using the provider
 ```
 
@@ -1371,10 +1383,16 @@ Sets a timeout for the request (Applied internally based on config).
 
 ### CORS
 
-Adds CORS headers to the response.
+CORS is not a standalone middleware. It is handled directly by the router based on `RouterConfig.CORSConfig`.
 
 ```go
-middleware.CORS(options middleware.CORSOptions) common.Middleware // Takes CORSOptions struct
+// Configure CORS via RouterConfig.CORSConfig (see the CORS Configuration section).
+routerConfig := router.RouterConfig{
+    CORSConfig: &router.CORSConfig{
+        Origins: []string{"https://example.com"},
+        // Methods, Headers, ExposeHeaders, AllowCredentials, MaxAge ...
+    },
+}
 ```
 
 ### Chain
@@ -1394,7 +1412,7 @@ See Metrics section and `docs/metrics.md`.
 Adds trace ID to the request context using `scontext`. Essential for log correlation. Recommended to enable via `RouterConfig.TraceIDBufferSize > 0` or add this middleware explicitly early in the chain. See `docs/logging.md#trace-id-integration`.
 
 ```go
-middleware.CreateTraceMiddleware(generator *middleware.IDGenerator) common.Middleware
+middleware.CreateTraceMiddleware[T comparable, U any](generator *middleware.IDGenerator) common.Middleware
 // Note: The router creates the generator and middleware internally if TraceIDBufferSize > 0.
 // You typically don't need to call this directly unless customizing the generator.
 ```
@@ -1421,7 +1439,7 @@ codec.NewProtoCodec[T, U]() *codec.ProtoCodec[T, U]
 
 ### Codec Interface
 
-You can create your own codecs by implementing the `Codec` interface (defined in `pkg/router/config.go`):
+You can create your own codecs by implementing the `Codec` interface (defined in `pkg/codec/codec.go`):
 
 ```go
 type Codec[T any, U any] interface {

@@ -94,13 +94,16 @@ const (
 // MetricsConfig defines the configuration for metrics collection.
 // It allows customization of how metrics are collected and exposed.
 type MetricsConfig struct {
-	// Collector is the metrics collector to use.
-	// If nil, a default collector will be used if metrics are enabled.
-	Collector any // metrics.Collector
+	// Collector is the metrics collector to use. It must implement
+	// metrics.MetricsRegistry for metrics to be collected. If nil (or it does
+	// not implement metrics.MetricsRegistry), no metrics middleware is installed.
+	Collector any // metrics.MetricsRegistry
 
-	// MiddlewareFactory is the factory for creating metrics middleware.
-	// If nil, a default middleware factory will be used if metrics are enabled.
-	MiddlewareFactory any // metrics.MiddlewareFactory
+	// MiddlewareFactory is reserved for supplying a custom metrics middleware
+	// factory. It is currently not consumed by the router: when Collector
+	// implements metrics.MetricsRegistry, the router builds its own metrics
+	// middleware from it.
+	MiddlewareFactory any // metrics.MetricsMiddleware
 
 	// Namespace for metrics.
 	Namespace string

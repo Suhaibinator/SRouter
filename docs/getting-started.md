@@ -12,7 +12,7 @@ go get github.com/Suhaibinator/SRouter
 
 ## Requirements
 
-- Go 1.24.0 or higher
+- Go 1.26.0 or higher
 - Dependencies (managed via Go modules):
   - [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter) v1.3.0 (Core routing engine)
   - [go.uber.org/zap](https://github.com/uber-go/zap) v1.27.0 (Structured logging)
@@ -86,18 +86,19 @@ func main() {
 
 	// Define the authentication function (replace with your actual logic)
 	// This function is required by NewRouter, even if AuthLevel is NoAuth everywhere.
-	authFunction := func(ctx context.Context, token string) (string, bool) {
+	authFunction := func(ctx context.Context, token string) (*string, bool) {
 		// Example: Check if token is "valid-token"
 		if token == "valid-token" {
-			return "user-id-from-token", true // Return user ID and true if valid
+			user := "user-id-from-token"
+			return &user, true // Return a pointer to the user object and true if valid
 		}
-		return "", false // Return empty string and false if invalid
+		return nil, false // Return nil and false if invalid
 	}
 
 	// Define a function to extract a comparable UserID from the User object (returned by authFunction)
 	// In this case, the User object is just a string (the user ID itself).
-	userIdFromUserFunction := func(user string) string {
-		return user
+	userIdFromUserFunction := func(user *string) string {
+		return *user
 	}
 
 	// Create the router. Routes are defined within the routerConfig.
@@ -113,8 +114,8 @@ func main() {
 ### Key Components
 
 - **`RouterConfig`**: Holds global settings like logger, timeouts, body size limits, and global middleware.
-- **`authFunction`**: A function `func(ctx context.Context, token string) (UserObjectType, bool)` that validates an authentication token and returns the user object and a boolean indicating success. The token is extracted from the configured auth token source (default is the `Authorization` header). Used by the built-in middleware when `AuthLevel` is set.
-- **`userIdFromUserFunction`**: A function `func(user UserObjectType) UserIDType` that extracts the comparable User ID from the user object returned by `authFunction`. Used by the built-in middleware.
+- **`authFunction`**: A function `func(ctx context.Context, token string) (*UserObjectType, bool)` that validates an authentication token and returns a pointer to the user object and a boolean indicating success. The token is extracted from the configured auth token source (default is the `Authorization` header). Used by the built-in middleware when `AuthLevel` is set.
+- **`userIdFromUserFunction`**: A function `func(user *UserObjectType) UserIDType` that extracts the comparable User ID from the user object (pointer) returned by `authFunction`. Used by the built-in middleware.
 - **`NewRouter[UserIDType, UserObjectType]`**: The constructor for the router. The type parameters define the type used for user IDs (`UserIDType`, must be comparable) and the type used for the user object (`UserObjectType`, can be any type) potentially stored in the context.
 - **`RouterConfig.SubRouters`**: A slice of `SubRouterConfig` where routes are defined. Each `SubRouterConfig` has a `PathPrefix` and a `Routes` slice.
 - **`RouteConfigBase` / `RouteConfig[T, U]`**: Structs used within the `SubRouterConfig.Routes` slice to define individual routes, their paths (relative to the sub-router prefix), methods, handlers, authentication levels, etc.

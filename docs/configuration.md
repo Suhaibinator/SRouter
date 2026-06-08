@@ -195,6 +195,11 @@ type RouteConfigBase struct {
         // Middlewares is a slice of middlewares applied only to this route, executed
         // before global middlewares.
 	Middlewares []common.Middleware
+
+	// DisableTimeout disables the timeout for this route (e.g., for WebSockets
+	// or other long-lived connections). When true, neither the global nor
+	// sub-router timeout is applied.
+	DisableTimeout bool
 }
 ```
 
@@ -308,12 +313,11 @@ const (
 	// AuthRequired indicates that authentication is required.
 	AuthRequired
 )
-
-// Ptr returns a pointer to an AuthLevel value (helper for config).
-funcnew(level AuthLevel) *AuthLevel {
-	return &level
-}
 ```
+
+`AuthLevel` fields in the config structs are pointers (`*AuthLevel`) so that an
+unset value can inherit from the sub-router or global default. Use the built-in
+`new(expr)` form to obtain a pointer to a level value, e.g. `new(router.AuthRequired)`.
 
 ## `SourceType` (Enum)
 
@@ -341,8 +345,6 @@ const (
 ```
 
 ## `CORSConfig`
-
-**MISSING FROM DOCUMENTATION** - This struct exists in the implementation but is not documented.
 
 ```go
 package router

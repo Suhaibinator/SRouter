@@ -41,7 +41,7 @@ golangci-lint run
 
 ## Architecture Overview
 
-SRouter is a high-performance HTTP router framework built on `julienschmidt/httprouter` with Go generics support (requires Go 1.24.0+). The codebase follows a layered architecture with clear separation of concerns.
+SRouter is a high-performance HTTP router framework built on `julienschmidt/httprouter` with Go generics support (requires Go 1.26.0+). The codebase follows a layered architecture with clear separation of concerns.
 
 ### Core Type Parameters
 Throughout the codebase, `T` represents the UserID type (must be comparable) and `U` represents the User object type. These generic parameters enable type-safe authentication and context management.
