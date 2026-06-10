@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -342,15 +343,22 @@ func TestE2ERateLimiting(t *testing.T) {
 	}
 }
 
-// TestE2ECORS verifies CORS preflight and actual cross-origin requests over a
-// real HTTP connection.
+// TestE2ECORS simulates how a real browser drives CORS against the server,
+// over a real HTTP connection. Each subtest mirrors a step a browser takes:
+// same-origin requests carry no Origin header, non-simple cross-origin
+// requests are preceded by a credential-less OPTIONS preflight, and the
+// browser blocks based purely on the presence or absence of the
+// Access-Control-Allow-* response headers (the server replies 204 to every
+// preflight regardless).
 func TestE2ECORS(t *testing.T) {
-	authFunc, userIDFunc := newE2EAuthFunctions(nil)
+	const allowedOrigin = "http://example.com"
+
+	authFunc, userIDFunc := newE2EAuthFunctions(map[string]string{"token-alice": "alice"})
 
 	r := NewRouter(RouterConfig{
 		Logger: zap.NewNop(),
 		CORSConfig: &CORSConfig{
-			Origins:          []string{"http://example.com"},
+			Origins:          []string{allowedOrigin},
 			Methods:          []string{"GET", "POST"},
 			Headers:          []string{"Content-Type", "Authorization"},
 			AllowCredentials: true,
@@ -365,14 +373,40 @@ func TestE2ECORS(t *testing.T) {
 			_, _ = w.Write([]byte("resource"))
 		},
 	})
+	// A protected endpoint, as an SPA calling an authenticated API would use.
+	r.RegisterRoute(RouteConfigBase{
+		Path:      "/protected",
+		Methods:   []HttpMethod{MethodPost},
+		AuthLevel: new(AuthRequired),
+		Handler: func(w http.ResponseWriter, req *http.Request) {
+			_, _ = w.Write([]byte("protected data"))
+		},
+	})
 
 	server := httptest.NewServer(r)
 	defer server.Close()
 	client := server.Client()
 
+	t.Run("same-origin request gets no CORS headers", func(t *testing.T) {
+		// Browsers do not send an Origin header on same-origin GETs; the
+		// response must work normally and carry no CORS headers.
+		resp, err := client.Get(server.URL + "/resource")
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected status %d, got %d", http.StatusOK, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("expected no Access-Control-Allow-Origin header, got %q", got)
+		}
+	})
+
 	t.Run("preflight request", func(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodOptions, server.URL+"/resource", nil)
-		req.Header.Set("Origin", "http://example.com")
+		req.Header.Set("Origin", allowedOrigin)
 		req.Header.Set("Access-Control-Request-Method", "POST")
 		req.Header.Set("Access-Control-Request-Headers", "Content-Type")
 
@@ -382,23 +416,29 @@ func TestE2ECORS(t *testing.T) {
 		}
 		defer func() { _ = resp.Body.Close() }()
 
-		if resp.StatusCode >= 300 {
-			t.Fatalf("expected preflight success, got status %d", resp.StatusCode)
+		if resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("expected preflight status %d, got %d", http.StatusNoContent, resp.StatusCode)
 		}
-		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://example.com" {
-			t.Errorf("expected Access-Control-Allow-Origin %q, got %q", "http://example.com", got)
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != allowedOrigin {
+			t.Errorf("expected Access-Control-Allow-Origin %q, got %q", allowedOrigin, got)
 		}
 		if got := resp.Header.Get("Access-Control-Allow-Methods"); !strings.Contains(got, "POST") {
 			t.Errorf("expected Access-Control-Allow-Methods to contain POST, got %q", got)
 		}
+		if got := resp.Header.Get("Access-Control-Allow-Headers"); !strings.Contains(got, "Content-Type") {
+			t.Errorf("expected Access-Control-Allow-Headers to contain Content-Type, got %q", got)
+		}
 		if got := resp.Header.Get("Access-Control-Allow-Credentials"); got != "true" {
 			t.Errorf("expected Access-Control-Allow-Credentials true, got %q", got)
+		}
+		if got := resp.Header.Get("Access-Control-Max-Age"); got == "" {
+			t.Error("expected Access-Control-Max-Age to be set so browsers can cache the preflight")
 		}
 	})
 
 	t.Run("actual cross-origin request", func(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodGet, server.URL+"/resource", nil)
-		req.Header.Set("Origin", "http://example.com")
+		req.Header.Set("Origin", allowedOrigin)
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -413,8 +453,145 @@ func TestE2ECORS(t *testing.T) {
 		if string(body) != "resource" {
 			t.Errorf("expected body %q, got %q", "resource", body)
 		}
-		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://example.com" {
-			t.Errorf("expected Access-Control-Allow-Origin %q, got %q", "http://example.com", got)
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != allowedOrigin {
+			t.Errorf("expected Access-Control-Allow-Origin %q, got %q", allowedOrigin, got)
+		}
+		// Responses that depend on the Origin header must say so, or shared
+		// caches could serve one origin's CORS headers to another.
+		if got := resp.Header.Values("Vary"); !slices.Contains(got, "Origin") {
+			t.Errorf("expected Vary to contain Origin, got %v", got)
+		}
+	})
+
+	t.Run("browser flow against protected API", func(t *testing.T) {
+		// Step 1: the browser preflights the credentialed POST. Preflights
+		// never carry credentials, so this must succeed without a token —
+		// the CORS layer answers before authentication runs.
+		preflight, _ := http.NewRequest(http.MethodOptions, server.URL+"/protected", nil)
+		preflight.Header.Set("Origin", allowedOrigin)
+		preflight.Header.Set("Access-Control-Request-Method", "POST")
+		preflight.Header.Set("Access-Control-Request-Headers", "Authorization, Content-Type")
+
+		resp, err := client.Do(preflight)
+		if err != nil {
+			t.Fatalf("preflight request failed: %v", err)
+		}
+		_ = resp.Body.Close()
+
+		if resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("expected credential-less preflight to succeed with %d, got %d",
+				http.StatusNoContent, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != allowedOrigin {
+			t.Fatalf("expected Access-Control-Allow-Origin %q, got %q (browser would block the request)",
+				allowedOrigin, got)
+		}
+		if got := resp.Header.Get("Access-Control-Allow-Headers"); !strings.Contains(got, "Authorization") {
+			t.Errorf("expected Access-Control-Allow-Headers to contain Authorization, got %q", got)
+		}
+
+		// Step 2: the preflight passed, so the browser sends the real request
+		// with credentials attached.
+		actual, _ := http.NewRequest(http.MethodPost, server.URL+"/protected", strings.NewReader("{}"))
+		actual.Header.Set("Origin", allowedOrigin)
+		actual.Header.Set("Authorization", "Bearer token-alice")
+		actual.Header.Set("Content-Type", "application/json")
+
+		resp, err = client.Do(actual)
+		if err != nil {
+			t.Fatalf("actual request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected status %d, got %d", http.StatusOK, resp.StatusCode)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if string(body) != "protected data" {
+			t.Errorf("expected body %q, got %q", "protected data", body)
+		}
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != allowedOrigin {
+			t.Errorf("expected Access-Control-Allow-Origin %q, got %q", allowedOrigin, got)
+		}
+		if got := resp.Header.Get("Access-Control-Allow-Credentials"); got != "true" {
+			t.Errorf("expected Access-Control-Allow-Credentials true, got %q", got)
+		}
+
+		// A request without credentials (e.g. an expired session) is still
+		// rejected by authentication; CORS does not bypass it.
+		unauthed, _ := http.NewRequest(http.MethodPost, server.URL+"/protected", strings.NewReader("{}"))
+		unauthed.Header.Set("Origin", allowedOrigin)
+		unauthed.Header.Set("Content-Type", "application/json")
+
+		resp2, err := client.Do(unauthed)
+		if err != nil {
+			t.Fatalf("unauthenticated request failed: %v", err)
+		}
+		defer func() { _ = resp2.Body.Close() }()
+
+		if resp2.StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected status %d for missing credentials, got %d",
+				http.StatusUnauthorized, resp2.StatusCode)
+		}
+	})
+
+	t.Run("preflight for disallowed method is refused", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodOptions, server.URL+"/resource", nil)
+		req.Header.Set("Origin", allowedOrigin)
+		req.Header.Set("Access-Control-Request-Method", "DELETE")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("preflight request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		// The server still answers 204; the missing Allow-Methods header is
+		// what makes the browser block the DELETE.
+		if resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("expected preflight status %d, got %d", http.StatusNoContent, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Access-Control-Allow-Methods"); got != "" {
+			t.Errorf("expected no Access-Control-Allow-Methods for disallowed method, got %q", got)
+		}
+	})
+
+	t.Run("preflight for disallowed header is refused", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodOptions, server.URL+"/resource", nil)
+		req.Header.Set("Origin", allowedOrigin)
+		req.Header.Set("Access-Control-Request-Method", "POST")
+		req.Header.Set("Access-Control-Request-Headers", "X-Custom-Secret")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("preflight request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("expected preflight status %d, got %d", http.StatusNoContent, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Access-Control-Allow-Headers"); got != "" {
+			t.Errorf("expected no Access-Control-Allow-Headers for disallowed header, got %q", got)
+		}
+	})
+
+	t.Run("preflight from disallowed origin is refused", func(t *testing.T) {
+		req, _ := http.NewRequest(http.MethodOptions, server.URL+"/resource", nil)
+		req.Header.Set("Origin", "http://evil.example.org")
+		req.Header.Set("Access-Control-Request-Method", "POST")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("preflight request failed: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		if resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("expected preflight status %d, got %d", http.StatusNoContent, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("expected no Access-Control-Allow-Origin header, got %q", got)
 		}
 	})
 
@@ -430,6 +607,11 @@ func TestE2ECORS(t *testing.T) {
 
 		if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
 			t.Errorf("expected no Access-Control-Allow-Origin header, got %q", got)
+		}
+		// Still varies by Origin: an allowed origin would have gotten CORS
+		// headers, so caches must not reuse this response across origins.
+		if got := resp.Header.Values("Vary"); !slices.Contains(got, "Origin") {
+			t.Errorf("expected Vary to contain Origin, got %v", got)
 		}
 	})
 }
