@@ -6,10 +6,10 @@ high-confidence findings from inspection.
 
 **Status legend:** `[ ]` open · `[x]` fixed · strike through items deemed won't-fix.
 
-**Progress: 20/20 fixed** (all on branch `bugs`, 2026-06-09). Full suite, `go test -race`,
+**Progress: 21/21 fixed** (all on branch `bugs`, 2026-06-09). Full suite, `go test -race`,
 `go vet`, and all examples build clean. Regression tests added in
 `pkg/router/bug_regression_test.go`, plus new cases in the codec, common, and middleware
-test files.
+test files. Item 21 was found during post-fix review of this branch.
 
 ---
 
@@ -141,6 +141,25 @@ test files.
 - [x] **20.** `MiddlewareChain.Append` copies into a fresh backing array, so multiple
   Appends on the same parent chain can no longer clobber each other.
   *Regression test:* `TestMiddlewareChainAppendDoesNotAliasParent`.
+- [x] **21. `UberRateLimiter` map grows without bound (memory leak / DoS vector)**
+  `limiters` accumulated one entry per unique key forever — with `StrategyIP`, one per
+  client IP ever seen, so rotated/spoofed IPs could exhaust memory. (Pre-existed the
+  item-4 rewrite; the per-key map was always SRouter's own.)
+  **Fixed:** amortized eviction. An entry idle ≥ 2 of its own windows holds no usable
+  history (the next request would zero both counters), so a sweep deletes it — provably
+  without changing any rate-limit decision. Sweeps run in a short-lived goroutine,
+  triggered by entry creation (the only way the map grows) at most once per
+  `limiterSweepInterval`; the existing-entry hot path is untouched. A sweeper-vs-request
+  race is resolved exactly via an `evicted` tombstone set under the entry lock plus a
+  re-fetch retry in `Allow`. Also hardened `allowLocked` to clamp negative elapsed
+  (clock read ordered before another goroutine's entry creation), which previously let
+  `reset` exceed the window.
+  *Regression tests:* `pkg/middleware/ratelimit_eviction_test.go` (11 tests: staleness
+  boundary, survivor counts, lossless-vs-control equivalence, mid-flight eviction retry,
+  sweep throttling, end-to-end via public API, bounded size under key churn,
+  zero-value guards, exact admission count under concurrent sweeps, and a chaos test
+  racing eviction against rotating keys), plus `BenchmarkUberRateLimiterAllowHotPath`
+  confirming zero added hot-path allocations.
 
 ---
 

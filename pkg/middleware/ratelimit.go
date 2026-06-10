@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"   // Import common for shared types
@@ -15,17 +16,49 @@ import (
 
 // Note: RateLimitStrategy, RateLimiter, RateLimitConfig moved to pkg/common/types.go
 
+// limiterSweepInterval is the minimum time between sweeps of stale limiter
+// entries. Sweeps are triggered by entry creation — the only operation that
+// grows the map — so a stable key set never pays for sweeping, while key
+// churn (the only way the map can grow without bound) triggers a sweep at
+// most once per interval. Each sweep runs in its own short-lived goroutine.
+const limiterSweepInterval = time.Minute
+
 // UberRateLimiter implements the common.RateLimiter interface using a
 // non-blocking sliding-window counter. Over-limit requests are denied
 // immediately (never queued or slept on), and the configured limit/window
 // semantics are honored exactly — e.g. "2 per minute" allows 2 requests per
 // minute, not 1 per second.
 //
+// Memory is bounded by eviction: entries idle for at least two of their own
+// windows hold no usable history (the next request would reset their counters
+// anyway), so they are deleted by an amortized sweep and lazily recreated on
+// next use. Eviction therefore never changes a rate-limit decision. Sweeps
+// are scheduled only when a new entry is created, so live entries are
+// roughly those active within the last 2×window + limiterSweepInterval;
+// stale entries beyond that linger only until the next new key arrives.
+//
 // The name is retained for backwards compatibility with earlier versions that
 // were backed by Uber's ratelimit library. The implementation maintains one
 // window counter per unique key.
 type UberRateLimiter struct {
 	limiters sync.Map // map[string]*slidingWindowLimiter
+
+	// lastSweep is the unix-nano time at which a sweep was last started.
+	// Entry creation CASes it forward to claim the right to start the next
+	// sweep, guaranteeing at most one sweep per limiterSweepInterval.
+	lastSweep atomic.Int64
+
+	// nowFunc overrides the clock in tests. nil means time.Now. Must be set
+	// before the limiter is first used.
+	nowFunc func() time.Time
+}
+
+// timeNow returns the current time from the configured clock.
+func (u *UberRateLimiter) timeNow() time.Time {
+	if u.nowFunc != nil {
+		return u.nowFunc()
+	}
+	return time.Now()
 }
 
 // NewUberRateLimiter creates a new UberRateLimiter instance.
@@ -45,17 +78,50 @@ type slidingWindowLimiter struct {
 	windowStart time.Time
 	prevCount   int
 	currCount   int
+
+	// window is fixed at creation (the map's composite key includes it) and
+	// is read by the sweeper to decide staleness.
+	window time.Duration
+
+	// evicted is set under mu by the sweeper immediately before the entry is
+	// deleted from the map. Counting against an evicted entry would silently
+	// lose the count, so tryAllow refuses and the caller re-fetches.
+	evicted bool
 }
 
+// allow locks the limiter and counts the request. Unlike tryAllow it ignores
+// the evicted flag; use it only where the entry is known not to be shared
+// with a sweeper (e.g. unit tests on a bare slidingWindowLimiter).
 func (l *slidingWindowLimiter) allow(limit int, window time.Duration, now time.Time) (bool, int, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	return l.allowLocked(limit, window, now)
+}
 
+// tryAllow counts the request unless the entry has been evicted from the
+// limiter map, in which case valid is false and the caller must re-fetch the
+// entry and try again.
+func (l *slidingWindowLimiter) tryAllow(limit int, window time.Duration, now time.Time) (allowed bool, remaining int, reset time.Duration, valid bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.evicted {
+		return false, 0, 0, false
+	}
+	allowed, remaining, reset = l.allowLocked(limit, window, now)
+	return allowed, remaining, reset, true
+}
+
+// allowLocked implements the sliding-window decision. l.mu must be held.
+func (l *slidingWindowLimiter) allowLocked(limit int, window time.Duration, now time.Time) (bool, int, time.Duration) {
 	if l.windowStart.IsZero() {
 		l.windowStart = now
 	}
 
-	elapsed := now.Sub(l.windowStart)
+	// now may have been read before another goroutine created or rolled this
+	// entry (each request reads the clock once, before the map lookup), so
+	// elapsed can be slightly negative. Clamp it so overlap stays in [0, 1]
+	// and reset never exceeds the window.
+	elapsed := max(now.Sub(l.windowStart), 0)
 	if elapsed >= window {
 		// Roll the window forward, keeping alignment to window boundaries.
 		if elapsed >= 2*window {
@@ -86,22 +152,64 @@ func (l *slidingWindowLimiter) allow(limit int, window time.Duration, now time.T
 	return true, limit - estimated - 1, 0
 }
 
-// getLimiter gets or creates a window counter for the given key, limit, and window.
-// The composite key includes limit and window so different rate limits for the
-// same base key don't share counters.
-func (u *UberRateLimiter) getLimiter(key string, limit int, window time.Duration) *slidingWindowLimiter {
-	// Built with strconv instead of fmt.Sprintf: this runs on every
-	// rate-limited request and Sprintf's reflection is measurably slower.
-	compositeKey := key + "|" + strconv.Itoa(limit) + "|" + strconv.FormatInt(int64(window), 10)
-
+// getLimiter gets or creates the window counter stored under compositeKey.
+func (u *UberRateLimiter) getLimiter(compositeKey string, window time.Duration, now time.Time) *slidingWindowLimiter {
 	// Fast path: Check if limiter already exists.
 	if limiter, ok := u.limiters.Load(compositeKey); ok {
 		return limiter.(*slidingWindowLimiter)
 	}
 
-	// Slow path: atomically load or store a new counter.
-	actualLimiter, _ := u.limiters.LoadOrStore(compositeKey, &slidingWindowLimiter{})
+	// Slow path: atomically load or store a new counter. windowStart is
+	// initialized to now so a concurrent sweep can never see the brand-new
+	// entry as stale.
+	actualLimiter, loaded := u.limiters.LoadOrStore(compositeKey, &slidingWindowLimiter{window: window, windowStart: now})
+	if !loaded {
+		// The map just grew — the only way it can accumulate garbage — so
+		// this is the only place that schedules a sweep.
+		u.maybeSweep(now)
+	}
 	return actualLimiter.(*slidingWindowLimiter)
+}
+
+// maybeSweep starts a sweep of stale entries unless one already started within
+// the last limiterSweepInterval. The CAS allows at most one winner per
+// interval; losing callers return immediately.
+func (u *UberRateLimiter) maybeSweep(now time.Time) {
+	last := u.lastSweep.Load()
+	if now.UnixNano()-last < int64(limiterSweepInterval) {
+		return
+	}
+	if !u.lastSweep.CompareAndSwap(last, now.UnixNano()) {
+		return
+	}
+	go u.sweep(now)
+}
+
+// sweep deletes entries that can no longer influence any rate-limit decision.
+// An entry is stale once it has been idle for at least two of its own windows:
+// at that point the next request would zero both window counters anyway, so
+// deleting the entry (and lazily recreating it on next use) is unobservable.
+//
+// The staleness check and the evicted flag are written under the same lock
+// acquisition that tryAllow counts under, so no request can record a count
+// between the decision to evict and the eviction itself: any request that
+// counted before the check rolled windowStart forward (making the entry
+// non-stale), and any request arriving after sees the evicted flag and
+// re-fetches a fresh entry.
+func (u *UberRateLimiter) sweep(now time.Time) {
+	u.limiters.Range(func(key, value any) bool {
+		l := value.(*slidingWindowLimiter)
+		l.mu.Lock()
+		stale := l.window > 0 && !l.windowStart.IsZero() && now.Sub(l.windowStart) >= 2*l.window
+		if stale {
+			l.evicted = true
+		}
+		l.mu.Unlock()
+		if stale {
+			u.limiters.Delete(key)
+		}
+		return true
+	})
 }
 
 // Ensure UberRateLimiter implements the common.RateLimiter interface.
@@ -129,8 +237,25 @@ func (u *UberRateLimiter) Allow(key string, limit int, window time.Duration) (bo
 		window = time.Second
 	}
 
-	limiter := u.getLimiter(key, limit, window)
-	return limiter.allow(limit, window, time.Now())
+	// The composite key includes limit and window so different rate limits
+	// for the same base key don't share counters. Built with strconv instead
+	// of fmt.Sprintf: this runs on every rate-limited request and Sprintf's
+	// reflection is measurably slower.
+	compositeKey := key + "|" + strconv.Itoa(limit) + "|" + strconv.FormatInt(int64(window), 10)
+
+	now := u.timeNow()
+	for {
+		limiter := u.getLimiter(compositeKey, window, now)
+		allowed, remaining, reset, valid := limiter.tryAllow(limit, window, now)
+		if valid {
+			return allowed, remaining, reset
+		}
+		// The sweeper marked this entry evicted between our lookup and use.
+		// Its own Delete may not have landed yet, so remove the entry here —
+		// CompareAndDelete is a no-op if the sweeper already removed it or a
+		// fresh entry has replaced it — and retry with a fresh entry.
+		u.limiters.CompareAndDelete(compositeKey, limiter)
+	}
 }
 
 // convertUserIDToString provides default conversions for common comparable types to string.
