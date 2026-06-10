@@ -9,6 +9,7 @@ import (
 	"context"
 	"maps"
 	"net/http"
+	"sync"
 
 	"github.com/julienschmidt/httprouter" // Import for Params type
 	"gorm.io/gorm"                        // Needed for DatabaseTransaction
@@ -33,7 +34,17 @@ type DatabaseTransaction interface {
 // It provides a centralized storage for all request-scoped data, avoiding
 // the need for multiple context.WithValue calls and deep context nesting.
 // T is the User ID type (comparable), U is the User object type (any).
+//
+// The struct is shared by pointer across the request's middleware chain, and
+// a timed-out request's handler goroutine may still be mutating it while the
+// router goroutine reads it. All access through this package's With*/Get*
+// helpers is therefore synchronized by an internal lock; prefer the helpers
+// over touching fields directly.
 type SRouterContext[T comparable, U any] struct {
+	// mu guards all fields below. The With*/Get* helper functions in this
+	// package take it automatically.
+	mu sync.RWMutex
+
 	UserID T
 	User   *U
 
@@ -74,13 +85,12 @@ type SRouterContext[T comparable, U any] struct {
 	Flags map[string]bool
 }
 
-// NewSRouterContext creates a new SRouterContext instance with initialized fields.
-// It returns a pointer to a new context with an empty Flags map ready for use.
+// NewSRouterContext creates a new SRouterContext instance.
+// The Flags map is allocated lazily by WithFlag on first use, so contexts on
+// requests that never set a flag (the common case) avoid the map allocation.
 // T is the User ID type (comparable), U is the User object type (any).
 func NewSRouterContext[T comparable, U any]() *SRouterContext[T, U] {
-	return &SRouterContext[T, U]{
-		Flags: make(map[string]bool),
-	}
+	return &SRouterContext[T, U]{}
 }
 
 // GetSRouterContext retrieves the SRouterContext from a standard context.Context.
@@ -118,8 +128,10 @@ func EnsureSRouterContext[T comparable, U any](ctx context.Context) (*SRouterCon
 // T is the User ID type (comparable), U is the User object type (any).
 func WithUserID[T comparable, U any](ctx context.Context, userID T) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
 	rc.UserID = userID
 	rc.UserIDSet = true
+	rc.mu.Unlock()
 	return ctx
 }
 
@@ -130,7 +142,12 @@ func WithUserID[T comparable, U any](ctx context.Context, userID T) context.Cont
 func GetUserID[T comparable, U any](ctx context.Context) (T, bool) {
 	var zero T
 	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok || !rc.UserIDSet {
+	if !ok {
+		return zero, false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.UserIDSet {
 		return zero, false
 	}
 	return rc.UserID, true
@@ -148,8 +165,10 @@ func GetUserIDFromRequest[T comparable, U any](r *http.Request) (T, bool) {
 // T is the User ID type (comparable), U is the User object type (any).
 func WithUser[T comparable, U any](ctx context.Context, user *U) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
 	rc.User = user
 	rc.UserSet = true
+	rc.mu.Unlock()
 	return ctx
 }
 
@@ -159,7 +178,12 @@ func WithUser[T comparable, U any](ctx context.Context, user *U) context.Context
 // T is the User ID type (comparable), U is the User object type (any).
 func GetUser[T comparable, U any](ctx context.Context) (*U, bool) {
 	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok || !rc.UserSet {
+	if !ok {
+		return nil, false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.UserSet {
 		return nil, false
 	}
 	return rc.User, true
@@ -178,10 +202,12 @@ func GetUserFromRequest[T comparable, U any](r *http.Request) (*U, bool) {
 // T is the User ID type (comparable), U is the User object type (any).
 func WithFlag[T comparable, U any](ctx context.Context, name string, value bool) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
 	if rc.Flags == nil {
 		rc.Flags = make(map[string]bool)
 	}
 	rc.Flags[name] = value
+	rc.mu.Unlock()
 	return ctx
 }
 
@@ -191,7 +217,12 @@ func WithFlag[T comparable, U any](ctx context.Context, name string, value bool)
 // T is the User ID type (comparable), U is the User object type (any).
 func GetFlag[T comparable, U any](ctx context.Context, name string) (bool, bool) {
 	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok || rc.Flags == nil {
+	if !ok {
+		return false, false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if rc.Flags == nil {
 		return false, false
 	}
 	value, exists := rc.Flags[name]
@@ -211,8 +242,10 @@ func GetFlagFromRequest[T comparable, U any](r *http.Request, name string) (bool
 // T is the User ID type (comparable), U is the User object type (any).
 func WithClientIP[T comparable, U any](ctx context.Context, ip string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
 	rc.ClientIP = ip
 	rc.ClientIPSet = true
+	rc.mu.Unlock()
 	return ctx
 }
 
@@ -222,7 +255,12 @@ func WithClientIP[T comparable, U any](ctx context.Context, ip string) context.C
 // T is the User ID type (comparable), U is the User object type (any).
 func GetClientIP[T comparable, U any](ctx context.Context) (string, bool) {
 	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok || !rc.ClientIPSet {
+	if !ok {
+		return "", false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.ClientIPSet {
 		return "", false
 	}
 	return rc.ClientIP, true
@@ -240,8 +278,10 @@ func GetClientIPFromRequest[T comparable, U any](r *http.Request) (string, bool)
 // T is the User ID type (comparable), U is the User object type (any).
 func WithUserAgent[T comparable, U any](ctx context.Context, ua string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
 	rc.UserAgent = ua
 	rc.UserAgentSet = true
+	rc.mu.Unlock()
 	return ctx
 }
 
@@ -251,7 +291,12 @@ func WithUserAgent[T comparable, U any](ctx context.Context, ua string) context.
 // T is the User ID type (comparable), U is the User object type (any).
 func GetUserAgent[T comparable, U any](ctx context.Context) (string, bool) {
 	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok || !rc.UserAgentSet {
+	if !ok {
+		return "", false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.UserAgentSet {
 		return "", false
 	}
 	return rc.UserAgent, true
@@ -271,8 +316,10 @@ func GetUserAgentFromRequest[T comparable, U any](r *http.Request) (string, bool
 // T is the User ID type (comparable), U is the User object type (any).
 func WithTransaction[T comparable, U any](ctx context.Context, tx DatabaseTransaction) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
 	rc.Transaction = tx
 	rc.TransactionSet = true
+	rc.mu.Unlock()
 	return ctx
 }
 
@@ -282,7 +329,12 @@ func WithTransaction[T comparable, U any](ctx context.Context, tx DatabaseTransa
 // T is the User ID type (comparable), U is the User object type (any).
 func GetTransaction[T comparable, U any](ctx context.Context) (DatabaseTransaction, bool) {
 	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok || !rc.TransactionSet {
+	if !ok {
+		return nil, false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.TransactionSet {
 		return nil, false
 	}
 	return rc.Transaction, true
@@ -302,6 +354,8 @@ func GetTransactionFromRequest[T comparable, U any](r *http.Request) (DatabaseTr
 // T is the User ID type (comparable), U is the User object type (any).
 func WithTraceID[T comparable, U any](ctx context.Context, traceID string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
 	// If TraceID is already set, do not overwrite it.
 	if rc.TraceIDSet {
 		return ctx
@@ -318,7 +372,12 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 // T is the User ID type (comparable), U is the User object type (any).
 func GetTraceIDFromContext[T comparable, U any](ctx context.Context) string {
 	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok || !rc.TraceIDSet {
+	if !ok {
+		return ""
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.TraceIDSet {
 		return ""
 	}
 	return rc.TraceID
@@ -339,9 +398,11 @@ func GetTraceIDFromRequest[T comparable, U any](r *http.Request) string {
 // T is the User ID type (comparable), U is the User object type (any).
 func WithRouteInfo[T comparable, U any](ctx context.Context, params httprouter.Params, routeTemplate string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
 	rc.PathParams = params
 	rc.RouteTemplate = routeTemplate
 	rc.RouteTemplateSet = true
+	rc.mu.Unlock()
 	return ctx
 }
 
@@ -352,7 +413,12 @@ func WithRouteInfo[T comparable, U any](ctx context.Context, params httprouter.P
 // T is the User ID type (comparable), U is the User object type (any).
 func GetRouteTemplateFromContext[T comparable, U any](ctx context.Context) (string, bool) {
 	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok || !rc.RouteTemplateSet {
+	if !ok {
+		return "", false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.RouteTemplateSet {
 		return "", false
 	}
 	return rc.RouteTemplate, true
@@ -371,7 +437,12 @@ func GetRouteTemplateFromRequest[T comparable, U any](r *http.Request) (string, 
 // T is the User ID type (comparable), U is the User object type (any).
 func GetPathParamsFromContext[T comparable, U any](ctx context.Context) (httprouter.Params, bool) {
 	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok || !rc.RouteTemplateSet { // Use RouteTemplateSet as indicator that params are also set
+	if !ok {
+		return nil, false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.RouteTemplateSet { // Use RouteTemplateSet as indicator that params are also set
 		return nil, false
 	}
 	return rc.PathParams, true
@@ -391,10 +462,12 @@ func GetPathParamsFromRequest[T comparable, U any](r *http.Request) (httprouter.
 // T is the User ID type (comparable), U is the User object type (any).
 func WithCORSInfo[T comparable, U any](ctx context.Context, allowedOrigin string, credentialsAllowed bool) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
 	rc.AllowedOrigin = allowedOrigin
 	rc.CredentialsAllowed = credentialsAllowed
 	rc.AllowedOriginSet = true
 	rc.CredentialsAllowedSet = true // Set both flags when info is added
+	rc.mu.Unlock()
 	return ctx
 }
 
@@ -406,7 +479,12 @@ func WithCORSInfo[T comparable, U any](ctx context.Context, allowedOrigin string
 // T is the User ID type (comparable), U is the User object type (any).
 func GetCORSInfo[T comparable, U any](ctx context.Context) (allowedOrigin string, credentialsAllowed bool, ok bool) {
 	rc, found := GetSRouterContext[T, U](ctx)
-	if !found || !rc.AllowedOriginSet { // Check if origin was set as the primary indicator
+	if !found {
+		return "", false, false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.AllowedOriginSet { // Check if origin was set as the primary indicator
 		return "", false, false
 	}
 	// Return the stored values. CredentialsAllowedSet is implicitly true if AllowedOriginSet is true based on WithCORSInfo logic.
@@ -426,8 +504,10 @@ func GetCORSInfoFromRequest[T comparable, U any](r *http.Request) (allowedOrigin
 // T is the User ID type (comparable), U is the User object type (any).
 func WithCORSRequestedHeaders[T comparable, U any](ctx context.Context, requestedHeaders string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
 	rc.RequestedHeaders = requestedHeaders
 	rc.RequestedHeadersSet = true
+	rc.mu.Unlock()
 	return ctx
 }
 
@@ -438,7 +518,12 @@ func WithCORSRequestedHeaders[T comparable, U any](ctx context.Context, requeste
 // T is the User ID type (comparable), U is the User object type (any).
 func GetCORSRequestedHeaders[T comparable, U any](ctx context.Context) (string, bool) {
 	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok || !rc.RequestedHeadersSet {
+	if !ok {
+		return "", false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.RequestedHeadersSet {
 		return "", false
 	}
 	return rc.RequestedHeaders, true
@@ -456,8 +541,10 @@ func GetCORSRequestedHeadersFromRequest[T comparable, U any](r *http.Request) (s
 // T is the User ID type (comparable), U is the User object type (any).
 func WithHandlerError[T comparable, U any](ctx context.Context, err error) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
 	rc.HandlerError = err
 	rc.HandlerErrorSet = true
+	rc.mu.Unlock()
 	return ctx
 }
 
@@ -467,7 +554,12 @@ func WithHandlerError[T comparable, U any](ctx context.Context, err error) conte
 // T is the User ID type (comparable), U is the User object type (any).
 func GetHandlerError[T comparable, U any](ctx context.Context) (error, bool) {
 	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok || !rc.HandlerErrorSet {
+	if !ok {
+		return nil, false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.HandlerErrorSet {
 		return nil, false
 	}
 	return rc.HandlerError, true
@@ -501,6 +593,8 @@ func GetHandlerErrorFromRequest[T comparable, U any](r *http.Request) (error, bo
 // This is an internal helper function used by the various copy functions.
 // T is the User ID type (comparable), U is the User object type (any).
 func cloneSRouterContext[T comparable, U any](src *SRouterContext[T, U]) *SRouterContext[T, U] {
+	src.mu.RLock()
+	defer src.mu.RUnlock()
 	dst := &SRouterContext[T, U]{
 		UserID:                src.UserID,
 		User:                  src.User,

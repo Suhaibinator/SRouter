@@ -13,7 +13,6 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/common"   // Added import
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/ratelimit" // Added import for assert.Same
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -42,8 +41,8 @@ func TestGetLimiter_Coverage(t *testing.T) {
 	key := "concurrent-get-limiter-key"
 	limit := 1000
 	window := 10 * time.Millisecond
-	// Calculate rps the same way Allow does
-	rps := int(float64(limit) / window.Seconds())
+	// Composite key format used by getLimiter
+	compositeKey := fmt.Sprintf("%s|%d|%d", key, limit, int64(window))
 
 	numGoroutines := 20
 	callsPerGoroutine := 5
@@ -52,7 +51,7 @@ func TestGetLimiter_Coverage(t *testing.T) {
 	wg.Add(numGoroutines)
 
 	// Use a map to store the first limiter instance seen by any goroutine
-	var firstLimiter ratelimit.Limiter
+	var firstLimiter *slidingWindowLimiter
 	var once sync.Once
 
 	for i := 0; i < numGoroutines; i++ {
@@ -64,18 +63,14 @@ func TestGetLimiter_Coverage(t *testing.T) {
 				assert.True(t, allowed, "Request should be allowed initially")
 
 				// Check if the same limiter instance is returned across goroutines
-				// This indirectly tests that the double-check prevents creating multiple limiters
-				compositeKey := fmt.Sprintf("%s-%d", key, rps)
+				// This indirectly tests that LoadOrStore prevents creating multiple limiters
 				val, ok := limiter.limiters.Load(compositeKey)
 				// Explicitly check 'ok' before proceeding to prevent panic on nil interface conversion
 				if !assert.True(t, ok, "Limiter should exist in the map for key %s", compositeKey) {
-					// If the assertion fails (ok is false), skip the rest of the checks for this iteration
-					// as val will be nil, causing a panic on type assertion.
-					// This indicates a potential timing issue or problem in limiter creation/storage.
 					continue // Skip to the next iteration of the inner loop
 				}
 				// Only proceed if ok is true
-				currentLimiter := val.(ratelimit.Limiter)
+				currentLimiter := val.(*slidingWindowLimiter)
 
 				once.Do(func() {
 					firstLimiter = currentLimiter // Capture the first successfully retrieved limiter
@@ -89,15 +84,15 @@ func TestGetLimiter_Coverage(t *testing.T) {
 
 	wg.Wait()
 
-	// Final check that only one limiter was created for the key/rps combination
+	// Final check that only one limiter was created for the key/limit/window combination
 	count := 0
 	limiter.limiters.Range(func(k, v interface{}) bool {
-		if k == fmt.Sprintf("%s-%d", key, rps) {
+		if k == compositeKey {
 			count++
 		}
 		return true
 	})
-	assert.Equal(t, 1, count, "Expected exactly one limiter instance for the key/rps")
+	assert.Equal(t, 1, count, "Expected exactly one limiter instance for the key/limit/window")
 }
 
 // TestRateLimitWithCustomKeyExtractor tests the RateLimit function with a custom key extractor
@@ -401,8 +396,8 @@ func TestRateLimit_UserStrategyFallback(t *testing.T) {
 	})
 }
 
-// TestExtractUserKey_NilUserIDToString specifically tests lines 126-127 in ratelimit.go
-// where it checks if UserIDToString is nil and returns an error
+// TestExtractUserKey_NilUserIDToString verifies that a nil UserIDToString
+// falls back to the default user ID conversion instead of erroring.
 func TestExtractUserKey_NilUserIDToString(t *testing.T) {
 	// Create a request with a user in context
 	req := httptest.NewRequest("GET", "/", nil)
@@ -414,17 +409,14 @@ func TestExtractUserKey_NilUserIDToString(t *testing.T) {
 	config := &common.RateLimitConfig[string, string]{
 		Strategy:       common.StrategyUser,
 		UserIDFromUser: func(u string) string { return u },
-		UserIDToString: nil, // Explicitly set to nil to test the nil check
+		UserIDToString: nil, // Nil triggers the default conversion
 	}
 
 	// Call extractUserKey
-	key, err := extractUserKey(req, config)
+	key := extractUserKey(req, config)
 
-	// Verify that an error is returned
-	assert.Error(t, err, "extractUserKey should return an error when UserIDToString is nil")
-	assert.Equal(t, "", key, "Key should be empty when error is returned")
-	assert.Contains(t, err.Error(), "UserIDToString function is required",
-		"Error message should indicate UserIDToString is required")
+	// Verify the default conversion is used
+	assert.Equal(t, "test-user", key, "Key should come from the default user ID conversion")
 }
 
 // TestRateLimit_CustomStrategyEmptyKey tests the case where the custom key extractor returns an empty string

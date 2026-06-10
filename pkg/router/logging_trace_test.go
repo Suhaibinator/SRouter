@@ -70,17 +70,19 @@ func TestTraceIDLoggingDisabled(t *testing.T) {
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
-	// With TraceIDBufferSize = 0, the entire deferred logging block in ServeHTTP is skipped.
-	// Therefore, we expect NO log entries from this specific logger setup.
+	// With EnableTraceLogging = true the summary logging block runs even when
+	// TraceIDBufferSize is 0, but no trace_id field may be attached.
 	logEntries := logs.AllUntimed() // Use AllUntimed() for consistency
-	if len(logEntries) != 0 {
-		t.Errorf("Expected 0 log entries when TraceIDBufferSize is 0, but got %d", len(logEntries))
-		// Log the unexpected entries for debugging
-		for i, entry := range logEntries {
-			t.Logf("Unexpected log entry %d: %v", i, entry)
+	if len(logEntries) == 0 {
+		t.Errorf("Expected request summary log entries when EnableTraceLogging is true")
+	}
+	for _, entry := range logEntries {
+		for _, field := range entry.Context {
+			if field.Key == "trace_id" {
+				t.Errorf("Expected no trace_id field when TraceIDBufferSize is 0, found %q", field.String)
+			}
 		}
 	}
-	// The previous loop checking for the absence of 'trace_id' is no longer needed.
 }
 
 // TestHandleErrorWithTraceID tests that handleError includes trace IDs in log entries when TraceIDBufferSize > 0

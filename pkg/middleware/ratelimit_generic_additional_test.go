@@ -9,7 +9,6 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/common"   // Added import
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Import scontext
-	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 )
 
@@ -46,10 +45,7 @@ func TestExtractUser(t *testing.T) {
 		}
 
 		// Extract the user key
-		userKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		userKey := extractUserKey(req, config)
 		if userKey != "testUser" {
 			t.Errorf("Expected user key 'testUser', got '%s'", userKey)
 		}
@@ -71,12 +67,10 @@ func TestExtractUser(t *testing.T) {
 			},
 		}
 
-		// Extract the user key - expect error because UserIDToString is missing
-		_, err := extractUserKey(req, config) // Use extractUserKey
-		if err == nil {
-			t.Error("Expected error when UserIDToString is missing, got nil")
-		} else {
-			assert.Contains(t, err.Error(), "UserIDToString function is required")
+		// Extract the user key - the default conversion is used when UserIDToString is nil
+		userKey := extractUserKey(req, config)
+		if userKey != "testUser-modified" {
+			t.Errorf("Expected user key 'testUser-modified', got '%s'", userKey)
 		}
 	})
 
@@ -99,10 +93,7 @@ func TestExtractUser(t *testing.T) {
 		// Extract the user key
 		// Add UserIDToString for int
 		config.UserIDToString = func(id int) string { return strconv.Itoa(id) }
-		userKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		userKey := extractUserKey(req, config)
 		if userKey != "42" {
 			t.Errorf("Expected user key '42', got '%s'", userKey)
 		}
@@ -130,10 +121,7 @@ func TestExtractUser(t *testing.T) {
 		// Extract the user key
 		// Add UserIDToString for CustomID
 		config.UserIDToString = func(id CustomID) string { return id.String() } // Use String() method
-		userKey, err := extractUserKey(req, config)                             // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		userKey := extractUserKey(req, config)
 		if userKey != "custom-id" { // Expect the result of String()
 			t.Errorf("Expected user key 'custom-id', got '%s'", userKey)
 		}
@@ -155,10 +143,7 @@ func TestExtractUser(t *testing.T) {
 		}
 
 		// Extract the user key
-		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		extractedKey := extractUserKey(req, config)
 		if extractedKey != "user123-suffix" {
 			t.Errorf("Expected user key 'user123-suffix', got '%s'", extractedKey)
 		}
@@ -172,17 +157,15 @@ func TestExtractUser(t *testing.T) {
 		ctx := scontext.WithUserID[string, string](req.Context(), userID) // Use scontext
 		req = req.WithContext(ctx)
 
-		// Create a config without UserIDToString function - this should error now
+		// Create a config without UserIDToString function - the default conversion is used
 		config := &common.RateLimitConfig[string, string]{ // Use common.RateLimitConfig
 			// Missing UserIDToString
 		}
 
-		// Extract the user key - expect error
-		_, err := extractUserKey(req, config) // Use extractUserKey
-		if err == nil {
-			t.Error("Expected error when UserIDToString is missing, got nil")
-		} else {
-			assert.Contains(t, err.Error(), "UserIDToString function is required")
+		// Extract the user key - the default string conversion applies
+		extractedKey := extractUserKey(req, config)
+		if extractedKey != "user123" {
+			t.Errorf("Expected user key 'user123', got '%s'", extractedKey)
 		}
 	})
 
@@ -200,10 +183,7 @@ func TestExtractUser(t *testing.T) {
 		}
 
 		// Extract the user key
-		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		extractedKey := extractUserKey(req, config)
 		if extractedKey != "42" {
 			t.Errorf("Expected user key '42', got '%s'", extractedKey)
 		}
@@ -223,10 +203,7 @@ func TestExtractUser(t *testing.T) {
 		}
 
 		// Extract the user key
-		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		extractedKey := extractUserKey(req, config)
 		if extractedKey != "true" {
 			t.Errorf("Expected user key 'true', got '%s'", extractedKey)
 		}
@@ -243,10 +220,7 @@ func TestExtractUser(t *testing.T) {
 		}
 
 		// Extract the user key
-		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		extractedKey := extractUserKey(req, config)
 		if extractedKey != "" {
 			t.Errorf("Expected empty user key, got '%s'", extractedKey)
 		}
@@ -361,7 +335,8 @@ func TestRateLimit(t *testing.T) {
 			Limit:      10,
 			Window:     time.Duration(1000) * time.Millisecond,
 			Strategy:   common.StrategyUser, // Use common.StrategyUser
-			// Missing UserIDToString - this should cause an error in extractUserKey
+			// Missing UserIDToString - the default conversion is used, and with
+			// no user in context the middleware falls back to the IP strategy.
 		}
 
 		// Create the middleware
@@ -385,12 +360,13 @@ func TestRateLimit(t *testing.T) {
 		// Call the handler
 		handler.ServeHTTP(rr, req)
 
-		// Check that the handler was NOT called and status is 500
-		if handlerCalled {
-			t.Error("Handler was called unexpectedly")
+		// With no user in context, the middleware falls back to IP-based limiting
+		// and the request proceeds normally.
+		if !handlerCalled {
+			t.Error("Handler should have been called via IP fallback")
 		}
-		if rr.Code != http.StatusInternalServerError {
-			t.Errorf("Expected status code %d due to missing UserIDToString, got %d", http.StatusInternalServerError, rr.Code)
+		if rr.Code != http.StatusOK {
+			t.Errorf("Expected status code %d via IP fallback, got %d", http.StatusOK, rr.Code)
 		}
 	})
 

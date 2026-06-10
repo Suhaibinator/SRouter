@@ -13,9 +13,14 @@ func NewMiddlewareChain(middlewares ...Middleware) MiddlewareChain {
 	return middlewares
 }
 
-// Append adds middleware to the end of the chain
+// Append returns a new chain with the given middleware added to the end.
+// The original chain is never modified, and the result has its own backing
+// array, so multiple Appends on the same parent chain are safe.
 func (c MiddlewareChain) Append(middlewares ...Middleware) MiddlewareChain {
-	return append(c, middlewares...)
+	result := make(MiddlewareChain, 0, len(c)+len(middlewares))
+	result = append(result, c...)
+	result = append(result, middlewares...)
+	return result
 }
 
 // Prepend adds middleware to the beginning of the chain

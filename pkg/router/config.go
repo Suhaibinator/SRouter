@@ -99,16 +99,18 @@ type MetricsConfig struct {
 	// not implement metrics.MetricsRegistry), no metrics middleware is installed.
 	Collector any // metrics.MetricsRegistry
 
-	// MiddlewareFactory is reserved for supplying a custom metrics middleware
-	// factory. It is currently not consumed by the router: when Collector
-	// implements metrics.MetricsRegistry, the router builds its own metrics
-	// middleware from it.
+	// MiddlewareFactory optionally supplies a custom metrics middleware. If it
+	// implements metrics.MetricsMiddleware[T, U] (with the router's type
+	// parameters), it takes precedence over Collector and is used to wrap all
+	// requests. Otherwise the router builds its own middleware from Collector.
 	MiddlewareFactory any // metrics.MetricsMiddleware
 
-	// Namespace for metrics.
+	// Namespace for metrics. Applied as the "service" tag on all metrics
+	// emitted by the built-in metrics middleware.
 	Namespace string
 
-	// Subsystem for metrics.
+	// Subsystem for metrics. Applied as the "subsystem" tag on all metrics
+	// emitted by the built-in metrics middleware.
 	Subsystem string
 
 	// EnableLatency enables latency metrics.
@@ -134,7 +136,7 @@ type RouterConfig struct {
 	GlobalRateLimit     *common.RateLimitConfig[any, any] // Use common.RateLimitConfig // Default rate limit for all routes
 	GlobalAuthToken     *common.AuthTokenConfig           // Default auth token source for built-in auth middleware
 	IPConfig            *IPConfig                         // Configuration for client IP extraction
-	EnableTraceLogging  bool                              // Enable trace logging
+	EnableTraceLogging  bool                              // Enable per-request summary logging even when TraceIDBufferSize is 0
 	TraceLoggingUseInfo bool                              // Use Info level for trace logging
 	TraceIDBufferSize   int                               // Buffer size for trace ID generator (0 disables trace ID)
 	MetricsConfig       *MetricsConfig                    // Metrics configuration (optional)

@@ -33,14 +33,9 @@ func TestUberRateLimiter(t *testing.T) {
 		t.Errorf("Expected remaining to be positive, got %d", remaining)
 	}
 
-	// Test that the limiter is reusing the same limiter for the same key and rps
+	// Test that the limiter is reusing the same limiter for the same key/limit/window
 	limiter.Allow(key, limit, window)
-	// Calculate expected RPS and composite key
-	rps1 := int(float64(limit) / window.Seconds())
-	if rps1 < 1 {
-		rps1 = 1
-	}
-	compositeKey1 := fmt.Sprintf("%s-%d", key, rps1)
+	compositeKey1 := fmt.Sprintf("%s|%d|%d", key, limit, int64(window))
 	_, exists := limiter.limiters.Load(compositeKey1)
 	if !exists {
 		t.Errorf("Expected limiter to be stored for composite key %s", compositeKey1)
@@ -56,13 +51,8 @@ func TestUberRateLimiter(t *testing.T) {
 		t.Errorf("Expected remaining to be positive, got %d", remaining)
 	}
 
-	// Test that the limiter is storing different limiters for different keys (with the same rps)
-	// Calculate expected RPS and composite key for the other key
-	rps2 := int(float64(limit) / window.Seconds()) // Same limit/window as first test
-	if rps2 < 1 {
-		rps2 = 1
-	}
-	compositeKey2 := fmt.Sprintf("%s-%d", otherKey, rps2)
+	// Test that the limiter is storing different limiters for different keys (with the same limit/window)
+	compositeKey2 := fmt.Sprintf("%s|%d|%d", otherKey, limit, int64(window))
 	_, exists = limiter.limiters.Load(compositeKey2)
 	if !exists {
 		t.Errorf("Expected limiter to be stored for composite key %s", compositeKey2)
@@ -79,12 +69,8 @@ func TestUberRateLimiter(t *testing.T) {
 		t.Errorf("Expected remaining to be positive, got %d", remaining)
 	}
 
-	// Also test that the new limiter with different rps is stored
-	rps3 := int(float64(differentLimit) / differentWindow.Seconds())
-	if rps3 < 1 {
-		rps3 = 1
-	}
-	compositeKey3 := fmt.Sprintf("%s-%d", key, rps3)
+	// Also test that the new limiter with a different limit/window is stored
+	compositeKey3 := fmt.Sprintf("%s|%d|%d", key, differentLimit, int64(differentWindow))
 	_, exists = limiter.limiters.Load(compositeKey3)
 	if !exists {
 		t.Errorf("Expected limiter to be stored for composite key %s (different limit/window)", compositeKey3)
@@ -187,7 +173,13 @@ func TestConvertUserIDToString(t *testing.T) {
 		t.Errorf("Expected string to be true, got %s", str)
 	}
 
-	// Test with a custom type that implements String()
+	// Test with a custom type that implements fmt.Stringer
+	str = convertUserIDToString(CustomID{id: "custom-id"})
+	if str != "custom-id" {
+		t.Errorf("Expected string to be custom-id, got %s", str)
+	}
+
+	// Test with a custom type without a String method (fmt.Sprint fallback)
 	type CustomType struct{}
 	str = convertUserIDToString(CustomType{})
 	if str != "{}" {
@@ -826,5 +818,95 @@ func TestRateLimitMiddlewareDefaultStrategy(t *testing.T) {
 	retryAfterHeader := resp.Header.Get("Retry-After")
 	if retryAfterHeader == "" {
 		t.Errorf("Expected Retry-After header to be set")
+	}
+}
+
+// TestUberRateLimiter_WindowSemanticsAndNonBlocking verifies the limiter
+// honors the configured limit/window exactly (e.g. "2 per minute" is not
+// inflated to 1/sec) and denies over-limit requests immediately instead of
+// sleeping (regression for the blocking leaky-bucket implementation).
+func TestUberRateLimiter_WindowSemanticsAndNonBlocking(t *testing.T) {
+	limiter := NewUberRateLimiter()
+	key := "window-semantics"
+	limit := 2
+	window := time.Minute
+
+	start := time.Now()
+
+	// The first `limit` requests are allowed.
+	for i := 0; i < limit; i++ {
+		allowed, _, _ := limiter.Allow(key, limit, window)
+		if !allowed {
+			t.Fatalf("request %d should be allowed (limit %d per %v)", i+1, limit, window)
+		}
+	}
+
+	// Subsequent requests within the window are denied immediately.
+	for i := 0; i < 5; i++ {
+		allowed, remaining, reset := limiter.Allow(key, limit, window)
+		if allowed {
+			t.Fatalf("request beyond limit should be denied (window semantics: %d per %v)", limit, window)
+		}
+		if remaining != 0 {
+			t.Errorf("expected 0 remaining when denied, got %d", remaining)
+		}
+		if reset <= 0 || reset > window {
+			t.Errorf("expected reset in (0, %v], got %v", window, reset)
+		}
+	}
+
+	// The whole sequence must not have blocked (old implementation slept until
+	// the next leaky-bucket slot before denying).
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("Allow calls blocked for %v; rate limit checks must be non-blocking", elapsed)
+	}
+}
+
+// TestRateLimitDefaultStrategyUsesContextIP verifies that an unknown strategy
+// falls back to IP-based limiting using the client IP from the context when
+// it is available (rather than RemoteAddr).
+func TestRateLimitDefaultStrategyUsesContextIP(t *testing.T) {
+	limiter := &captureLimiter{}
+	config := &common.RateLimitConfig[string, any]{
+		BucketName: "test-bucket",
+		Limit:      1,
+		Window:     time.Second,
+		Strategy:   common.RateLimitStrategy(99), // Unknown strategy triggers the default case
+	}
+
+	middleware := RateLimit(config, limiter, zap.NewNop())
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+	req.RemoteAddr = "10.0.0.1:1234" // ensure remote addr differs from context IP
+	ctx := scontext.WithClientIP[string, any](req.Context(), "203.0.113.9")
+
+	handler.ServeHTTP(httptest.NewRecorder(), req.WithContext(ctx))
+
+	expectedKey := "test-bucket:203.0.113.9"
+	if limiter.lastKey != expectedKey {
+		t.Fatalf("expected limiter key %s, got %s", expectedKey, limiter.lastKey)
+	}
+}
+
+// TestExtractUserKeyUserObjectWithoutUserIDFromUser verifies that when a user
+// object is in the context but no UserIDFromUser function is configured, the
+// key falls back to the user ID from the context.
+func TestExtractUserKeyUserObjectWithoutUserIDFromUser(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+	user := "userObject"
+	ctx := scontext.WithUser[string](req.Context(), &user)
+	ctx = scontext.WithUserID[string, string](ctx, "id-from-context")
+	req = req.WithContext(ctx)
+
+	config := &common.RateLimitConfig[string, string]{
+		Strategy: common.StrategyUser,
+		// No UserIDFromUser: the user object alone cannot produce a key.
+	}
+
+	if key := extractUserKey(req, config); key != "id-from-context" {
+		t.Fatalf("expected fallback to user ID from context, got %q", key)
 	}
 }

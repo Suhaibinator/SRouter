@@ -153,3 +153,39 @@ func TestEmptyMiddlewareChain(t *testing.T) {
 		t.Errorf("Expected body %q, got %q", "OK", w.Body.String())
 	}
 }
+
+// TestMiddlewareChainAppendDoesNotAliasParent verifies that two Appends on the
+// same parent chain don't share a backing array (regression: append(c, ...)
+// could let the second Append clobber the first chain's middleware).
+func TestMiddlewareChainAppendDoesNotAliasParent(t *testing.T) {
+	record := func(tag string, log *[]string) Middleware {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				*log = append(*log, tag)
+				next.ServeHTTP(w, r)
+			})
+		}
+	}
+
+	var log []string
+	// Build a parent with spare capacity so naive append would share arrays.
+	parent := make(MiddlewareChain, 0, 4)
+	parent = parent.Append(record("base", &log))
+
+	chainA := parent.Append(record("a", &log))
+	chainB := parent.Append(record("b", &log)) // must not overwrite chainA's "a"
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+
+	log = nil
+	chainA.Then(handler).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+	if len(log) != 2 || log[0] != "base" || log[1] != "a" {
+		t.Fatalf("chainA executed %v, want [base a]", log)
+	}
+
+	log = nil
+	chainB.Then(handler).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+	if len(log) != 2 || log[0] != "base" || log[1] != "b" {
+		t.Fatalf("chainB executed %v, want [base b]", log)
+	}
+}

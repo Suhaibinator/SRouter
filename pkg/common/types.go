@@ -60,7 +60,9 @@ type RateLimitConfig[T comparable, U any] struct {
 	UserIDFromUser func(user U) T
 
 	// UserIDToString converts the user ID (type T) to a string for use as a map key.
-	// Required only when Strategy is StrategyUser.
+	// Used only when Strategy is StrategyUser. Optional: if nil, a default
+	// conversion is used (handles string, int, int64, fmt.Stringer, and falls
+	// back to fmt.Sprint).
 	UserIDToString func(userID T) string
 
 	// KeyExtractor provides a custom function to generate the rate limit key from the request.

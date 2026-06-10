@@ -29,6 +29,11 @@ func DecodeBase64(encoded string) ([]byte, error) {
 // 0–9, the next 26 letters ('A'–'Z') as values 10–35, and the final 26 letters
 // ('a'–'z') as values 36–61.
 //
+// Leading '0' characters are significant: like base58's leading '1's, each
+// leading '0' in the input represents one leading zero byte in the output.
+// This preserves binary payloads (e.g. protobuf) whose first bytes are 0x00,
+// which a plain big-integer round trip would silently drop.
+//
 // An error is returned if the input string contains invalid characters.
 //
 // Example usage:
@@ -66,7 +71,59 @@ func DecodeBase62(s string) ([]byte, error) {
 		result.Add(&result, big.NewInt(int64(val)))
 	}
 
-	// Convert big.Int to a byte slice.
+	// Count leading '0' characters: each one encodes a leading zero byte that
+	// the big.Int representation cannot carry.
+	leadingZeros := 0
+	for _, c := range s {
+		if c != '0' {
+			break
+		}
+		leadingZeros++
+	}
+
 	decoded := result.Bytes()
+	if leadingZeros > 0 {
+		withZeros := make([]byte, leadingZeros+len(decoded))
+		copy(withZeros[leadingZeros:], decoded)
+		decoded = withZeros
+	}
 	return decoded, nil
+}
+
+// EncodeBase62 encodes bytes to a base62 string using the same alphabet as
+// DecodeBase62 ([0-9A-Za-z]). Leading zero bytes are encoded as leading '0'
+// characters so that DecodeBase62(EncodeBase62(b)) round-trips exactly.
+func EncodeBase62(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	leadingZeros := 0
+	for _, b := range data {
+		if b != 0 {
+			break
+		}
+		leadingZeros++
+	}
+
+	const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	var num big.Int
+	num.SetBytes(data)
+
+	var digits []byte
+	base := big.NewInt(62)
+	mod := new(big.Int)
+	for num.Sign() > 0 {
+		num.DivMod(&num, base, mod)
+		digits = append(digits, alphabet[mod.Int64()])
+	}
+
+	encoded := make([]byte, leadingZeros+len(digits))
+	for i := range leadingZeros {
+		encoded[i] = '0'
+	}
+	for i, d := range digits {
+		encoded[leadingZeros+len(digits)-1-i] = d
+	}
+	return string(encoded)
 }

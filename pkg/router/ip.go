@@ -39,6 +39,11 @@ type IPConfig struct {
 }
 
 // DefaultIPConfig returns the default IP configuration.
+// The default uses the rightmost X-Forwarded-For entry (the value appended by
+// the proxy nearest this server) rather than the client-controlled leftmost
+// entry. If the service is exposed directly to the internet (no trusted proxy),
+// set Source to IPSourceRemoteAddr or TrustProxy to false so client-supplied
+// headers are ignored entirely.
 func DefaultIPConfig() *IPConfig {
 	return &IPConfig{
 		Source:     IPSourceXForwardedFor, // Default to checking X-Forwarded-For
@@ -61,11 +66,19 @@ func ClientIPMiddleware[T comparable, U any](config *IPConfig) func(http.Handler
 			// Extract the client IP based on the configuration
 			clientIP := extractClientIP(r, config)
 
+			// When an SRouterContext already exists, WithClientIP mutates it in
+			// place and returns the same context, so cloning the request is
+			// unnecessary.
+			_, hadSRouterCtx := scontext.GetSRouterContext[T, U](r.Context())
+
 			// Add the client IP to the SRouterContext
 			ctx := scontext.WithClientIP[T, U](r.Context(), clientIP) // Use scontext
 
 			// Call the next handler with the updated context
-			next.ServeHTTP(w, r.WithContext(ctx))
+			if !hadSRouterCtx {
+				r = r.WithContext(ctx)
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -99,21 +112,30 @@ func extractClientIP(r *http.Request, config *IPConfig) string {
 	return cleanIP(ip)
 }
 
-// extractIPFromXForwardedFor extracts the client IP from the X-Forwarded-For header
-// The X-Forwarded-For header contains a comma-separated list of IPs, with the leftmost being the original client
+// extractIPFromXForwardedFor extracts the client IP from the X-Forwarded-For header.
+// The header contains a comma-separated list of IPs. Earlier (leftmost) entries are
+// supplied by the client and are trivially spoofable; the rightmost entry was appended
+// by the proxy closest to this server and is the only value the deployment's own
+// infrastructure vouches for. Using it prevents clients from rotating fake IPs to
+// bypass IP-based rate limiting.
 func extractIPFromXForwardedFor(r *http.Request) string {
 	xff := r.Header.Get("X-Forwarded-For")
 	if xff == "" {
 		return ""
 	}
 
-	// The leftmost IP is the original client
-	ips := strings.Split(xff, ",")
-	if len(ips) > 0 {
-		return strings.TrimSpace(ips[0])
+	// Use the rightmost (most recently appended, least spoofable) entry.
+	// Scan from the end without splitting so no intermediate slice is allocated.
+	for {
+		comma := strings.LastIndexByte(xff, ',')
+		if ip := strings.TrimSpace(xff[comma+1:]); ip != "" {
+			return ip
+		}
+		if comma < 0 {
+			return ""
+		}
+		xff = xff[:comma]
 	}
-
-	return ""
 }
 
 // cleanIP removes the port from an IP address if present

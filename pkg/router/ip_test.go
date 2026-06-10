@@ -10,12 +10,22 @@ import (
 
 // TestExtractIPFromXForwardedFor tests the extractIPFromXForwardedFor function
 func TestExtractIPFromXForwardedFor(t *testing.T) {
-	// Test with valid X-Forwarded-For header containing multiple IPs
+	// Test with valid X-Forwarded-For header containing multiple IPs.
+	// The rightmost entry (appended by the nearest proxy) is used because the
+	// leftmost entries are client-controlled and spoofable.
 	req := httptest.NewRequest("GET", "/test", nil)
 	req.Header.Set("X-Forwarded-For", "203.0.113.1, 198.51.100.1")
 	ip := extractIPFromXForwardedFor(req)
-	if ip != "203.0.113.1" {
-		t.Errorf("Expected IP '203.0.113.1', got '%s'", ip)
+	if ip != "198.51.100.1" {
+		t.Errorf("Expected IP '198.51.100.1', got '%s'", ip)
+	}
+
+	// Trailing empty entries are skipped
+	req = httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Forwarded-For", "203.0.113.1, 198.51.100.1, ")
+	ip = extractIPFromXForwardedFor(req)
+	if ip != "198.51.100.1" {
+		t.Errorf("Expected IP '198.51.100.1', got '%s'", ip)
 	}
 
 	// Test with valid X-Forwarded-For header containing a single IP
@@ -59,7 +69,7 @@ func TestExtractClientIP(t *testing.T) {
 			config:     DefaultIPConfig(),
 			headers:    map[string]string{"X-Forwarded-For": "203.0.113.1, 198.51.100.1"},
 			remoteAddr: "192.0.2.1:1234",
-			expectedIP: "203.0.113.1",
+			expectedIP: "198.51.100.1", // Rightmost (proxy-appended) entry wins
 		},
 		{
 			name:       "X-Real-IP Config",
@@ -99,9 +109,9 @@ func TestExtractClientIP(t *testing.T) {
 		{
 			name:       "IPv6 X-Forwarded-For",
 			config:     DefaultIPConfig(),
-			headers:    map[string]string{"X-Forwarded-For": "[2001:db8::1]:54321, 198.51.100.1"},
+			headers:    map[string]string{"X-Forwarded-For": "198.51.100.1, [2001:db8::1]:54321"},
 			remoteAddr: "192.0.2.1:1234",
-			expectedIP: "[2001:db8::1]", // Expects cleaned IPv6
+			expectedIP: "[2001:db8::1]", // Rightmost entry, cleaned IPv6
 		},
 		{
 			name:       "IPv6 RemoteAddr",
