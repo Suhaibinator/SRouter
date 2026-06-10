@@ -54,8 +54,8 @@ func TestUberRateLimiter_AllowedCondition(t *testing.T) {
 }
 
 // TestExtractUserKey_NilUserIDToString verifies that a nil UserIDToString
-// falls back to the default conversion instead of returning an error, so
-// StrategyUser works when configured via [any, any] overrides.
+// falls back to the default conversion, so StrategyUser works when configured
+// via [any, any] overrides.
 func TestExtractUserKey_NilUserIDToString_Codecov(t *testing.T) {
 	// Create a request with a user ID in the context
 	req := httptest.NewRequest("GET", "/", nil)
@@ -70,10 +70,9 @@ func TestExtractUserKey_NilUserIDToString_Codecov(t *testing.T) {
 	}
 
 	// Call extractUserKey
-	key, err := extractUserKey(req, config)
+	key := extractUserKey(req, config)
 
-	// Verify the default conversion is used and no error is returned
-	assert.NoError(t, err, "extractUserKey should not error when UserIDToString is nil")
+	// Verify the default conversion is used
 	assert.Equal(t, "user-42", key, "Key should come from the default user ID conversion")
 }
 

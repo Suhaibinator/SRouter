@@ -104,3 +104,39 @@ func TestMutexResponseWriterWriteRecheckUnderLock(t *testing.T) {
 		t.Errorf("late Write reached the underlying writer: body = %q", rec.Body.String())
 	}
 }
+
+// TestMutexResponseWriterMarkTimedOut verifies the timed-out transition the
+// timeout middleware performs when the deadline fires: it must reject further
+// handler writes, and it may only claim the response if no handler write got
+// there first.
+func TestMutexResponseWriterMarkTimedOut(t *testing.T) {
+	t.Run("claims an unwritten response", func(t *testing.T) {
+		var mu sync.Mutex
+		rw := &mutexResponseWriter{ResponseWriter: httptest.NewRecorder(), mu: &mu}
+
+		if !rw.markTimedOut() {
+			t.Error("markTimedOut must claim the response when nothing was written")
+		}
+		if !rw.timedOut.Load() {
+			t.Error("markTimedOut must put the writer into the timed-out state")
+		}
+		if n, err := rw.Write([]byte("late")); n != 0 || err != http.ErrHandlerTimeout {
+			t.Errorf("Write after markTimedOut = (%d, %v), want (0, http.ErrHandlerTimeout)", n, err)
+		}
+	})
+
+	t.Run("does not claim a response a handler write got to first", func(t *testing.T) {
+		var mu sync.Mutex
+		rw := &mutexResponseWriter{ResponseWriter: httptest.NewRecorder(), mu: &mu}
+		// A handler write claimed the response between the middleware's last
+		// wroteHeader check and the timed-out transition.
+		rw.wroteHeader.Store(true)
+
+		if rw.markTimedOut() {
+			t.Error("markTimedOut must not claim a response the handler already started")
+		}
+		if !rw.timedOut.Load() {
+			t.Error("markTimedOut must put the writer into the timed-out state even when it cannot claim the response")
+		}
+	})
+}

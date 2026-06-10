@@ -173,7 +173,13 @@ func TestConvertUserIDToString(t *testing.T) {
 		t.Errorf("Expected string to be true, got %s", str)
 	}
 
-	// Test with a custom type that implements String()
+	// Test with a custom type that implements fmt.Stringer
+	str = convertUserIDToString(CustomID{id: "custom-id"})
+	if str != "custom-id" {
+		t.Errorf("Expected string to be custom-id, got %s", str)
+	}
+
+	// Test with a custom type without a String method (fmt.Sprint fallback)
 	type CustomType struct{}
 	str = convertUserIDToString(CustomType{})
 	if str != "{}" {
@@ -853,5 +859,54 @@ func TestUberRateLimiter_WindowSemanticsAndNonBlocking(t *testing.T) {
 	// the next leaky-bucket slot before denying).
 	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
 		t.Fatalf("Allow calls blocked for %v; rate limit checks must be non-blocking", elapsed)
+	}
+}
+
+// TestRateLimitDefaultStrategyUsesContextIP verifies that an unknown strategy
+// falls back to IP-based limiting using the client IP from the context when
+// it is available (rather than RemoteAddr).
+func TestRateLimitDefaultStrategyUsesContextIP(t *testing.T) {
+	limiter := &captureLimiter{}
+	config := &common.RateLimitConfig[string, any]{
+		BucketName: "test-bucket",
+		Limit:      1,
+		Window:     time.Second,
+		Strategy:   common.RateLimitStrategy(99), // Unknown strategy triggers the default case
+	}
+
+	middleware := RateLimit(config, limiter, zap.NewNop())
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+	req.RemoteAddr = "10.0.0.1:1234" // ensure remote addr differs from context IP
+	ctx := scontext.WithClientIP[string, any](req.Context(), "203.0.113.9")
+
+	handler.ServeHTTP(httptest.NewRecorder(), req.WithContext(ctx))
+
+	expectedKey := "test-bucket:203.0.113.9"
+	if limiter.lastKey != expectedKey {
+		t.Fatalf("expected limiter key %s, got %s", expectedKey, limiter.lastKey)
+	}
+}
+
+// TestExtractUserKeyUserObjectWithoutUserIDFromUser verifies that when a user
+// object is in the context but no UserIDFromUser function is configured, the
+// key falls back to the user ID from the context.
+func TestExtractUserKeyUserObjectWithoutUserIDFromUser(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.com", nil)
+	user := "userObject"
+	ctx := scontext.WithUser[string](req.Context(), &user)
+	ctx = scontext.WithUserID[string, string](ctx, "id-from-context")
+	req = req.WithContext(ctx)
+
+	config := &common.RateLimitConfig[string, string]{
+		Strategy: common.StrategyUser,
+		// No UserIDFromUser: the user object alone cannot produce a key.
+	}
+
+	if key := extractUserKey(req, config); key != "id-from-context" {
+		t.Fatalf("expected fallback to user ID from context, got %q", key)
 	}
 }

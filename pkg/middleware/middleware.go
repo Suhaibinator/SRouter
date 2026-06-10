@@ -114,16 +114,10 @@ func timeout(timeout time.Duration) Middleware {
 				// Handler finished normally
 				return
 			case <-ctx.Done():
-				// Timeout occurred. If the handler already started writing,
+				// Timeout occurred. If the handler already started writing
+				// (or claims the response concurrently with the timeout),
 				// don't write a second response on top of it.
-				if wrappedW.wroteHeader.Load() {
-					return
-				}
-
-				// Reject any further handler writes so they can't race with
-				// the timeout response on the underlying writer.
-				wrappedW.timedOut.Store(true)
-				if !wrappedW.wroteHeader.CompareAndSwap(false, true) {
+				if wrappedW.wroteHeader.Load() || !wrappedW.markTimedOut() {
 					return
 				}
 
@@ -145,6 +139,16 @@ type mutexResponseWriter struct {
 	mu          *sync.Mutex
 	wroteHeader atomic.Bool // Tracks if WriteHeader or Write has been called
 	timedOut    atomic.Bool // When true, reject all writes to the underlying writer
+}
+
+// markTimedOut transitions the writer into the timed-out state, rejecting all
+// further handler writes, and attempts to claim the response for the timeout
+// handler. It returns false if a handler write claimed the response first (in
+// the window between the caller's last check and this transition), in which
+// case the timeout response must be suppressed.
+func (rw *mutexResponseWriter) markTimedOut() bool {
+	rw.timedOut.Store(true)
+	return rw.wroteHeader.CompareAndSwap(false, true)
 }
 
 // WriteHeader acquires the mutex and calls the underlying ResponseWriter.WriteHeader.
