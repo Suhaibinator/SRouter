@@ -413,10 +413,9 @@ func TestExtractUserKey_NilUserIDToString(t *testing.T) {
 	}
 
 	// Call extractUserKey
-	key, err := extractUserKey(req, config)
+	key := extractUserKey(req, config)
 
-	// Verify the default conversion is used and no error is returned
-	assert.NoError(t, err, "extractUserKey should not error when UserIDToString is nil")
+	// Verify the default conversion is used
 	assert.Equal(t, "test-user", key, "Key should come from the default user ID conversion")
 }
 

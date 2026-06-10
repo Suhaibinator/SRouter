@@ -76,19 +76,14 @@ func (l *slidingWindowLimiter) allow(limit int, window time.Duration, now time.T
 
 	if estimated >= limit {
 		// Denied: report how long until the current window rolls over.
-		reset := window - elapsed
-		if reset < 0 {
-			reset = 0
-		}
-		return false, 0, reset
+		// The rollover above keeps elapsed within [0, window), so this is
+		// always positive.
+		return false, 0, window - elapsed
 	}
 
 	l.currCount++
-	remaining := limit - estimated - 1
-	if remaining < 0 {
-		remaining = 0
-	}
-	return true, remaining, 0
+	// estimated < limit here, so the remaining count is never negative.
+	return true, limit - estimated - 1, 0
 }
 
 // getLimiter gets or creates a window counter for the given key, limit, and window.
@@ -162,33 +157,30 @@ func convertUserIDToString[T comparable](userID T) string {
 // If config.UserIDToString is nil, a default conversion (convertUserIDToString) is used,
 // so StrategyUser works out of the box for common ID types.
 // Returns an empty string if no user information is found.
-func extractUserKey[T comparable, U any](r *http.Request, config *common.RateLimitConfig[T, U]) (string, error) { // Use common.RateLimitConfig
+func extractUserKey[T comparable, U any](r *http.Request, config *common.RateLimitConfig[T, U]) string { // Use common.RateLimitConfig
 	userIDToString := config.UserIDToString
 	if userIDToString == nil {
 		userIDToString = convertUserIDToString[T]
 	}
 
-	// Try getting the full user object first
+	// Try getting the full user object first. Extracting an ID from it
+	// requires the UserIDFromUser function; without it, fall through to the
+	// user ID from the context.
 	user, userOk := scontext.GetUserFromRequest[T, U](r) // Use scontext
-	if userOk && user != nil {
-		if config.UserIDFromUser == nil {
-			// Cannot extract ID from user object without UserIDFromUser function
-			// Try falling back to UserID directly
-		} else {
-			userID := config.UserIDFromUser(*user)
-			return userIDToString(userID), nil
-		}
+	if userOk && user != nil && config.UserIDFromUser != nil {
+		userID := config.UserIDFromUser(*user)
+		return userIDToString(userID)
 	}
 
 	// Fallback: Try getting the user ID directly from context
 	userID, idOk := scontext.GetUserIDFromRequest[T, U](r) // Use scontext
 	if idOk {
 		// Use the conversion function
-		return userIDToString(userID), nil
+		return userIDToString(userID)
 	}
 
 	// No user information found in context
-	return "", nil // Return empty key, let the caller decide how to handle (e.g., fallback to IP)
+	return "" // Return empty key, let the caller decide how to handle (e.g., fallback to IP)
 }
 
 // RateLimit creates a middleware that enforces rate limits based on the provided configuration.
@@ -240,16 +232,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 
 			case common.StrategyUser: // Use common.StrategyUser
 				strategyUsed = "User"
-				key, err = extractUserKey(r, config)
-				if err != nil {
-					logger.Error("Failed to extract user key for rate limiting",
-						zap.Error(err),
-						zap.String("method", r.Method),
-						zap.String("path", r.URL.Path),
-					)
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-					return
-				}
+				key = extractUserKey(r, config)
 				// If no user key found, fall back to IP strategy as a safety measure
 				if key == "" {
 					strategyUsed = "User (fallback to IP)"

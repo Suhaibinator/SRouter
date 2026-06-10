@@ -45,10 +45,7 @@ func TestExtractUser(t *testing.T) {
 		}
 
 		// Extract the user key
-		userKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		userKey := extractUserKey(req, config)
 		if userKey != "testUser" {
 			t.Errorf("Expected user key 'testUser', got '%s'", userKey)
 		}
@@ -71,10 +68,7 @@ func TestExtractUser(t *testing.T) {
 		}
 
 		// Extract the user key - the default conversion is used when UserIDToString is nil
-		userKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		userKey := extractUserKey(req, config)
 		if userKey != "testUser-modified" {
 			t.Errorf("Expected user key 'testUser-modified', got '%s'", userKey)
 		}
@@ -99,10 +93,7 @@ func TestExtractUser(t *testing.T) {
 		// Extract the user key
 		// Add UserIDToString for int
 		config.UserIDToString = func(id int) string { return strconv.Itoa(id) }
-		userKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		userKey := extractUserKey(req, config)
 		if userKey != "42" {
 			t.Errorf("Expected user key '42', got '%s'", userKey)
 		}
@@ -130,10 +121,7 @@ func TestExtractUser(t *testing.T) {
 		// Extract the user key
 		// Add UserIDToString for CustomID
 		config.UserIDToString = func(id CustomID) string { return id.String() } // Use String() method
-		userKey, err := extractUserKey(req, config)                             // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		userKey := extractUserKey(req, config)
 		if userKey != "custom-id" { // Expect the result of String()
 			t.Errorf("Expected user key 'custom-id', got '%s'", userKey)
 		}
@@ -155,10 +143,7 @@ func TestExtractUser(t *testing.T) {
 		}
 
 		// Extract the user key
-		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		extractedKey := extractUserKey(req, config)
 		if extractedKey != "user123-suffix" {
 			t.Errorf("Expected user key 'user123-suffix', got '%s'", extractedKey)
 		}
@@ -178,10 +163,7 @@ func TestExtractUser(t *testing.T) {
 		}
 
 		// Extract the user key - the default string conversion applies
-		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		extractedKey := extractUserKey(req, config)
 		if extractedKey != "user123" {
 			t.Errorf("Expected user key 'user123', got '%s'", extractedKey)
 		}
@@ -201,10 +183,7 @@ func TestExtractUser(t *testing.T) {
 		}
 
 		// Extract the user key
-		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		extractedKey := extractUserKey(req, config)
 		if extractedKey != "42" {
 			t.Errorf("Expected user key '42', got '%s'", extractedKey)
 		}
@@ -224,10 +203,7 @@ func TestExtractUser(t *testing.T) {
 		}
 
 		// Extract the user key
-		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		extractedKey := extractUserKey(req, config)
 		if extractedKey != "true" {
 			t.Errorf("Expected user key 'true', got '%s'", extractedKey)
 		}
@@ -244,10 +220,7 @@ func TestExtractUser(t *testing.T) {
 		}
 
 		// Extract the user key
-		extractedKey, err := extractUserKey(req, config) // Use extractUserKey
-		if err != nil {
-			t.Fatalf("extractUserKey failed: %v", err)
-		}
+		extractedKey := extractUserKey(req, config)
 		if extractedKey != "" {
 			t.Errorf("Expected empty user key, got '%s'", extractedKey)
 		}
