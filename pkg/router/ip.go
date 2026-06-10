@@ -66,11 +66,19 @@ func ClientIPMiddleware[T comparable, U any](config *IPConfig) func(http.Handler
 			// Extract the client IP based on the configuration
 			clientIP := extractClientIP(r, config)
 
+			// When an SRouterContext already exists, WithClientIP mutates it in
+			// place and returns the same context, so cloning the request is
+			// unnecessary.
+			_, hadSRouterCtx := scontext.GetSRouterContext[T, U](r.Context())
+
 			// Add the client IP to the SRouterContext
 			ctx := scontext.WithClientIP[T, U](r.Context(), clientIP) // Use scontext
 
 			// Call the next handler with the updated context
-			next.ServeHTTP(w, r.WithContext(ctx))
+			if !hadSRouterCtx {
+				r = r.WithContext(ctx)
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -117,14 +125,17 @@ func extractIPFromXForwardedFor(r *http.Request) string {
 	}
 
 	// Use the rightmost (most recently appended, least spoofable) entry.
-	ips := strings.Split(xff, ",")
-	for i := len(ips) - 1; i >= 0; i-- {
-		if ip := strings.TrimSpace(ips[i]); ip != "" {
+	// Scan from the end without splitting so no intermediate slice is allocated.
+	for {
+		comma := strings.LastIndexByte(xff, ',')
+		if ip := strings.TrimSpace(xff[comma+1:]); ip != "" {
 			return ip
 		}
+		if comma < 0 {
+			return ""
+		}
+		xff = xff[:comma]
 	}
-
-	return ""
 }
 
 // cleanIP removes the port from an IP address if present

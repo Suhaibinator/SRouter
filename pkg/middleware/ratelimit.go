@@ -95,7 +95,9 @@ func (l *slidingWindowLimiter) allow(limit int, window time.Duration, now time.T
 // The composite key includes limit and window so different rate limits for the
 // same base key don't share counters.
 func (u *UberRateLimiter) getLimiter(key string, limit int, window time.Duration) *slidingWindowLimiter {
-	compositeKey := fmt.Sprintf("%s|%d|%d", key, limit, int64(window))
+	// Built with strconv instead of fmt.Sprintf: this runs on every
+	// rate-limited request and Sprintf's reflection is measurably slower.
+	compositeKey := key + "|" + strconv.Itoa(limit) + "|" + strconv.FormatInt(int64(window), 10)
 
 	// Fast path: Check if limiter already exists.
 	if limiter, ok := u.limiters.Load(compositeKey); ok {
