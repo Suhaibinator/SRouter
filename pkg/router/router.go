@@ -1465,7 +1465,7 @@ func NewHTTPError(statusCode int, message string) *HTTPError {
 // This prevents the server from crashing when a handler panics.
 func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		rw := &recoveryResponseWriter{baseResponseWriter: &baseResponseWriter{ResponseWriter: w}}
+		rw := &recoveryResponseWriter{baseResponseWriter: baseResponseWriter{ResponseWriter: w}}
 		defer func() {
 			if rec := recover(); rec != nil {
 				fields := append([]zap.Field{zap.Any("panic", rec)}, r.baseFields(req)...)
@@ -1491,9 +1491,10 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 
 // recoveryResponseWriter tracks whether the response has been started so the
 // recovery middleware can avoid writing a second response after a panic that
-// occurred mid-write.
+// occurred mid-write. baseResponseWriter is embedded by value so the
+// per-request wrapper costs a single allocation.
 type recoveryResponseWriter struct {
-	*baseResponseWriter
+	baseResponseWriter
 	wrote bool
 }
 
