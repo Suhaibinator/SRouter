@@ -193,7 +193,7 @@ func TestMetricsResponseWriterFlush(t *testing.T) {
 
 	// Create a metrics response writer with string as both the user ID and user type
 	mrw := &metricsResponseWriter[string, string]{
-		baseResponseWriter: &baseResponseWriter{ResponseWriter: rr},
+		baseResponseWriter: baseResponseWriter{ResponseWriter: rr},
 		statusCode:         http.StatusOK,
 	}
 
@@ -270,7 +270,7 @@ func TestMetricsResponseWriter(t *testing.T) {
 
 	// Create a metrics response writer with string as both the user ID and user type
 	mrw := &metricsResponseWriter[string, string]{
-		baseResponseWriter: &baseResponseWriter{ResponseWriter: rr},
+		baseResponseWriter: baseResponseWriter{ResponseWriter: rr},
 		statusCode:         http.StatusOK,
 	}
 

@@ -153,6 +153,12 @@ func CreateTraceMiddleware[T comparable, U any](generator *IDGenerator) common.M
 				traceID = generator.GetIDNonBlocking()
 			}
 
+			// When an SRouterContext already exists (always the case inside the
+			// router, which installs it before dispatch), WithTraceID mutates it
+			// in place and returns the same context, so cloning the request is
+			// unnecessary.
+			_, hadSRouterCtx := scontext.GetSRouterContext[T, U](r.Context())
+
 			// Add the trace ID to the request context using the correct generic types
 			ctx := scontext.WithTraceID[T, U](r.Context(), traceID) // Use scontext with router's T and U
 
@@ -160,7 +166,10 @@ func CreateTraceMiddleware[T comparable, U any](generator *IDGenerator) common.M
 			w.Header().Set("X-Trace-ID", traceID)
 
 			// Call the next handler with the request containing the updated context
-			next.ServeHTTP(w, r.WithContext(ctx))
+			if !hadSRouterCtx {
+				r = r.WithContext(ctx)
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }

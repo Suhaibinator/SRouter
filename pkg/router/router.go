@@ -687,7 +687,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		mrw := r.metricsWriterPool.Get().(*metricsResponseWriter[T, U])
 
 		// Initialize the writer with the current request data
-		mrw.baseResponseWriter = &baseResponseWriter{ResponseWriter: w}
+		mrw.baseResponseWriter = baseResponseWriter{ResponseWriter: w}
 		mrw.statusCode = http.StatusOK
 		mrw.startTime = time.Now()
 		mrw.request = req
@@ -703,8 +703,13 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			ip, _ := scontext.GetClientIPFromRequest[T, U](req)
 			ua, _ := scontext.GetUserAgentFromRequest[T, U](req)
 
-			// 2) Build unified fields - the UNION of all previously separate log fields
-			fields := append(r.baseFields(req),
+			// 2) Build unified fields - the UNION of all previously separate log
+			// fields. Sized for all fields (including the optional trace ID) up
+			// front so this per-request path allocates the slice exactly once.
+			fields := make([]zap.Field, 0, 8)
+			fields = append(fields,
+				zap.String("method", req.Method),
+				zap.String("path", req.URL.Path),
 				zap.Int("status", mrw.statusCode),
 				zap.Duration("duration", duration),
 				zap.Int64("bytes", mrw.bytesWritten),
@@ -730,7 +735,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			r.logger.Log(lvl, "Request summary statistics", fields...)
 
 			// Reset fields that might hold references to prevent memory leaks
-			mrw.baseResponseWriter = nil
+			mrw.baseResponseWriter = baseResponseWriter{}
 			mrw.request = nil
 			mrw.router = nil
 
@@ -782,9 +787,8 @@ func (r *Router[T, U]) handleCORS(w http.ResponseWriter, req *http.Request) (*ht
 			// For actual requests, we *could* block here, but it's often better to let the request proceed
 			// and let the browser enforce the lack of Allow-Origin header.
 			// However, we MUST NOT set the Allow-Origin header.
-			// We also need to store the *lack* of allowance in the context.
-			ctx = scontext.WithCORSInfo[T, U](ctx, "", false) // Store empty origin, false credentials
-			req = req.WithContext(ctx)
+			// The *lack* of allowance is stored in the context by the
+			// unconditional WithCORSInfo call below (correctAllowOrigin stays "").
 			// The response still varies by Origin (an allowed origin would get
 			// CORS headers), so set Vary to keep shared caches correct.
 			w.Header().Add("Vary", "Origin")
@@ -967,8 +971,10 @@ func (bw *baseResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 
 // metricsResponseWriter is a wrapper around http.ResponseWriter that captures metrics.
 // It tracks the status code, bytes written, and timing information for each response.
+// baseResponseWriter is embedded by value so pooled writers are reinitialized
+// without allocating a fresh wrapper per request.
 type metricsResponseWriter[T comparable, U any] struct {
-	*baseResponseWriter
+	baseResponseWriter
 	statusCode   int
 	bytesWritten int64
 	startTime    time.Time
@@ -1521,14 +1527,19 @@ func (r *Router[T, U]) authenticateRequest(req *http.Request, extractToken authT
 
 	if user, valid := r.authFunction(req.Context(), token); valid {
 		id := r.getUserIdFromUser(user)
+		// When an SRouterContext already exists (always the case for requests
+		// routed through ServeHTTP, which installs it before dispatch), the
+		// With* helpers mutate it in place and return the same context. Any
+		// trace ID already on that shared context is preserved automatically,
+		// and cloning the request is only needed when a context was created.
+		_, hadSRouterCtx := scontext.GetSRouterContext[T, U](req.Context())
 		ctx := scontext.WithUserID[T, U](req.Context(), id)
 		if r.config.AddUserObjectToCtx {
 			ctx = scontext.WithUser[T](ctx, user)
 		}
-		if traceID := scontext.GetTraceIDFromRequest[T, U](req); traceID != "" {
-			ctx = scontext.WithTraceID[T, U](ctx, traceID)
+		if !hadSRouterCtx {
+			req = req.WithContext(ctx)
 		}
-		req = req.WithContext(ctx)
 		return req, true, ""
 	}
 	return req, false, "invalid token"

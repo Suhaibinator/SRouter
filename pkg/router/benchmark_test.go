@@ -382,3 +382,36 @@ func BenchmarkMemoryUsage(b *testing.B) {
 	// b.Logf("Final Sys = %v MiB", bToMb(mEnd.Sys))
 	// b.Logf("GC Runs = %v", mEnd.NumGC - mStart.NumGC)
 }
+
+// BenchmarkInstrumentedAuthRoute measures the fully-instrumented hot path:
+// trace ID injection, request summary logging (status/bytes capture via the
+// pooled metrics writer), required authentication, and X-Forwarded-For client
+// IP extraction. A no-op logger is used so the benchmark measures router
+// overhead rather than log encoding.
+func BenchmarkInstrumentedAuthRoute(b *testing.B) {
+	authLevel := AuthRequired
+	r := NewRouter(RouterConfig{
+		Logger:            zap.NewNop(),
+		TraceIDBufferSize: 1000,
+		IPConfig:          DefaultIPConfig(),
+	}, nopAuthFunc, userIDFromString)
+	r.RegisterRoute(RouteConfigBase{
+		Path:      "/secure",
+		Methods:   []HttpMethod{MethodGet},
+		AuthLevel: &authLevel,
+		Handler:   simpleHandler,
+	})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			req, _ := http.NewRequest(http.MethodGet, "/secure", nil)
+			req.Header.Set("Authorization", "Bearer token")
+			req.Header.Set("X-Forwarded-For", "203.0.113.7, 10.0.0.1")
+			req.RemoteAddr = "10.0.0.1:1234"
+			rr := httptest.NewRecorder()
+			r.ServeHTTP(rr, req)
+		}
+	})
+}

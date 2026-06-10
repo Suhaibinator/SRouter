@@ -85,13 +85,12 @@ type SRouterContext[T comparable, U any] struct {
 	Flags map[string]bool
 }
 
-// NewSRouterContext creates a new SRouterContext instance with initialized fields.
-// It returns a pointer to a new context with an empty Flags map ready for use.
+// NewSRouterContext creates a new SRouterContext instance.
+// The Flags map is allocated lazily by WithFlag on first use, so contexts on
+// requests that never set a flag (the common case) avoid the map allocation.
 // T is the User ID type (comparable), U is the User object type (any).
 func NewSRouterContext[T comparable, U any]() *SRouterContext[T, U] {
-	return &SRouterContext[T, U]{
-		Flags: make(map[string]bool),
-	}
+	return &SRouterContext[T, U]{}
 }
 
 // GetSRouterContext retrieves the SRouterContext from a standard context.Context.
