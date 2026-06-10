@@ -39,6 +39,11 @@ type IPConfig struct {
 }
 
 // DefaultIPConfig returns the default IP configuration.
+// The default uses the rightmost X-Forwarded-For entry (the value appended by
+// the proxy nearest this server) rather than the client-controlled leftmost
+// entry. If the service is exposed directly to the internet (no trusted proxy),
+// set Source to IPSourceRemoteAddr or TrustProxy to false so client-supplied
+// headers are ignored entirely.
 func DefaultIPConfig() *IPConfig {
 	return &IPConfig{
 		Source:     IPSourceXForwardedFor, // Default to checking X-Forwarded-For
@@ -99,18 +104,24 @@ func extractClientIP(r *http.Request, config *IPConfig) string {
 	return cleanIP(ip)
 }
 
-// extractIPFromXForwardedFor extracts the client IP from the X-Forwarded-For header
-// The X-Forwarded-For header contains a comma-separated list of IPs, with the leftmost being the original client
+// extractIPFromXForwardedFor extracts the client IP from the X-Forwarded-For header.
+// The header contains a comma-separated list of IPs. Earlier (leftmost) entries are
+// supplied by the client and are trivially spoofable; the rightmost entry was appended
+// by the proxy closest to this server and is the only value the deployment's own
+// infrastructure vouches for. Using it prevents clients from rotating fake IPs to
+// bypass IP-based rate limiting.
 func extractIPFromXForwardedFor(r *http.Request) string {
 	xff := r.Header.Get("X-Forwarded-For")
 	if xff == "" {
 		return ""
 	}
 
-	// The leftmost IP is the original client
+	// Use the rightmost (most recently appended, least spoofable) entry.
 	ips := strings.Split(xff, ",")
-	if len(ips) > 0 {
-		return strings.TrimSpace(ips[0])
+	for i := len(ips) - 1; i >= 0; i-- {
+		if ip := strings.TrimSpace(ips[i]); ip != "" {
+			return ip
+		}
 	}
 
 	return ""

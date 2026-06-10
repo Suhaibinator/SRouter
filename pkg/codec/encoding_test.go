@@ -107,3 +107,39 @@ func TestDecodeBase62(t *testing.T) {
 		})
 	}
 }
+
+// TestBase62RoundTrip verifies EncodeBase62/DecodeBase62 round-trip exactly,
+// including binary payloads with leading zero bytes (regression for the
+// big.Int round trip silently dropping leading 0x00 bytes).
+func TestBase62RoundTrip(t *testing.T) {
+	testCases := []struct {
+		name string
+		data []byte
+	}{
+		{"simple ascii", []byte("Hello World")},
+		{"single zero byte", []byte{0x00}},
+		{"leading zero bytes", []byte{0x00, 0x00, 0x01, 0x02}},
+		{"all zero bytes", []byte{0x00, 0x00, 0x00}},
+		{"binary with embedded zeros", []byte{0x0a, 0x00, 0xff, 0x00}},
+		{"empty", []byte{}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded := EncodeBase62(tc.data)
+			decoded, err := DecodeBase62(encoded)
+			if err != nil {
+				t.Fatalf("DecodeBase62(%q) failed: %v", encoded, err)
+			}
+			if len(decoded) != len(tc.data) {
+				t.Fatalf("round trip changed length: %d -> %d (encoded %q, decoded %x, original %x)",
+					len(tc.data), len(decoded), encoded, decoded, tc.data)
+			}
+			for i := range decoded {
+				if decoded[i] != tc.data[i] {
+					t.Fatalf("round trip mismatch at byte %d: got %x, want %x", i, decoded, tc.data)
+				}
+			}
+		})
+	}
+}

@@ -128,6 +128,14 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 
 	// Precompute CORS headers if configured
 	if config.CORSConfig != nil {
+		// Warn about a contradictory configuration: the CORS spec forbids
+		// credentials with a wildcard origin, so the credentials header will
+		// never be emitted for wildcard matches.
+		if config.CORSConfig.AllowCredentials && slices.Contains(config.CORSConfig.Origins, "*") {
+			r.logger.Warn("CORS config combines wildcard origin with AllowCredentials; " +
+				"credentials are never allowed for wildcard origins per the CORS spec. " +
+				"List explicit origins to enable credentials.")
+		}
 		if len(config.CORSConfig.Methods) > 0 {
 			r.corsAllowMethods = strings.Join(config.CORSConfig.Methods, ", ")
 		}
@@ -152,26 +160,35 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 	if config.MetricsConfig != nil {
 		var metricsMiddleware common.Middleware
 
-		// Use the MetricsConfig
-		if config.MetricsConfig != nil {
-			// Check if the collector is a metrics registry
-			if registry, ok := config.MetricsConfig.Collector.(metrics.MetricsRegistry); ok {
-				// Create the generic middleware implementation using the router's T and U types
-				metricsMiddlewareImpl := metrics.NewMetricsMiddleware[T, U](registry, metrics.MetricsMiddlewareConfig{
-					EnableLatency:    config.MetricsConfig.EnableLatency,
-					EnableThroughput: config.MetricsConfig.EnableThroughput,
-					EnableQPS:        config.MetricsConfig.EnableQPS,
-					EnableErrors:     config.MetricsConfig.EnableErrors,
-					DefaultTags: metrics.Tags{
-						"service": config.MetricsConfig.Namespace, // Assuming Namespace is intended for service tag
-					},
-				})
-				// The middleware instance itself is now generic, but its Handler method
-				// returns a standard http.Handler, so the adapter function remains the same.
-				metricsMiddleware = func(next http.Handler) http.Handler {
-					// Use the ServiceName from the config for the application name
-					return metricsMiddlewareImpl.Handler(config.ServiceName, next)
-				}
+		// A user-supplied middleware factory takes precedence over building one
+		// from the Collector.
+		if factory, ok := config.MetricsConfig.MiddlewareFactory.(metrics.MetricsMiddleware[T, U]); ok {
+			metricsMiddleware = func(next http.Handler) http.Handler {
+				return factory.Handler(config.ServiceName, next)
+			}
+		} else if registry, ok := config.MetricsConfig.Collector.(metrics.MetricsRegistry); ok {
+			// Tags applied to every metric emitted by the middleware.
+			defaultTags := metrics.Tags{}
+			if config.MetricsConfig.Namespace != "" {
+				defaultTags["service"] = config.MetricsConfig.Namespace // Assuming Namespace is intended for service tag
+			}
+			if config.MetricsConfig.Subsystem != "" {
+				defaultTags["subsystem"] = config.MetricsConfig.Subsystem
+			}
+
+			// Create the generic middleware implementation using the router's T and U types
+			metricsMiddlewareImpl := metrics.NewMetricsMiddleware[T, U](registry, metrics.MetricsMiddlewareConfig{
+				EnableLatency:    config.MetricsConfig.EnableLatency,
+				EnableThroughput: config.MetricsConfig.EnableThroughput,
+				EnableQPS:        config.MetricsConfig.EnableQPS,
+				EnableErrors:     config.MetricsConfig.EnableErrors,
+				DefaultTags:      defaultTags,
+			})
+			// The middleware instance itself is now generic, but its Handler method
+			// returns a standard http.Handler, so the adapter function remains the same.
+			metricsMiddleware = func(next http.Handler) http.Handler {
+				// Use the ServiceName from the config for the application name
+				return metricsMiddlewareImpl.Handler(config.ServiceName, next)
 			}
 		}
 
@@ -199,6 +216,9 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 //
 // This is useful for conditionally adding routes or building routes programmatically.
 func (r *Router[T, U]) RegisterSubRouter(sr SubRouterConfig) {
+	// Record the sub-router so later lookups (e.g. RegisterGenericRouteOnSubRouter)
+	// can resolve it just like sub-routers provided in the initial config.
+	r.config.SubRouters = append(r.config.SubRouters, sr)
 	r.registerSubRouter(sr)
 }
 
@@ -267,9 +287,15 @@ func (r *Router[T, U]) registerSubRouterWithResolvedOverrides(sr SubRouterConfig
 
 	// Register nested sub-routers recursively
 	for _, nestedSR := range sr.SubRouters {
-		// Create a new sub-router with the combined path prefix
+		// Create a new sub-router with the combined path prefix, inherited
+		// middlewares (additive: parent's run before the nested sub-router's),
+		// and inherited AuthLevel (unless the nested sub-router sets its own).
 		nestedSRWithPrefix := nestedSR
 		nestedSRWithPrefix.PathPrefix = sr.PathPrefix + nestedSR.PathPrefix
+		nestedSRWithPrefix.Middlewares = combineMiddlewares(sr.Middlewares, nestedSR.Middlewares)
+		if nestedSRWithPrefix.AuthLevel == nil {
+			nestedSRWithPrefix.AuthLevel = sr.AuthLevel
+		}
 
 		// Register the nested sub-router
 		r.registerSubRouterWithResolvedOverrides(nestedSRWithPrefix, resolvedOverrides)
@@ -295,30 +321,25 @@ func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler, routeTemp
 }
 
 // wrapHandler wraps a handler with all the necessary middleware.
-// It creates a complete request processing pipeline with the following middleware order:
-// 1. Recovery (innermost, catches panics)
-// 2. Authentication (if authLevel is set)
-// 3. Rate limiting (if rateLimit is set)
-// 4. Route-specific middlewares (from the middlewares parameter)
-// 5. Global middlewares (from RouterConfig, includes trace and metrics if enabled)
-// 6. Timeout (if timeout > 0)
-// 7. Shutdown check and body size limit (in the base handler)
+// It creates a complete request processing pipeline with the following middleware order,
+// from outermost (first to see the request) to innermost (closest to the handler):
+// 1. Recovery (outermost, catches panics from everything below it)
+// 2. Trace ID injection (if enabled)
+// 3. Authentication (if authLevel is set)
+// 4. Rate limiting (if rateLimit is set)
+// 5. Route-specific middlewares (from the middlewares parameter)
+// 6. Global middlewares (from RouterConfig, includes metrics if enabled)
+// 7. Timeout (innermost, if timeout > 0)
+// 8. Body size limit (in the base handler)
 //
 // Middlewares are combined additively, not replaced.
 func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLevel, authTokenConfig common.AuthTokenConfig, timeout time.Duration, maxBodySize int64, rateLimit *common.RateLimitConfig[T, U], middlewares []common.Middleware) http.Handler { // Use common.RateLimitConfig
 	// Create a base handler that only handles shutdown check and body size limit directly
 	// Timeout is now handled by timeoutMiddleware setting the context.
 	h := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		// Shutdown Check
-		r.wg.Add(1)
-		defer r.wg.Done()
-		r.shutdownMu.RLock()
-		isShutdown := r.shutdown
-		r.shutdownMu.RUnlock()
-		if isShutdown {
-			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
-			return
-		}
+		// Note: shutdown check and request tracking happen at the top of
+		// ServeHTTP so the whole middleware chain is covered, not just the
+		// base handler.
 
 		// Apply body size limit
 		if maxBodySize > 0 {
@@ -334,7 +355,7 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLeve
 
 	// Append middleware in order of execution (outermost first)
 
-	// 1. Recovery (Innermost before handler)
+	// 1. Recovery (outermost, catches panics from the whole chain)
 	chain = chain.Append(r.recoveryMiddleware)
 
 	// 2. Trace middleware (if enabled) - positioned early so all middlewares have access to trace ID
@@ -491,23 +512,30 @@ type subRouterConfigPrefixMatch struct {
 }
 
 func resolveSubRouterConfigForPrefix(subRouters []SubRouterConfig, targetPrefix string, parentPrefix string, parentOverrides common.RouteOverrides) (SubRouterConfig, bool) {
-	match := resolveSubRouterConfigForPrefixMatch(subRouters, targetPrefix, parentPrefix, parentOverrides)
+	match := resolveSubRouterConfigForPrefixMatch(subRouters, targetPrefix, parentPrefix, parentOverrides, nil, nil)
 	if !match.found {
 		return SubRouterConfig{}, false
 	}
 	return match.config, true
 }
 
-func resolveSubRouterConfigForPrefixMatch(subRouters []SubRouterConfig, targetPrefix string, parentPrefix string, parentOverrides common.RouteOverrides) subRouterConfigPrefixMatch {
+func resolveSubRouterConfigForPrefixMatch(subRouters []SubRouterConfig, targetPrefix string, parentPrefix string, parentOverrides common.RouteOverrides, parentMiddlewares []common.Middleware, parentAuthLevel *AuthLevel) subRouterConfigPrefixMatch {
 	var fallback SubRouterConfig
 	fallbackFound := false
 
 	for _, sr := range subRouters {
 		fullPathPrefix := parentPrefix + sr.PathPrefix
 		resolvedOverrides := resolveSubRouterOverrides(parentOverrides, sr)
+		resolvedMiddlewares := combineMiddlewares(parentMiddlewares, sr.Middlewares)
+		resolvedAuthLevel := sr.AuthLevel
+		if resolvedAuthLevel == nil {
+			resolvedAuthLevel = parentAuthLevel
+		}
 		resolvedSR := sr
 		resolvedSR.PathPrefix = fullPathPrefix
 		resolvedSR.Overrides = resolvedOverrides
+		resolvedSR.Middlewares = resolvedMiddlewares
+		resolvedSR.AuthLevel = resolvedAuthLevel
 
 		if fullPathPrefix == targetPrefix {
 			return subRouterConfigPrefixMatch{config: resolvedSR, found: true, exact: true}
@@ -516,7 +544,7 @@ func resolveSubRouterConfigForPrefixMatch(subRouters []SubRouterConfig, targetPr
 			fallback = resolvedSR
 			fallbackFound = true
 		}
-		childMatch := resolveSubRouterConfigForPrefixMatch(sr.SubRouters, targetPrefix, fullPathPrefix, resolvedOverrides)
+		childMatch := resolveSubRouterConfigForPrefixMatch(sr.SubRouters, targetPrefix, fullPathPrefix, resolvedOverrides, resolvedMiddlewares, resolvedAuthLevel)
 		if childMatch.found {
 			if childMatch.exact {
 				return childMatch
@@ -531,6 +559,19 @@ func resolveSubRouterConfigForPrefixMatch(subRouters []SubRouterConfig, targetPr
 		return subRouterConfigPrefixMatch{config: fallback, found: true}
 	}
 	return subRouterConfigPrefixMatch{}
+}
+
+// combineMiddlewares returns a new slice containing parent middlewares followed
+// by child middlewares. The inputs are never modified and the result has its
+// own backing array.
+func combineMiddlewares(parent, child []common.Middleware) []common.Middleware {
+	if len(parent) == 0 && len(child) == 0 {
+		return nil
+	}
+	combined := make([]common.Middleware, 0, len(parent)+len(child))
+	combined = append(combined, parent...)
+	combined = append(combined, child...)
+	return combined
 }
 
 // RegisterGenericRouteOnSubRouter registers a generic route on a specific sub-router after router creation.
@@ -583,10 +624,11 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 	// Prefix the path
 	finalRouteConfig.Path = sr.PathPrefix + route.Path
 
-	// Combine middleware: global + sub-router + route-specific
-	allMiddlewares := make([]common.Middleware, 0, len(r.middlewares)+len(subRouterMiddlewares)+len(route.Middlewares))
-	allMiddlewares = append(allMiddlewares, r.middlewares...)        // Global first
-	allMiddlewares = append(allMiddlewares, subRouterMiddlewares...) // Then sub-router
+	// Combine middleware: sub-router + route-specific.
+	// Note: Global middlewares are added later by wrapHandler; including them
+	// here would apply them twice.
+	allMiddlewares := make([]common.Middleware, 0, len(subRouterMiddlewares)+len(route.Middlewares))
+	allMiddlewares = append(allMiddlewares, subRouterMiddlewares...) // Sub-router first
 	allMiddlewares = append(allMiddlewares, route.Middlewares...)    // Then route-specific
 	finalRouteConfig.Middlewares = allMiddlewares                    // Overwrite middlewares in the config passed down
 
@@ -607,6 +649,20 @@ func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User 
 // It handles HTTP requests by applying CORS, client IP extraction, metrics, tracing,
 // and then delegating to the underlying httprouter.
 func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// Track the in-flight request for graceful shutdown. The Add must happen
+	// under the shutdown lock so it can never race with Shutdown's wg.Wait:
+	// Shutdown takes the write lock before waiting, so either this request is
+	// rejected below, or it is registered before Wait can observe the counter.
+	r.shutdownMu.RLock()
+	if r.shutdown {
+		r.shutdownMu.RUnlock()
+		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	r.wg.Add(1)
+	r.shutdownMu.RUnlock()
+	defer r.wg.Done()
+
 	// Handle CORS first
 	var corsHandled bool
 	req, corsHandled = r.handleCORS(w, req)
@@ -623,8 +679,10 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	ctx = scontext.WithUserAgent[T, U](ctx, req.UserAgent())
 	req = req.WithContext(ctx)
 
-	// Apply metrics and tracing if enabled
-	if r.config.TraceIDBufferSize > 0 {
+	// Apply request summary logging and status/bytes capture if enabled.
+	// This is independent of trace IDs: EnableTraceLogging turns it on even
+	// when TraceIDBufferSize is 0 (trace_id fields are simply absent then).
+	if r.config.TraceIDBufferSize > 0 || r.config.EnableTraceLogging {
 		// Get a metricsResponseWriter from the pool
 		mrw := r.metricsWriterPool.Get().(*metricsResponseWriter[T, U])
 
@@ -727,6 +785,9 @@ func (r *Router[T, U]) handleCORS(w http.ResponseWriter, req *http.Request) (*ht
 			// We also need to store the *lack* of allowance in the context.
 			ctx = scontext.WithCORSInfo[T, U](ctx, "", false) // Store empty origin, false credentials
 			req = req.WithContext(ctx)
+			// The response still varies by Origin (an allowed origin would get
+			// CORS headers), so set Vary to keep shared caches correct.
+			w.Header().Add("Vary", "Origin")
 			// If it's a preflight, handle it below (it will fail the checks).
 			// If it's not preflight, let it continue, but CORS headers won't be set.
 		}
@@ -1158,14 +1219,30 @@ func (r *Router[T, U]) getEffectiveRateLimit(routeRateLimit, subRouterRateLimit 
 			return nil
 		}
 
+		// Adapt the user ID extraction functions across the type conversion so
+		// StrategyUser keeps working when configured via [any, any] overrides.
+		var userIDFromUser func(U) T
+		if fromUser := config.UserIDFromUser; fromUser != nil {
+			userIDFromUser = func(user U) T {
+				id, _ := fromUser(user).(T)
+				return id
+			}
+		}
+		var userIDToString func(T) string
+		if toString := config.UserIDToString; toString != nil {
+			userIDToString = func(userID T) string {
+				return toString(userID)
+			}
+		}
+
 		// Create a new config with the correct type parameters
 		return &common.RateLimitConfig[T, U]{ // Use common.RateLimitConfig
 			BucketName:      config.BucketName,
 			Limit:           config.Limit,
 			Window:          config.Window,
 			Strategy:        config.Strategy,
-			UserIDFromUser:  nil, // These will need to be set by the caller if needed
-			UserIDToString:  nil, // These will need to be set by the caller if needed
+			UserIDFromUser:  userIDFromUser,
+			UserIDToString:  userIDToString,
 			KeyExtractor:    config.KeyExtractor,
 			ExceededHandler: config.ExceededHandler,
 		}
@@ -1198,6 +1275,13 @@ func (r *Router[T, U]) addTrace(fields []zap.Field, req *http.Request) []zap.Fie
 	return fields
 }
 
+// isMaxBytesError reports whether err was caused by http.MaxBytesReader
+// rejecting a request body, even if a codec has wrapped the error.
+func isMaxBytesError(err error) bool {
+	var maxBytesErr *http.MaxBytesError
+	return errors.As(err, &maxBytesErr)
+}
+
 // handleError handles an error by logging it and returning an appropriate HTTP response.
 // It checks if the error is a specific HTTPError and uses its status code and message if available.
 // It also checks for context deadline exceeded errors.
@@ -1218,7 +1302,7 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 		statusCode = httpErr.StatusCode
 		message = httpErr.Message
 		r.logger.Error(message, fields...) // Log with the custom message
-	} else if err != nil && err.Error() == "http: request body too large" {
+	} else if isMaxBytesError(err) {
 		// Specifically handle MaxBytesReader error
 		statusCode = http.StatusRequestEntityTooLarge
 		message = "Request Entity Too Large"
@@ -1374,27 +1458,55 @@ func NewHTTPError(statusCode int, message string) *HTTPError {
 }
 
 // recoveryMiddleware is a middleware that recovers from panics in handlers.
-// It logs the panic and returns a 500 Internal Server Error response.
+// It logs the panic and returns a 500 Internal Server Error response if the
+// response has not been started yet. If the panic occurred after the handler
+// began writing, no second response is written (the partial response cannot
+// be repaired) and the panic is only logged.
 // This prevents the server from crashing when a handler panics.
 func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		rw := &recoveryResponseWriter{baseResponseWriter: &baseResponseWriter{ResponseWriter: w}}
 		defer func() {
 			if rec := recover(); rec != nil {
 				fields := append([]zap.Field{zap.Any("panic", rec)}, r.baseFields(req)...)
 				fields = r.addTrace(fields, req)
 				r.logger.Error("Panic recovered", fields...)
 
-				// Return a 500 Internal Server Error
+				if rw.wrote {
+					// The handler already started writing; appending a JSON
+					// error would corrupt the response and trigger a
+					// superfluous WriteHeader. Log only.
+					return
+				}
+
 				// Return a 500 Internal Server Error as JSON
-				// We attempt to write the JSON error. If headers were already written,
-				// writeJSONError might log an error, but we can't do much more here.
 				traceID := scontext.GetTraceIDFromRequest[T, U](req)
-				r.writeJSONError(w, req, http.StatusInternalServerError, "Internal Server Error", traceID)
+				r.writeJSONError(rw, req, http.StatusInternalServerError, "Internal Server Error", traceID)
 			}
 		}()
 
-		next.ServeHTTP(w, req)
+		next.ServeHTTP(rw, req)
 	})
+}
+
+// recoveryResponseWriter tracks whether the response has been started so the
+// recovery middleware can avoid writing a second response after a panic that
+// occurred mid-write.
+type recoveryResponseWriter struct {
+	*baseResponseWriter
+	wrote bool
+}
+
+// WriteHeader marks the response as started and delegates to the underlying writer.
+func (rw *recoveryResponseWriter) WriteHeader(statusCode int) {
+	rw.wrote = true
+	rw.baseResponseWriter.WriteHeader(statusCode)
+}
+
+// Write marks the response as started and delegates to the underlying writer.
+func (rw *recoveryResponseWriter) Write(b []byte) (int, error) {
+	rw.wrote = true
+	return rw.baseResponseWriter.Write(b)
 }
 
 // authenticateRequest attempts to authenticate the request and, if successful,
@@ -1530,6 +1642,11 @@ func (rw *mutexResponseWriter) Write(b []byte) (int, error) {
 	}
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
+	// Re-check under the lock: the timeout response may have been written
+	// while this write was waiting for the mutex.
+	if rw.timedOut.Load() {
+		return 0, http.ErrHandlerTimeout
+	}
 	rw.wroteHeader.Store(true) // Mark as written (headers might be implicitly written here)
 	return rw.ResponseWriter.Write(b)
 }

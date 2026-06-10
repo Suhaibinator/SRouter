@@ -850,71 +850,64 @@ func TestNegativeAgeBuckets(t *testing.T) {
 	assert.True(t, found, "Summary with negative AgeBuckets should be registered successfully")
 }
 
-// --- New Test for Panic Paths (using Mock Registerer) ---
+// --- Test for registration error paths (using Mock Registerer) ---
 
+// TestPrometheusBuilder_RegisterErrorPanic verifies that registration failures
+// no longer panic: Build logs an error and returns a working (unexported) metric,
+// since Build can be called from the request path.
 func TestPrometheusBuilder_RegisterErrorPanic(t *testing.T) {
 	mockRegistry := newMockPrometheusRegisterer()
 	genericError := errors.New("generic registration error")
 	mockRegistry.registerError = genericError // Configure mock to return a generic error
 
+	core, observedLogs := observer.New(zap.ErrorLevel)
+	logger := zap.New(core)
+
 	// Create adapter instance using the mock registerer
-	promRegistry := NewPrometheusRegistry(mockRegistry, "test", "panic_test", zap.NewNop())
+	promRegistry := NewPrometheusRegistry(mockRegistry, "test", "panic_test", logger)
 
-	// Test Counter Panic
-	assert.PanicsWithError(t, genericError.Error(), func() {
-		promRegistry.NewCounter().Name("panic_counter").Build()
-	}, "Counter Build should panic with generic error")
+	builds := []struct {
+		name  string
+		build func() any
+	}{
+		{"counter", func() any { return promRegistry.NewCounter().Name("err_counter").Build() }},
+		{"counter_vec", func() any {
+			builder := promRegistry.NewCounter().(*PrometheusCounterBuilder)
+			builder.Name("err_counter_vec")
+			builder.LabelNames("a")
+			return builder.Build()
+		}},
+		{"gauge", func() any { return promRegistry.NewGauge().Name("err_gauge").Build() }},
+		{"gauge_vec", func() any {
+			builder := promRegistry.NewGauge().(*PrometheusGaugeBuilder)
+			builder.Name("err_gauge_vec")
+			builder.LabelNames("b")
+			return builder.Build()
+		}},
+		{"histogram", func() any { return promRegistry.NewHistogram().Name("err_histogram").Build() }},
+		{"histogram_vec", func() any {
+			builder := promRegistry.NewHistogram().(*PrometheusHistogramBuilder)
+			builder.Name("err_histogram_vec")
+			builder.LabelNames("c")
+			return builder.Build()
+		}},
+		{"summary", func() any { return promRegistry.NewSummary().Name("err_summary").Build() }},
+		{"summary_vec", func() any {
+			builder := promRegistry.NewSummary().(*PrometheusSummaryBuilder)
+			builder.Name("err_summary_vec")
+			builder.LabelNames("d")
+			return builder.Build()
+		}},
+	}
 
-	// Test CounterVec Panic
-	assert.PanicsWithError(t, genericError.Error(), func() {
-		builderInterface := promRegistry.NewCounter()
-		builder := builderInterface.(*PrometheusCounterBuilder) // Cast
-		builder.Name("panic_counter_vec")                       // Call interface methods first
-		builder.LabelNames("a")                                 // Call specific method
-		builder.Build()
-	}, "CounterVec Build should panic with generic error")
+	for _, tc := range builds {
+		var metric any
+		assert.NotPanics(t, func() { metric = tc.build() }, "%s Build should not panic on registration error", tc.name)
+		assert.NotNil(t, metric, "%s Build should still return a usable metric", tc.name)
+	}
 
-	// Test Gauge Panic
-	assert.PanicsWithError(t, genericError.Error(), func() {
-		promRegistry.NewGauge().Name("panic_gauge").Build()
-	}, "Gauge Build should panic with generic error")
-
-	// Test GaugeVec Panic
-	assert.PanicsWithError(t, genericError.Error(), func() {
-		builderInterface := promRegistry.NewGauge()
-		builder := builderInterface.(*PrometheusGaugeBuilder) // Cast
-		builder.Name("panic_gauge_vec")                       // Call interface methods first
-		builder.LabelNames("b")                               // Call specific method
-		builder.Build()
-	}, "GaugeVec Build should panic with generic error")
-
-	// Test Histogram Panic
-	assert.PanicsWithError(t, genericError.Error(), func() {
-		promRegistry.NewHistogram().Name("panic_histogram").Build()
-	}, "Histogram Build should panic with generic error")
-
-	// Test HistogramVec Panic
-	assert.PanicsWithError(t, genericError.Error(), func() {
-		builderInterface := promRegistry.NewHistogram()
-		builder := builderInterface.(*PrometheusHistogramBuilder) // Cast
-		builder.Name("panic_histogram_vec")                       // Call interface methods first
-		builder.LabelNames("c")                                   // Call specific method
-		builder.Build()
-	}, "HistogramVec Build should panic with generic error")
-
-	// Test Summary Panic
-	assert.PanicsWithError(t, genericError.Error(), func() {
-		promRegistry.NewSummary().Name("panic_summary").Build()
-	}, "Summary Build should panic with generic error")
-
-	// Test SummaryVec Panic
-	assert.PanicsWithError(t, genericError.Error(), func() {
-		builderInterface := promRegistry.NewSummary()
-		builder := builderInterface.(*PrometheusSummaryBuilder) // Cast
-		builder.Name("panic_summary_vec")                       // Call interface methods first
-		builder.LabelNames("d")                                 // Call specific method
-		builder.Build()
-	}, "SummaryVec Build should panic with generic error")
+	// One error log per failed registration
+	assert.Equal(t, len(builds), observedLogs.Len(), "Expected one error log per failed registration")
 }
 
 // TestAgeBucketsOverflow tests the logging and clamping when AgeBuckets exceeds MaxUint32.

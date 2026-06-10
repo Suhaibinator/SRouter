@@ -4,14 +4,58 @@ import (
 	"bufio"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Keep scontext import
 )
 
+// cachedHistogram returns the histogram for the given cache key, building it at
+// most once. Building (and registering with the backend) per request would
+// allocate and contend the registry lock on every request.
+func (m *MetricsMiddlewareImpl[T, U]) cachedHistogram(key string, build func() Histogram) Histogram {
+	if v, ok := m.metricCache.Load(key); ok {
+		return v.(Histogram)
+	}
+	actual, _ := m.metricCache.LoadOrStore(key, build())
+	return actual.(Histogram)
+}
+
+// cachedCounter returns the counter for the given cache key, building it at most once.
+func (m *MetricsMiddlewareImpl[T, U]) cachedCounter(key string, build func() Counter) Counter {
+	if v, ok := m.metricCache.Load(key); ok {
+		return v.(Counter)
+	}
+	actual, _ := m.metricCache.LoadOrStore(key, build())
+	return actual.(Counter)
+}
+
+// taggedHistogram starts a histogram builder with the configured default tags applied.
+func (m *MetricsMiddlewareImpl[T, U]) taggedHistogram(name, desc string) HistogramBuilder {
+	b := m.registry.NewHistogram().Name(name).Description(desc)
+	for k, v := range m.config.DefaultTags {
+		if v != "" {
+			b = b.Tag(k, v)
+		}
+	}
+	return b
+}
+
+// taggedCounter starts a counter builder with the configured default tags applied.
+func (m *MetricsMiddlewareImpl[T, U]) taggedCounter(name, desc string) CounterBuilder {
+	b := m.registry.NewCounter().Name(name).Description(desc)
+	for k, v := range m.config.DefaultTags {
+		if v != "" {
+			b = b.Tag(k, v)
+		}
+	}
+	return b
+}
+
 // Handler wraps an HTTP handler with metrics collection. It captures metrics such as
 // request latency, throughput, QPS, and errors based on the middleware configuration.
-// The metrics are collected using the registry provided to the middleware.
+// The metrics are collected using the registry provided to the middleware, are tagged
+// with the configured DefaultTags, and are built once per route and then cached.
 // The 'name' parameter can be used as a fallback identifier if route template information is not available.
 // This is now a method on the generic MetricsMiddlewareImpl[T, U].
 func (m *MetricsMiddlewareImpl[T, U]) Handler(name string, handler http.Handler) http.Handler {
@@ -49,89 +93,77 @@ func (m *MetricsMiddlewareImpl[T, U]) Handler(name string, handler http.Handler)
 
 		// Collect metrics
 		if m.config.EnableLatency {
-			// Create a route-specific histogram for request latency
-			latency := m.registry.NewHistogram().
-				Name("request_latency_seconds").
-				Description("Request latency in seconds").
-				Tag("route", routeIdentifier).
-				Build()
-
-			// Observe the request latency
+			// Route-specific histogram for request latency
+			latency := m.cachedHistogram("latency|"+routeIdentifier, func() Histogram {
+				return m.taggedHistogram("request_latency_seconds", "Request latency in seconds").
+					Tag("route", routeIdentifier).
+					Build()
+			})
 			latency.Observe(duration.Seconds())
 
-			// Create a global histogram for total request latency across all routes
-			totalLatency := m.registry.NewHistogram().
-				Name("request_latency_seconds_total").
-				Description("Total request latency in seconds across all routes").
-				Build()
-
-			// Observe the total latency
+			// Global histogram for request latency across all routes.
+			// (Named all_* rather than *_total: the _total suffix is reserved
+			// for counters in Prometheus naming conventions.)
+			totalLatency := m.cachedHistogram("latency|all", func() Histogram {
+				return m.taggedHistogram("all_request_latency_seconds", "Request latency in seconds across all routes").
+					Build()
+			})
 			totalLatency.Observe(duration.Seconds())
 		}
 
-		if m.config.EnableThroughput {
-			// Create a route-specific counter for request throughput
-			throughput := m.registry.NewCounter().
-				Name("request_throughput_bytes").
-				Description("Request throughput in bytes").
-				Tag("route", routeIdentifier).
-				Build()
-
-			// Add the request size
-			if r.ContentLength > 0 {
-				throughput.Add(float64(r.ContentLength))
-
-				// Also track total throughput across all routes
-				totalThroughput := m.registry.NewCounter().
-					Name("request_throughput_bytes_total").
-					Description("Total request throughput in bytes across all routes").
+		if m.config.EnableThroughput && r.ContentLength > 0 {
+			// Route-specific counter for request throughput
+			throughput := m.cachedCounter("throughput|"+routeIdentifier, func() Counter {
+				return m.taggedCounter("request_throughput_bytes", "Request throughput in bytes").
+					Tag("route", routeIdentifier).
 					Build()
+			})
+			throughput.Add(float64(r.ContentLength))
 
-				totalThroughput.Add(float64(r.ContentLength))
-			}
+			// Also track total throughput across all routes
+			totalThroughput := m.cachedCounter("throughput|all", func() Counter {
+				return m.taggedCounter("request_throughput_bytes_total", "Total request throughput in bytes across all routes").
+					Build()
+			})
+			totalThroughput.Add(float64(r.ContentLength))
 		}
 
 		if m.config.EnableQPS {
-			// Create a route-specific counter for requests per second
-			qps := m.registry.NewCounter().
-				Name("requests_total").
-				Description("Total number of requests").
-				Tag("route", routeIdentifier).
-				Build()
-
-			// Increment the counter
+			// Route-specific counter for requests
+			qps := m.cachedCounter("qps|"+routeIdentifier, func() Counter {
+				return m.taggedCounter("requests_total", "Total number of requests").
+					Tag("route", routeIdentifier).
+					Build()
+			})
 			qps.Inc()
 
-			// Create a global counter for total requests across all routes
-			totalQps := m.registry.NewCounter().
-				Name("all_requests_total").
-				Description("Total number of requests across all routes").
-				Build()
-
-			// Increment the total counter
+			// Global counter for total requests across all routes
+			totalQps := m.cachedCounter("qps|all", func() Counter {
+				return m.taggedCounter("all_requests_total", "Total number of requests across all routes").
+					Build()
+			})
 			totalQps.Inc()
 		}
 
 		if m.config.EnableErrors && rw.statusCode >= 400 {
-			// Create a route-specific counter for errors
-			errors := m.registry.NewCounter().
-				Name("request_errors_total").
-				Description("Total number of request errors").
-				Tag("route", routeIdentifier).
-				Tag("status_code", http.StatusText(rw.statusCode)).
-				Build()
+			// Record the numeric status code (e.g. "404"), not the status text.
+			statusCode := strconv.Itoa(rw.statusCode)
 
-			// Increment the counter
+			// Route-specific counter for errors
+			errors := m.cachedCounter("errors|"+routeIdentifier+"|"+statusCode, func() Counter {
+				return m.taggedCounter("request_errors_total", "Total number of request errors").
+					Tag("route", routeIdentifier).
+					Tag("status_code", statusCode).
+					Build()
+			})
 			errors.Inc()
 
-			// Create a global counter for errors across all routes
-			totalErrors := m.registry.NewCounter().
-				Name("all_request_errors_total").
-				Description("Total number of request errors across all routes").
-				Tag("status_code", http.StatusText(rw.statusCode)).
-				Build()
-
-			// Increment the total counter
+			// Global counter for errors across all routes
+			totalErrors := m.cachedCounter("errors|all|"+statusCode, func() Counter {
+				return m.taggedCounter("all_request_errors_total", "Total number of request errors across all routes").
+					Tag("status_code", statusCode).
+					Build()
+			})
 			totalErrors.Inc()
 		}
 	})

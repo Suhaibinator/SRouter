@@ -8,6 +8,7 @@ package metrics
 import (
 	"math/rand"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -273,24 +274,40 @@ func (s *RandomSampler) Sample() bool {
 // MetricsMiddlewareImpl is a concrete generic implementation of the MetricsMiddleware interface.
 // T is the UserID type (comparable), U is the User object type (any).
 type MetricsMiddlewareImpl[T comparable, U any] struct {
-	registry MetricsRegistry
-	config   MetricsMiddlewareConfig
-	filter   MetricsFilter
-	sampler  MetricsSampler
+	registry    MetricsRegistry
+	config      MetricsMiddlewareConfig
+	filter      MetricsFilter
+	sampler     MetricsSampler
+	metricCache sync.Map // cache key (string) -> built Counter/Histogram, one per route
+}
+
+// samplerFromConfig returns a sampler implementing the configured SamplingRate,
+// or nil when no sampling is needed (rate <= 0 means "not configured" and
+// rate >= 1 means "always sample", both of which need no sampler).
+func samplerFromConfig(config MetricsMiddlewareConfig) MetricsSampler {
+	if config.SamplingRate > 0 && config.SamplingRate < 1 {
+		return NewRandomSampler(config.SamplingRate)
+	}
+	return nil
 }
 
 // NewMetricsMiddleware creates a new generic MetricsMiddlewareImpl.
+// If config.SamplingRate is in (0, 1), a RandomSampler is installed automatically;
+// it can be replaced via WithSampler.
 // T is the UserID type (comparable), U is the User object type (any).
 func NewMetricsMiddleware[T comparable, U any](registry MetricsRegistry, config MetricsMiddlewareConfig) *MetricsMiddlewareImpl[T, U] {
 	return &MetricsMiddlewareImpl[T, U]{
 		registry: registry,
 		config:   config,
+		sampler:  samplerFromConfig(config),
 	}
 }
 
-// Configure configures the middleware.
+// Configure configures the middleware. A sampler is derived from the new
+// config's SamplingRate (replace it with WithSampler if custom behavior is needed).
 func (m *MetricsMiddlewareImpl[T, U]) Configure(config MetricsMiddlewareConfig) MetricsMiddleware[T, U] {
 	m.config = config
+	m.sampler = samplerFromConfig(config)
 	return m
 }
 

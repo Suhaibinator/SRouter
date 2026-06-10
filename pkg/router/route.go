@@ -109,11 +109,9 @@ func registerGenericRouteWithAuthTokenResolution[Req any, Resp any, UserID compa
 			// Use the codec's Decode method to read directly from the request body
 			data, err = route.Codec.Decode(req)
 			if err != nil {
-				// Check if this is a MaxBytesReader error (applied in wrapHandler)
-				// Note: io.ReadAll is no longer called here, the codec handles reading.
-				// We need to check for the specific error string potentially returned by http.MaxBytesReader
-				// or similar errors from the codec's Decode implementation.
-				if err.Error() == "http: request body too large" { // Keep this check
+				// Check if this is a MaxBytesReader error (applied in wrapHandler).
+				// errors.As unwraps, so this works even when a codec wraps the error.
+				if isMaxBytesError(err) {
 					r.handleError(w, req, err, http.StatusRequestEntityTooLarge, "Request entity too large")
 					return
 				}

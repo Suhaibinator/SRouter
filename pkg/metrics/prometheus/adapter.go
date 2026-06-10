@@ -108,9 +108,11 @@ func (b *PrometheusCounterBuilder) Build() srouter_metrics.Counter {
 				// We'll re-fetch based on the Vec structure.
 				counterVec = are.ExistingCollector.(*prometheus.CounterVec)
 			} else {
-				// SRouter interface expects Build to return the metric directly.
-				// Handle fatal error - cannot proceed without the metric.
-				b.registry.registry.MustRegister(counterVec) // Re-attempt registration, will panic on non-AlreadyRegisteredError
+				// SRouter interface expects Build to return the metric directly,
+				// and Build can be called from the request path, so never panic.
+				// The metric still works locally; it just won't be exported.
+				b.registry.logger.Error("Failed to register Prometheus counter; metric will not be exported",
+					zap.String("metric_name", b.opts.Name), zap.Error(err))
 			}
 		}
 		// Convert prometheus.Labels to srouter_metrics.Tags
@@ -124,7 +126,9 @@ func (b *PrometheusCounterBuilder) Build() srouter_metrics.Counter {
 			if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
 				promCounter = are.ExistingCollector.(prometheus.Counter)
 			} else {
-				b.registry.registry.MustRegister(promCounter) // Re-attempt registration, will panic on non-AlreadyRegisteredError
+				// Never panic in the request path; keep the unregistered metric.
+				b.registry.logger.Error("Failed to register Prometheus counter; metric will not be exported",
+					zap.String("metric_name", b.opts.Name), zap.Error(err))
 			}
 		}
 		// Convert prometheus.Labels to srouter_metrics.Tags
@@ -179,7 +183,9 @@ func (b *PrometheusGaugeBuilder) Build() srouter_metrics.Gauge {
 			if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
 				gaugeVec = are.ExistingCollector.(*prometheus.GaugeVec)
 			} else {
-				b.registry.registry.MustRegister(gaugeVec) // Panic on error
+				// Never panic in the request path; keep the unregistered metric.
+				b.registry.logger.Error("Failed to register Prometheus gauge; metric will not be exported",
+					zap.String("metric_name", b.opts.Name), zap.Error(err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
@@ -191,7 +197,9 @@ func (b *PrometheusGaugeBuilder) Build() srouter_metrics.Gauge {
 			if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
 				promGauge = are.ExistingCollector.(prometheus.Gauge)
 			} else {
-				b.registry.registry.MustRegister(promGauge) // Panic on error
+				// Never panic in the request path; keep the unregistered metric.
+				b.registry.logger.Error("Failed to register Prometheus gauge; metric will not be exported",
+					zap.String("metric_name", b.opts.Name), zap.Error(err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
@@ -256,7 +264,9 @@ func (b *PrometheusHistogramBuilder) Build() srouter_metrics.Histogram {
 			if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
 				histoVec = are.ExistingCollector.(*prometheus.HistogramVec)
 			} else {
-				b.registry.registry.MustRegister(histoVec) // Panic on error
+				// Never panic in the request path; keep the unregistered metric.
+				b.registry.logger.Error("Failed to register Prometheus histogram; metric will not be exported",
+					zap.String("metric_name", b.opts.Name), zap.Error(err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
@@ -268,7 +278,9 @@ func (b *PrometheusHistogramBuilder) Build() srouter_metrics.Histogram {
 			if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
 				promHisto = are.ExistingCollector.(prometheus.Histogram)
 			} else {
-				b.registry.registry.MustRegister(promHisto) // Panic on error
+				// Never panic in the request path; keep the unregistered metric.
+				b.registry.logger.Error("Failed to register Prometheus histogram; metric will not be exported",
+					zap.String("metric_name", b.opts.Name), zap.Error(err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
@@ -362,7 +374,9 @@ func (b *PrometheusSummaryBuilder) Build() srouter_metrics.Summary {
 			if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
 				summaryVec = are.ExistingCollector.(*prometheus.SummaryVec)
 			} else {
-				b.registry.registry.MustRegister(summaryVec) // Panic on error
+				// Never panic in the request path; keep the unregistered metric.
+				b.registry.logger.Error("Failed to register Prometheus summary; metric will not be exported",
+					zap.String("metric_name", b.opts.Name), zap.Error(err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
@@ -374,7 +388,9 @@ func (b *PrometheusSummaryBuilder) Build() srouter_metrics.Summary {
 			if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
 				promSummary = are.ExistingCollector.(prometheus.Summary)
 			} else {
-				b.registry.registry.MustRegister(promSummary) // Panic on error
+				// Never panic in the request path; keep the unregistered metric.
+				b.registry.logger.Error("Failed to register Prometheus summary; metric will not be exported",
+					zap.String("metric_name", b.opts.Name), zap.Error(err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))

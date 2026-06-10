@@ -65,22 +65,32 @@ func TestAuthenticationGeneric(t *testing.T) {
 		t.Errorf("Expected status code %d, got %d", http.StatusUnauthorized, rec.Code)
 	}
 
-	// Test with OPTIONS request (should bypass authentication)
+	// Test with OPTIONS request (no longer bypasses authentication)
 	req = httptest.NewRequest("OPTIONS", "/test", nil)
-	req.Header.Set("X-Auth-Token", "invalid-token") // Even with invalid token
+	req.Header.Set("X-Auth-Token", "invalid-token")
 	rec = httptest.NewRecorder()
 
 	// Call the handler
 	wrappedHandler.ServeHTTP(rec, req)
 
-	// Check that the response status code is 200 (OK) because OPTIONS should skip auth
+	// OPTIONS requests are authenticated like any other method; CORS preflight
+	// is handled by the router before middleware runs.
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status code %d for unauthenticated OPTIONS request, got %d", http.StatusUnauthorized, rec.Code)
+	}
+
+	// OPTIONS with valid credentials should succeed
+	req = httptest.NewRequest("OPTIONS", "/test", nil)
+	req.Header.Set("X-Auth-Token", "valid-token")
+	rec = httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status code %d for OPTIONS request, got %d", http.StatusOK, rec.Code)
+		t.Errorf("Expected status code %d for authenticated OPTIONS request, got %d", http.StatusOK, rec.Code)
 	}
 }
 
-// TestAuthenticationWithProvider_OptionsBypass tests the OPTIONS request bypass
-// in the AuthenticationWithProvider middleware.
+// TestAuthenticationWithProvider_OptionsBypass verifies OPTIONS requests are
+// authenticated like any other method by the AuthenticationWithProvider middleware.
 func TestAuthenticationWithProvider_OptionsBypass(t *testing.T) {
 	// Create a mock AuthProvider (using BearerTokenProvider for simplicity)
 	provider := &BearerTokenProvider[string]{
@@ -204,16 +214,26 @@ func TestAuthentication(t *testing.T) {
 		t.Errorf("Expected status code %d, got %d", http.StatusUnauthorized, rec.Code)
 	}
 
-	// Test with OPTIONS request (should bypass authentication)
+	// Test with OPTIONS request (no longer bypasses authentication)
 	req = httptest.NewRequest("OPTIONS", "/test", nil)
-	req.Header.Set("X-Auth-Token", "invalid-token") // Even with invalid token
+	req.Header.Set("X-Auth-Token", "invalid-token")
 	rec = httptest.NewRecorder()
 
 	// Call the handler
 	wrappedHandler.ServeHTTP(rec, req)
 
-	// Check that the response status code is 200 (OK) because OPTIONS should skip auth
+	// OPTIONS requests are authenticated like any other method; CORS preflight
+	// is handled by the router before middleware runs.
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status code %d for unauthenticated OPTIONS request, got %d", http.StatusUnauthorized, rec.Code)
+	}
+
+	// OPTIONS with valid credentials should succeed
+	req = httptest.NewRequest("OPTIONS", "/test", nil)
+	req.Header.Set("X-Auth-Token", "valid-token")
+	rec = httptest.NewRecorder()
+	wrappedHandler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status code %d for OPTIONS request, got %d", http.StatusOK, rec.Code)
+		t.Errorf("Expected status code %d for authenticated OPTIONS request, got %d", http.StatusOK, rec.Code)
 	}
 }

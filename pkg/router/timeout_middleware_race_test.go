@@ -102,8 +102,10 @@ func TestTimeoutMiddleware_WhenHandlerPanicsInCASFailurePath_RethrowsToRecovery(
 
 		mrw := <-mrwCh
 		if rr.Code == http.StatusAccepted && mrw.timedOut.Load() {
-			if msg := parseJSONErrorMessage(t, rr.Body.Bytes()); msg != "Internal Server Error" {
-				t.Fatalf("expected internal server error payload, got %q", msg)
+			// The handler won the write race (202 was sent) before panicking,
+			// so recovery must not append a JSON error to the started response.
+			if body := rr.Body.String(); body != "" {
+				t.Fatalf("expected no additional body after mid-response panic, got %q", body)
 			}
 			return
 		}

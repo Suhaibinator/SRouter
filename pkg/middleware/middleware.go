@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -77,7 +78,10 @@ func maxBodySize(maxSize int64) Middleware {
 
 // Timeout is a middleware that sets a timeout for the request processing.
 // If the handler takes longer than the specified timeout to respond,
-// the middleware will cancel the request context and return a 408 Request Timeout response.
+// the middleware will cancel the request context and return a 408 Request Timeout response,
+// but only if the handler has not already started writing a response.
+// Once the timeout fires, any further handler writes are rejected with
+// http.ErrHandlerTimeout instead of racing with the timeout response.
 // This prevents long-running requests from blocking server resources indefinitely.
 func timeout(timeout time.Duration) Middleware {
 	return func(next http.Handler) http.Handler {
@@ -110,7 +114,20 @@ func timeout(timeout time.Duration) Middleware {
 				// Handler finished normally
 				return
 			case <-ctx.Done():
-				// Timeout occurred
+				// Timeout occurred. If the handler already started writing,
+				// don't write a second response on top of it.
+				if wrappedW.wroteHeader.Load() {
+					return
+				}
+
+				// Reject any further handler writes so they can't race with
+				// the timeout response on the underlying writer.
+				wrappedW.timedOut.Store(true)
+				if !wrappedW.wroteHeader.CompareAndSwap(false, true) {
+					return
+				}
+
+				// Serialize with any handler write currently in progress.
 				wMutex.Lock()
 				http.Error(w, "Request Timeout", http.StatusRequestTimeout)
 				wMutex.Unlock()
@@ -120,32 +137,52 @@ func timeout(timeout time.Duration) Middleware {
 	}
 }
 
-// mutexResponseWriter is a wrapper around http.ResponseWriter that uses a mutex to protect access.
-// This ensures thread-safety when writing to the response from multiple goroutines.
+// mutexResponseWriter is a wrapper around http.ResponseWriter that uses a mutex to protect access
+// and tracks whether the response has been started. Once timedOut is set, all writes are rejected
+// so a late handler can never touch the underlying writer after the timeout response was sent.
 type mutexResponseWriter struct {
 	http.ResponseWriter
-	mu *sync.Mutex
+	mu          *sync.Mutex
+	wroteHeader atomic.Bool // Tracks if WriteHeader or Write has been called
+	timedOut    atomic.Bool // When true, reject all writes to the underlying writer
 }
 
 // WriteHeader acquires the mutex and calls the underlying ResponseWriter.WriteHeader.
 // This ensures thread-safety when setting the status code from multiple goroutines.
 func (rw *mutexResponseWriter) WriteHeader(statusCode int) {
+	if rw.timedOut.Load() {
+		return
+	}
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
-	rw.ResponseWriter.WriteHeader(statusCode)
+	if !rw.wroteHeader.Swap(true) {
+		rw.ResponseWriter.WriteHeader(statusCode)
+	}
 }
 
 // Write acquires the mutex and calls the underlying ResponseWriter.Write.
 // This ensures thread-safety when writing the response body from multiple goroutines.
 func (rw *mutexResponseWriter) Write(b []byte) (int, error) {
+	if rw.timedOut.Load() {
+		return 0, http.ErrHandlerTimeout
+	}
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
+	// Re-check under the lock: the timeout response may have been written
+	// while this write was waiting for the mutex.
+	if rw.timedOut.Load() {
+		return 0, http.ErrHandlerTimeout
+	}
+	rw.wroteHeader.Store(true)
 	return rw.ResponseWriter.Write(b)
 }
 
 // Flush acquires the mutex and calls the underlying ResponseWriter.Flush if it implements http.Flusher.
 // This ensures thread-safety when flushing the response from multiple goroutines.
 func (rw *mutexResponseWriter) Flush() {
+	if rw.timedOut.Load() {
+		return
+	}
 	rw.mu.Lock()
 	defer rw.mu.Unlock()
 	if f, ok := rw.ResponseWriter.(http.Flusher); ok {

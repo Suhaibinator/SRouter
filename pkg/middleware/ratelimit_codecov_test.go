@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -52,27 +53,28 @@ func TestUberRateLimiter_AllowedCondition(t *testing.T) {
 	})
 }
 
-// TestExtractUserKey_NilUserIDToString specifically tests lines 126-127 in ratelimit.go
-// where it checks if UserIDToString is nil and returns an error
+// TestExtractUserKey_NilUserIDToString verifies that a nil UserIDToString
+// falls back to the default conversion instead of returning an error, so
+// StrategyUser works when configured via [any, any] overrides.
 func TestExtractUserKey_NilUserIDToString_Codecov(t *testing.T) {
-	// Create a request
+	// Create a request with a user ID in the context
 	req := httptest.NewRequest("GET", "/", nil)
+	ctx := scontext.WithUserID[string, string](req.Context(), "user-42")
+	req = req.WithContext(ctx)
 
 	// Create a config with nil UserIDToString
 	config := &common.RateLimitConfig[string, string]{
 		Strategy:       common.StrategyUser,
 		UserIDFromUser: func(u string) string { return u },
-		UserIDToString: nil, // Explicitly set to nil to test the nil check
+		UserIDToString: nil, // Nil triggers the default conversion
 	}
 
 	// Call extractUserKey
 	key, err := extractUserKey(req, config)
 
-	// Verify that an error is returned
-	assert.Error(t, err, "extractUserKey should return an error when UserIDToString is nil")
-	assert.Equal(t, "", key, "Key should be empty when error is returned")
-	assert.Contains(t, err.Error(), "UserIDToString function is required",
-		"Error message should indicate UserIDToString is required")
+	// Verify the default conversion is used and no error is returned
+	assert.NoError(t, err, "extractUserKey should not error when UserIDToString is nil")
+	assert.Equal(t, "user-42", key, "Key should come from the default user ID conversion")
 }
 
 // TestRateLimit_CustomStrategyEmptyKey_Codecov specifically tests lines 258-259 in ratelimit.go

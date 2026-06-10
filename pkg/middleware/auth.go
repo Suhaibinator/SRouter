@@ -143,16 +143,16 @@ func AuthenticationWithProvider[T comparable, U any](
 // Authentication is a middleware that checks if a request is authenticated using a simple auth function.
 // T is the User ID type (comparable), U is the User object type (any).
 // It allows for custom authentication logic to be provided as a simple function.
+//
+// Note: All methods, including OPTIONS, require authentication. CORS preflight
+// requests are handled by the router's CORS support before middleware runs, so
+// they never reach this middleware. (Earlier versions skipped authentication
+// for OPTIONS, which left registered OPTIONS routes unauthenticated.)
 func Authentication[T comparable, U any](
 	authFunc func(*http.Request) (T, bool),
 ) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodOptions {
-				// Allow preflight requests without authentication
-				next.ServeHTTP(w, r)
-				return
-			}
 			// Check if the request is authenticated
 			userID, ok := authFunc(r)
 			if !ok {
@@ -173,17 +173,17 @@ func Authentication[T comparable, U any](
 // It allows for custom authentication logic to be provided as a simple function that returns a boolean.
 // It adds a boolean flag to the SRouterContext if authentication is successful.
 // T is the User ID type (comparable), U is the User object type (any).
+//
+// Note: All methods, including OPTIONS, require authentication. CORS preflight
+// requests are handled by the router's CORS support before middleware runs, so
+// they never reach this middleware. (Earlier versions skipped authentication
+// for OPTIONS, which left registered OPTIONS routes unauthenticated.)
 func AuthenticationBool[T comparable, U any](
 	authFunc func(*http.Request) bool,
 	flagName string, // Flag name parameter
 ) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodOptions {
-				// Allow preflight requests without authentication
-				next.ServeHTTP(w, r)
-				return
-			}
 			// Check if the request is authenticated
 			if !authFunc(r) {
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)

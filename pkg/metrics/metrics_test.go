@@ -1061,10 +1061,11 @@ func TestMetricsMiddlewareImpl_Handler_WithRouteTemplate(t *testing.T) {
 		t.Error("Route-specific latency metric not found")
 	}
 
-	// Check for global latency metric
+	// Check for global latency metric (all_* prefix: the _total suffix is
+	// reserved for counters in Prometheus naming conventions)
 	var foundGlobalLatency bool
 	for _, histogram := range registry.histograms {
-		if histogram.Name() == "request_latency_seconds_total" {
+		if histogram.Name() == "all_request_latency_seconds" {
 			foundGlobalLatency = true
 			break
 		}

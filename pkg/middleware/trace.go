@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
@@ -46,71 +45,17 @@ func (g *IDGenerator) init() {
 			g.idChan <- generateUUID()
 		}
 
-		// Then start the background worker to keep it filled
+		// Then start the background worker to keep it filled. A blocking send
+		// parks the goroutine for free while the buffer is full (no polling)
+		// and resumes the instant a consumer takes an ID.
 		go func() {
-			// Pre-allocate a batch of UUIDs to insert quickly when needed
-			const batchSize = 1000
-			batchUUIDs := make([]string, 0, batchSize)
-
-			// Used to determine if we need to batch-fill when channel is getting empty
-			lastChannelLen := g.size
-			emptyThreshold := g.size / 10 // 10% capacity threshold to trigger batch fill
-
 			for {
 				select {
 				case <-g.stop:
 					return
-				default:
+				case g.idChan <- generateUUID():
+					// Successfully added a new UUID; loop to top up again.
 				}
-
-				// Get current channel capacity
-				currentLen := len(g.idChan)
-
-				// If the channel is getting depleted quickly (below threshold),
-				// batch-fill it immediately with multiple UUIDs
-				if currentLen < emptyThreshold && lastChannelLen > currentLen {
-					// Channel is being consumed quickly, pre-generate a batch
-					if len(batchUUIDs) == 0 {
-						// Refill our batch
-						batchUUIDs = batchUUIDs[:0] // Clear without deallocating
-						for range batchSize {
-							batchUUIDs = append(batchUUIDs, generateUUID())
-						}
-					}
-
-					// Add from our batch as many as we can without blocking
-					for len(batchUUIDs) > 0 {
-						select {
-						case <-g.stop:
-							return
-						case g.idChan <- batchUUIDs[0]:
-							// Successfully added one from batch
-							batchUUIDs = batchUUIDs[1:]
-						default:
-							// Channel is now full, stop adding
-						}
-						if len(g.idChan) == g.size {
-							break
-						}
-					}
-
-					// Very short sleep to prevent CPU thrashing but still be responsive
-					time.Sleep(100 * time.Microsecond) // 100μs instead of 10ms
-				} else {
-					// Normal case: channel has plenty of capacity, add one at a time
-					select {
-					case <-g.stop:
-						return
-					case g.idChan <- generateUUID():
-						// Successfully added a new UUID
-					default:
-						// Channel is full, sleep longer to save CPU
-						time.Sleep(1 * time.Millisecond) // 1ms instead of 10ms
-					}
-				}
-
-				// Update our last seen channel length
-				lastChannelLen = currentLen
 			}
 		}()
 	})
@@ -160,23 +105,51 @@ func (g *IDGenerator) GetIDNonBlocking() string {
 
 // Note: WithTraceID, GetTraceIDFromContext, GetTraceID, AddTraceIDToRequest were moved to pkg/scontext/context.go
 
+// maxTraceIDLength bounds inbound X-Trace-ID values; generated IDs are 32 hex
+// characters, and common formats (UUID, W3C trace IDs) fit comfortably below this.
+const maxTraceIDLength = 64
+
+// isValidTraceID reports whether an inbound X-Trace-ID header value is safe to
+// propagate into logs and response headers. Only ASCII alphanumerics, '-', and
+// '_' are allowed, with a bounded length, so clients can't inject log content
+// or oversized values.
+func isValidTraceID(id string) bool {
+	if id == "" || len(id) > maxTraceIDLength {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch {
+		case c >= '0' && c <= '9':
+		case c >= 'a' && c <= 'z':
+		case c >= 'A' && c <= 'Z':
+		case c == '-' || c == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // CreateTraceMiddleware creates a trace middleware with the provided ID generator.
 // This is the core implementation used by both traceMiddleware and traceMiddlewareWithConfig.
 // It checks for an existing trace ID in the request headers before generating a new one,
-// which allows for trace ID propagation across service calls.
+// which allows for trace ID propagation across service calls. Client-supplied
+// trace IDs are validated (bounded length, [A-Za-z0-9_-] only) before being
+// accepted; invalid values are replaced with a generated ID.
 // It's now generic to accept the UserID (T) and User (U) types from the router.
 func CreateTraceMiddleware[T comparable, U any](generator *IDGenerator) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var traceID string
 
-			// Check if there's already a trace ID in the request headers
+			// Check if there's already a valid trace ID in the request headers
 			existingTraceID := r.Header.Get("X-Trace-ID")
-			if existingTraceID != "" {
+			if isValidTraceID(existingTraceID) {
 				// Use the existing trace ID for propagation
 				traceID = existingTraceID
 			} else {
-				// Generate a new trace ID if none exists
+				// Generate a new trace ID if none exists (or it was invalid)
 				traceID = generator.GetIDNonBlocking()
 			}
 

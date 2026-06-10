@@ -2,7 +2,6 @@
 package middleware
 
 import (
-	"errors" // Added for error handling
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,54 +10,109 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/common"   // Import common for shared types
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Use scontext for context functions
-	"go.uber.org/ratelimit"
 	"go.uber.org/zap"
 )
 
 // Note: RateLimitStrategy, RateLimiter, RateLimitConfig moved to pkg/common/types.go
 
-// UberRateLimiter implements the common.RateLimiter interface using Uber's ratelimit library.
-// It provides a leaky bucket rate limiting algorithm, which smooths out request rates
-// by allowing a steady flow of requests while preventing bursts.
-// The implementation maintains a map of rate limiters, one per unique key.
+// UberRateLimiter implements the common.RateLimiter interface using a
+// non-blocking sliding-window counter. Over-limit requests are denied
+// immediately (never queued or slept on), and the configured limit/window
+// semantics are honored exactly — e.g. "2 per minute" allows 2 requests per
+// minute, not 1 per second.
+//
+// The name is retained for backwards compatibility with earlier versions that
+// were backed by Uber's ratelimit library. The implementation maintains one
+// window counter per unique key.
 type UberRateLimiter struct {
-	limiters sync.Map // map[string]ratelimit.Limiter
+	limiters sync.Map // map[string]*slidingWindowLimiter
 }
 
 // NewUberRateLimiter creates a new UberRateLimiter instance.
-// The returned limiter uses the leaky bucket algorithm to enforce rate limits.
-// It maintains separate rate limiters for different keys (e.g., different IPs or users).
+// It maintains separate rate limit counters for different keys
+// (e.g., different IPs or users).
 func NewUberRateLimiter() *UberRateLimiter {
 	return &UberRateLimiter{}
 }
 
-// getLimiter gets or creates a limiter for the given key and rate (requests per second).
-// It uses a composite key including the RPS to handle different rate limits for the same base key.
-func (u *UberRateLimiter) getLimiter(key string, rps int) ratelimit.Limiter {
-	compositeKey := fmt.Sprintf("%s-%d", key, rps) // Combine key and rps
+// slidingWindowLimiter tracks request counts for the current and previous
+// windows. The effective count is the current window's count plus the
+// previous window's count weighted by how much of it still overlaps a
+// sliding window ending now. This smooths bursts at window boundaries while
+// keeping O(1) memory per key.
+type slidingWindowLimiter struct {
+	mu          sync.Mutex
+	windowStart time.Time
+	prevCount   int
+	currCount   int
+}
+
+func (l *slidingWindowLimiter) allow(limit int, window time.Duration, now time.Time) (bool, int, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.windowStart.IsZero() {
+		l.windowStart = now
+	}
+
+	elapsed := now.Sub(l.windowStart)
+	if elapsed >= window {
+		// Roll the window forward, keeping alignment to window boundaries.
+		if elapsed >= 2*window {
+			l.prevCount = 0
+		} else {
+			l.prevCount = l.currCount
+		}
+		l.currCount = 0
+		periods := elapsed / window
+		l.windowStart = l.windowStart.Add(window * periods)
+		elapsed = now.Sub(l.windowStart)
+	}
+
+	// Weight the previous window by its remaining overlap with a sliding
+	// window ending now.
+	overlap := 1 - float64(elapsed)/float64(window)
+	estimated := int(float64(l.prevCount)*overlap) + l.currCount
+
+	if estimated >= limit {
+		// Denied: report how long until the current window rolls over.
+		reset := window - elapsed
+		if reset < 0 {
+			reset = 0
+		}
+		return false, 0, reset
+	}
+
+	l.currCount++
+	remaining := limit - estimated - 1
+	if remaining < 0 {
+		remaining = 0
+	}
+	return true, remaining, 0
+}
+
+// getLimiter gets or creates a window counter for the given key, limit, and window.
+// The composite key includes limit and window so different rate limits for the
+// same base key don't share counters.
+func (u *UberRateLimiter) getLimiter(key string, limit int, window time.Duration) *slidingWindowLimiter {
+	compositeKey := fmt.Sprintf("%s|%d|%d", key, limit, int64(window))
 
 	// Fast path: Check if limiter already exists.
 	if limiter, ok := u.limiters.Load(compositeKey); ok {
-		return limiter.(ratelimit.Limiter)
+		return limiter.(*slidingWindowLimiter)
 	}
 
-	// Slow path: Limiter doesn't exist, create a new one.
-	newLimiter := ratelimit.New(rps)
-
-	// Atomically load or store.
-	// - If compositeKey already exists (due to concurrent creation), LoadOrStore loads and returns the existing value.
-	// - If compositeKey doesn't exist, LoadOrStore stores newLimiter and returns it.
-	actualLimiter, _ := u.limiters.LoadOrStore(compositeKey, newLimiter)
-
-	// Return the actual limiter stored in the map (either the existing one or the new one).
-	return actualLimiter.(ratelimit.Limiter)
+	// Slow path: atomically load or store a new counter.
+	actualLimiter, _ := u.limiters.LoadOrStore(compositeKey, &slidingWindowLimiter{})
+	return actualLimiter.(*slidingWindowLimiter)
 }
 
 // Ensure UberRateLimiter implements the common.RateLimiter interface.
 var _ common.RateLimiter = (*UberRateLimiter)(nil)
 
 // Allow checks if a request is allowed based on the key and rate limit configuration.
-// It implements the common.RateLimiter interface using the leaky bucket algorithm.
+// It implements the common.RateLimiter interface using a sliding-window counter.
+// The check never blocks: over-limit requests are denied immediately.
 //
 // Parameters:
 //   - key: Unique identifier for the rate limit bucket (e.g., "api:IP:192.168.1.1")
@@ -70,41 +124,16 @@ var _ common.RateLimiter = (*UberRateLimiter)(nil)
 //   - remaining: Estimated number of remaining requests in the current window
 //   - reset: Duration until the next request will be allowed (0 if allowed now)
 func (u *UberRateLimiter) Allow(key string, limit int, window time.Duration) (bool, int, time.Duration) {
-	// Convert limit and window to Requests Per Second (RPS) for Uber's limiter.
-	// Ensure RPS is at least 1.
-	rps := int(float64(limit) / window.Seconds())
-	if rps < 1 {
-		rps = 1
+	if limit <= 0 {
+		// A non-positive limit allows nothing.
+		return false, 0, window
+	}
+	if window <= 0 {
+		window = time.Second
 	}
 
-	limiter := u.getLimiter(key, rps)
-
-	// Take() blocks until a token is available or returns immediately if available.
-	// It returns the time when the next token will be available.
-	now := time.Now()
-	nextAvailable := limiter.Take()
-	waitTime := nextAvailable.Sub(now)
-
-	// Estimate remaining tokens based on the wait time relative to the window.
-	// This is an approximation for leaky bucket.
-	remaining := int(float64(limit) * (1 - waitTime.Seconds()/window.Seconds()))
-	if remaining < 0 {
-		remaining = 0
-	}
-
-	// If the wait time is significant (e.g., > 1ms, indicating actual rate limiting), deny.
-	// Uber's Take() might return a time slightly in the future even if not strictly limited.
-	// A small threshold helps distinguish actual limiting from minor clock differences.
-	// If waitTime is 0 or very small, the request is allowed.
-	allowed := waitTime <= time.Millisecond // Allow if wait time is negligible
-
-	// Reset time is the duration until the next token is available.
-	resetDuration := waitTime
-	if resetDuration < 0 {
-		resetDuration = 0 // Cannot reset in the past
-	}
-
-	return allowed, remaining, resetDuration
+	limiter := u.getLimiter(key, limit, window)
+	return limiter.allow(limit, window, time.Now())
 }
 
 // convertUserIDToString provides default conversions for common comparable types to string.
@@ -128,10 +157,13 @@ func convertUserIDToString[T comparable](userID T) string {
 
 // extractUserKey extracts the user-based key (as a string) from the request context.
 // It prioritizes the user object if UserIDFromUser is provided, otherwise uses the user ID directly.
-// Returns an empty string if no user information is found or conversion fails.
+// If config.UserIDToString is nil, a default conversion (convertUserIDToString) is used,
+// so StrategyUser works out of the box for common ID types.
+// Returns an empty string if no user information is found.
 func extractUserKey[T comparable, U any](r *http.Request, config *common.RateLimitConfig[T, U]) (string, error) { // Use common.RateLimitConfig
-	if config.UserIDToString == nil {
-		return "", errors.New("UserIDToString function is required for StrategyUser")
+	userIDToString := config.UserIDToString
+	if userIDToString == nil {
+		userIDToString = convertUserIDToString[T]
 	}
 
 	// Try getting the full user object first
@@ -142,15 +174,15 @@ func extractUserKey[T comparable, U any](r *http.Request, config *common.RateLim
 			// Try falling back to UserID directly
 		} else {
 			userID := config.UserIDFromUser(*user)
-			return config.UserIDToString(userID), nil
+			return userIDToString(userID), nil
 		}
 	}
 
 	// Fallback: Try getting the user ID directly from context
 	userID, idOk := scontext.GetUserIDFromRequest[T, U](r) // Use scontext
 	if idOk {
-		// Use the provided conversion function
-		return config.UserIDToString(userID), nil
+		// Use the conversion function
+		return userIDToString(userID), nil
 	}
 
 	// No user information found in context

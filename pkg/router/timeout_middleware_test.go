@@ -2,7 +2,6 @@ package router
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,20 +10,6 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks"
 	"go.uber.org/zap"
 )
-
-func parseJSONErrorMessage(t *testing.T, body []byte) string {
-	t.Helper()
-
-	var payload struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		t.Fatalf("expected JSON error payload, got %q: %v", string(body), err)
-	}
-	return payload.Error.Message
-}
 
 func TestTimeoutMiddleware_WhenHandlerStartedWriting_DoesNotOverrideResponse(t *testing.T) {
 	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
@@ -95,7 +80,9 @@ func TestTimeoutMiddleware_WhenHandlerPanicsAfterTimeoutAndStartedWrite_Rethrows
 	if rr.Code != http.StatusTeapot {
 		t.Fatalf("expected status %d, got %d", http.StatusTeapot, rr.Code)
 	}
-	if msg := parseJSONErrorMessage(t, rr.Body.Bytes()); msg != "Internal Server Error" {
-		t.Fatalf("expected internal server error payload, got %q", msg)
+	// The handler already started writing before it panicked, so recovery must
+	// not append a second (JSON error) response onto the partial one.
+	if body := rr.Body.String(); body != "" {
+		t.Fatalf("expected no additional body after mid-response panic, got %q", body)
 	}
 }
