@@ -230,6 +230,10 @@ type RouteConfig[T any, U any] struct {
 	SourceType  SourceType            // Where to retrieve request data from (defaults to Body)
 	SourceKey   string                // Parameter name for query/path parameters (required when SourceType is not Body/Empty)
 	Sanitizer   func(T) (T, error)    // Optional function to validate/transform request data after decoding
+	// DisableTimeout disables the effective global/sub-router/route timeout for this
+	// route. This is useful for long-lived generic endpoints such as streaming
+	// responses that still benefit from typed request/response handling.
+	DisableTimeout bool
 }
 
 // GenericHandler defines a handler function with generic request and response types.

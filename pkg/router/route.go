@@ -82,6 +82,10 @@ func registerGenericRouteWithAuthTokenResolution[Req any, Resp any, UserID compa
 	effectiveRateLimit *common.RateLimitConfig[UserID, User],
 	authTokenResolution authTokenConfigResolution,
 ) {
+	if route.DisableTimeout {
+		effectiveTimeout = 0
+	}
+
 	// Warn if no sanitizer function is provided (only at registration time)
 	if route.Sanitizer == nil {
 		r.logger.Warn("Route registered without sanitizer function",
