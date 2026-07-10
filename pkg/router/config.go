@@ -220,16 +220,17 @@ func (RouteConfigBase) isRouteDefinition() {}
 //
 // Use NewGenericRouteDefinition to register these routes within SubRouterConfig.Routes.
 type RouteConfig[T any, U any] struct {
-	Path        string                // Route path (will be prefixed with sub-router path prefix if applicable)
-	Methods     []HttpMethod          // HTTP methods this route handles (use constants like MethodGet)
-	AuthLevel   *AuthLevel            // Authentication level for this route. If nil, inherits from sub-router or defaults to NoAuth
-	Overrides   common.RouteOverrides // Configuration overrides for this specific route
-	Codec       codec.Codec[T, U]     // Codec for marshaling/unmarshaling request and response (required)
-	Handler     GenericHandler[T, U]  // Generic handler function (required)
-	Middlewares []common.Middleware   // Middlewares applied to this specific route (combined with sub-router and global middlewares)
-	SourceType  SourceType            // Where to retrieve request data from (defaults to Body)
-	SourceKey   string                // Parameter name for query/path parameters (required when SourceType is not Body/Empty)
-	Sanitizer   func(T) (T, error)    // Optional function to validate/transform request data after decoding
+	Path           string                // Route path (will be prefixed with sub-router path prefix if applicable)
+	Methods        []HttpMethod          // HTTP methods this route handles (use constants like MethodGet)
+	AuthLevel      *AuthLevel            // Authentication level for this route. If nil, inherits from sub-router or defaults to NoAuth
+	Overrides      common.RouteOverrides // Configuration overrides for this specific route
+	Codec          codec.Codec[T, U]     // Codec for marshaling/unmarshaling request and response (required)
+	Handler        GenericHandler[T, U]  // Generic handler function (required)
+	Middlewares    []common.Middleware   // Middlewares applied to this specific route (combined with sub-router and global middlewares)
+	SourceType     SourceType            // Where to retrieve request data from (defaults to Body)
+	SourceKey      string                // Parameter name for query/path parameters (required when SourceType is not Body/Empty)
+	Sanitizer      func(T) (T, error)    // Optional function to validate/transform request data after decoding
+	DisableTimeout bool                  // Indicates if the timeout should be disabled for this route (e.g., for WebSockets or long-lived connections).
 }
 
 // GenericHandler defines a handler function with generic request and response types.

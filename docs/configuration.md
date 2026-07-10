@@ -293,6 +293,11 @@ type RouteConfig[T any, U any] struct {
 	// Sanitizer is an optional function to validate/transform request data after decoding.
 	// Called after successful decoding but before handler execution.
 	Sanitizer func(T) (T, error)
+
+	// DisableTimeout disables the timeout for this route (e.g., for streaming
+	// responses or other long-lived connections). When true, neither the global
+	// nor sub-router timeout is applied.
+	DisableTimeout bool
 }
 ```
 
