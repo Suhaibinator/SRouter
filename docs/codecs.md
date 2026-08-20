@@ -200,4 +200,6 @@ Remember to handle errors appropriately within your codec methods, potentially r
 -   **`codec.NewJSONCodec[T, U](...json.Options) *codec.JSONCodec[T, U]`**: Constructor for the built-in JSON v2 codec.
 -   **`codec.NewProtoCodec[T, U]() *codec.ProtoCodec[T, U]`**: Constructor for the built-in Protocol Buffers codec.
 
-See the `examples/codec` directory for runnable examples using different codecs.
+See `examples/codec` for the built-in codecs and `examples/custom-codec` for a
+runnable, from-scratch “Rune Scroll” codec that demonstrates all four interface
+methods with both body and query-parameter request sources.
