@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
-	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"go.uber.org/zap"
 )
@@ -50,30 +49,6 @@ func main() {
 			AllowCredentials: true,
 			MaxAge:           86400 * time.Second,
 		},
-		Middlewares: []common.Middleware{
-			// CORS middleware removed, handled by RouterConfig.CORSConfig now
-		},
-		SubRouters: []router.SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Routes: []router.RouteDefinition{
-					// Route that will return an error
-					router.RouteConfig[TestRequest, *TestResponse]{
-						Path:    "/error",
-						Methods: []router.HttpMethod{router.MethodPost, router.MethodOptions},
-						Handler: ErrorHandler,
-						Codec:   codec.NewJSONCodec[TestRequest, *TestResponse](),
-					},
-					// Route that will succeed
-					router.RouteConfig[TestRequest, *TestResponse]{
-						Path:    "/success",
-						Methods: []router.HttpMethod{router.MethodPost, router.MethodOptions},
-						Handler: SuccessHandler,
-						Codec:   codec.NewJSONCodec[TestRequest, *TestResponse](),
-					},
-				},
-			},
-		},
 	}
 
 	// Auth functions (not used in this example but required by NewRouter)
@@ -86,6 +61,22 @@ func main() {
 
 	// Create the router
 	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
+	r.Group("/api").Route(
+		// Route that will return an error
+		router.RouteConfig[TestRequest, *TestResponse]{
+			Path:    "/error",
+			Methods: []router.HttpMethod{router.MethodPost, router.MethodOptions},
+			Handler: ErrorHandler,
+			Codec:   codec.NewJSONCodec[TestRequest, *TestResponse](),
+		},
+		// Route that will succeed
+		router.RouteConfig[TestRequest, *TestResponse]{
+			Path:    "/success",
+			Methods: []router.HttpMethod{router.MethodPost, router.MethodOptions},
+			Handler: SuccessHandler,
+			Codec:   codec.NewJSONCodec[TestRequest, *TestResponse](),
+		},
+	)
 
 	// Start the server
 	fmt.Println("Server running on http://localhost:8080")

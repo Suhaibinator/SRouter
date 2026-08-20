@@ -34,7 +34,7 @@ type UnmarshalableResponse struct {
 	Channel chan int `json:"channel"` // channels cannot be marshaled to JSON
 }
 
-// Test request and response types for subrouter tests
+// Test request and response types for routegroup tests
 type TestProfileRequest struct {
 	// Empty request, we'll get the user from the context
 }
@@ -126,7 +126,7 @@ func TestRegisterTypedRouteWithBody(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -174,7 +174,7 @@ func TestRegisterTypedRouteWithSanitizerSuccess(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test-sanitize-success",
 		Methods:    []HttpMethod{MethodPost},
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -216,7 +216,7 @@ func TestRegisterTypedRouteWithSanitizerError(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test-sanitize-error",
 		Methods:    []HttpMethod{MethodPost},
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -253,7 +253,7 @@ func TestRegisterTypedRouteWithUnsupportedSourceType(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -279,7 +279,7 @@ func TestRegisterTypedRouteWithAuthRequired(t *testing.T) {
 	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user123"; return &user, true }
 	r := NewRouter(RouterConfig{Logger: logger}, authFunc, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -317,7 +317,7 @@ func TestRegisterTypedRouteWithAuthOptional(t *testing.T) {
 	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user123"; return &user, true }
 	r := NewRouter(RouterConfig{Logger: logger}, authFunc, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -371,7 +371,7 @@ func TestRegisterTypedRouteWithBase62QueryParameter(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -406,7 +406,7 @@ func TestRegisterTypedRouteWithBase62PathParameter(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:data",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -441,7 +441,7 @@ func TestRegisterTypedRouteWithBase62QueryParameterMissing(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -466,7 +466,7 @@ func TestRegisterTypedRouteWithBase62QueryParameterInvalid(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -491,7 +491,7 @@ func TestRegisterTypedRouteWithBase62PathParameterMissing(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:somevalue",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -516,7 +516,7 @@ func TestRegisterTypedRouteWithBase62PathParameterInvalid(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:data",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -541,7 +541,7 @@ func TestRegisterTypedRouteWithEncodeError(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, UnmarshalableResponse]{
+	r.Route(RouteConfig[RequestType, UnmarshalableResponse]{
 		Path:    "/greet-encode-error",
 		Methods: []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:   codec.NewJSONCodec[RequestType, UnmarshalableResponse](),
@@ -576,7 +576,7 @@ func TestRegisterTypedRouteWithMiddleware(t *testing.T) {
 		})
 	}
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:        "/test",
 		Methods:     []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:       codec.NewJSONCodec[RequestType, ResponseType](),
@@ -618,7 +618,7 @@ func TestRegisterTypedRouteWithTimeout(t *testing.T) {
 	timeout := 1 * time.Millisecond
 	ctxErrCh := make(chan error, 1)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:    "/test",
 		Methods: []HttpMethod{MethodPost},
 		Codec:   codec.NewJSONCodec[RequestType, ResponseType](),
@@ -667,7 +667,7 @@ func TestRegisterTypedRouteWithMaxBodySize(t *testing.T) {
 	// Set the MaxBodySize to allow only the small body (plus a bit of buffer)
 	maxBodySize := int64(smallSize + 5) // Small buffer to ensure small body passes
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -738,7 +738,7 @@ func TestRegisterTypedRouteWithBase64Parameters(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-			r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+			r.Route(RouteConfig[RequestType, ResponseType]{
 				Path:       tc.path,
 				Methods:    []HttpMethod{MethodGet},
 				Codec:      codec.NewJSONCodec[RequestType, ResponseType](),

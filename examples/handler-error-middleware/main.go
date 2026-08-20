@@ -108,7 +108,7 @@ func main() {
 	)
 
 	// Register a route that succeeds
-	r.RegisterRoute(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+	r.Route(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users/success",
 		Methods:   []router.HttpMethod{router.MethodPost},
 		AuthLevel: new(router.NoAuth),
@@ -132,7 +132,7 @@ func main() {
 	})
 
 	// Register a route that fails with validation error
-	r.RegisterRoute(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+	r.Route(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users/validation-error",
 		Methods:   []router.HttpMethod{router.MethodPost},
 		AuthLevel: new(router.NoAuth),
@@ -151,7 +151,7 @@ func main() {
 	})
 
 	// Register a route that fails with internal error
-	r.RegisterRoute(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+	r.Route(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users/internal-error",
 		Methods:   []router.HttpMethod{router.MethodPost},
 		AuthLevel: new(router.NoAuth),
@@ -191,7 +191,7 @@ func main() {
 	}
 
 	// Register a route with custom transaction logic
-	r.RegisterRoute(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+	r.Route(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users/custom-transaction",
 		Methods:   []router.HttpMethod{router.MethodPost},
 		AuthLevel: new(router.NoAuth),

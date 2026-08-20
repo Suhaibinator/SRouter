@@ -23,10 +23,6 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		return 0
 	}
 
-	router := NewRouter(RouterConfig{
-		Logger: zap.NewNop(),
-	}, getUserByID, getUserID)
-
 	type TestRequest struct {
 		Value string `json:"value"`
 	}
@@ -49,6 +45,11 @@ func TestGenericRouteHandlerError(t *testing.T) {
 			middlewareSawError, _ = scontext.GetHandlerErrorFromRequest[int, any](r)
 		})
 	}
+	newTestRouter := func(route RouteConfig[TestRequest, TestResponse]) *Router[int, any] {
+		r := NewRouter(RouterConfig{Logger: zap.NewNop()}, getUserByID, getUserID)
+		r.Route(route)
+		return r
+	}
 
 	t.Run("Handler error is stored in context", func(t *testing.T) {
 		// Reset tracking variables
@@ -58,7 +59,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		expectedErr := errors.New("handler error")
 
 		// Register a generic route that returns an error
-		router.RegisterRoute(RouteConfig[TestRequest, TestResponse]{
+		router := newTestRouter(RouteConfig[TestRequest, TestResponse]{
 			Path:        "/error",
 			Methods:     []HttpMethod{MethodGet},
 			AuthLevel:   new(NoAuth),
@@ -98,7 +99,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		middlewareSawError = nil
 
 		// Register a generic route that succeeds
-		router.RegisterRoute(RouteConfig[TestRequest, TestResponse]{
+		router := newTestRouter(RouteConfig[TestRequest, TestResponse]{
 			Path:        "/success",
 			Methods:     []HttpMethod{MethodGet},
 			AuthLevel:   new(NoAuth),
@@ -143,7 +144,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		}
 
 		// Register a generic route that returns a custom HTTP error
-		router.RegisterRoute(RouteConfig[TestRequest, TestResponse]{
+		router := newTestRouter(RouteConfig[TestRequest, TestResponse]{
 			Path:        "/custom-error",
 			Methods:     []HttpMethod{MethodGet},
 			AuthLevel:   new(NoAuth),
@@ -214,7 +215,7 @@ func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
 
 		expectedErr := errors.New("multi-middleware error")
 
-		router.RegisterRoute(RouteConfig[TestRequest, TestResponse]{
+		router.Route(RouteConfig[TestRequest, TestResponse]{
 			Path:      "/multi-middleware",
 			Methods:   []HttpMethod{MethodGet},
 			AuthLevel: new(NoAuth),

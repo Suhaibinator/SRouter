@@ -127,7 +127,7 @@ func main() {
 
 	// 1. Standard body-based route (default) - GET doesn't typically have a body,
 	//    so this route relies on the path parameter :id being extracted in the handler.
-	r.RegisterRoute(router.RouteConfig[GetUserRequest, GetUserResponse]{
+	r.Route(router.RouteConfig[GetUserRequest, GetUserResponse]{
 		Path:    "/users/body/:id", // Path param :id used by handler
 		Methods: []router.HttpMethod{router.MethodGet},
 		Codec:   codec.NewJSONCodec[GetUserRequest, GetUserResponse](), // Codec might not be used for GET
@@ -137,7 +137,7 @@ func main() {
 	})
 
 	// 2. Base64 query parameter route
-	r.RegisterRoute(router.RouteConfig[GetUserRequest, GetUserResponse]{
+	r.Route(router.RouteConfig[GetUserRequest, GetUserResponse]{
 		Path:       "/users/query", // No path param needed here as data comes from query
 		Methods:    []router.HttpMethod{router.MethodGet},
 		Codec:      codec.NewJSONCodec[GetUserRequest, GetUserResponse](),
@@ -147,7 +147,7 @@ func main() {
 	})
 
 	// 3. Base64 path parameter route
-	r.RegisterRoute(router.RouteConfig[GetUserRequest, GetUserResponse]{
+	r.Route(router.RouteConfig[GetUserRequest, GetUserResponse]{
 		Path:       "/users/path/:data", // Path param :data contains the base64 payload
 		Methods:    []router.HttpMethod{router.MethodGet},
 		Codec:      codec.NewJSONCodec[GetUserRequest, GetUserResponse](),

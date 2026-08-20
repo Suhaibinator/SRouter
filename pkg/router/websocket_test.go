@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"go.uber.org/zap"
 )
@@ -75,7 +74,7 @@ func TestWebSocketRoute(t *testing.T) {
 
 	// Register a "WebSocket" route that sleeps longer than the global timeout
 	// Since DisableTimeout is true, it should NOT timeout.
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:           "/ws",
 		Methods:        []router.HttpMethod{router.MethodGet},
 		DisableTimeout: true,
@@ -87,7 +86,7 @@ func TestWebSocketRoute(t *testing.T) {
 	})
 
 	// Register a normal route that SHOULD timeout
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/normal",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +142,7 @@ func TestWebSocketRoutePreservesHijackerWithTracingEnabled(t *testing.T) {
 	var sawHijacker bool
 	var hijackErr error
 
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:           "/ws",
 		Methods:        []router.HttpMethod{router.MethodGet},
 		DisableTimeout: true,
@@ -193,7 +192,7 @@ func TestWebSocketRouteHijackNotSupportedIsWrapped(t *testing.T) {
 
 	var hijackErr error
 
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:           "/ws",
 		Methods:        []router.HttpMethod{router.MethodGet},
 		DisableTimeout: true,
@@ -238,7 +237,7 @@ func TestWebSocketRouteResponseControllerCanReachOptionalInterfaces(t *testing.T
 	var sawDeadlines bool
 	var sawFullDuplex bool
 
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:           "/ws",
 		Methods:        []router.HttpMethod{router.MethodGet},
 		DisableTimeout: true,
@@ -292,50 +291,42 @@ func TestWebSocketRouteResponseControllerCanReachOptionalInterfaces(t *testing.T
 	}
 }
 
-func TestSubRouterWebSocketRoute(t *testing.T) {
+func TestRouteGroupWebSocketRoute(t *testing.T) {
 	logger := zap.NewNop()
 	config := router.RouterConfig{
 		Logger:        logger,
 		GlobalTimeout: 100 * time.Millisecond,
-		SubRouters: []router.SubRouterConfig{
-			{
-				PathPrefix: "/sub",
-				Overrides: common.RouteOverrides{
-					Timeout: 50 * time.Millisecond,
-				},
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:           "/ws",
-						Methods:        []router.HttpMethod{router.MethodGet},
-						DisableTimeout: true,
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							// Simulate long-lived connection
-							time.Sleep(200 * time.Millisecond)
-							w.WriteHeader(http.StatusOK)
-						},
-					},
-					router.RouteConfigBase{
-						Path:    "/normal",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							time.Sleep(200 * time.Millisecond)
-							w.WriteHeader(http.StatusOK)
-						},
-					},
-				},
-			},
-		},
 	}
 
 	r := router.NewRouter[string, string](config, nil, nil)
+	r.Group("/sub").Timeout(50*time.Millisecond).Route(
+		router.RouteConfigBase{
+			Path:           "/ws",
+			Methods:        []router.HttpMethod{router.MethodGet},
+			DisableTimeout: true,
+			Handler: func(w http.ResponseWriter, r *http.Request) {
+				// Simulate long-lived connection
+				time.Sleep(200 * time.Millisecond)
+				w.WriteHeader(http.StatusOK)
+			},
+		},
+		router.RouteConfigBase{
+			Path:    "/normal",
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: func(w http.ResponseWriter, r *http.Request) {
+				time.Sleep(200 * time.Millisecond)
+				w.WriteHeader(http.StatusOK)
+			},
+		},
+	)
 
 	server := httptest.NewServer(r)
 	defer server.Close()
 
 	client := server.Client()
 
-	// Test SubRouter WebSocket Route
-	t.Run("SubRouter WebSocket Route should not timeout", func(t *testing.T) {
+	// Test RouteGroup WebSocket Route
+	t.Run("RouteGroup WebSocket Route should not timeout", func(t *testing.T) {
 		start := time.Now()
 		resp, err := client.Get(server.URL + "/sub/ws")
 		duration := time.Since(start)
@@ -351,8 +342,8 @@ func TestSubRouterWebSocketRoute(t *testing.T) {
 		}
 	})
 
-	// Test SubRouter Normal Route (Control Case)
-	t.Run("SubRouter Normal Route should timeout", func(t *testing.T) {
+	// Test RouteGroup Normal Route (Control Case)
+	t.Run("RouteGroup Normal Route should timeout", func(t *testing.T) {
 		resp, err := client.Get(server.URL + "/sub/normal")
 		if err != nil {
 			t.Fatal(err)

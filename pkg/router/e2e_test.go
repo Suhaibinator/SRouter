@@ -60,7 +60,7 @@ func newE2EAuthFunctions(tokens map[string]string) (func(context.Context, string
 }
 
 // TestE2EFullStackAPI runs a complete API server over a real HTTP connection:
-// trace IDs, global and sub-router middleware, a declarative generic JSON
+// trace IDs, global and route group middleware, a declarative generic JSON
 // route, bearer-token authentication, and standard routing behavior
 // (404/405) all working together.
 func TestE2EFullStackAPI(t *testing.T) {
@@ -80,65 +80,58 @@ func TestE2EFullStackAPI(t *testing.T) {
 				})
 			},
 		},
-		SubRouters: []SubRouterConfig{
-			{
-				PathPrefix: "/api/v1",
-				Middlewares: []common.Middleware{
-					func(next http.Handler) http.Handler {
-						return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-							w.Header().Set("X-API-Version", "v1")
-							next.ServeHTTP(w, req)
-						})
-					},
-				},
-				Routes: []RouteDefinition{
-					RouteConfigBase{
-						Path:    "/health",
-						Methods: []HttpMethod{MethodGet},
-						Handler: func(w http.ResponseWriter, req *http.Request) {
-							w.Header().Set("Content-Type", "application/json")
-							_, _ = w.Write([]byte(`{"status":"ok"}`))
-						},
-					},
-					RouteConfigBase{
-						Path:      "/me",
-						Methods:   []HttpMethod{MethodGet},
-						AuthLevel: new(AuthRequired),
-						Handler: func(w http.ResponseWriter, req *http.Request) {
-							userID, ok := scontext.GetUserIDFromRequest[string, e2eUser](req)
-							if !ok {
-								http.Error(w, "no user in context", http.StatusInternalServerError)
-								return
-							}
-							user, ok := scontext.GetUserFromRequest[string, e2eUser](req)
-							if !ok || user == nil {
-								http.Error(w, "no user object in context", http.StatusInternalServerError)
-								return
-							}
-							w.Header().Set("Content-Type", "application/json")
-							_, _ = fmt.Fprintf(w, `{"id":%q,"name":%q}`, userID, user.Name)
-						},
-					},
-					RouteConfig[e2eCreateUserRequest, e2eCreateUserResponse]{
-						Path:    "/users",
-						Methods: []HttpMethod{MethodPost},
-						Codec:   codec.NewJSONCodec[e2eCreateUserRequest, e2eCreateUserResponse](),
-						Sanitizer: func(req e2eCreateUserRequest) (e2eCreateUserRequest, error) {
-							req.Name = strings.TrimSpace(req.Name)
-							return req, nil
-						},
-						Handler: func(req *http.Request, data e2eCreateUserRequest) (e2eCreateUserResponse, error) {
-							return e2eCreateUserResponse{
-								ID:    "user-1",
-								Name:  data.Name,
-								Email: data.Email,
-							}, nil
-						},
-					},
-				},
+	}, authFunc, userIDFunc)
+	api := r.Group("/api").Group("/v1").Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.Header().Set("X-API-Version", "v1")
+			next.ServeHTTP(w, req)
+		})
+	})
+	api.Route(
+		RouteConfigBase{
+			Path:    "/health",
+			Methods: []HttpMethod{MethodGet},
+			Handler: func(w http.ResponseWriter, req *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"status":"ok"}`))
 			},
 		},
-	}, authFunc, userIDFunc)
+		RouteConfigBase{
+			Path:      "/me",
+			Methods:   []HttpMethod{MethodGet},
+			AuthLevel: new(AuthRequired),
+			Handler: func(w http.ResponseWriter, req *http.Request) {
+				userID, ok := scontext.GetUserIDFromRequest[string, e2eUser](req)
+				if !ok {
+					http.Error(w, "no user in context", http.StatusInternalServerError)
+					return
+				}
+				user, ok := scontext.GetUserFromRequest[string, e2eUser](req)
+				if !ok || user == nil {
+					http.Error(w, "no user object in context", http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprintf(w, `{"id":%q,"name":%q}`, userID, user.Name)
+			},
+		},
+		RouteConfig[e2eCreateUserRequest, e2eCreateUserResponse]{
+			Path:    "/users",
+			Methods: []HttpMethod{MethodPost},
+			Codec:   codec.NewJSONCodec[e2eCreateUserRequest, e2eCreateUserResponse](),
+			Sanitizer: func(req e2eCreateUserRequest) (e2eCreateUserRequest, error) {
+				req.Name = strings.TrimSpace(req.Name)
+				return req, nil
+			},
+			Handler: func(req *http.Request, data e2eCreateUserRequest) (e2eCreateUserResponse, error) {
+				return e2eCreateUserResponse{
+					ID:    "user-1",
+					Name:  data.Name,
+					Email: data.Email,
+				}, nil
+			},
+		},
+	)
 
 	server := httptest.NewServer(r)
 	defer server.Close()
@@ -162,7 +155,7 @@ func TestE2EFullStackAPI(t *testing.T) {
 			t.Errorf("expected global middleware header, got %q", resp.Header.Get("X-Global-Middleware"))
 		}
 		if resp.Header.Get("X-API-Version") != "v1" {
-			t.Errorf("expected sub-router middleware header, got %q", resp.Header.Get("X-API-Version"))
+			t.Errorf("expected route group middleware header, got %q", resp.Header.Get("X-API-Version"))
 		}
 		if resp.Header.Get("X-Trace-ID") == "" {
 			t.Error("expected X-Trace-ID response header to be set")
@@ -288,7 +281,7 @@ func TestE2ERateLimiting(t *testing.T) {
 		Logger: zap.NewNop(),
 	}, authFunc, userIDFunc)
 
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/limited",
 		Methods: []HttpMethod{MethodGet},
 		Overrides: common.RouteOverrides{
@@ -364,7 +357,7 @@ func TestE2ECORS(t *testing.T) {
 		},
 	}, authFunc, userIDFunc)
 
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/resource",
 		Methods: []HttpMethod{MethodGet, MethodPost},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
@@ -372,7 +365,7 @@ func TestE2ECORS(t *testing.T) {
 		},
 	})
 	// A protected endpoint, as an SPA calling an authenticated API would use.
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:      "/protected",
 		Methods:   []HttpMethod{MethodPost},
 		AuthLevel: new(AuthRequired),
@@ -625,7 +618,7 @@ func TestE2ETimeoutAndPanicRecovery(t *testing.T) {
 		GlobalTimeout: 100 * time.Millisecond,
 	}, authFunc, userIDFunc)
 
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/slow",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
@@ -636,14 +629,14 @@ func TestE2ETimeoutAndPanicRecovery(t *testing.T) {
 			}
 		},
 	})
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/panic",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
 			panic("e2e test panic")
 		},
 	})
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/ok",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
@@ -707,7 +700,7 @@ func TestE2EConcurrentRequests(t *testing.T) {
 		TraceIDBufferSize: 100,
 	}, authFunc, userIDFunc)
 
-	r.RegisterRoute(RouteConfig[e2eCreateUserRequest, e2eCreateUserResponse]{
+	r.Route(RouteConfig[e2eCreateUserRequest, e2eCreateUserResponse]{
 		Path:    "/echo",
 		Methods: []HttpMethod{MethodPost},
 		Codec:   codec.NewJSONCodec[e2eCreateUserRequest, e2eCreateUserResponse](),
@@ -789,7 +782,7 @@ func TestE2EGracefulShutdown(t *testing.T) {
 	}, authFunc, userIDFunc)
 
 	started := make(chan struct{})
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/slow",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {

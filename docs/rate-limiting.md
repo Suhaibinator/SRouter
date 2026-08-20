@@ -1,10 +1,10 @@
 # Rate Limiting
 
-SRouter provides a flexible rate limiting system, configurable at the global, sub-router, or individual route level. It helps protect your application from abuse and ensures fair usage. Internally, it utilizes [Uber's `ratelimit` library](https://github.com/uber-go/ratelimit), which implements an efficient leaky bucket algorithm for smooth rate limiting (avoiding sudden bursts).
+SRouter provides rate limiting at the global, route-group, or individual route level. Internally it uses [Uber's `ratelimit` library](https://github.com/uber-go/ratelimit), which implements an efficient leaky bucket algorithm.
 
 ## Configuration
 
-Rate limiting is configured using the `common.RateLimitConfig` struct (defined in `pkg/common/types.go`). You can set it globally (`GlobalRateLimit` in `RouterConfig`), per sub-router via `SubRouterConfig.Overrides.RateLimit`, or per route (`Overrides.RateLimit` in `RouteConfigBase`/`RouteConfig`). Settings cascade, with the most specific configuration taking precedence.
+Rate limiting is configured with `common.RateLimitConfig`. Set it globally with `RouterConfig.GlobalRateLimit`, on a group with `group.RateLimit`, or per route with `Overrides.RateLimit`. The most specific setting wins.
 
 ```go
 import (
@@ -25,19 +25,16 @@ routerConfig := router.RouterConfig{
     },
 }
 
-// Example: Sub-Router Override
-subRouter := router.SubRouterConfig{
-    PathPrefix: "/api/v1/sensitive",
-    Overrides: common.RouteOverrides{
-        RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-            BucketName: "sensitive_api_user_limit",
-            Limit:      20,
-            Window:     time.Hour,
-            Strategy:   common.StrategyUser, // Use common constants
-        },
+// Example: Route-group override
+r := router.NewRouter[string, User](routerConfig, authenticate, userID)
+sensitive := r.Group("/api").Group("/v1").Group("/sensitive").RateLimit(
+    &common.RateLimitConfig[any, any]{
+        BucketName: "sensitive_api_user_limit",
+        Limit:      20,
+        Window:     time.Hour,
+        Strategy:   common.StrategyUser,
     },
-    // ... other sub-router config
-}
+)
 
 // Example: Route-Specific Limit
 route := router.RouteConfig[MyReq, MyResp]{ // Use specific types for route config

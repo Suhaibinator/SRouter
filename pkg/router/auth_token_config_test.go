@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
@@ -23,260 +22,120 @@ func TestNormalizeAuthTokenConfigDefaultsHeaderName(t *testing.T) {
 	}
 }
 
-func TestBuildAuthTokenExtractorDefaultsHeaderName(t *testing.T) {
-	extractor := buildAuthTokenExtractor(common.AuthTokenConfig{Source: common.AuthTokenSourceHeader})
-	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set(defaultAuthHeaderName, "Bearer valid-token")
+func TestBuildAuthTokenExtractor(t *testing.T) {
+	t.Run("default header", func(t *testing.T) {
+		extractor := buildAuthTokenExtractor(common.AuthTokenConfig{Source: common.AuthTokenSourceHeader})
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req.Header.Set(defaultAuthHeaderName, "Bearer valid-token")
+		token, ok, reason := extractor(req)
+		if !ok || reason != "" || token != "valid-token" {
+			t.Fatalf("unexpected extraction result token=%q ok=%v reason=%q", token, ok, reason)
+		}
+	})
 
-	token, ok, reason := extractor(req)
-	if !ok {
-		t.Fatalf("expected token extraction to succeed, got reason %q", reason)
-	}
-	if token != "valid-token" {
-		t.Fatalf("expected token %q, got %q", "valid-token", token)
-	}
-}
+	t.Run("cookie without name", func(t *testing.T) {
+		extractor := buildAuthTokenExtractor(common.AuthTokenConfig{Source: common.AuthTokenSourceCookie})
+		_, ok, reason := extractor(httptest.NewRequest(http.MethodGet, "/test", nil))
+		if ok || reason != "auth cookie name not configured" {
+			t.Fatalf("unexpected extraction result ok=%v reason=%q", ok, reason)
+		}
+	})
 
-func TestBuildAuthTokenExtractorCookieMissingName(t *testing.T) {
-	extractor := buildAuthTokenExtractor(common.AuthTokenConfig{Source: common.AuthTokenSourceCookie})
-	req := httptest.NewRequest("GET", "/test", nil)
-
-	_, ok, reason := extractor(req)
-	if ok {
-		t.Fatal("expected token extraction to fail")
-	}
-	if reason != "auth cookie name not configured" {
-		t.Fatalf("expected reason %q, got %q", "auth cookie name not configured", reason)
-	}
-}
-
-func TestBuildAuthTokenExtractorUnsupportedSource(t *testing.T) {
-	extractor := buildAuthTokenExtractor(common.AuthTokenConfig{Source: common.AuthTokenSource(99)})
-	req := httptest.NewRequest("GET", "/test", nil)
-
-	_, ok, reason := extractor(req)
-	if ok {
-		t.Fatal("expected token extraction to fail")
-	}
-	if reason != "unsupported auth token source" {
-		t.Fatalf("expected reason %q, got %q", "unsupported auth token source", reason)
-	}
+	t.Run("unsupported source", func(t *testing.T) {
+		extractor := buildAuthTokenExtractor(common.AuthTokenConfig{Source: common.AuthTokenSource(99)})
+		_, ok, reason := extractor(httptest.NewRequest(http.MethodGet, "/test", nil))
+		if ok || reason != "unsupported auth token source" {
+			t.Fatalf("unexpected extraction result ok=%v reason=%q", ok, reason)
+		}
+	})
 }
 
 func TestWarnOnInvalidAuthTokenConfigLogs(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel)
-	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.New(core)}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r.authRequiredMiddlewareWithConfig(common.AuthTokenConfig{Source: common.AuthTokenSourceCookie})
+	entries := logs.FilterMessage("Auth token cookie name not configured").All()
+	if len(entries) != 1 {
+		t.Fatalf("expected one warning, got %d", len(entries))
+	}
+}
 
-	r.authRequiredMiddlewareWithConfig(common.AuthTokenConfig{
-		Source: common.AuthTokenSourceCookie,
+func TestInitialAuthTokenConfig(t *testing.T) {
+	global := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "global"}
+	r := NewRouter(RouterConfig{Logger: zap.NewNop(), GlobalAuthToken: &global}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+
+	got := r.initialAuthTokenConfig()
+	if got.origin != authTokenOriginGlobal || got.config.CookieName != "global" {
+		t.Fatalf("expected global config, got %+v", got)
+	}
+}
+
+func TestGlobalAuthTokenUsedAcrossRootAndNestedGroups(t *testing.T) {
+	global := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "auth_token"}
+	r := NewRouter(RouterConfig{Logger: zap.NewNop(), GlobalAuthToken: &global}, tokenAuthFunction, tokenUserIDFromUser)
+
+	r.Route(
+		RouteConfigBase{Path: "/direct", Methods: []HttpMethod{MethodGet}, AuthLevel: new(AuthRequired), Handler: okHandler},
+		authTokenGenericRoute("/direct-generic", new(AuthRequired)),
+	)
+	api := r.Group("/api")
+	api.Route(
+		RouteConfigBase{Path: "/standard", Methods: []HttpMethod{MethodGet}, AuthLevel: new(AuthRequired), Handler: okHandler},
+		authTokenGenericRoute("/generic", new(AuthRequired)),
+	)
+	api.Group("/nested").Route(RouteConfigBase{
+		Path: "/protected", Methods: []HttpMethod{MethodGet}, AuthLevel: new(AuthRequired), Handler: okHandler,
 	})
-
-	logEntries := logs.All()
-	if len(logEntries) != 1 {
-		t.Fatalf("expected 1 warning log, got %d", len(logEntries))
-	}
-	if logEntries[0].Message != "Auth token cookie name not configured" {
-		t.Fatalf("expected warning message %q, got %q", "Auth token cookie name not configured", logEntries[0].Message)
-	}
-}
-
-func TestGetEffectiveAuthTokenConfigUsesSubRouter(t *testing.T) {
-	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-
-	subRouterAuth := common.AuthTokenConfig{
-		Source: common.AuthTokenSourceHeader,
-	}
-
-	config := r.getEffectiveAuthTokenConfigWithOrigin(nil, &subRouterAuth).config
-	if config.HeaderName != defaultAuthHeaderName {
-		t.Fatalf("expected header name %q, got %q", defaultAuthHeaderName, config.HeaderName)
-	}
-}
-
-func TestGetEffectiveAuthTokenConfigUsesGlobal(t *testing.T) {
-	globalAuth := common.AuthTokenConfig{
-		Source:     common.AuthTokenSourceCookie,
-		CookieName: "auth_token",
-	}
-	r := NewRouter(RouterConfig{
-		Logger:          zap.NewNop(),
-		GlobalAuthToken: &globalAuth,
-	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-
-	config := r.getEffectiveAuthTokenConfigWithOrigin(nil, nil).config
-	if config.Source != common.AuthTokenSourceCookie {
-		t.Fatalf("expected cookie auth source, got %v", config.Source)
-	}
-	if config.CookieName != "auth_token" {
-		t.Fatalf("expected cookie name %q, got %q", "auth_token", config.CookieName)
-	}
-}
-
-func TestGlobalAuthTokenCookieUsedAcrossRegistrationStyles(t *testing.T) {
-	globalAuth := common.AuthTokenConfig{
-		Source:     common.AuthTokenSourceCookie,
-		CookieName: "auth_token",
-	}
-	authLevel := new(AuthRequired)
-	r := NewRouter(RouterConfig{
-		Logger:          zap.NewNop(),
-		GlobalAuthToken: &globalAuth,
-		SubRouters: []SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Routes: []RouteDefinition{
-					RouteConfigBase{
-						Path:      "/sub",
-						Methods:   []HttpMethod{MethodGet},
-						AuthLevel: authLevel,
-						Handler:   okHandler,
-					},
-					authTokenGenericRoute("/generic", authLevel),
-				},
-				SubRouters: []SubRouterConfig{
-					{
-						PathPrefix: "/nested",
-						Routes: []RouteDefinition{
-							RouteConfigBase{
-								Path:      "/protected",
-								Methods:   []HttpMethod{MethodGet},
-								AuthLevel: authLevel,
-								Handler:   okHandler,
-							},
-						},
-					},
-				},
-			},
-			{PathPrefix: "/dynamic"},
-		},
-	}, tokenAuthFunction, tokenUserIDFromUser)
-
-	r.RegisterRoute(RouteConfigBase{
-		Path:      "/direct",
-		Methods:   []HttpMethod{MethodGet},
-		AuthLevel: authLevel,
-		Handler:   okHandler,
-	})
-	r.RegisterRoute(authTokenGenericRoute("/direct-generic", authLevel))
-
-	err := r.RegisterRouteOnSubRouter("/dynamic", authTokenGenericRoute("/generic", authLevel))
-	if err != nil {
-		t.Fatalf("RegisterRouteOnSubRouter failed: %v", err)
-	}
 
 	tests := []struct {
 		method string
 		path   string
 		body   string
 	}{
-		{method: http.MethodGet, path: "/direct"},
-		{method: http.MethodPost, path: "/direct-generic", body: `{"name":"test"}`},
-		{method: http.MethodGet, path: "/api/sub"},
-		{method: http.MethodGet, path: "/api/nested/protected"},
-		{method: http.MethodPost, path: "/api/generic", body: `{"name":"test"}`},
-		{method: http.MethodPost, path: "/dynamic/generic", body: `{"name":"test"}`},
+		{http.MethodGet, "/direct", ""},
+		{http.MethodPost, "/direct-generic", `{"name":"test"}`},
+		{http.MethodGet, "/api/standard", ""},
+		{http.MethodPost, "/api/generic", `{"name":"test"}`},
+		{http.MethodGet, "/api/nested/protected", ""},
 	}
-
 	for _, tt := range tests {
 		req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
 		req.Header.Set("Content-Type", "application/json")
 		req.AddCookie(&http.Cookie{Name: "auth_token", Value: "valid-token"})
 		rr := httptest.NewRecorder()
-
 		r.ServeHTTP(rr, req)
-
 		if rr.Code != http.StatusOK {
-			t.Fatalf("%s %s: expected status %d, got %d; body=%s", tt.method, tt.path, http.StatusOK, rr.Code, rr.Body.String())
+			t.Fatalf("%s %s: expected 200, got %d: %s", tt.method, tt.path, rr.Code, rr.Body.String())
 		}
 	}
 }
 
-func TestAuthTokenPrecedence(t *testing.T) {
-	globalAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "global_token"}
-	parentAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "parent_token"}
-	childAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "child_token"}
-	subAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "sub_token"}
-	routeAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceHeader, HeaderName: "X-Route-Token"}
-	authLevel := new(AuthRequired)
+func TestAuthTokenPrecedenceAcrossGroups(t *testing.T) {
+	global := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "global"}
+	parent := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "parent"}
+	child := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "child"}
+	route := common.AuthTokenConfig{Source: common.AuthTokenSourceHeader, HeaderName: "X-Route-Token"}
+	r := NewRouter(RouterConfig{Logger: zap.NewNop(), GlobalAuthToken: &global}, tokenAuthFunction, tokenUserIDFromUser)
 
-	r := NewRouter(RouterConfig{
-		Logger:          zap.NewNop(),
-		GlobalAuthToken: &globalAuth,
-		SubRouters: []SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Overrides:  common.RouteOverrides{AuthToken: &parentAuth},
-				Routes: []RouteDefinition{
-					RouteConfigBase{
-						Path:      "/route",
-						Methods:   []HttpMethod{MethodGet},
-						AuthLevel: authLevel,
-						Overrides: common.RouteOverrides{AuthToken: &routeAuth},
-						Handler:   okHandler,
-					},
-				},
-				SubRouters: []SubRouterConfig{
-					{
-						PathPrefix: "/sub",
-						Overrides:  common.RouteOverrides{AuthToken: &subAuth},
-						Routes: []RouteDefinition{
-							RouteConfigBase{
-								Path:      "/protected",
-								Methods:   []HttpMethod{MethodGet},
-								AuthLevel: authLevel,
-								Handler:   okHandler,
-							},
-						},
-					},
-					{
-						PathPrefix: "/child",
-						Overrides:  common.RouteOverrides{AuthToken: &childAuth},
-						Routes: []RouteDefinition{
-							RouteConfigBase{
-								Path:      "/protected",
-								Methods:   []HttpMethod{MethodGet},
-								AuthLevel: authLevel,
-								Handler:   okHandler,
-							},
-						},
-					},
-					{
-						PathPrefix: "/inherited",
-						Routes: []RouteDefinition{
-							RouteConfigBase{
-								Path:      "/protected",
-								Methods:   []HttpMethod{MethodGet},
-								AuthLevel: authLevel,
-								Handler:   okHandler,
-							},
-						},
-					},
-				},
-			},
-		},
-	}, tokenAuthFunction, tokenUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{
-		Path:      "/global",
-		Methods:   []HttpMethod{MethodGet},
-		AuthLevel: authLevel,
-		Handler:   okHandler,
+	r.Route(RouteConfigBase{Path: "/global", Methods: []HttpMethod{MethodGet}, AuthLevel: new(AuthRequired), Handler: okHandler})
+	api := r.Group("/api").AuthToken(&parent).Auth(AuthRequired)
+	api.Route(RouteConfigBase{
+		Path: "/route", Methods: []HttpMethod{MethodGet},
+		Overrides: common.RouteOverrides{AuthToken: &route}, Handler: okHandler,
 	})
+	api.Group("/child").AuthToken(&child).Route(RouteConfigBase{Path: "/protected", Methods: []HttpMethod{MethodGet}, Handler: okHandler})
+	api.Group("/inherited").Route(RouteConfigBase{Path: "/protected", Methods: []HttpMethod{MethodGet}, Handler: okHandler})
 
 	tests := []struct {
-		name       string
 		path       string
 		headerName string
 		cookieName string
 	}{
-		{name: "route beats sub-router", path: "/api/route", headerName: "X-Route-Token"},
-		{name: "sub-router beats inherited parent", path: "/api/sub/protected", cookieName: "sub_token"},
-		{name: "child sub-router beats inherited parent", path: "/api/child/protected", cookieName: "child_token"},
-		{name: "parent sub-router inherits into child", path: "/api/inherited/protected", cookieName: "parent_token"},
-		{name: "global beats built-in default", path: "/global", cookieName: "global_token"},
+		{path: "/global", cookieName: "global"},
+		{path: "/api/route", headerName: "X-Route-Token"},
+		{path: "/api/child/protected", cookieName: "child"},
+		{path: "/api/inherited/protected", cookieName: "parent"},
 	}
-
 	for _, tt := range tests {
 		req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 		if tt.headerName != "" {
@@ -286,232 +145,70 @@ func TestAuthTokenPrecedence(t *testing.T) {
 			req.AddCookie(&http.Cookie{Name: tt.cookieName, Value: "valid-token"})
 		}
 		rr := httptest.NewRecorder()
-
 		r.ServeHTTP(rr, req)
-
 		if rr.Code != http.StatusOK {
-			t.Fatalf("%s: expected status %d, got %d; body=%s", tt.name, http.StatusOK, rr.Code, rr.Body.String())
+			t.Fatalf("%s: expected 200, got %d: %s", tt.path, rr.Code, rr.Body.String())
 		}
 	}
 }
 
-func TestIsolateOverridesPreventsParentAuthInheritanceButKeepsGlobal(t *testing.T) {
-	globalAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "global_token"}
-	parentAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "parent_token"}
-	authLevel := new(AuthRequired)
+func TestGroupAuthTokenNilResetsInheritedSource(t *testing.T) {
+	global := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "global"}
+	parent := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "parent"}
+	r := NewRouter(RouterConfig{Logger: zap.NewNop(), GlobalAuthToken: &global}, tokenAuthFunction, tokenUserIDFromUser)
+	api := r.Group("/api").AuthToken(&parent)
+	api.Group("/reset").AuthToken(nil).Auth(AuthRequired).Route(RouteConfigBase{
+		Path: "/protected", Methods: []HttpMethod{MethodGet}, Handler: okHandler,
+	})
 
-	r := NewRouter(RouterConfig{
-		Logger:          zap.NewNop(),
-		GlobalAuthToken: &globalAuth,
-		SubRouters: []SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Overrides:  common.RouteOverrides{AuthToken: &parentAuth},
-				SubRouters: []SubRouterConfig{
-					{
-						PathPrefix:       "/isolated",
-						IsolateOverrides: true,
-						Routes: []RouteDefinition{
-							RouteConfigBase{
-								Path:      "/protected",
-								Methods:   []HttpMethod{MethodGet},
-								AuthLevel: authLevel,
-								Handler:   okHandler,
-							},
-						},
-					},
-				},
-			},
-		},
-	}, tokenAuthFunction, tokenUserIDFromUser)
-
-	reqParent := httptest.NewRequest(http.MethodGet, "/api/isolated/protected", nil)
-	reqParent.AddCookie(&http.Cookie{Name: "parent_token", Value: "valid-token"})
-	rrParent := httptest.NewRecorder()
-	r.ServeHTTP(rrParent, reqParent)
-	if rrParent.Code != http.StatusUnauthorized {
-		t.Fatalf("expected parent cookie to be ignored with status %d, got %d", http.StatusUnauthorized, rrParent.Code)
+	req := httptest.NewRequest(http.MethodGet, "/api/reset/protected", nil)
+	req.AddCookie(&http.Cookie{Name: "parent", Value: "valid-token"})
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected reset group to ignore parent token source, got %d", rr.Code)
 	}
 
-	reqGlobal := httptest.NewRequest(http.MethodGet, "/api/isolated/protected", nil)
-	reqGlobal.AddCookie(&http.Cookie{Name: "global_token", Value: "valid-token"})
-	rrGlobal := httptest.NewRecorder()
-	r.ServeHTTP(rrGlobal, reqGlobal)
-	if rrGlobal.Code != http.StatusOK {
-		t.Fatalf("expected global cookie to pass with status %d, got %d", http.StatusOK, rrGlobal.Code)
+	req = httptest.NewRequest(http.MethodGet, "/api/reset/protected", nil)
+	req.Header.Set(defaultAuthHeaderName, "Bearer valid-token")
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected built-in token source after reset, got %d", rr.Code)
 	}
 }
 
-func TestAuthRequiredBuiltInFallbackWarning(t *testing.T) {
+func TestAuthRequiredBuiltInFallbackWarningAtBuild(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel)
-	logger := zap.New(core)
-
-	NewRouter(RouterConfig{
-		Logger: logger,
-		SubRouters: []SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Routes: []RouteDefinition{
-					RouteConfigBase{
-						Path:      "/protected",
-						Methods:   []HttpMethod{MethodGet},
-						AuthLevel: new(AuthRequired),
-						Handler:   okHandler,
-					},
-				},
-			},
-		},
-	}, tokenAuthFunction, tokenUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.New(core)}, tokenAuthFunction, tokenUserIDFromUser)
+	r.Group("/api").Auth(AuthRequired).Route(RouteConfigBase{
+		Path: "/protected", Methods: []HttpMethod{MethodGet}, Handler: okHandler,
+	})
+	if err := r.Build(); err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
 
 	entries := logs.FilterMessage("Auth-required route using built-in default auth token source").All()
 	if len(entries) != 1 {
-		t.Fatalf("expected 1 built-in fallback warning, got %d", len(entries))
+		t.Fatalf("expected one built-in fallback warning, got %d", len(entries))
 	}
 	if entries[0].ContextMap()["path"] != "/api/protected" {
-		t.Fatalf("expected path field %q, got %v", "/api/protected", entries[0].ContextMap()["path"])
-	}
-	if entries[0].ContextMap()["header_name"] != defaultAuthHeaderName {
-		t.Fatalf("expected header_name field %q, got %v", defaultAuthHeaderName, entries[0].ContextMap()["header_name"])
+		t.Fatalf("unexpected warning path: %v", entries[0].ContextMap()["path"])
 	}
 }
 
-func TestNoBuiltInFallbackWarningWhenNotRisky(t *testing.T) {
+func TestConfiguredAuthTokenDoesNotWarnAtBuild(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel)
-	logger := zap.New(core)
-
-	NewRouter(RouterConfig{
-		Logger: logger,
-		SubRouters: []SubRouterConfig{{
-			PathPrefix: "/api",
-			Routes: []RouteDefinition{
-				RouteConfigBase{
-					Path:      "/optional",
-					Methods:   []HttpMethod{MethodGet},
-					AuthLevel: new(AuthOptional),
-					Handler:   okHandler,
-				},
-				RouteConfigBase{
-					Path:      "/public",
-					Methods:   []HttpMethod{MethodGet},
-					AuthLevel: new(NoAuth),
-					Handler:   okHandler,
-				},
-			},
-		}},
-	}, tokenAuthFunction, tokenUserIDFromUser)
-
-	entries := logs.FilterMessage("Auth-required route using built-in default auth token source").All()
-	if len(entries) != 0 {
-		t.Fatalf("expected no built-in fallback warnings for optional/noauth routes, got %d", len(entries))
-	}
-
-	globalAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceHeader}
-	routeAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceHeader, HeaderName: "X-Route-Token"}
-	subRouterAuth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "sub_token"}
-	for _, tt := range []struct {
-		name   string
-		config RouterConfig
-	}{
-		{
-			name: "global auth token",
-			config: RouterConfig{
-				Logger:          logger,
-				GlobalAuthToken: &globalAuth,
-				SubRouters: []SubRouterConfig{{
-					PathPrefix: "/api",
-					Routes: []RouteDefinition{RouteConfigBase{
-						Path:      "/required",
-						Methods:   []HttpMethod{MethodGet},
-						AuthLevel: new(AuthRequired),
-						Handler:   okHandler,
-					}},
-				}},
-			},
-		},
-		{
-			name: "sub-router auth token",
-			config: RouterConfig{
-				Logger: logger,
-				SubRouters: []SubRouterConfig{{
-					PathPrefix: "/api",
-					Overrides:  common.RouteOverrides{AuthToken: &subRouterAuth},
-					Routes: []RouteDefinition{RouteConfigBase{
-						Path:      "/required",
-						Methods:   []HttpMethod{MethodGet},
-						AuthLevel: new(AuthRequired),
-						Handler:   okHandler,
-					}},
-				}},
-			},
-		},
-		{
-			name: "route auth token",
-			config: RouterConfig{
-				Logger: logger,
-				SubRouters: []SubRouterConfig{{
-					PathPrefix: "/api",
-					Routes: []RouteDefinition{RouteConfigBase{
-						Path:      "/required",
-						Methods:   []HttpMethod{MethodGet},
-						AuthLevel: new(AuthRequired),
-						Overrides: common.RouteOverrides{AuthToken: &routeAuth},
-						Handler:   okHandler,
-					}},
-				}},
-			},
-		},
-	} {
-		before := len(logs.FilterMessage("Auth-required route using built-in default auth token source").All())
-		NewRouter(tt.config, tokenAuthFunction, tokenUserIDFromUser)
-		after := len(logs.FilterMessage("Auth-required route using built-in default auth token source").All())
-		if after != before {
-			t.Fatalf("%s: expected no built-in fallback warning, got %d new warnings", tt.name, after-before)
-		}
-	}
-}
-
-func TestResolveSubRouterOverridesInheritsAndIsolates(t *testing.T) {
-	parentRateLimit := &common.RateLimitConfig[any, any]{Limit: 10, Window: time.Minute}
-	childRateLimit := &common.RateLimitConfig[any, any]{Limit: 20, Window: time.Minute}
-	parentAuth := &common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "parent_token"}
-	childAuth := &common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "child_token"}
-
-	parent := common.RouteOverrides{
-		Timeout:     time.Second,
-		MaxBodySize: 100,
-		RateLimit:   parentRateLimit,
-		AuthToken:   parentAuth,
-	}
-
-	inherited := resolveSubRouterOverrides(parent, SubRouterConfig{})
-	if inherited.Timeout != parent.Timeout {
-		t.Fatalf("expected inherited timeout %v, got %v", parent.Timeout, inherited.Timeout)
-	}
-	if inherited.MaxBodySize != parent.MaxBodySize {
-		t.Fatalf("expected inherited max body size %d, got %d", parent.MaxBodySize, inherited.MaxBodySize)
-	}
-	if inherited.RateLimit != parentRateLimit {
-		t.Fatal("expected inherited rate limit")
-	}
-	if inherited.AuthToken != parentAuth {
-		t.Fatal("expected inherited auth token")
-	}
-
-	overridden := resolveSubRouterOverrides(parent, SubRouterConfig{
-		Overrides: common.RouteOverrides{
-			Timeout:     2 * time.Second,
-			MaxBodySize: 200,
-			RateLimit:   childRateLimit,
-			AuthToken:   childAuth,
-		},
+	auth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "token"}
+	r := NewRouter(RouterConfig{Logger: zap.New(core)}, tokenAuthFunction, tokenUserIDFromUser)
+	r.Group("/api").Auth(AuthRequired).AuthToken(&auth).Route(RouteConfigBase{
+		Path: "/protected", Methods: []HttpMethod{MethodGet}, Handler: okHandler,
 	})
-	if overridden.Timeout != 2*time.Second || overridden.MaxBodySize != 200 || overridden.RateLimit != childRateLimit || overridden.AuthToken != childAuth {
-		t.Fatalf("expected child overrides to win, got %+v", overridden)
+	if err := r.Build(); err != nil {
+		t.Fatalf("Build failed: %v", err)
 	}
-
-	isolated := resolveSubRouterOverrides(parent, SubRouterConfig{IsolateOverrides: true})
-	if isolated.Timeout != 0 || isolated.MaxBodySize != 0 || isolated.RateLimit != nil || isolated.AuthToken != nil {
-		t.Fatalf("expected isolated overrides to start empty, got %+v", isolated)
+	if entries := logs.FilterMessage("Auth-required route using built-in default auth token source").All(); len(entries) != 0 {
+		t.Fatalf("expected no fallback warning, got %d", len(entries))
 	}
 }
 
@@ -525,18 +222,15 @@ type authTokenTestResponse struct {
 
 func authTokenGenericRoute(path string, authLevel *AuthLevel) RouteConfig[authTokenTestRequest, authTokenTestResponse] {
 	return RouteConfig[authTokenTestRequest, authTokenTestResponse]{
-		Path:       path,
-		Methods:    []HttpMethod{MethodPost},
-		AuthLevel:  authLevel,
-		Codec:      codec.NewJSONCodec[authTokenTestRequest, authTokenTestResponse](),
-		SourceType: Body,
-		Handler: func(req *http.Request, data authTokenTestRequest) (authTokenTestResponse, error) {
+		Path: path, Methods: []HttpMethod{MethodPost}, AuthLevel: authLevel,
+		Codec: codec.NewJSONCodec[authTokenTestRequest, authTokenTestResponse](), SourceType: Body,
+		Handler: func(_ *http.Request, data authTokenTestRequest) (authTokenTestResponse, error) {
 			return authTokenTestResponse{Message: data.Name}, nil
 		},
 	}
 }
 
-func tokenAuthFunction(ctx context.Context, token string) (*string, bool) {
+func tokenAuthFunction(_ context.Context, token string) (*string, bool) {
 	if token == "valid-token" {
 		user := "user"
 		return &user, true
@@ -551,6 +245,6 @@ func tokenUserIDFromUser(user *string) string {
 	return *user
 }
 
-func okHandler(w http.ResponseWriter, req *http.Request) {
+func okHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }

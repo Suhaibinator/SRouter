@@ -42,7 +42,7 @@ func main() {
 	r := router.NewRouter(routerConfig, authFunc, userIdFunc)
 
 	// REST Endpoint
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/hello",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +52,7 @@ func main() {
 	})
 
 	// WebSocket Endpoint
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:           "/ws",
 		Methods:        []router.HttpMethod{router.MethodGet},
 		DisableTimeout: true, // Crucial: disables global timeout

@@ -14,10 +14,10 @@ Here's a brief overview of the available examples (refer to the source code and 
 
 -   **`/examples/simple`**: Demonstrates basic router setup and registration of simple `http.HandlerFunc` routes.
 -   **`/examples/generic`**: Shows how to define and register generic routes (`RouteConfig[T, U]`) with type-safe request/response handling using a JSON codec.
--   **`/examples/subrouters`**: Illustrates grouping routes under a common path prefix using `SubRouterConfig` and applying configuration overrides (like timeouts).
--   **`/examples/subrouter-generic-routes`**: Combines sub-routers with declarative registration of generic routes within the `SubRouterConfig.Routes` slice.
--   **`/examples/nested-subrouters`**: Demonstrates creating hierarchical routing structures by nesting `SubRouterConfig` instances.
--   **`/examples/middleware`**: Shows how to create and apply custom middleware at global, sub-router, and route-specific levels. May also demonstrate IP configuration.
+-   **`/examples/subrouters`**: Illustrates route-group policy and middleware under shared prefixes.
+-   **`/examples/subrouter-generic-routes`**: Combines typed generic routes with route groups.
+-   **`/examples/nested-subrouters`**: Demonstrates recursive route groups.
+-   **`/examples/middleware`**: Shows middleware at global, route-group, and route-specific levels.
 -   **`/examples/auth`**: Basic example of implementing authentication, likely using middleware.
 -   **`/examples/auth-levels`**: Demonstrates using the `AuthLevel` configuration (`NoAuth`, `AuthOptional`, `AuthRequired`) in conjunction with authentication middleware.
 -   **`/examples/user-auth`**: Example focusing on authentication middleware that populates both User ID and a User object into the context.
@@ -31,6 +31,6 @@ Here's a brief overview of the available examples (refer to the source code and 
 -   **`/examples/prometheus`**: Example of integrating SRouter's metrics system with Prometheus by providing a Prometheus-based implementation of the `metrics.MetricsRegistry` interface and showing how the application can expose the metrics via an HTTP handler.
 -   **`/examples/custom-metrics`**: Demonstrates implementing a custom `metrics.MetricsRegistry` or `metrics.MetricsMiddleware`.
 -   **`/examples/handler-error-middleware`**: Shows how middleware can access errors returned by generic handlers to make decisions (e.g., transaction rollback, custom error logging) using `scontext.GetHandlerErrorFromRequest`.
--   **`/examples/websocket`**: Demonstrates handling WebSocket connections by setting `DisableTimeout: true` on a route so long-lived connections are not terminated by the global or sub-router timeout.
+-   **`/examples/websocket`**: Demonstrates `DisableTimeout: true` so long-lived connections are not terminated by a global or route-group timeout.
 
 Exploring these examples is highly recommended to understand how to effectively use SRouter's various features.

@@ -100,19 +100,19 @@ func main() {
 	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
 
 	// Register routes
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/slow",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: SlowHandler,
 	})
 
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/quick",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: QuickHandler,
 	})
 
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/status",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: StatusHandler,

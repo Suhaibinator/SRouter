@@ -1,238 +1,122 @@
-# Configuration Reference
+# Configuration reference
 
-This section details the configuration structs used by SRouter.
+SRouter separates application-wide infrastructure in `RouterConfig` from the
+recursive route tree built with `Router` and `RouteGroup` methods.
 
 ## `RouterConfig`
 
-This is the main configuration struct passed to `router.NewRouter`.
-
 ```go
-package router
-
-import (
-	"time"
-	"github.com/Suhaibinator/SRouter/pkg/common"
-	"go.uber.org/zap"
-)
-
 type RouterConfig struct {
-	// ServiceName identifies the service (e.g., "user-api", "auth-service").
-	// This name is used for tagging metrics and potentially other identification purposes. Required.
-	ServiceName string
-
-	// Logger instance for all router operations. Required.
-	Logger *zap.Logger
-
-	// GlobalTimeout specifies the default response timeout for all routes.
-	// Can be overridden by SubRouterConfig or RouteConfig. Zero means no timeout.
-	GlobalTimeout time.Duration
-
-	// GlobalMaxBodySize specifies the default maximum request body size in bytes.
-	// Can be overridden. Zero or negative means no limit (use with caution).
-	GlobalMaxBodySize int64
-
-	// GlobalRateLimit specifies the default rate limit configuration for all routes.
-	// Uses common.RateLimitConfig. Can be overridden. Nil means no global rate limit.
-	GlobalRateLimit *common.RateLimitConfig[any, any]
-
-	// GlobalAuthToken specifies the default auth token source for built-in auth middleware.
-	// Can be overridden by inherited sub-router or route overrides.
-	// Nil falls back to the built-in Authorization header default.
-	GlobalAuthToken *common.AuthTokenConfig
-
-	// IPConfig defines how client IP addresses are extracted.
-	// See docs/ip-configuration.md. Nil uses default (IPSourceXForwardedFor, TrustProxy: true).
-	IPConfig *IPConfig // Defined in router package
-
-	// EnableTraceLogging enables detailed request/response logging including timing, status, etc.
-	// Often used in conjunction with TraceIDBufferSize > 0.
-	EnableTraceLogging bool
-
-	// TraceLoggingUseInfo controls the log level for trace logging.
-	// If true, logs at Info level; otherwise, logs at Debug level.
+	ServiceName         string
+	Logger              *zap.Logger
+	GlobalTimeout       time.Duration
+	GlobalMaxBodySize   int64
+	GlobalRateLimit     *common.RateLimitConfig[any, any]
+	GlobalAuthToken     *common.AuthTokenConfig
+	IPConfig            *IPConfig
+	EnableTraceLogging  bool
 	TraceLoggingUseInfo bool
-
-	// TraceIDBufferSize sets the buffer size for the background trace ID generator.
-	// If > 0, trace IDs are automatically generated and added to request context and logs.
-	// Setting to 0 disables automatic trace ID generation. See docs/logging.md#trace-id-integration.
-	TraceIDBufferSize int
-
-	// MetricsConfig holds detailed configuration for the v2 metrics system.
-	// Metrics are enabled when this field is non-nil. See docs/metrics.md.
-	MetricsConfig *MetricsConfig
-
-	// SubRouters is a slice of SubRouterConfig structs defining sub-routers. Required.
-	SubRouters []SubRouterConfig
-
-	// Middlewares is a slice of global middlewares applied to all routes.
-	// Executed after internal middleware like timeout/body limit but before
-	// sub-router and route-specific middleware.
-	Middlewares []common.Middleware
-
-	// AddUserObjectToCtx controls whether the built-in authentication middleware
-	// (if used) should attempt to add the full user object (U) to the context,
-	// in addition to the user ID (T). Often true if U provides useful info.
-	AddUserObjectToCtx bool
-
-	// CORSConfig defines the CORS configuration for cross-origin requests.
-	// If nil, CORS is disabled. See CORSConfig struct for details.
-	CORSConfig *CORSConfig
+	TraceIDBufferSize   int
+	MetricsConfig       *MetricsConfig
+	Middlewares         []common.Middleware
+	AddUserObjectToCtx  bool
+	CORSConfig          *CORSConfig
 }
 ```
 
-## `MetricsConfig`
+- Global timeout, body-size, rate-limit, and auth-token settings are defaults
+  inherited by route groups and routes.
+- Zero `GlobalTimeout` and `GlobalMaxBodySize` disable those policies. Negative
+  values are rejected by `Build`.
+- `Middlewares` run for every matched route before group and route middleware.
+- A nil logger is replaced with a production logger, falling back to a no-op
+  logger if creation fails.
+- A nil `CORSConfig` disables CORS handling.
 
-Used within `RouterConfig` to configure the metrics system.
+Routes do not live inside `RouterConfig`. Add them after `NewRouter` with
+`Router.Route` and `Router.Group`.
+
+## Route groups
 
 ```go
-package router
+api := r.Group("/api").
+	Timeout(3 * time.Second).
+	MaxBodySize(2 << 20).
+	RateLimit(apiRateLimit).
+	AuthToken(apiTokenConfig).
+	Auth(router.AuthRequired).
+	Use(apiMiddleware)
 
-// No import needed - MetricsConfig uses any type for flexibility
-
-type MetricsConfig struct {
-	// Collector is the metrics collector to use.
-	// If nil, a default collector will be used if metrics are enabled.
-	Collector any // metrics.Collector
-
-	// MiddlewareFactory is the factory for creating metrics middleware.
-	// If nil, a default middleware factory will be used if metrics are enabled.
-	MiddlewareFactory any // metrics.MiddlewareFactory
-
-	// Namespace for metrics.
-	Namespace string
-
-	// Subsystem for metrics.
-	Subsystem string
-
-	// EnableLatency enables latency metrics.
-	EnableLatency bool
-
-	// EnableThroughput enables throughput metrics.
-	EnableThroughput bool
-
-	// EnableQPS enables queries per second metrics.
-	EnableQPS bool
-
-	// EnableErrors enables error metrics.
-	EnableErrors bool
-}
+v1 := api.Group("/v1")
+v1.Route(routeA, routeB)
 ```
 
-## `SubRouterConfig`
-
-Defines a group of routes under a common path prefix with shared configuration overrides. Can be nested.
+Every group can recursively call:
 
 ```go
-package router
-
-import (
-	"time"
-	"github.com/Suhaibinator/SRouter/pkg/common"
-)
-
-type SubRouterConfig struct {
-        // PathPrefix is the common URL prefix for all routes and nested sub-routers
-        // within this group (e.g., "/api/v1").
-        PathPrefix string
-
-        // Overrides allows this sub-router to specify timeout, body size, rate limit,
-        // or auth token source settings. Nested sub-routers inherit these values
-        // unless they set IsolateOverrides.
-        Overrides common.RouteOverrides
-
-        // IsolateOverrides prevents this sub-router from inheriting parent
-        // sub-router overrides. RouterConfig global defaults still apply.
-        IsolateOverrides bool
-
-        // Routes is a slice containing route definitions. Must contain RouteConfigBase
-        // or typed RouteConfig[Req, Resp] values.
-        Routes []RouteDefinition
-
-        // Middlewares is a slice of middlewares applied only to routes within this
-        // sub-router (and its children), executed before global/parent middleware.
-        Middlewares []common.Middleware
-
-        // SubRouters defines nested sub-routers within this group.
-        SubRouters []SubRouterConfig
-
-	// AuthLevel sets the default authentication level for routes in this sub-router
-	// if the route itself doesn't specify one. Nil inherits from parent or defaults to NoAuth.
-	AuthLevel *AuthLevel
-}
+Group(prefix string) *RouteGroup
+Route(routes ...RouteDefinition) *RouteGroup
+Use(middlewares ...common.Middleware) *RouteGroup
+Timeout(timeout time.Duration) *RouteGroup
+MaxBodySize(bytes int64) *RouteGroup
+RateLimit(config *common.RateLimitConfig[any, any]) *RouteGroup
+AuthToken(config *common.AuthTokenConfig) *RouteGroup
+Auth(level AuthLevel) *RouteGroup
 ```
+
+Policy inherits independently for each field. A zero timeout/body limit or nil
+rate limit explicitly disables that inherited policy. A nil auth-token config
+resets to the built-in `Authorization` header source. See
+[Route groups](route-groups.md) for lifecycle and middleware order.
 
 ## `RouteConfigBase`
 
-Used for defining standard routes with `http.HandlerFunc`.
-
 ```go
-package router
-
-import (
-	"net/http"
-	"github.com/Suhaibinator/SRouter/pkg/common"
-)
-
 type RouteConfigBase struct {
-	// Path is the route path relative to any parent sub-router prefixes (e.g., "/users/:id"). Required.
-	Path string
-
-	// Methods is a slice of HTTP methods this route handles (e.g., []HttpMethod{MethodGet, MethodPost}). Required.
-	Methods []HttpMethod // Use router.HttpMethod type
-
-	// AuthLevel specifies the authentication requirement for this route.
-	// Nil inherits from parent sub-router or defaults to NoAuth.
-	AuthLevel *AuthLevel
-
-        // Overrides allows this route to specify timeout, body size, rate limit,
-        // or auth token source settings. Zero values mean inherit from the sub-router
-        // or global configuration.
-        Overrides common.RouteOverrides
-
-	// Handler is the standard Go HTTP handler function. Required.
-	Handler http.HandlerFunc
-
-        // Middlewares is a slice of middlewares applied only to this route, executed
-        // before global middlewares.
-	Middlewares []common.Middleware
-
-	// DisableTimeout disables the timeout for this route (e.g., for WebSockets
-	// or other long-lived connections). When true, neither the global nor
-	// sub-router timeout is applied.
+	Path           string
+	Methods        []HttpMethod
+	AuthLevel      *AuthLevel
+	Overrides      common.RouteOverrides
+	Handler        http.HandlerFunc
+	Middlewares    []common.Middleware
 	DisableTimeout bool
 }
 ```
 
-## `common.RouteOverrides` and Auth Token Source
+- `Path` is absolute when registered on the root router and relative to a group.
+  An empty path matches a non-root group's exact prefix.
+- `Methods` and `Handler` are required.
+- A nil `AuthLevel` inherits from the innermost group, ultimately defaulting to
+  `NoAuth`.
+- `Overrides` wins over group and global policy for values it sets.
+- `DisableTimeout` explicitly disables the effective timeout for long-lived
+  handlers such as WebSockets and SSE.
 
-Route overrides control per-route and per-sub-router settings, including the auth token source used by the built-in authentication middleware. Nested sub-routers inherit parent overrides unless `SubRouterConfig.IsolateOverrides` is true. Effective precedence is route override, current or inherited sub-router override, `RouterConfig` global setting, then the field default.
+## `RouteConfig[Req, Resp]`
 
 ```go
-package common
-
-import "time"
-
-type AuthTokenSource int
-
-const (
-	// AuthTokenSourceHeader reads the token from a request header.
-	AuthTokenSourceHeader AuthTokenSource = iota
-	// AuthTokenSourceCookie reads the token from a request cookie.
-	AuthTokenSourceCookie
-)
-
-type AuthTokenConfig struct {
-	// Source determines where to look for the token.
-	Source AuthTokenSource
-
-	// HeaderName is used when Source is AuthTokenSourceHeader.
-	// If empty, defaults to "Authorization".
-	HeaderName string
-
-	// CookieName is used when Source is AuthTokenSourceCookie.
-	CookieName string
+type RouteConfig[Req any, Resp any] struct {
+	Path           string
+	Methods        []HttpMethod
+	AuthLevel      *AuthLevel
+	Overrides      common.RouteOverrides
+	Codec          codec.Codec[Req, Resp]
+	Handler        GenericHandler[Req, Resp]
+	Middlewares    []common.Middleware
+	SourceType     SourceType
+	SourceKey      string
+	Sanitizer      func(Req) (Req, error)
+	DisableTimeout bool
 }
+```
 
+Typed configs implement the same sealed `RouteDefinition` interface as
+`RouteConfigBase`, so both can be mixed in one `Route` call. The codec and
+handler retain their concrete request and response types through compilation.
+
+## `common.RouteOverrides`
+
+```go
 type RouteOverrides struct {
 	Timeout     time.Duration
 	MaxBodySize int64
@@ -241,128 +125,49 @@ type RouteOverrides struct {
 }
 ```
 
-## `RouteConfig[T, U]`
+Route overrides use non-zero/non-nil values to replace inherited policy. Use
+`DisableTimeout` to disable a route timeout; use the corresponding group policy
+method with zero/nil to disable inherited group policy for a subtree.
 
-Used for defining generic routes with type-safe request (`T`) and response (`U`) handling.
-
-```go
-package router
-
-import (
-	"net/http"
-	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/codec"
-)
-
-// GenericHandler is the function signature for generic route handlers.
-type GenericHandler[T any, U any] func(r *http.Request, req T) (U, error)
-
-type RouteConfig[T any, U any] struct {
-	// Path is the route path relative to any parent sub-router prefixes. Required.
-	Path string
-
-	// Methods is a slice of HTTP methods this route handles. Required.
-	Methods []HttpMethod // Use router.HttpMethod type
-
-	// AuthLevel specifies the authentication requirement for this route.
-	// Nil inherits.
-	AuthLevel *AuthLevel
-
-        // Overrides allows this route to specify timeout, body size, rate limit,
-        // or auth token source settings.
-        // settings. Zero values mean inherit from the sub-router or global configuration.
-        Overrides common.RouteOverrides
-
-	// Codec is the encoder/decoder implementation for types T and U. Required.
-	// Must implement the codec.Codec[T, U] interface.
-	Codec codec.Codec[T, U]
-
-	// Handler is the generic handler function. Required.
-	Handler GenericHandler[T, U]
-
-	// Middlewares is a slice of middlewares applied only to this route.
-	Middlewares []common.Middleware
-
-	// SourceType specifies where to retrieve the request data T from.
-	// Defaults to Body. See docs/generic-routes.md#source-types.
-	SourceType SourceType
-
-	// SourceKey is used when SourceType is not Body (e.g., query or path parameter name).
-	SourceKey string
-
-	// Sanitizer is an optional function to validate/transform request data after decoding.
-	// Called after successful decoding but before handler execution.
-	Sanitizer func(T) (T, error)
-
-	// DisableTimeout disables the timeout for this route (e.g., for streaming
-	// responses or other long-lived connections). When true, neither the global
-	// nor sub-router timeout is applied.
-	DisableTimeout bool
-}
-```
-
-## `AuthLevel` (Enum)
-
-Defines the authentication requirement levels.
+## Authentication levels
 
 ```go
-package router
-
 type AuthLevel int
 
 const (
-	// NoAuth indicates that no authentication is required. (Default)
 	NoAuth AuthLevel = iota
-	// AuthOptional indicates that authentication is optional.
 	AuthOptional
-	// AuthRequired indicates that authentication is required.
 	AuthRequired
 )
 ```
 
-`AuthLevel` fields in the config structs are pointers (`*AuthLevel`) so that an
-unset value can inherit from the sub-router or global default. Use the built-in
-`new(expr)` form to obtain a pointer to a level value, e.g. `new(router.AuthRequired)`.
+Use `new(router.AuthRequired)` when setting a route field. Groups take the value
+directly: `group.Auth(router.AuthRequired)`.
 
-## `SourceType` (Enum)
-
-Defines where generic request data is retrieved from.
+## Generic request sources
 
 ```go
-package router
-
-type SourceType int
-
 const (
-	// Body retrieves data from the request body (default).
 	Body SourceType = iota
-	// Base64QueryParameter retrieves data from a base64-encoded query parameter.
 	Base64QueryParameter
-	// Base62QueryParameter retrieves data from a base62-encoded query parameter.
 	Base62QueryParameter
-	// Base64PathParameter retrieves data from a base64-encoded path parameter.
 	Base64PathParameter
-	// Base62PathParameter retrieves data from a base62-encoded path parameter.
 	Base62PathParameter
-	// Empty does not decode anything. Acts as a no-op for decoding.
 	Empty
 )
 ```
 
-## `CORSConfig`
+`SourceKey` names the relevant query or path parameter for non-body sources.
+
+## Build lifecycle
 
 ```go
-package router
-
-import "time"
-
-// CORSConfig defines the configuration for Cross-Origin Resource Sharing (CORS).
-type CORSConfig struct {
-	Origins          []string      // Allowed origins (e.g., "http://example.com", "*"). Required.
-	Methods          []string      // Allowed methods (e.g., "GET", "POST"). Defaults to simple methods if empty.
-	Headers          []string      // Allowed headers. Defaults to simple headers if empty.
-	ExposeHeaders    []string      // Headers the browser is allowed to access.
-	AllowCredentials bool          // Whether to allow credentials (cookies, authorization headers).
-	MaxAge           time.Duration // How long the results of a preflight request can be cached.
+if err := r.Build(); err != nil {
+	log.Fatal(err)
 }
 ```
+
+Build validates and compiles a fresh dispatcher, then freezes the route tree.
+`ServeHTTP` builds lazily if necessary. Mutation after freezing panics. Build
+errors include invalid paths or policies, missing handlers/methods, nil
+middleware, duplicate routes, and underlying path conflicts.

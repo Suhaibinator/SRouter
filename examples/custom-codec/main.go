@@ -109,7 +109,7 @@ func newOracleRouter() *router.Router[string, string] {
 			SourceKey:  "scroll",
 		},
 	} {
-		r.RegisterRoute(route)
+		r.Route(route)
 	}
 
 	return r

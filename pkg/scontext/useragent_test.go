@@ -55,3 +55,14 @@ func TestGetUserAgentFromRequest(t *testing.T) {
 		t.Errorf("expected %q, got %q", expected, ua)
 	}
 }
+
+func TestWithClientInfo(t *testing.T) {
+	ctx := WithClientInfo[string, any](context.Background(), "192.0.2.1", "CombinedAgent/1.0")
+
+	if ip, ok := GetClientIP[string, any](ctx); !ok || ip != "192.0.2.1" {
+		t.Fatalf("GetClientIP = (%q, %v), want (%q, true)", ip, ok, "192.0.2.1")
+	}
+	if userAgent, ok := GetUserAgent[string, any](ctx); !ok || userAgent != "CombinedAgent/1.0" {
+		t.Fatalf("GetUserAgent = (%q, %v), want (%q, true)", userAgent, ok, "CombinedAgent/1.0")
+	}
+}

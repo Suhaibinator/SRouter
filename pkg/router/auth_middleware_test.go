@@ -414,7 +414,7 @@ func TestAuthMiddlewareIntegration(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:      "/protected",
 		Methods:   []HttpMethod{MethodGet}, // Use HttpMethod enum
 		AuthLevel: new(AuthRequired),

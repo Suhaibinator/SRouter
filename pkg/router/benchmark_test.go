@@ -80,7 +80,7 @@ func simpleLoggingMiddleware(logger *zap.Logger) common.Middleware { // Qualify 
 func BenchmarkSimpleRoute(b *testing.B) {
 	logger := zaptest.NewLogger(b)
 	r := NewRouter(RouterConfig{Logger: logger}, nopAuthFunc, userIDFromString)
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/hello",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: simpleHandler,
@@ -102,7 +102,7 @@ func BenchmarkSimpleRoute(b *testing.B) {
 func BenchmarkRouteWithParams(b *testing.B) {
 	logger := zaptest.NewLogger(b)
 	r := NewRouter(RouterConfig{Logger: logger}, nopAuthFunc, userIDFromString)
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/users/:id/posts/:postId", // Using existing path with two params
 		Methods: []HttpMethod{MethodGet},    // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +142,7 @@ func BenchmarkMiddlewareStack(b *testing.B) {
 		// Add a mock rate limiter if needed, e.g., just a time.Sleep(1 * time.Microsecond)
 	}
 
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:        "/secure",
 		Methods:     []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Middlewares: routeMiddleware,         // Already qualified above
@@ -189,7 +189,7 @@ func BenchmarkGenericRouteBody(b *testing.B) {
 
 	// Remove err assignment, use RouteConfig, add missing args, use correct SourceType
 	// Use RouteConfig directly, not embedding RouteConfigBase. Rename GenericHandler to Handler.
-	r.RegisterRoute(RouteConfig[GenericRequestData, GenericResponseData]{
+	r.Route(RouteConfig[GenericRequestData, GenericResponseData]{
 		Path:       "/generic/body",          // Direct field
 		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      jsonCodec,
@@ -236,7 +236,7 @@ func BenchmarkGenericRoutePathParam(b *testing.B) {
 
 	// Remove err assignment, use RouteConfig, add missing args, use correct SourceType
 	// Use RouteConfig directly, not embedding RouteConfigBase. Rename GenericHandler to Handler.
-	r.RegisterRoute(RouteConfig[GenericPathParamData, GenericResponseData]{
+	r.Route(RouteConfig[GenericPathParamData, GenericResponseData]{
 		Path:    "/generic/param/:data",  // Direct field
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		// Codec:      codec.NewNopCodec(), // Or a codec designed for path params
@@ -308,7 +308,7 @@ func BenchmarkRouterWithTimeout(b *testing.B) {
 		GlobalTimeout: 100 * time.Millisecond, // Shorter timeout for benchmark relevance
 	}, nopAuthFunc, userIDFromString)
 
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/timeout",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: simpleHandler,
@@ -340,7 +340,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 	routeCount := 1000
 	for i := range routeCount {
 		path := fmt.Sprintf("/route%d", i)
-		r.RegisterRoute(RouteConfigBase{
+		r.Route(RouteConfigBase{
 			Path:    path,
 			Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 			Handler: simpleHandler,           // Use helper
@@ -395,7 +395,7 @@ func BenchmarkInstrumentedAuthRoute(b *testing.B) {
 		TraceIDBufferSize: 1000,
 		IPConfig:          DefaultIPConfig(),
 	}, nopAuthFunc, userIDFromString)
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:      "/secure",
 		Methods:   []HttpMethod{MethodGet},
 		AuthLevel: &authLevel,
@@ -414,4 +414,248 @@ func BenchmarkInstrumentedAuthRoute(b *testing.B) {
 			r.ServeHTTP(rr, req)
 		}
 	})
+}
+
+// --- Route Group Build and Steady-State Benchmarks ---
+
+type discardBenchmarkResponseWriter struct{}
+
+func (discardBenchmarkResponseWriter) Header() http.Header            { return nil }
+func (discardBenchmarkResponseWriter) Write(body []byte) (int, error) { return len(body), nil }
+func (discardBenchmarkResponseWriter) WriteHeader(int)                {}
+
+func benchmarkRouteHandler(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func benchmarkMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+	})
+}
+
+func newRouteTreeBenchmarkRouter(routeCount, depth int, withMiddleware bool) *Router[string, string] {
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, nopAuthFunc, userIDFromString)
+	if depth == 0 {
+		for i := range routeCount {
+			r.Route(RouteConfigBase{
+				Path:    fmt.Sprintf("/route-%d", i),
+				Methods: []HttpMethod{MethodGet},
+				Handler: benchmarkRouteHandler,
+			})
+		}
+		return r
+	}
+
+	groups := make([]*RouteGroup, 0, depth)
+	group := r.Group("/group-0")
+	groups = append(groups, group)
+	for level := 1; level < depth; level++ {
+		group = group.Group(fmt.Sprintf("/group-%d", level))
+		groups = append(groups, group)
+	}
+	if withMiddleware {
+		for _, nestedGroup := range groups {
+			nestedGroup.Use(benchmarkMiddleware).Timeout(0)
+		}
+	}
+	for i := range routeCount {
+		groups[i%len(groups)].Route(RouteConfigBase{
+			Path:    fmt.Sprintf("/route-%d", i),
+			Methods: []HttpMethod{MethodGet},
+			Handler: benchmarkRouteHandler,
+		})
+	}
+	return r
+}
+
+// BenchmarkRouteTreeBuild measures the complete route definition and build
+// lifecycle. build-ns/op separately reports validation and compilation into
+// the underlying httprouter, without making untimed setup dominate wall time.
+func BenchmarkRouteTreeBuild(b *testing.B) {
+	benchmarks := []struct {
+		name           string
+		routes         int
+		depth          int
+		withMiddleware bool
+	}{
+		{name: "flat_1", routes: 1},
+		{name: "flat_100", routes: 100},
+		{name: "flat_1000", routes: 1000},
+		{name: "nested_8_100", routes: 100, depth: 8},
+		{name: "nested_32_1000", routes: 1000, depth: 32},
+		{name: "nested_8_middleware_100", routes: 100, depth: 8, withMiddleware: true},
+		{name: "nested_32_middleware_1000", routes: 1000, depth: 32, withMiddleware: true},
+	}
+
+	for _, benchmark := range benchmarks {
+		b.Run(benchmark.name, func(b *testing.B) {
+			var buildDuration time.Duration
+			var iterations int64
+			b.ReportAllocs()
+			b.ReportMetric(float64(benchmark.routes), "routes/build")
+			for b.Loop() {
+				r := newRouteTreeBenchmarkRouter(benchmark.routes, benchmark.depth, benchmark.withMiddleware)
+				buildStart := time.Now()
+				if err := r.Build(); err != nil {
+					b.Fatal(err)
+				}
+				buildDuration += time.Since(buildStart)
+				iterations++
+			}
+			if iterations > 0 {
+				b.ReportMetric(float64(buildDuration.Nanoseconds())/float64(iterations), "build-ns/op")
+			}
+		})
+	}
+}
+
+// BenchmarkBuiltRouteTreeCheck isolates the idempotent Build call made at the
+// start of every ServeHTTP invocation. The parallel case guards the lock-free
+// ready path against accidentally regressing to contended synchronization.
+func BenchmarkBuiltRouteTreeCheck(b *testing.B) {
+	r := newRouteTreeBenchmarkRouter(1, 0, false)
+	if err := r.Build(); err != nil {
+		b.Fatal(err)
+	}
+
+	b.Run("ready_load_serial", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if !r.routeTree.ready.Load() {
+				b.Fatal("route tree unexpectedly not ready")
+			}
+		}
+	})
+	b.Run("ready_load_parallel", func(b *testing.B) {
+		b.ReportAllocs()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if !r.routeTree.ready.Load() {
+					b.Fatal("route tree unexpectedly not ready")
+				}
+			}
+		})
+	})
+	b.Run("serial", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if err := r.Build(); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	b.Run("parallel", func(b *testing.B) {
+		b.ReportAllocs()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				if err := r.Build(); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	})
+}
+
+func newServeRouteTreeBenchmarkRouter(depth int, withMiddleware, withPolicy bool) (*Router[string, string], string) {
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, nopAuthFunc, userIDFromString)
+	path := ""
+	if depth == 0 {
+		// Keep the dispatcher path identical to the nested case so this benchmark
+		// compares grouping rather than trie depth or path length.
+		for level := range 8 {
+			path += fmt.Sprintf("/group-%d", level)
+		}
+		r.Route(RouteConfigBase{Path: path + "/target", Methods: []HttpMethod{MethodGet}, Handler: benchmarkRouteHandler})
+		path += "/target"
+	} else {
+		group := r.Group("/group-0")
+		path = "/group-0"
+		if withMiddleware {
+			group.Use(benchmarkMiddleware)
+		}
+		if withPolicy {
+			group.Timeout(0).MaxBodySize(0).RateLimit(nil).AuthToken(nil).Auth(NoAuth)
+		}
+		for level := 1; level < depth; level++ {
+			prefix := fmt.Sprintf("/group-%d", level)
+			group = group.Group(prefix)
+			path += prefix
+			if withMiddleware {
+				group.Use(benchmarkMiddleware)
+			}
+			if withPolicy {
+				group.Timeout(0).MaxBodySize(0).RateLimit(nil).AuthToken(nil).Auth(NoAuth)
+			}
+		}
+		group.Route(RouteConfigBase{Path: "/target", Methods: []HttpMethod{MethodGet}, Handler: benchmarkRouteHandler})
+		path += "/target"
+	}
+	if err := r.Build(); err != nil {
+		panic(err)
+	}
+	return r, path
+}
+
+// BenchmarkBuiltRouteGroupServeHTTP measures steady-state dispatch after an
+// explicit Build. Flat and nested cases register the exact same full path; an
+// additional case quantifies the intended cost of eight middleware layers.
+func BenchmarkBuiltRouteGroupServeHTTP(b *testing.B) {
+	benchmarks := []struct {
+		name           string
+		depth          int
+		withMiddleware bool
+		withPolicy     bool
+	}{
+		{name: "flat"},
+		{name: "nested_8", depth: 8},
+		{name: "nested_8_policy", depth: 8, withPolicy: true},
+		{name: "nested_8_middleware", depth: 8, withMiddleware: true},
+	}
+
+	for _, benchmark := range benchmarks {
+		b.Run(benchmark.name, func(b *testing.B) {
+			r, path := newServeRouteTreeBenchmarkRouter(benchmark.depth, benchmark.withMiddleware, benchmark.withPolicy)
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			writer := discardBenchmarkResponseWriter{}
+			b.ReportAllocs()
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					r.ServeHTTP(writer, req)
+				}
+			})
+		})
+	}
+}
+
+// BenchmarkCompiledRouteGroupDispatch bypasses Router.ServeHTTP's common
+// request bookkeeping and dispatches through the built httprouter directly.
+// This isolates the handler produced by route-group compilation and verifies
+// that group depth and resolved no-op policy do not remain on the hot path.
+func BenchmarkCompiledRouteGroupDispatch(b *testing.B) {
+	benchmarks := []struct {
+		name           string
+		depth          int
+		withMiddleware bool
+		withPolicy     bool
+	}{
+		{name: "flat"},
+		{name: "nested_8", depth: 8},
+		{name: "nested_8_policy", depth: 8, withPolicy: true},
+		{name: "nested_8_middleware", depth: 8, withMiddleware: true},
+	}
+
+	for _, benchmark := range benchmarks {
+		b.Run(benchmark.name, func(b *testing.B) {
+			r, path := newServeRouteTreeBenchmarkRouter(benchmark.depth, benchmark.withMiddleware, benchmark.withPolicy)
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			writer := discardBenchmarkResponseWriter{}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				r.router.ServeHTTP(writer, req)
+			}
+		})
+	}
 }

@@ -78,7 +78,7 @@ func main() {
 
 	// Register the generic route directly on the router instance 'r'
 	// as these are not overridden at the route level here.
-	r.RegisterRoute(routeCfg)
+	r.Route(routeCfg)
 
 	// Start the HTTP server
 	port := ":8080"

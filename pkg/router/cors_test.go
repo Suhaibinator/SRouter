@@ -228,7 +228,7 @@ func TestCORSBasic(t *testing.T) {
 				})
 
 			// Register a test route
-			r.RegisterRoute(RouteConfigBase{
+			r.Route(RouteConfigBase{
 				Path:    "/test",
 				Methods: []HttpMethod{MethodGet, MethodPost, MethodOptions},
 				Handler: handler,
@@ -520,7 +520,7 @@ func TestCORSPreflight(t *testing.T) {
 				})
 
 			// Register a test route
-			r.RegisterRoute(RouteConfigBase{
+			r.Route(RouteConfigBase{
 				Path:    "/test",
 				Methods: []HttpMethod{MethodGet, MethodPost, MethodOptions},
 				Handler: handler,
@@ -701,7 +701,7 @@ func TestCORSErrorResponses(t *testing.T) {
 				})
 
 			// Register a test route
-			r.RegisterRoute(RouteConfigBase{
+			r.Route(RouteConfigBase{
 				Path:    "/test",
 				Methods: []HttpMethod{MethodGet},
 				Handler: tc.handler,
@@ -820,7 +820,7 @@ func TestCORSWithGenericRoutes(t *testing.T) {
 				})
 
 			// Register a generic route using the package-level types
-			r.RegisterRoute(RouteConfig[genericCORSTestRequest, genericCORSTestResponse]{
+			r.Route(RouteConfig[genericCORSTestRequest, genericCORSTestResponse]{
 				Path:    "/test",
 				Methods: []HttpMethod{MethodPost},
 				Handler: func(req *http.Request, data genericCORSTestRequest) (genericCORSTestResponse, error) {

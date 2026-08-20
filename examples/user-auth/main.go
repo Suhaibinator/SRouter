@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
@@ -127,65 +126,6 @@ func main() {
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
-		SubRouters: []router.SubRouterConfig{
-			{
-				PathPrefix: "/public",
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:      "/resource",
-						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: new(router.NoAuth), // Changed
-						Handler:   publicHandler,
-					},
-				},
-			},
-			{
-				PathPrefix: "/boolean-auth",
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:      "/resource",
-						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: new(router.AuthRequired), // Changed
-						Middlewares: []common.Middleware{
-							middleware.AuthenticationBool[*User, User](func(r *http.Request) bool {
-								// Simple boolean authentication
-								authHeader := r.Header.Get("Authorization")
-								if authHeader == "" {
-									return false
-								}
-								token := strings.TrimPrefix(authHeader, "Bearer ")
-								_, exists := tokens[token]
-								return exists
-							}, "authenticated"),
-						},
-						Handler: protectedHandler,
-					},
-				},
-			},
-			{
-				PathPrefix: "/user-auth",
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:      "/custom",
-						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: new(router.AuthRequired), // Changed
-						Middlewares: []common.Middleware{ // Uncommented middleware
-							middleware.AuthenticationWithUser[*User, User](customUserAuth),
-						},
-						Handler: protectedUserHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:      "/bearer",
-						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: new(router.AuthRequired), // Changed
-						Middlewares: []common.Middleware{ // Uncommented middleware
-							middleware.NewBearerTokenWithUserMiddleware[*User, User](bearerTokenUserAuth, logger),
-						},
-						Handler: protectedUserHandler,
-					},
-				},
-			},
-		},
 	}
 
 	// Define the auth function that takes a context and token and returns a *User and a boolean
@@ -215,6 +155,45 @@ func main() {
 
 	// Create a router with *User as the user ID type (T) and User as the user type (U)
 	r := router.NewRouter[*User, User](routerConfig, authFunction, userIdFromUserFunction)
+
+	r.Group("/public").
+		Auth(router.NoAuth).
+		Route(router.RouteConfigBase{
+			Path:    "/resource",
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: publicHandler,
+		})
+	r.Group("/boolean-auth").
+		Auth(router.AuthRequired).
+		Use(middleware.AuthenticationBool[*User, User](func(r *http.Request) bool {
+			// Simple boolean authentication
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				return false
+			}
+			token := strings.TrimPrefix(authHeader, "Bearer ")
+			_, exists := tokens[token]
+			return exists
+		}, "authenticated")).
+		Route(router.RouteConfigBase{
+			Path:    "/resource",
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: protectedHandler,
+		})
+
+	userAuth := r.Group("/user-auth").Auth(router.AuthRequired)
+	userAuth.Group("/custom").
+		Use(middleware.AuthenticationWithUser[*User, User](customUserAuth)).
+		Route(router.RouteConfigBase{
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: protectedUserHandler,
+		})
+	userAuth.Group("/bearer").
+		Use(middleware.NewBearerTokenWithUserMiddleware[*User, User](bearerTokenUserAuth, logger)).
+		Route(router.RouteConfigBase{
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: protectedUserHandler,
+		})
 
 	// Start the server
 	fmt.Println("User Authentication Example Server listening on :8080")

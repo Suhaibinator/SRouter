@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/middleware" // Keep for AuthenticationWithUser
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
@@ -119,37 +118,6 @@ func main() {
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
-		SubRouters: []router.SubRouterConfig{
-			{
-				PathPrefix: "/auth-levels",
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:      "/no-auth",
-						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: new(router.NoAuth), // Changed
-						Handler:   noAuthHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:      "/optional-auth",
-						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: new(router.AuthOptional), // Authentication is optional. OPTIONS requests are automatically allowed.
-						Middlewares: []common.Middleware{
-							middleware.AuthenticationWithUser[*User](customUserAuth), // Middleware to add user to context if authenticated
-						},
-						Handler: optionalAuthHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:      "/required-auth",
-						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: new(router.AuthRequired), // Authentication is required. OPTIONS requests are automatically allowed.
-						Middlewares: []common.Middleware{
-							middleware.AuthenticationWithUser[*User](customUserAuth), // Middleware to add user to context if authenticated
-						},
-						Handler: requiredAuthHandler,
-					},
-				},
-			},
-		},
 	}
 
 	// Define the auth function that takes a context and token and returns a *User and a boolean
@@ -179,6 +147,28 @@ func main() {
 
 	// Create a router with *User as the user ID type (T) and User as the user type (U)
 	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
+
+	authLevels := r.Group("/auth-levels")
+	authLevels.Group("/no-auth").
+		Auth(router.NoAuth).
+		Route(router.RouteConfigBase{
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: noAuthHandler,
+		})
+	authLevels.Group("/optional-auth").
+		Auth(router.AuthOptional).
+		Use(middleware.AuthenticationWithUser[*User](customUserAuth)).
+		Route(router.RouteConfigBase{
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: optionalAuthHandler,
+		})
+	authLevels.Group("/required-auth").
+		Auth(router.AuthRequired).
+		Use(middleware.AuthenticationWithUser[*User](customUserAuth)).
+		Route(router.RouteConfigBase{
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: requiredAuthHandler,
+		})
 
 	// Start the server
 	fmt.Println("Authentication Levels Example Server listening on :8080")

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"go.uber.org/zap"
@@ -55,51 +54,6 @@ func main() {
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
-		SubRouters: []router.SubRouterConfig{
-			{
-				PathPrefix: "/public",
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:    "/resource",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: publicHandler,
-					},
-				},
-			},
-			{
-				PathPrefix: "/bearer-auth",
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:        "/resource",
-						Methods:     []router.HttpMethod{router.MethodGet},
-						Middlewares: []common.Middleware{bearerTokenMiddleware},
-						Handler:     protectedHandler,
-					},
-				},
-			},
-			{
-				PathPrefix: "/api-key-auth",
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:        "/resource",
-						Methods:     []router.HttpMethod{router.MethodGet},
-						Middlewares: []common.Middleware{apiKeyMiddleware},
-						Handler:     protectedHandler,
-					},
-				},
-			},
-			{
-				PathPrefix: "/require-auth",
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:      "/resource",
-						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: new(router.AuthRequired), // Uses the router's internal authRequiredMiddleware. OPTIONS requests are automatically allowed.
-						Handler:   protectedHandler,
-					},
-				},
-			},
-		},
 	}
 
 	// Define the auth function that takes a context and token and returns a *string and a boolean
@@ -124,6 +78,33 @@ func main() {
 
 	// Create a router with string as both the user ID and user type
 	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
+
+	r.Group("/public").Route(router.RouteConfigBase{
+		Path:    "/resource",
+		Methods: []router.HttpMethod{router.MethodGet},
+		Handler: publicHandler,
+	})
+	r.Group("/bearer-auth").
+		Use(bearerTokenMiddleware).
+		Route(router.RouteConfigBase{
+			Path:    "/resource",
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: protectedHandler,
+		})
+	r.Group("/api-key-auth").
+		Use(apiKeyMiddleware).
+		Route(router.RouteConfigBase{
+			Path:    "/resource",
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: protectedHandler,
+		})
+	r.Group("/require-auth").
+		Auth(router.AuthRequired).
+		Route(router.RouteConfigBase{
+			Path:    "/resource",
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: protectedHandler,
+		})
 
 	// Start the server
 	fmt.Println("Authentication Example Server listening on :8080")

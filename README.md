@@ -1,6 +1,6 @@
 # SRouter
 
-SRouter is a high-performance HTTP router for Go that wraps [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter) with advanced features including sub-router overrides, middleware support, generic-based marshaling/unmarshaling, configurable timeouts, body size limits, authentication levels, a flexible metrics system, and intelligent logging.
+SRouter is a high-performance HTTP router for Go that wraps [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter) with recursive route groups, middleware, type-safe request/response handling, configurable timeouts and body limits, authentication, metrics, and structured logging.
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/Suhaibinator/SRouter)](https://goreportcard.com/report/github.com/Suhaibinator/SRouter)
 [![GoDoc](https://godoc.org/github.com/Suhaibinator/SRouter?status.svg)](https://godoc.org/github.com/Suhaibinator/SRouter)
@@ -12,7 +12,7 @@ SRouter is a high-performance HTTP router for Go that wraps [julienschmidt/httpr
 - **Getting Started**
   - [Installation & Requirements](./docs/getting-started.md#installation)
   - [Basic Usage](./docs/getting-started.md#basic-usage)
-  - [Sub-Routers](./docs/routing.md#sub-routers)
+  - [Route Groups](./docs/route-groups.md)
   - [Generic Routes](./docs/generic-routes.md)
   - [Path Parameters](./docs/routing.md#path-parameters)
   - [Trace ID Logging](./docs/logging.md#trace-id-integration)
@@ -44,10 +44,10 @@ SRouter is a high-performance HTTP router for Go that wraps [julienschmidt/httpr
 
 - **High Performance**: Built on top of julienschmidt/httprouter for blazing-fast O(1) path matching
 - **Comprehensive Test Coverage**: Maintained at over 90% code coverage to ensure reliability
-- **Sub-Router Overrides**: Configure timeouts, body size limits, and rate limits at the global, sub-router, or route level
-- **Middleware Support**: Apply middleware at the global, sub-router, or route level with proper chaining
+- **Route Group Policy**: Configure timeouts, body size limits, and rate limits at the global, route-group, or route level
+- **Middleware Support**: Apply middleware at the global, route-group, or route level with proper chaining
 - **Generic-Based Marshaling/Unmarshaling**: Use Go 1.18+ generics for type-safe request and response handling
-- **Configurable Timeouts**: Set timeouts at the global, sub-router, or route level with cascading defaults
+- **Configurable Timeouts**: Set timeouts at the global, route-group, or route level with cascading defaults
 - **Body Size Limits**: Configure maximum request body size at different levels to prevent DoS attacks
 - **Rate Limiting**: Flexible rate limiting with support for IP-based, user-based, and custom strategies
 - **Path Parameters**: Easy access to path parameters via request context
@@ -56,8 +56,8 @@ SRouter is a high-performance HTTP router for Go that wraps [julienschmidt/httpr
 - **Intelligent Logging**: Structured logging using `zap` with appropriate log levels for different types of events. Requires a logger instance in config.
 - **Trace ID Logging**: Automatically generate and include a unique trace ID for each request in context and log entries.
 - **Flexible Request Data Sources**: Support for retrieving request data from various sources including request body, query parameters, and path parameters with automatic decoding
-- **Nested SubRouters**: Create hierarchical routing structures.
-- **Declarative Generic Routes**: Define generic routes directly within `SubRouterConfig` for improved clarity.
+- **Recursive Route Groups**: Create hierarchical routing structures.
+- **Declarative Generic Routes**: Register standard and typed routes on the same group for improved clarity.
 
 ## Installation
 
@@ -134,7 +134,7 @@ func main() {
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
 	// Register a simple route
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/hello",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -153,104 +153,43 @@ func main() {
 }
 ```
 
-### Using Sub-Routers
+### Using Route Groups
 
-Sub-routers allow you to group routes with a common path prefix and apply shared configuration. You can define both standard (`RouteConfigBase`) and generic routes declaratively within the `Routes` field, which accepts `[]router.RouteDefinition`.
-
-```go
-// Define sub-router configurations
-apiV1SubRouter := router.SubRouterConfig{
-        PathPrefix: "/api/v1",
-        Overrides: common.RouteOverrides{
-                Timeout:     3 * time.Second,
-                MaxBodySize: 2 << 20, // 2 MB
-        },
-        Routes: []router.RouteDefinition{
-		// Standard route
-		router.RouteConfigBase{
-			Path:    "/users", // Becomes /api/v1/users
-			Methods: []router.HttpMethod{router.MethodGet},
-			Handler: ListUsersHandler,
-		},
-		router.RouteConfigBase{
-			Path:    "/users/:id", // Becomes /api/v1/users/:id
-			Methods: []router.HttpMethod{router.MethodGet},
-			Handler: GetUserHandler,
-		},
-		// Typed generic routes are valid RouteDefinition values directly.
-		router.RouteConfig[CreateUserReq, CreateUserResp]{
-			Path:      "/users", // Path relative to the sub-router prefix (/api/v1/users)
-			Methods:   []router.HttpMethod{router.MethodPost},
-			AuthLevel: new(router.AuthRequired),
-			Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
-			Handler:   CreateUserHandler,
-			// Middlewares, Timeout, MaxBodySize, RateLimit can be set here too
-		},
-	},
-}
-
-apiV2SubRouter := router.SubRouterConfig{
-        PathPrefix: "/api/v2",
-        Routes: []router.RouteDefinition{
-		router.RouteConfigBase{
-			Path:    "/users", // Becomes /api/v2/users
-			Methods: []router.HttpMethod{router.MethodGet},
-			Handler: ListUsersV2Handler,
-		},
-	},
-}
-
-// Create a router with sub-routers
-routerConfig := router.RouterConfig{
-	Logger:            logger, // Required
-	GlobalTimeout:     2 * time.Second,
-	GlobalMaxBodySize: 1 << 20, // 1 MB
-	SubRouters: []router.SubRouterConfig{apiV1SubRouter, apiV2SubRouter},
-}
-
-r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
-
-// Generic routes are now defined declaratively within SubRouterConfig.Routes
-```
-
-#### Nested SubRouters
-
-You can nest `SubRouterConfig` structs within each other to create a hierarchical routing structure. Path prefixes are combined, and configuration overrides cascade down the hierarchy.
+Route groups organize routes under shared prefixes, middleware, and inherited policy. They are recursive handles over one runtime router and one underlying dispatcher.
 
 ```go
-// Define nested structure
-usersV1SubRouter := router.SubRouterConfig{
-        PathPrefix: "/users", // Relative to /api/v1
-        Routes: []router.RouteDefinition{
-		router.RouteConfigBase{ Path: "/:id", Methods: []router.HttpMethod{router.MethodGet}, Handler: GetUserHandler },
-		router.RouteConfig[UserReq, UserResp]{ Path: "/info", Methods: []router.HttpMethod{router.MethodPost}, Codec: userCodec, Handler: UserInfoHandler },
-	},
-}
-apiV1SubRouter := router.SubRouterConfig{
-        PathPrefix: "/v1", // Relative to /api
-        SubRouters: []router.SubRouterConfig{usersV1SubRouter},
-        Routes: []router.RouteDefinition{
-		router.RouteConfigBase{ Path: "/status", Methods: []router.HttpMethod{router.MethodGet}, Handler: V1StatusHandler },
-	},
-}
-apiSubRouter := router.SubRouterConfig{
-        PathPrefix: "/api", // Root prefix for this group
-        SubRouters: []router.SubRouterConfig{apiV1SubRouter},
-        Routes: []router.RouteDefinition{
-		router.RouteConfigBase{ Path: "/health", Methods: []router.HttpMethod{router.MethodGet}, Handler: HealthHandler },
-	},
-}
+r := router.NewRouter[string, User](routerConfig, authFunction, userIDFromUser)
 
-// Register top-level sub-router during NewRouter
-routerConfig := router.RouterConfig{ Logger: logger, SubRouters: []router.SubRouterConfig{apiSubRouter}, ... }
-r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+api := r.Group("/api").
+    Timeout(3 * time.Second).
+    MaxBodySize(2 << 20).
+    Use(apiMiddleware)
 
-// Routes are now registered:
-// GET /api/health
-// GET /api/v1/status
-// GET /api/v1/users/:id
-// POST /api/v1/users/info
+v1 := api.Group("/v1").Auth(router.AuthRequired)
+users := v1.Group("/users")
+
+users.Route(
+    router.RouteConfigBase{
+        Path:    "/:id",
+        Methods: []router.HttpMethod{router.MethodGet},
+        Handler: GetUserHandler,
+    },
+    router.RouteConfig[CreateUserReq, CreateUserResp]{
+        Path:    "",
+        Methods: []router.HttpMethod{router.MethodPost},
+        Codec:   codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
+        Handler: CreateUserHandler,
+    },
+)
+
+if err := r.Build(); err != nil {
+    log.Fatal(err)
+}
 ```
+
+This registers `GET /api/v1/users/:id` and `POST /api/v1/users`. Group policy inherits per setting; `Timeout(0)`, `MaxBodySize(0)`, and `RateLimit(nil)` explicitly disable inherited values. Middleware executes global, then outer group to inner group, then route.
+
+Keep group handles when separate packages add routes. There is no prefix lookup API and route registration is frozen after `Build` or the first request. See [Route groups](docs/route-groups.md) for recursion, inheritance, validation, and lifecycle details.
 
 ### Using Generic Routes
 
@@ -281,7 +220,7 @@ func CreateUserHandler(r *http.Request, req CreateUserReq) (CreateUserResp, erro
 
 // Register directly on the root router. Req and Resp stay attached to the config,
 // and global settings plus route overrides are resolved automatically.
-r.RegisterRoute(router.RouteConfig[CreateUserReq, CreateUserResp]{
+r.Route(router.RouteConfig[CreateUserReq, CreateUserResp]{
 	Path:      "/standalone/users",
 	Methods:   []router.HttpMethod{router.MethodPost},
 	AuthLevel: new(router.AuthRequired),
@@ -291,9 +230,9 @@ r.RegisterRoute(router.RouteConfig[CreateUserReq, CreateUserResp]{
 })
 ```
 
-`RegisterRoute` accepts both standard `RouteConfigBase` values and typed
+`Route` accepts both standard `RouteConfigBase` values and typed
 `RouteConfig[Req, Resp]` values. The typed request/response pipeline remains intact,
-and the same config can be placed directly in `SubRouterConfig.Routes`.
+and the same config can be placed directly in a `RouteGroup`.
 
 ### Using Path Parameters
 
@@ -318,11 +257,11 @@ func GetUserHandler(w http.ResponseWriter, r *http.Request) {
 
 SRouter supports WebSocket connections by allowing you to disable the automatic request timeout for specific routes. This is crucial for long-lived connections.
 
-To enable WebSocket support for a route, set the `DisableTimeout` flag to `true` in your `RouteConfigBase`. This will prevent the global or sub-router timeout from terminating the connection. This is also useful for other long-lived connections such as Server-Sent Events (SSE).
+To enable WebSocket support for a route, set the `DisableTimeout` flag to `true` in your `RouteConfigBase`. This will prevent the global or route-group timeout from terminating the connection. This is also useful for other long-lived connections such as Server-Sent Events (SSE).
 
 ```go
 // Register a WebSocket route
-r.RegisterRoute(router.RouteConfigBase{
+r.Route(router.RouteConfigBase{
     Path:        "/ws",
     Methods:     []router.HttpMethod{router.MethodGet},
     DisableTimeout: true, // Disables timeout for this route
@@ -531,7 +470,7 @@ See the `examples/middleware` directory for examples of using IP configuration.
 
 ### Rate Limiting
 
-SRouter provides a flexible rate limiting system using `common.RateLimitConfig` (defined in `pkg/common/types.go`) that can be configured at the global, sub-router, or route level. Rate limits can be based on IP address, authenticated user, or custom criteria. Under the hood, SRouter uses [Uber's ratelimit library](https://github.com/uber-go/ratelimit) via the `middleware.RateLimit` function for efficient and smooth rate limiting with a leaky bucket algorithm.
+SRouter provides a flexible rate limiting system using `common.RateLimitConfig` (defined in `pkg/common/types.go`) that can be configured at the global, route-group, or route level. Rate limits can be based on IP address, authenticated user, or custom criteria. Under the hood, SRouter uses [Uber's ratelimit library](https://github.com/uber-go/ratelimit) via the `middleware.RateLimit` function for efficient and smooth rate limiting with a leaky bucket algorithm.
 
 #### Rate Limiting Configuration
 
@@ -547,29 +486,26 @@ routerConfig := router.RouterConfig{
     },
 }
 
-// Create a sub-router with rate limiting override
-subRouter := router.SubRouterConfig{
-    PathPrefix: "/api/v1",
-    Overrides: common.RouteOverrides{
-        RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-            BucketName: "api_v1_user_limit",
-            Limit:      50,
-            Window:     time.Hour,
-            Strategy:   common.StrategyUser, // Requires auth middleware first
-        },
-    },
-    // ... other config
-}
+// Create the router, then override rate limiting for a route group.
+r := router.NewRouter[string, User](routerConfig, authFunction, userIDFromUser)
+apiV1 := r.Group("/api/v1").RateLimit(&common.RateLimitConfig[any, any]{
+    BucketName: "api_v1_user_limit",
+    Limit:      50,
+    Window:     time.Hour,
+    Strategy:   common.StrategyUser,
+})
 
 // Create a route with rate limiting
 route := router.RouteConfig[MyReq, MyResp]{ // Use specific types for route config
     Path:    "/users",
     Methods: []router.HttpMethod{router.MethodPost},
-    RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-        BucketName: "create_user_ip_limit",
-        Limit:      10,
-        Window:     time.Minute,
-        Strategy:   common.StrategyIP,
+    Overrides: common.RouteOverrides{
+        RateLimit: &common.RateLimitConfig[any, any]{
+            BucketName: "create_user_ip_limit",
+            Limit:      10,
+            Window:     time.Minute,
+            Strategy:   common.StrategyIP,
+        },
     },
     // ... other config
 }
@@ -690,7 +626,7 @@ SRouter supports three authentication levels, specified in `RouteConfig` or `Rou
 2. **AuthOptional**: Authentication is attempted (e.g., by middleware). If successful, user info is added to the context. The request proceeds regardless.
 3. **AuthRequired**: Authentication is required (e.g., by middleware). If authentication fails, the middleware should reject the request (e.g., with 401 Unauthorized). If successful, user info is added to the context.
 
-When using the built-in `AuthOptional`/`AuthRequired` middleware, the token is extracted from the configured auth token source. The default source is the `Authorization` header. Cookie-based auth can be enabled globally with `RouterConfig.GlobalAuthToken`, or overridden on a sub-router or route with `common.RouteOverrides.AuthToken`. Precedence is route override, current or inherited sub-router override, global config, then the built-in `Authorization` header default.
+When using the built-in `AuthOptional`/`AuthRequired` middleware, the token is extracted from the configured auth token source. The default source is the `Authorization` header. Cookie-based auth can be enabled globally with `RouterConfig.GlobalAuthToken`, overridden on a route group with `AuthToken`, or overridden per route with `common.RouteOverrides.AuthToken`. Precedence is route, innermost group, outer groups, global config, then the built-in default.
 
 ```go
 // Example route configurations
@@ -744,7 +680,7 @@ func MyAuthMiddleware(authService MyAuthService) common.Middleware {
     }
 }
 
-// Apply middleware globally or per-route/sub-router
+// Apply middleware globally; use group.Use or route.Middlewares for narrower scope.
 routerConfig := router.RouterConfig{
     Logger: logger, // Required
     Middlewares: []common.Middleware{ MyAuthMiddleware(myService) },
@@ -1044,7 +980,7 @@ func NewXMLCodec[T any, U any]() *XMLCodec[T, U] {
  return &XMLCodec[T, U]{}
 }
 
-// This value can be placed directly in SubRouterConfig.Routes.
+// This value can be registered directly on a Router or RouteGroup.
 xmlRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
 	Path:      "/api/users",
 	Methods:   []router.HttpMethod{router.MethodPost},
@@ -1052,7 +988,7 @@ xmlRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
 	Codec:     NewXMLCodec[CreateUserReq, CreateUserResp](),
 	Handler:   CreateUserHandler, // Assume handler exists
 }
-// Add xmlRoute to SubRouterConfig.Routes.
+r.Route(xmlRoute)
 ```
 
 ### Metrics
@@ -1149,9 +1085,9 @@ SRouter includes several examples to help you get started:
 - **examples/custom-metrics**: An example of using custom metrics with SRouter
 - **examples/rate-limiting**: An example of using rate limiting with SRouter
 - **examples/source-types**: An example of using different source types for request data
-- **examples/subrouters**: An example of using sub-routers with SRouter
-- **examples/subrouter-generic-routes**: An example of using generic routes with sub-routers (declarative registration)
-- **examples/nested-subrouters**: An example of nesting sub-routers for hierarchical routing (declarative registration)
+- **examples/subrouters**: An example of route-group policies and middleware
+- **examples/subrouter-generic-routes**: An example of generic routes on groups
+- **examples/nested-subrouters**: An example of recursive route groups
 - **examples/trace-logging**: An example of using trace ID logging with SRouter
 - **examples/caching**: An example of implementing response caching using middleware (Note: Built-in config removed)
 
@@ -1173,8 +1109,7 @@ type RouterConfig struct {
 TraceLoggingUseInfo bool                             // Log traces at Info level instead of Debug (default: false)
 TraceIDBufferSize  int                               // Buffer size for trace ID generator (0 disables trace ID generation, >0 enables it)
  MetricsConfig      *router.MetricsConfig             // Metrics configuration (non-nil to enable metrics)
- SubRouters         []SubRouterConfig                 // Sub-routers with their own configurations
- Middlewares        []common.Middleware               // Global middlewares applied to all routes (uses common.Middleware)
+	 Middlewares        []common.Middleware               // Global middlewares applied to all routes (uses common.Middleware)
  AddUserObjectToCtx bool                              // Add user object to context (used by built-in auth middleware)
 }
 ```
@@ -1212,28 +1147,28 @@ type MetricsConfig struct {
 }
 ```
 
-### SubRouterConfig
+### RouteGroup
 
 ```go
-type SubRouterConfig struct {
- PathPrefix       string                // Common path prefix for all routes in this sub-router
- Overrides        common.RouteOverrides // Timeout/body size/rate limit/auth token overrides for this sub-router
- IsolateOverrides bool                  // Ignore parent sub-router overrides; globals still apply
- Routes           []RouteDefinition     // RouteConfigBase or typed RouteConfig values
- Middlewares      []common.Middleware   // Middlewares applied to all routes in this sub-router
- SubRouters       []SubRouterConfig     // Nested sub-routers
- AuthLevel        *AuthLevel            // Default auth level for routes in this sub-router (nil inherits)
- // CacheResponse, CacheKeyPrefix removed - implement caching via middleware if needed
-}
+r.Group(prefix) *RouteGroup
+group.Group(prefix) *RouteGroup
+group.Route(routes ...RouteDefinition) *RouteGroup
+group.Use(middlewares ...common.Middleware) *RouteGroup
+group.Timeout(timeout time.Duration) *RouteGroup
+group.MaxBodySize(bytes int64) *RouteGroup
+group.RateLimit(config *common.RateLimitConfig[any, any]) *RouteGroup
+group.AuthToken(config *common.AuthTokenConfig) *RouteGroup
+group.Auth(level AuthLevel) *RouteGroup
+r.Build() error
 ```
 
 ### RouteConfigBase
 
 ```go
 type RouteConfigBase struct {
- Path        string                            // Route path (will be prefixed with sub-router path prefix if applicable)
+ Path        string                            // Root path or path relative to a RouteGroup
  Methods     []HttpMethod                      // HTTP methods this route handles (use constants like MethodGet)
- AuthLevel   *AuthLevel                        // Authentication level (nil uses sub-router default)
+ AuthLevel   *AuthLevel                        // Authentication level (nil uses the group default)
  Overrides   common.RouteOverrides             // Optional per-route overrides
  Handler     http.HandlerFunc                  // Standard HTTP handler function
  Middlewares []common.Middleware               // Middlewares applied to this specific route
@@ -1245,9 +1180,9 @@ type RouteConfigBase struct {
 
 ```go
 type RouteConfig[T any, U any] struct {
- Path        string                            // Route path (will be prefixed with sub-router path prefix if applicable)
+ Path        string                            // Root path or path relative to a RouteGroup
  Methods     []HttpMethod                      // HTTP methods this route handles (use constants like MethodGet)
- AuthLevel   *AuthLevel                        // Authentication level (nil uses sub-router default)
+ AuthLevel   *AuthLevel                        // Authentication level (nil uses the group default)
  Overrides   common.RouteOverrides             // Optional per-route overrides
  Codec       Codec[T, U]                       // Codec for marshaling/unmarshaling request and response. Required.
  Handler     GenericHandler[T, U]              // Generic handler function. Required.
@@ -1350,7 +1285,7 @@ middleware.NewAPIKeyWithUserMiddleware[T comparable, U any](getUserFunc func(key
 Limits the size of the request body (Applied internally based on config).
 
 ```go
-// Configured via RouterConfig/SubRouterConfig/RouteConfig
+// Configured via RouterConfig, RouteGroup.MaxBodySize, or RouteConfig.Overrides
 ```
 
 ### Timeout
@@ -1358,7 +1293,7 @@ Limits the size of the request body (Applied internally based on config).
 Sets a timeout for the request (Applied internally based on config).
 
 ```go
-// Configured via RouterConfig/SubRouterConfig/RouteConfig
+// Configured via RouterConfig, RouteGroup.Timeout, or RouteConfig.Overrides
 ```
 
 ### CORS
@@ -1519,7 +1454,7 @@ SRouter uses julienschmidt/httprouter's O(1) or O(log n) path matching algorithm
 
 ### Middleware Ordering
 
-The order of middlewares matters. Middlewares applied via `RouterConfig` or `SubRouterConfig` are executed before route-specific middleware. The internal `wrapHandler` applies middleware in a specific order (see source code for details, generally: timeout, body limit, global, sub-router, route, handler, with internal middleware like recovery, auth, rate limiting interleaved).
+Public middleware executes from broadest to narrowest scope: `RouterConfig.Middlewares`, outer route groups, inner route groups, route middleware, then the handler. Internal recovery, tracing, authentication, and rate limiting wrap that public chain; timeout and body limiting are applied closest to the handler.
 
 ### Memory Allocation
 

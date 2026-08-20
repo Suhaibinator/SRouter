@@ -31,7 +31,7 @@ SRouter aims to minimize memory allocations in the hot path (request processing)
 
 ### Timeouts
 
-Setting appropriate timeouts via `GlobalTimeout`, `SubRouterConfig.Overrides.Timeout`, and route-level `Overrides.Timeout` is crucial for both performance and stability:
+Setting appropriate timeouts via `GlobalTimeout`, `RouteGroup.Timeout`, and route-level `Overrides.Timeout` is crucial for both performance and stability:
 
 -   Prevents slow client connections or long-running handlers from consuming server resources indefinitely.
 -   Helps protect against certain types of Denial-of-Service (DoS) attacks.
@@ -41,7 +41,7 @@ Set timeouts based on the expected latency of the underlying operations for each
 
 ### Body Size Limits
 
-Configuring maximum request body sizes using `GlobalMaxBodySize`, `SubRouterConfig.Overrides.MaxBodySize`, and route-level `Overrides.MaxBodySize` is important for:
+Configuring maximum request body sizes using `GlobalMaxBodySize`, `RouteGroup.MaxBodySize`, and route-level `Overrides.MaxBodySize` is important for:
 
 -   **Security**: Prevents DoS attacks where clients send excessively large request bodies to exhaust server memory or bandwidth.
 -   **Performance**: Avoids processing unnecessarily large amounts of data.
@@ -142,7 +142,7 @@ SRouter itself does not perform deep inspection or validation of the data fields
 
 #### SRouter's Built-in Mechanisms
 
-*   **Body Size Limits:** Request body size is limited via `Overrides.MaxBodySize` (an `int64` on `common.RouteOverrides`, settable at the global, sub-router, or route level), which can help prevent certain types of denial-of-service attacks caused by excessively large payloads.
+*   **Body Size Limits:** Request body size is configurable globally, on route groups, or per route, which helps prevent denial-of-service attacks caused by excessively large payloads.
 *   **Generic Route Sanitizer:** A generic `RouteConfig` accepts an optional `Sanitizer` function with the signature `func(T) (T, error)`.
     *   This function is executed *before* the main handler and *after* the request body has been read (subject to the effective `MaxBodySize` limit).
     *   It can be used to perform both **sanitization** (modifying the input to remove malicious parts) and **validation** (checking if the input conforms to expected formats, ranges, or patterns).

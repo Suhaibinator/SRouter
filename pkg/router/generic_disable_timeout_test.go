@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
-	"github.com/Suhaibinator/SRouter/pkg/common"
 	"go.uber.org/zap"
 )
 
@@ -32,14 +31,11 @@ func TestGenericRouteDefinitionDisableTimeoutBypassesGlobalTimeout(t *testing.T)
 	r := NewRouter[string, string](RouterConfig{
 		Logger:        zap.NewNop(),
 		GlobalTimeout: 25 * time.Millisecond,
-		SubRouters: []SubRouterConfig{{
-			PathPrefix: "/api",
-			Routes: []RouteDefinition{
-				newGenericRoute("/slow-disabled", true),
-				newGenericRoute("/slow-enabled", false),
-			},
-		}},
 	}, nil, nil)
+	r.Group("/api").Route(
+		newGenericRoute("/slow-disabled", true),
+		newGenericRoute("/slow-enabled", false),
+	)
 
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/slow-disabled", nil))
@@ -55,20 +51,15 @@ func TestGenericRouteDefinitionDisableTimeoutBypassesGlobalTimeout(t *testing.T)
 	}
 }
 
-func TestRegisterRouteOnSubRouterDisableTimeoutBypassesSubRouterTimeout(t *testing.T) {
+func TestGroupRouteDisableTimeoutBypassesGroupTimeout(t *testing.T) {
 	r := NewRouter[string, string](RouterConfig{
 		Logger: zap.NewNop(),
-		SubRouters: []SubRouterConfig{{
-			PathPrefix: "/api",
-			Overrides: common.RouteOverrides{
-				Timeout: 25 * time.Millisecond,
-			},
-		}},
 	}, nil, nil)
+	api := r.Group("/api").Timeout(25 * time.Millisecond)
 
 	registerGenericRoute := func(path string, disableTimeout bool) {
 		t.Helper()
-		err := r.RegisterRouteOnSubRouter("/api", RouteConfig[struct{}, map[string]string]{
+		api.Route(RouteConfig[struct{}, map[string]string]{
 			Path:           path,
 			Methods:        []HttpMethod{MethodGet},
 			Codec:          codec.NewJSONCodec[struct{}, map[string]string](),
@@ -76,9 +67,6 @@ func TestRegisterRouteOnSubRouterDisableTimeoutBypassesSubRouterTimeout(t *testi
 			DisableTimeout: disableTimeout,
 			Handler:        slowGenericHandler,
 		})
-		if err != nil {
-			t.Fatalf("RegisterRouteOnSubRouter failed: %v", err)
-		}
 	}
 
 	registerGenericRoute("/slow-disabled", true)
@@ -90,7 +78,7 @@ func TestRegisterRouteOnSubRouterDisableTimeoutBypassesSubRouterTimeout(t *testi
 		t.Fatalf("expected disabled timeout dynamic generic route to complete with 200, got %d body %q", rr.Code, rr.Body.String())
 	}
 
-	// Negative control: the same route without DisableTimeout must hit the sub-router timeout.
+	// Negative control: the same route without DisableTimeout must hit the route group timeout.
 	rr = httptest.NewRecorder()
 	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/slow-enabled", nil))
 	if rr.Code != http.StatusRequestTimeout {

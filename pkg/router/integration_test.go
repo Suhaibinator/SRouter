@@ -15,48 +15,16 @@ import (
 	"go.uber.org/zap"
 )
 
-// TestSubRouterIntegration tests that sub-routers work correctly
-func TestSubRouterIntegration(t *testing.T) {
+// TestRouteGroupIntegration tests that route groups work correctly
+func TestRouteGroupIntegration(t *testing.T) {
 	// Create a logger
 	logger, _ := zap.NewDevelopment()
 
-	// Create a router with sub-routers and string as both the user ID and user type
+	// Create a router with route groups and string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger:            logger,
 		GlobalTimeout:     1 * time.Second,
 		GlobalMaxBodySize: 1024, // 1 KB
-		SubRouters: []SubRouterConfig{
-			{
-				PathPrefix: "/api/v1",
-				Overrides: common.RouteOverrides{
-					Timeout:     2 * time.Second,
-					MaxBodySize: 2048, // 2 KB
-				},
-				Routes: []RouteDefinition{
-					RouteConfigBase{
-						Path:    "/users",
-						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							w.Header().Set("Content-Type", "application/json")
-							_, _ = w.Write([]byte(`{"users":["user1","user2"]}`))
-						},
-					},
-				},
-			},
-			{
-				PathPrefix: "/api/v2",
-				Routes: []RouteDefinition{
-					RouteConfigBase{
-						Path:    "/users",
-						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							w.Header().Set("Content-Type", "application/json")
-							_, _ = w.Write([]byte(`{"users":["user3","user4"]}`))
-						},
-					},
-				},
-			},
-		},
 	},
 		// Mock auth function that always returns invalid
 		func(ctx context.Context, token string) (*string, bool) {
@@ -69,8 +37,24 @@ func TestSubRouterIntegration(t *testing.T) {
 			}
 			return *user // Dereference pointer
 		})
+	r.Group("/api/v1").Timeout(2 * time.Second).MaxBodySize(2048).Route(RouteConfigBase{
+		Path:    "/users",
+		Methods: []HttpMethod{MethodGet},
+		Handler: func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"users":["user1","user2"]}`))
+		},
+	})
+	r.Group("/api/v2").Route(RouteConfigBase{
+		Path:    "/users",
+		Methods: []HttpMethod{MethodGet},
+		Handler: func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"users":["user3","user4"]}`))
+		},
+	})
 
-	// Test the first sub-router
+	// Test the first route group
 	req, _ := http.NewRequest("GET", "/api/v1/users", nil)
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
@@ -86,7 +70,7 @@ func TestSubRouterIntegration(t *testing.T) {
 		t.Errorf("Expected response body %q, got %q", expected, rr.Body.String())
 	}
 
-	// Test the second sub-router
+	// Test the second route group
 	req, _ = http.NewRequest("GET", "/api/v2/users", nil)
 	rr = httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
@@ -111,32 +95,6 @@ func TestPathParameters(t *testing.T) {
 	// Create a router with a route that has path parameters and string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger: logger,
-		SubRouters: []SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Routes: []RouteDefinition{
-					RouteConfigBase{
-						Path:    "/users/:id",
-						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							id := GetParam(r, "id")
-							w.Header().Set("Content-Type", "application/json")
-							_, _ = w.Write([]byte(`{"id":"` + id + `"}`))
-						},
-					},
-					RouteConfigBase{ // Add explicit type
-						Path:    "/posts/:postId/comments/:commentId",
-						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							postId := GetParam(r, "postId")
-							commentId := GetParam(r, "commentId")
-							w.Header().Set("Content-Type", "application/json")
-							_, _ = w.Write([]byte(`{"postId":"` + postId + `","commentId":"` + commentId + `"}`))
-						},
-					},
-				},
-			},
-		},
 	},
 		// Mock auth function that always returns invalid
 		func(ctx context.Context, token string) (*string, bool) {
@@ -149,6 +107,27 @@ func TestPathParameters(t *testing.T) {
 			}
 			return *user // Dereference pointer
 		})
+	r.Group("/api").Route(
+		RouteConfigBase{
+			Path:    "/users/:id",
+			Methods: []HttpMethod{MethodGet},
+			Handler: func(w http.ResponseWriter, req *http.Request) {
+				id := GetParam(req, "id")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"` + id + `"}`))
+			},
+		},
+		RouteConfigBase{
+			Path:    "/posts/:postId/comments/:commentId",
+			Methods: []HttpMethod{MethodGet},
+			Handler: func(w http.ResponseWriter, req *http.Request) {
+				postID := GetParam(req, "postId")
+				commentID := GetParam(req, "commentId")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"postId":"` + postID + `","commentId":"` + commentID + `"}`))
+			},
+		},
+	)
 
 	// Test the first route
 	req, _ := http.NewRequest("GET", "/api/users/123", nil)
@@ -192,57 +171,42 @@ func TestTimeoutOverrides(t *testing.T) {
 	r := NewRouter(RouterConfig{
 		Logger:        logger,
 		GlobalTimeout: 100 * time.Millisecond,
-		SubRouters: []SubRouterConfig{
-			{
-				PathPrefix: "/api/v1",
-				Overrides: common.RouteOverrides{
-					Timeout: 50 * time.Millisecond,
-				},
-				Routes: []RouteDefinition{
-					RouteConfigBase{
-						Path:    "/fast",
-						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							// This handler returns immediately
-							w.WriteHeader(http.StatusOK)
-						},
-					},
-					RouteConfigBase{ // Add explicit type
-						Path:    "/slow",
-						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							// This handler sleeps for 200ms, which is longer than the timeout
-							time.Sleep(200 * time.Millisecond)
-							w.WriteHeader(http.StatusOK)
-						},
-					},
-					RouteConfigBase{ // Add explicit type
-						Path:    "/custom-timeout",
-						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-						Overrides: common.RouteOverrides{
-							Timeout: 300 * time.Millisecond,
-						},
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							// This handler sleeps for 200ms, which is shorter than the custom timeout
-							time.Sleep(200 * time.Millisecond)
-							w.WriteHeader(http.StatusOK)
-						},
-					},
-				},
-			},
-		},
 	},
-		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (*string, bool) {
-			return nil, false // Return nil pointer for user
-		},
-		// Mock user ID function that returns the string itself
+		func(ctx context.Context, token string) (*string, bool) { return nil, false },
 		func(user *string) string {
 			if user == nil {
-				return "" // Handle nil pointer case
+				return ""
 			}
-			return *user // Dereference pointer
+			return *user
 		})
+	r.Group("/api/v1").Timeout(50*time.Millisecond).Route(
+		RouteConfigBase{
+			Path:    "/fast",
+			Methods: []HttpMethod{MethodGet},
+			Handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			},
+		},
+		RouteConfigBase{
+			Path:    "/slow",
+			Methods: []HttpMethod{MethodGet},
+			Handler: func(w http.ResponseWriter, _ *http.Request) {
+				time.Sleep(200 * time.Millisecond)
+				w.WriteHeader(http.StatusOK)
+			},
+		},
+		RouteConfigBase{
+			Path:    "/custom-timeout",
+			Methods: []HttpMethod{MethodGet},
+			Overrides: common.RouteOverrides{
+				Timeout: 300 * time.Millisecond,
+			},
+			Handler: func(w http.ResponseWriter, _ *http.Request) {
+				time.Sleep(200 * time.Millisecond)
+				w.WriteHeader(http.StatusOK)
+			},
+		},
+	)
 
 	// Test the fast route
 	req, _ := http.NewRequest("GET", "/api/v1/fast", nil)
@@ -284,57 +248,43 @@ func TestMaxBodySizeOverrides(t *testing.T) {
 	r := NewRouter(RouterConfig{
 		Logger:            logger,
 		GlobalMaxBodySize: 10, // 10 bytes
-		SubRouters: []SubRouterConfig{
-			{
-				PathPrefix: "/api/v1",
-				Overrides: common.RouteOverrides{
-					MaxBodySize: 20, // 20 bytes
-				},
-				Routes: []RouteDefinition{
-					RouteConfigBase{
-						Path:    "/small",
-						Methods: []HttpMethod{MethodPost}, // Use HttpMethod enum
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							// Read the body
-							_, err := io.ReadAll(r.Body)
-							if err != nil {
-								http.Error(w, err.Error(), http.StatusInternalServerError)
-								return
-							}
-							w.WriteHeader(http.StatusOK)
-						},
-					},
-					RouteConfigBase{ // Add explicit type
-						Path:    "/large",
-						Methods: []HttpMethod{MethodPost}, // Use HttpMethod enum
-						Overrides: common.RouteOverrides{
-							MaxBodySize: 100, // 100 bytes
-						},
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							// Read the body
-							_, err := io.ReadAll(r.Body)
-							if err != nil {
-								http.Error(w, err.Error(), http.StatusInternalServerError)
-								return
-							}
-							w.WriteHeader(http.StatusOK)
-						},
-					},
-				},
-			},
-		},
 	},
-		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (*string, bool) {
-			return nil, false // Return nil pointer for user
-		},
-		// Mock user ID function that returns the string itself
+		func(ctx context.Context, token string) (*string, bool) { return nil, false },
 		func(user *string) string {
 			if user == nil {
-				return "" // Handle nil pointer case
+				return ""
 			}
-			return *user // Dereference pointer
+			return *user
 		})
+	r.Group("/api/v1").MaxBodySize(20).Route(
+		RouteConfigBase{
+			Path:    "/small",
+			Methods: []HttpMethod{MethodPost},
+			Handler: func(w http.ResponseWriter, req *http.Request) {
+				_, err := io.ReadAll(req.Body)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+			},
+		},
+		RouteConfigBase{
+			Path:    "/large",
+			Methods: []HttpMethod{MethodPost},
+			Overrides: common.RouteOverrides{
+				MaxBodySize: 100,
+			},
+			Handler: func(w http.ResponseWriter, req *http.Request) {
+				_, err := io.ReadAll(req.Body)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+			},
+		},
+	)
 
 	// Test the small route with a small body
 	req, _ := http.NewRequest("POST", "/api/v1/small", strings.NewReader("small"))
@@ -399,7 +349,7 @@ func TestGenericRouteIntegration(t *testing.T) {
 		})
 
 	// Register a generic route
-	r.RegisterRoute(RouteConfig[TestRequest, TestResponse]{
+	r.Route(RouteConfig[TestRequest, TestResponse]{
 		Path:    "/greet",
 		Methods: []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:   codec.NewJSONCodec[TestRequest, TestResponse](),
@@ -455,54 +405,35 @@ func TestMiddlewareIntegration(t *testing.T) {
 			Headers: []string{"Content-Type"},
 			MaxAge:  time.Hour,
 		},
-		Middlewares: []common.Middleware{
-			// CORS middleware removed, handled by RouterConfig.CORSConfig now
-		},
-		SubRouters: []SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Middlewares: []common.Middleware{
-					func(next http.Handler) http.Handler {
-						return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-							// Add a custom header
-							w.Header().Set("X-API-Version", "1.0")
-							next.ServeHTTP(w, r)
-						})
-					},
-				},
-				Routes: []RouteDefinition{
-					RouteConfigBase{
-						Path:    "/test",
-						Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
-						Middlewares: []common.Middleware{
-							func(next http.Handler) http.Handler {
-								return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-									// Add another custom header
-									w.Header().Set("X-Route", "test")
-									next.ServeHTTP(w, r)
-								})
-							},
-						},
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							w.WriteHeader(http.StatusOK)
-							_, _ = w.Write([]byte("OK"))
-						},
-					},
-				},
-			},
-		},
 	},
-		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (*string, bool) {
-			return nil, false // Return nil pointer for user
-		},
-		// Mock user ID function that returns the string itself
+		func(ctx context.Context, token string) (*string, bool) { return nil, false },
 		func(user *string) string {
 			if user == nil {
-				return "" // Handle nil pointer case
+				return ""
 			}
-			return *user // Dereference pointer
+			return *user
 		})
+	r.Group("/api").Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			w.Header().Set("X-API-Version", "1.0")
+			next.ServeHTTP(w, req)
+		})
+	}).Route(RouteConfigBase{
+		Path:    "/test",
+		Methods: []HttpMethod{MethodGet},
+		Middlewares: []common.Middleware{
+			func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+					w.Header().Set("X-Route", "test")
+					next.ServeHTTP(w, req)
+				})
+			},
+		},
+		Handler: func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("OK"))
+		},
+	})
 
 	// Create a request simulating a cross-origin request
 	req, _ := http.NewRequest("GET", "/api/test", nil)
@@ -558,7 +489,7 @@ func TestGracefulShutdown(t *testing.T) {
 		})
 
 	// Register a route that sleeps
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/sleep",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -644,7 +575,7 @@ func TestEdgeCases(t *testing.T) {
 		})
 
 	// Register a route with a root path
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -654,7 +585,7 @@ func TestEdgeCases(t *testing.T) {
 	})
 
 	// Register a route with a trailing slash
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/trailing/",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -664,7 +595,7 @@ func TestEdgeCases(t *testing.T) {
 	})
 
 	// Register a route with special characters
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/special/:param",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -675,7 +606,7 @@ func TestEdgeCases(t *testing.T) {
 	})
 
 	// Register a route with multiple methods
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/methods",
 		Methods: []HttpMethod{MethodGet, MethodPost, MethodPut, MethodDelete}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {

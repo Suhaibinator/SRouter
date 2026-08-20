@@ -249,6 +249,20 @@ func WithClientIP[T comparable, U any](ctx context.Context, ip string) context.C
 	return ctx
 }
 
+// WithClientInfo adds the client IP address and user agent to the context in a
+// single initialization step. Routers should prefer this when both values are
+// available so the shared request context is resolved and locked only once.
+func WithClientInfo[T comparable, U any](ctx context.Context, ip, userAgent string) context.Context {
+	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
+	rc.ClientIP = ip
+	rc.ClientIPSet = true
+	rc.UserAgent = userAgent
+	rc.UserAgentSet = true
+	rc.mu.Unlock()
+	return ctx
+}
+
 // GetClientIP retrieves the client IP address from the context.
 // It returns the IP address and a boolean indicating whether it was found.
 // If no client IP is set, it returns an empty string and false.
@@ -398,12 +412,43 @@ func GetTraceIDFromRequest[T comparable, U any](r *http.Request) string {
 // T is the User ID type (comparable), U is the User object type (any).
 func WithRouteInfo[T comparable, U any](ctx context.Context, params httprouter.Params, routeTemplate string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	SetRouteInfo(rc, params, routeTemplate)
+	return ctx
+}
+
+// SetRouteInfo updates route information on an existing SRouterContext without
+// creating another context wrapper. Router dispatch uses this after request
+// metadata has initialized the shared context.
+func SetRouteInfo[T comparable, U any](rc *SRouterContext[T, U], params httprouter.Params, routeTemplate string) {
 	rc.mu.Lock()
 	rc.PathParams = params
 	rc.RouteTemplate = routeTemplate
 	rc.RouteTemplateSet = true
 	rc.mu.Unlock()
-	return ctx
+}
+
+type pathParamsProvider interface {
+	getPathParams() (httprouter.Params, bool)
+}
+
+func (rc *SRouterContext[T, U]) getPathParams() (httprouter.Params, bool) {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.RouteTemplateSet {
+		return nil, false
+	}
+	return rc.PathParams, true
+}
+
+// GetPathParams retrieves path parameters without requiring the caller to know
+// the router's user ID and user types. The context still contains the single
+// typed SRouterContext used by all other request metadata.
+func GetPathParams(ctx context.Context) (httprouter.Params, bool) {
+	provider, ok := ctx.Value(sRouterContextKey{}).(pathParamsProvider)
+	if !ok {
+		return nil, false
+	}
+	return provider.getPathParams()
 }
 
 // GetRouteTemplateFromContext retrieves the route template from the context.
@@ -440,12 +485,7 @@ func GetPathParamsFromContext[T comparable, U any](ctx context.Context) (httprou
 	if !ok {
 		return nil, false
 	}
-	rc.mu.RLock()
-	defer rc.mu.RUnlock()
-	if !rc.RouteTemplateSet { // Use RouteTemplateSet as indicator that params are also set
-		return nil, false
-	}
-	return rc.PathParams, true
+	return rc.getPathParams()
 }
 
 // GetPathParamsFromRequest is a convenience function that extracts path parameters from an http.Request.

@@ -37,14 +37,15 @@ type TestData struct {
 // TestRouteMatching tests that routes are matched correctly
 func TestRouteMatching(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Routes: []RouteDefinition{RouteConfigBase{Path: "/users/:id", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
-		id := GetParam(r, "id")
+	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r.Group("/api").Route(RouteConfigBase{Path: "/users/:id", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) {
+		id := GetParam(req, "id")
 		_, err := w.Write([]byte("User ID: " + id))
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
 			return
 		}
-	}}}}}}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	}})
 	server := httptest.NewServer(r)
 	defer server.Close()
 	resp, err := http.Get(server.URL + "/api/users/123")
@@ -64,10 +65,11 @@ func TestRouteMatching(t *testing.T) {
 	}
 }
 
-// TestSubRouterOverrides tests that sub-router overrides work correctly
-func TestSubRouterOverrides(t *testing.T) {
+// TestRouteGroupOverrides tests that route group overrides work correctly
+func TestRouteGroupOverrides(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 1 * time.Second, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Overrides: common.RouteOverrides{Timeout: 2 * time.Second}, Routes: []RouteDefinition{
+	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 1 * time.Second}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r.Group("/api").Timeout(2*time.Second).Route(
 		RouteConfigBase{Path: "/slow", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(1500 * time.Millisecond)
 			_, err := w.Write([]byte("Slow response"))
@@ -84,7 +86,7 @@ func TestSubRouterOverrides(t *testing.T) {
 				return
 			}
 		}},
-	}}}}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	)
 	server := httptest.NewServer(r)
 	defer server.Close()
 	respSlow, errSlow := http.Get(server.URL + "/api/slow")
@@ -108,7 +110,8 @@ func TestSubRouterOverrides(t *testing.T) {
 // TestBodySizeLimits tests that body size limits are enforced
 func TestBodySizeLimits(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger, GlobalMaxBodySize: 10, SubRouters: []SubRouterConfig{{PathPrefix: "/api", Overrides: common.RouteOverrides{MaxBodySize: 20}, Routes: []RouteDefinition{
+	r := NewRouter(RouterConfig{Logger: logger, GlobalMaxBodySize: 10}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r.Group("/api").MaxBodySize(20).Route(
 		RouteConfigBase{Path: "/small", Methods: []HttpMethod{MethodPost}, Overrides: common.RouteOverrides{MaxBodySize: 5}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			_, err := io.ReadAll(r.Body)
 			if err != nil {
@@ -143,7 +146,7 @@ func TestBodySizeLimits(t *testing.T) {
 				return
 			}
 		}},
-	}}}}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	)
 	server := httptest.NewServer(r)
 	defer server.Close()
 
@@ -200,7 +203,7 @@ func TestJSONCodec(t *testing.T) {
 	}
 	logger, _ := zap.NewProduction()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfig[RouterTestRequest, RouterTestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[RouterTestRequest, RouterTestResponse](), Handler: func(r *http.Request, req RouterTestRequest) (RouterTestResponse, error) {
+	r.Route(RouteConfig[RouterTestRequest, RouterTestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[RouterTestRequest, RouterTestResponse](), Handler: func(r *http.Request, req RouterTestRequest) (RouterTestResponse, error) {
 		return RouterTestResponse{Greeting: "Hello, " + req.Name + "!"}, nil
 	}})
 	server := httptest.NewServer(r)
@@ -254,26 +257,17 @@ func TestMiddlewareChaining(t *testing.T) {
 		},
 	}
 
-	// Define sub-router configuration
-	apiSubRouter := SubRouterConfig{
-		PathPrefix: "/api",
-		Middlewares: []common.Middleware{
-			addHeaderMiddleware("SubRouter", "true"),
-		},
-		Routes: []RouteDefinition{testRoute},
-	}
-
 	// Define global router configuration
 	routerConfig := RouterConfig{
 		Logger: logger,
 		Middlewares: []common.Middleware{
 			addHeaderMiddleware("Global", "true"),
 		},
-		SubRouters: []SubRouterConfig{apiSubRouter},
 	}
 
 	// Create the router
 	r := NewRouter(routerConfig, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r.Group("/api").Use(addHeaderMiddleware("RouteGroup", "true")).Route(testRoute)
 
 	// Create a test server
 	server := httptest.NewServer(r)
@@ -291,8 +285,8 @@ func TestMiddlewareChaining(t *testing.T) {
 	if resp.Header.Get("Global") != "true" {
 		t.Errorf("Expected Global header to be %q, got %q", "true", resp.Header.Get("Global"))
 	}
-	if resp.Header.Get("SubRouter") != "true" {
-		t.Errorf("Expected SubRouter header to be %q, got %q", "true", resp.Header.Get("SubRouter"))
+	if resp.Header.Get("RouteGroup") != "true" {
+		t.Errorf("Expected RouteGroup header to be %q, got %q", "true", resp.Header.Get("RouteGroup"))
 	}
 	if resp.Header.Get("Route") != "true" {
 		t.Errorf("Expected Route header to be %q, got %q", "true", resp.Header.Get("Route"))
@@ -303,7 +297,7 @@ func TestMiddlewareChaining(t *testing.T) {
 func TestShutdown(t *testing.T) {
 	logger, _ := zap.NewProduction()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{Path: "/slow", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r.Route(RouteConfigBase{Path: "/slow", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(500 * time.Millisecond)
 		_, err := w.Write([]byte("OK"))
 		if err != nil {
@@ -347,11 +341,11 @@ func TestShutdown(t *testing.T) {
 
 // --- Tests from router_additional_coverage_test.go ---
 
-// TestRegisterRoute tests the RegisterRoute function
-func TestRegisterRouteCoverage(t *testing.T) { // Renamed to avoid conflict
+// TestRouteCoverage exercises root route registration.
+func TestRouteCoverage(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{Path: "/direct", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r.Route(RouteConfigBase{Path: "/direct", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 		_, err := w.Write([]byte("Direct route"))
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
@@ -381,7 +375,7 @@ func TestRegisterRouteCoverage(t *testing.T) { // Renamed to avoid conflict
 func TestGetParamsCoverage(t *testing.T) { // Renamed to avoid conflict
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{Path: "/users/:id/posts/:postId", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
+	r.Route(RouteConfigBase{Path: "/users/:id/posts/:postId", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 		params := GetParams(r)
 		if len(params) != 2 {
 			t.Errorf("Expected 2 params, got %d", len(params))
@@ -458,8 +452,8 @@ func TestUserAuthCoverage(t *testing.T) { // Renamed to avoid conflict
 func TestSimpleErrorCoverage(t *testing.T) { // Renamed to avoid conflict
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfigBase{Path: "/error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) { http.Error(w, "Bad request", http.StatusBadRequest) }})
-	r.RegisterRoute(RouteConfigBase{Path: "/regular-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) {
+	r.Route(RouteConfigBase{Path: "/error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) { http.Error(w, "Bad request", http.StatusBadRequest) }})
+	r.Route(RouteConfigBase{Path: "/regular-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 	}})
 	server := httptest.NewServer(r)
@@ -490,51 +484,6 @@ func TestSimpleErrorCoverage(t *testing.T) { // Renamed to avoid conflict
 	}
 }
 
-// TestEffectiveSettings tests the getEffectiveTimeout, getEffectiveMaxBodySize, and getEffectiveRateLimit functions
-func TestEffectiveSettingsCoverage(t *testing.T) { // Renamed to avoid conflict
-	logger := zap.NewNop()
-	globalRateLimit := &common.RateLimitConfig[any, any]{BucketName: "global", Limit: 10, Window: time.Minute} // Use common.RateLimitConfig
-	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 5 * time.Second, GlobalMaxBodySize: 1024, GlobalRateLimit: globalRateLimit}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	timeout := r.getEffectiveTimeout(0, 0)
-	if timeout != 5*time.Second {
-		t.Errorf("Expected timeout %v, got %v", 5*time.Second, timeout)
-	}
-	timeout = r.getEffectiveTimeout(0, 3*time.Second)
-	if timeout != 3*time.Second {
-		t.Errorf("Expected timeout %v, got %v", 3*time.Second, timeout)
-	}
-	timeout = r.getEffectiveTimeout(2*time.Second, 3*time.Second)
-	if timeout != 2*time.Second {
-		t.Errorf("Expected timeout %v, got %v", 2*time.Second, timeout)
-	}
-	maxBodySize := r.getEffectiveMaxBodySize(0, 0)
-	if maxBodySize != 1024 {
-		t.Errorf("Expected max body size %d, got %d", 1024, maxBodySize)
-	}
-	maxBodySize = r.getEffectiveMaxBodySize(0, 2048)
-	if maxBodySize != 2048 {
-		t.Errorf("Expected max body size %d, got %d", 2048, maxBodySize)
-	}
-	maxBodySize = r.getEffectiveMaxBodySize(4096, 2048)
-	if maxBodySize != 4096 {
-		t.Errorf("Expected max body size %d, got %d", 4096, maxBodySize)
-	}
-	rateLimit := r.getEffectiveRateLimit(nil, nil)
-	if rateLimit == nil || rateLimit.BucketName != "global" {
-		t.Errorf("Expected global rate limit, got %v", rateLimit)
-	}
-	subRouterRateLimit := &common.RateLimitConfig[any, any]{BucketName: "subrouter", Limit: 20, Window: time.Minute} // Use common.RateLimitConfig
-	rateLimit = r.getEffectiveRateLimit(nil, subRouterRateLimit)
-	if rateLimit == nil || rateLimit.BucketName != "subrouter" {
-		t.Errorf("Expected subrouter rate limit, got %v", rateLimit)
-	}
-	routeRateLimit := &common.RateLimitConfig[any, any]{BucketName: "route", Limit: 30, Window: time.Minute} // Use common.RateLimitConfig
-	rateLimit = r.getEffectiveRateLimit(routeRateLimit, subRouterRateLimit)
-	if rateLimit == nil || rateLimit.BucketName != "route" {
-		t.Errorf("Expected route rate limit, got %v", rateLimit)
-	}
-}
-
 // --- Tests from router_additional_test.go ---
 
 // TestNewRouterWithNilLogger tests creating a router with a nil logger
@@ -561,7 +510,7 @@ func TestRegisterTypedRouteCoverage(t *testing.T) { // Renamed to avoid conflict
 		Age      int    `json:"age"`
 	}
 	r := NewRouter(RouterConfig{}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfig[TestRequest, TestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
+	r.Route(RouteConfig[TestRequest, TestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
 		return TestResponse{Greeting: "Hello, " + data.Name, Age: data.Age}, nil
 	}})
 	req, _ := http.NewRequest("POST", "/greet", strings.NewReader(`{"name":"John","age":30}`))
@@ -616,7 +565,7 @@ func TestRegisterTypedRouteWithErrorCoverage(t *testing.T) { // Renamed to avoid
 		Age      int    `json:"age"`
 	}
 	r := NewRouter(RouterConfig{}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	r.RegisterRoute(RouteConfig[TestRequest, TestResponse]{Path: "/greet-error", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
+	r.Route(RouteConfig[TestRequest, TestResponse]{Path: "/greet-error", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
 		return TestResponse{}, errors.New("handler error")
 	}})
 	req, _ := http.NewRequest("POST", "/greet-error", strings.NewReader(`{"name":"John","age":30}`))
@@ -671,321 +620,6 @@ func TestShutdownStopsIDGenerator(t *testing.T) {
 	if r.traceIDGenerator != nil {
 		// Calling Stop again should be safe and not panic
 		r.traceIDGenerator.Stop()
-	}
-}
-
-// --- Tests for Refactored Generic SubRouter Registration ---
-
-// TestResolveSubRouterConfigForPrefix tests lookup of sub-router configs with resolved prefixes and overrides.
-func TestResolveSubRouterConfigForPrefix(t *testing.T) {
-	assertFound := func(t *testing.T, subRouters []SubRouterConfig, targetPrefix string, expectedPrefix string) SubRouterConfig {
-		t.Helper()
-
-		foundSR, found := resolveSubRouterConfigForPrefix(subRouters, targetPrefix, "", common.RouteOverrides{})
-		if !found {
-			t.Fatalf("Expected to find sub-router with prefix %s", targetPrefix)
-		}
-		if foundSR.PathPrefix != expectedPrefix {
-			t.Fatalf("Expected resolved prefix %q for target %q, got %q", expectedPrefix, targetPrefix, foundSR.PathPrefix)
-		}
-		return foundSR
-	}
-
-	nestedSR := SubRouterConfig{PathPrefix: "/users"}
-	v1SR := SubRouterConfig{
-		PathPrefix: "/api/v1",
-		Overrides:  common.RouteOverrides{Timeout: 2 * time.Second},
-		SubRouters: []SubRouterConfig{nestedSR},
-	}
-	v2SR := SubRouterConfig{PathPrefix: "/api/v2"}
-	subRouters := []SubRouterConfig{v1SR, v2SR}
-
-	// Test finding top-level
-	assertFound(t, subRouters, "/api/v1", "/api/v1")
-
-	// Test finding nested
-	foundSR := assertFound(t, subRouters, "/api/v1/users", "/api/v1/users")
-	if foundSR.Overrides.Timeout != 2*time.Second {
-		t.Errorf("Expected nested sub-router to inherit timeout override")
-	}
-
-	// Test finding non-existent
-	_, found := resolveSubRouterConfigForPrefix(subRouters, "/api/v3", "", common.RouteOverrides{})
-	if found {
-		t.Errorf("Did not expect to find sub-router with prefix /api/v3")
-	}
-
-	// Test finding non-existent nested
-	_, found = resolveSubRouterConfigForPrefix(subRouters, "/api/v1/posts", "", common.RouteOverrides{})
-	if found {
-		t.Errorf("Did not expect to find sub-router with prefix /api/v1/posts")
-	}
-
-	t.Run("full prefix wins over earlier nested relative prefix", func(t *testing.T) {
-		subRouters := []SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				SubRouters: []SubRouterConfig{
-					{PathPrefix: "/v1", Overrides: common.RouteOverrides{Timeout: time.Second}},
-				},
-			},
-			{
-				PathPrefix: "/v1",
-				Overrides:  common.RouteOverrides{Timeout: 3 * time.Second},
-			},
-		}
-
-		foundSR := assertFound(t, subRouters, "/v1", "/v1")
-		if foundSR.Overrides.Timeout != 3*time.Second {
-			t.Errorf("Expected top-level full match timeout, got %s", foundSR.Overrides.Timeout)
-		}
-	})
-
-	t.Run("relative prefix fallback remains supported", func(t *testing.T) {
-		subRouters := []SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Overrides:  common.RouteOverrides{Timeout: 7 * time.Second},
-				SubRouters: []SubRouterConfig{{PathPrefix: "/v1"}},
-			},
-		}
-
-		foundSR := assertFound(t, subRouters, "/v1", "/api/v1")
-		if foundSR.Overrides.Timeout != 7*time.Second {
-			t.Errorf("Expected fallback match to inherit parent timeout, got %s", foundSR.Overrides.Timeout)
-		}
-	})
-
-	t.Run("later nested full prefix beats earlier relative fallback", func(t *testing.T) {
-		subRouters := []SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				SubRouters: []SubRouterConfig{
-					{PathPrefix: "/public/v1", Overrides: common.RouteOverrides{Timeout: time.Second}},
-				},
-			},
-			{
-				PathPrefix: "/public",
-				SubRouters: []SubRouterConfig{
-					{PathPrefix: "/v1", Overrides: common.RouteOverrides{Timeout: 4 * time.Second}},
-				},
-			},
-		}
-
-		foundSR := assertFound(t, subRouters, "/public/v1", "/public/v1")
-		if foundSR.Overrides.Timeout != 4*time.Second {
-			t.Errorf("Expected later full match timeout, got %s", foundSR.Overrides.Timeout)
-		}
-	})
-
-	t.Run("deep full prefix resolves deepest config", func(t *testing.T) {
-		subRouters := []SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				SubRouters: []SubRouterConfig{
-					{
-						PathPrefix: "/v1",
-						SubRouters: []SubRouterConfig{
-							{
-								PathPrefix: "/users",
-								SubRouters: []SubRouterConfig{
-									{
-										PathPrefix: "/admin",
-										Overrides:  common.RouteOverrides{MaxBodySize: 128},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-
-		foundSR := assertFound(t, subRouters, "/api/v1/users/admin", "/api/v1/users/admin")
-		if foundSR.Overrides.MaxBodySize != 128 {
-			t.Errorf("Expected deepest max body size override, got %d", foundSR.Overrides.MaxBodySize)
-		}
-	})
-
-	t.Run("exact full prefix respects isolated overrides", func(t *testing.T) {
-		subRouters := []SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Overrides: common.RouteOverrides{
-					Timeout:     5 * time.Second,
-					MaxBodySize: 64,
-				},
-				SubRouters: []SubRouterConfig{
-					{
-						PathPrefix:       "/v1",
-						IsolateOverrides: true,
-						Overrides:        common.RouteOverrides{MaxBodySize: 256},
-					},
-				},
-			},
-		}
-
-		foundSR := assertFound(t, subRouters, "/api/v1", "/api/v1")
-		if foundSR.Overrides.Timeout != 0 {
-			t.Errorf("Expected isolated sub-router not to inherit timeout, got %s", foundSR.Overrides.Timeout)
-		}
-		if foundSR.Overrides.MaxBodySize != 256 {
-			t.Errorf("Expected isolated sub-router max body size override, got %d", foundSR.Overrides.MaxBodySize)
-		}
-	})
-}
-
-// TestRegisterRouteOnSubRouter tests the functional registration method
-func TestRegisterRouteOnSubRouter(t *testing.T) {
-	logger := zap.NewNop()
-	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user"; return &user, true }
-	userIDFunc := func(user *string) string {
-		if user == nil {
-			return ""
-		}
-		return *user
-	}
-
-	// Define sub-routers first
-	usersV1SR := SubRouterConfig{PathPrefix: "/users"}
-	apiV1SR := SubRouterConfig{PathPrefix: "/api/v1", SubRouters: []SubRouterConfig{usersV1SR}}
-
-	// Create router with sub-router structure
-	r := NewRouter(RouterConfig{
-		Logger:     logger,
-		SubRouters: []SubRouterConfig{apiV1SR},
-	}, authFunc, userIDFunc)
-
-	// Define generic route config
-	routeCfg := RouteConfig[TestRequest, TestResponse]{
-		Path:    "/info", // Relative path
-		Methods: []HttpMethod{MethodPost},
-		Codec:   codec.NewJSONCodec[TestRequest, TestResponse](),
-		Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
-			return TestResponse{Greeting: "Info for " + data.Name, Age: data.Age}, nil
-		},
-	}
-
-	// Register the route on the nested sub-router
-	err := r.RegisterRouteOnSubRouter("/api/v1/users", routeCfg)
-	if err != nil {
-		t.Fatalf("RegisterRouteOnSubRouter failed: %v", err)
-	}
-
-	// Test the registered route
-	reqBody := `{"name":"Test","age":42}`
-	req := httptest.NewRequest("POST", "/api/v1/users/info", strings.NewReader(reqBody))
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected status OK (200), got %d", rr.Code)
-	}
-	var resp TestResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("Failed to unmarshal response: %v", err)
-	}
-	expectedGreeting := "Info for Test"
-	if resp.Greeting != expectedGreeting {
-		t.Errorf("Expected greeting %q, got %q", expectedGreeting, resp.Greeting)
-	}
-	if resp.Age != 42 {
-		t.Errorf("Expected age %d, got %d", 42, resp.Age)
-	}
-
-	// The same method accepts a standard route definition.
-	err = r.RegisterRouteOnSubRouter("/api/v1/users", RouteConfigBase{
-		Path:    "/health",
-		Methods: []HttpMethod{MethodGet},
-		Handler: func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusNoContent)
-		},
-	})
-	if err != nil {
-		t.Fatalf("RegisterRouteOnSubRouter failed for standard route: %v", err)
-	}
-	rr = httptest.NewRecorder()
-	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/v1/users/health", nil))
-	if rr.Code != http.StatusNoContent {
-		t.Errorf("Expected standard route status %d, got %d", http.StatusNoContent, rr.Code)
-	}
-
-	// Test registering on non-existent prefix
-	err = r.RegisterRouteOnSubRouter("/api/v2", routeCfg)
-	if err == nil {
-		t.Errorf("Expected an error when registering on non-existent prefix, but got nil")
-	}
-}
-
-func TestRegisterRouteOnSubRouterRelativeNestedPrefixUsesResolvedPath(t *testing.T) {
-	logger := zap.NewNop()
-	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user"; return &user, true }
-	userIDFunc := func(user *string) string {
-		if user == nil {
-			return ""
-		}
-		return *user
-	}
-
-	r := NewRouter(RouterConfig{
-		Logger: logger,
-		SubRouters: []SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				SubRouters: []SubRouterConfig{
-					{PathPrefix: "/v1"},
-				},
-			},
-		},
-	}, authFunc, userIDFunc)
-
-	routeCfg := RouteConfig[TestRequest, TestResponse]{
-		Path:    "/info",
-		Methods: []HttpMethod{MethodPost},
-		Codec:   codec.NewJSONCodec[TestRequest, TestResponse](),
-		Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
-			return TestResponse{Greeting: "Info for " + data.Name, Age: data.Age}, nil
-		},
-	}
-
-	err := r.RegisterRouteOnSubRouter("/v1", routeCfg)
-	if err != nil {
-		t.Fatalf("RegisterRouteOnSubRouter failed: %v", err)
-	}
-
-	reqBody := `{"name":"Relative","age":42}`
-	req := httptest.NewRequest("POST", "/api/v1/info", strings.NewReader(reqBody))
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("Expected status OK (200) for resolved full path, got %d", rr.Code)
-	}
-
-	req = httptest.NewRequest("POST", "/v1/info", strings.NewReader(reqBody))
-	req.Header.Set("Content-Type", "application/json")
-	rr = httptest.NewRecorder()
-	r.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("Expected raw relative path to remain unregistered, got %d", rr.Code)
-	}
-}
-
-// TestRegisterSubRouterWithSubRouter tests the helper for nesting configs
-func TestRegisterSubRouterWithSubRouterCoverage(t *testing.T) { // Renamed
-	parent := SubRouterConfig{PathPrefix: "/parent"}
-	child := SubRouterConfig{PathPrefix: "/child"}
-
-	RegisterSubRouterWithSubRouter(&parent, child)
-
-	if len(parent.SubRouters) != 1 {
-		t.Fatalf("Expected 1 sub-router in parent, got %d", len(parent.SubRouters))
-	}
-	if parent.SubRouters[0].PathPrefix != "/child" {
-		t.Errorf("Expected child prefix to be '/child', got %q", parent.SubRouters[0].PathPrefix)
 	}
 }
 
@@ -1071,7 +705,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 	}
 
 	// Register Base64 route with empty SourceKey
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/base64/:dataParam", // Path parameter name is 'dataParam'
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64PathParameter,
@@ -1081,7 +715,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 	})
 
 	// Register Base62 route with empty SourceKey
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/base62/:valueParam", // Path parameter name is 'valueParam'
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base62PathParameter,
@@ -1091,7 +725,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 	})
 
 	// Register routes to test "no path parameters found" error
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/no-params-base64", // No path parameters
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64PathParameter,
@@ -1100,7 +734,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 		Handler:    verifyHandler(testPayload.Value), // Handler shouldn't be reached
 	})
 
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/no-params-base62", // No path parameters
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base62PathParameter,
@@ -1311,7 +945,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 
 	// Unmarshal Path Param Error (Base64)
 	invalidJSONBase64 := base64.StdEncoding.EncodeToString([]byte("{invalid json"))
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/err/unmarshal-path/:data",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64PathParameter,
@@ -1324,7 +958,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	})
 
 	// Unmarshal Query Param Error (Base64)
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/err/unmarshal-query",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64QueryParameter,
@@ -1337,7 +971,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	})
 
 	// Missing Query Param Error
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/err/missing-query",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64QueryParameter, // Type doesn't matter much here
@@ -1350,7 +984,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	})
 
 	// Body Decode Error
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/err/body-decode",
 		Methods:    []HttpMethod{MethodPost},
 		SourceType: Body,
@@ -1362,7 +996,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	})
 
 	// Unsupported SourceType Error
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/err/unsupported-source",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: 99, // Invalid source type
@@ -1374,7 +1008,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	})
 
 	// Handler Error
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/err/handler",
 		Methods:    []HttpMethod{MethodPost},
 		SourceType: Body,
@@ -1388,7 +1022,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	type UnencodableResponse struct {
 		Ch chan int `json:"ch"` // Channels cannot be JSON encoded
 	}
-	r.RegisterRoute(RouteConfig[TestData, UnencodableResponse]{
+	r.Route(RouteConfig[TestData, UnencodableResponse]{
 		Path:       "/err/resp-encode",
 		Methods:    []HttpMethod{MethodPost},
 		SourceType: Body,
@@ -1399,7 +1033,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	})
 
 	// Base64 Query Decode Error
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/err/base64-query-decode",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64QueryParameter,
@@ -1412,7 +1046,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	})
 
 	// Base62 Query Decode Error
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/err/base62-query-decode",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base62QueryParameter,
@@ -1425,7 +1059,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	})
 
 	// Base64 Path Decode Error (already covered in TestGenericRoutePathParameterFallback, but good to have here too)
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/err/base64-path-decode/:data",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64PathParameter,
@@ -1438,7 +1072,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	})
 
 	// Base62 Path Decode Error (already covered in TestGenericRoutePathParameterFallback, but good to have here too)
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/err/base62-path-decode/:data",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base62PathParameter,
@@ -1451,7 +1085,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	})
 
 	// Context Deadline Exceeded Error
-	r.RegisterRoute(RouteConfig[TestData, string]{
+	r.Route(RouteConfig[TestData, string]{
 		Path:       "/err/deadline-exceeded",
 		Methods:    []HttpMethod{MethodPost},
 		SourceType: Body, // Source type doesn't matter much here
@@ -1631,7 +1265,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 }
 
 // TestRouteConfigDirectDefinition tests placing a typed route config directly
-// in a sub-router's heterogeneous route list.
+// in a route group's heterogeneous route list.
 func TestRouteConfigDirectDefinition(t *testing.T) {
 	logger := zap.NewNop()
 
@@ -1666,28 +1300,13 @@ func TestRouteConfigDirectDefinition(t *testing.T) {
 		},
 	}
 
-	// Define sub-router config with overrides and middleware
-	subRouterCfg := SubRouterConfig{
-		PathPrefix: "/sub",
-		Overrides: common.RouteOverrides{
-			Timeout: 1 * time.Second, // Different from route timeout
-		},
-		Middlewares: []common.Middleware{
-			func(next http.Handler) http.Handler {
-				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					r.Header.Set("X-Sub-Mw", "sub") // Use Header().Set for request modification
-					next.ServeHTTP(w, r)
-				})
-			},
-		},
-		Routes: []RouteDefinition{routeCfg},
-	}
-
-	// Create router with the sub-router
-	r := NewRouter(RouterConfig{
-		Logger:     logger,
-		SubRouters: []SubRouterConfig{subRouterCfg},
-	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r.Group("/sub").Timeout(time.Second).Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			req.Header.Set("X-Sub-Mw", "sub")
+			next.ServeHTTP(w, req)
+		})
+	}).Route(routeCfg)
 
 	// Test the registered route
 	server := httptest.NewServer(r)
@@ -1725,7 +1344,7 @@ func TestRouteConfigDirectDefinition(t *testing.T) {
 	// --- Test Timeout Override ---
 	// Define a slow handler
 	slowHandler := func(r *http.Request, data DefReq) (DefResp, error) {
-		time.Sleep(750 * time.Millisecond) // Longer than route timeout (500ms), shorter than sub-router (1s)
+		time.Sleep(750 * time.Millisecond) // Longer than route timeout (500ms), shorter than route group (1s)
 		return DefResp{Res: "Slow"}, nil
 	}
 	slowRouteCfg := RouteConfig[DefReq, DefResp]{
@@ -1738,17 +1357,8 @@ func TestRouteConfigDirectDefinition(t *testing.T) {
 		},
 	}
 	// Create new router with this route
-	slowSubRouterCfg := SubRouterConfig{
-		PathPrefix: "/sub-slow",
-		Overrides: common.RouteOverrides{
-			Timeout: 1 * time.Second, // Sub-router timeout
-		},
-		Routes: []RouteDefinition{slowRouteCfg},
-	}
-	slowRouter := NewRouter(RouterConfig{
-		Logger:     logger,
-		SubRouters: []SubRouterConfig{slowSubRouterCfg},
-	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	slowRouter := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	slowRouter.Group("/sub-slow").Timeout(time.Second).Route(slowRouteCfg)
 
 	slowServer := httptest.NewServer(slowRouter)
 	defer slowServer.Close()
@@ -2000,7 +1610,7 @@ func TestConcurrentRequests(t *testing.T) {
 	}, authFunc, userIDFunc)
 
 	// 1. Simple GET route
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/simple",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -2010,7 +1620,7 @@ func TestConcurrentRequests(t *testing.T) {
 	})
 
 	// 2. GET route with params
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/params/:id",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -2023,7 +1633,7 @@ func TestConcurrentRequests(t *testing.T) {
 	// 3. Generic POST route
 	type ConcurrentReq struct{ Data string }
 	type ConcurrentResp struct{ Res string }
-	r.RegisterRoute(RouteConfig[ConcurrentReq, ConcurrentResp]{
+	r.Route(RouteConfig[ConcurrentReq, ConcurrentResp]{
 		Path:    "/generic",
 		Methods: []HttpMethod{MethodPost},
 		Codec:   codec.NewJSONCodec[ConcurrentReq, ConcurrentResp](),
@@ -2033,7 +1643,7 @@ func TestConcurrentRequests(t *testing.T) {
 	})
 
 	// 4. Route with middleware
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/middleware",
 		Methods: []HttpMethod{http.MethodGet},
 		Middlewares: []common.Middleware{
@@ -2164,7 +1774,7 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 	r := NewRouter(routerConfig, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
 	// 3. Register a simple route
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/ping",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {

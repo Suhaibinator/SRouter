@@ -2,15 +2,16 @@ package router
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
+	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 )
 
-// RegisterRoute registers a standard or typed generic route on the root router.
-// It creates a handler with all middlewares applied and registers it with the underlying httprouter.
+// Route adds one or more standard or typed routes to the root route group.
 //
 // Middleware execution order:
 // 1. Global middlewares (from RouterConfig)
@@ -18,15 +19,34 @@ import (
 //
 // Configuration precedence (most specific wins):
 // - Route settings > Global settings
-func (r *Router[T, U]) RegisterRoute(route RouteDefinition) {
-	r.registerRoute(route.baseConfig(r, ""), SubRouterConfig{})
+func (r *Router[T, U]) Route(routes ...RouteDefinition) *Router[T, U] {
+	r.routeTree.root.Route(routes...)
+	return r
+}
+
+// Group creates a first-level route group.
+func (r *Router[T, U]) Group(prefix string) *RouteGroup {
+	return r.routeTree.root.Group(prefix)
+}
+
+// Use appends middleware to the root route group.
+func (r *Router[T, U]) Use(middlewares ...common.Middleware) *Router[T, U] {
+	r.routeTree.root.Use(middlewares...)
+	return r
 }
 
 // baseConfig makes every RouteConfig instantiation a RouteDefinition without
 // erasing its request or response types.
-func (route RouteConfig[Req, Resp]) baseConfig(runtime routeRuntime, pathPrefix string) RouteConfigBase {
+func (route RouteConfig[Req, Resp]) baseConfig(runtime routeRuntime, pathPrefix string) (RouteConfigBase, error) {
+	fullPath := pathPrefix + route.Path
+	if route.Codec == nil {
+		return RouteConfigBase{}, fmt.Errorf("typed route %q has no codec", fullPath)
+	}
+	if route.Handler == nil {
+		return RouteConfigBase{}, fmt.Errorf("typed route %q has no handler", fullPath)
+	}
 	if route.Sanitizer == nil {
-		runtime.warnMissingSanitizer(pathPrefix+route.Path, route.Methods)
+		runtime.warnMissingSanitizer(fullPath, route.Methods)
 	}
 
 	return RouteConfigBase{
@@ -37,7 +57,7 @@ func (route RouteConfig[Req, Resp]) baseConfig(runtime routeRuntime, pathPrefix 
 		Handler:        route.httpHandler(runtime),
 		Middlewares:    route.Middlewares,
 		DisableTimeout: route.DisableTimeout,
-	}
+	}, nil
 }
 
 func (route RouteConfig[Req, Resp]) httpHandler(runtime routeRuntime) http.HandlerFunc {

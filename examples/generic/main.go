@@ -300,7 +300,7 @@ func main() {
 	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
 
 	// Register generic routes
-	r.RegisterRoute(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+	r.Route(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users",
 		Methods:   []router.HttpMethod{router.MethodPost}, // Use string literal or http.MethodPost constant
 		Codec:     codec.NewJSONCodec[CreateUserRequest, CreateUserResponse](),
@@ -308,35 +308,35 @@ func main() {
 		Sanitizer: SanitizeCreateUserRequest, // Add the sanitizer function here
 	})
 
-	r.RegisterRoute(router.RouteConfig[GetUserRequest, GetUserResponse]{
+	r.Route(router.RouteConfig[GetUserRequest, GetUserResponse]{
 		Path:    "/users/:id",
 		Methods: []router.HttpMethod{router.MethodGet},                 // Use string literal or http.MethodGet constant
 		Codec:   codec.NewJSONCodec[GetUserRequest, GetUserResponse](), // Codec might not be used if ID is only from path
 		Handler: GetUserHandler,
 	})
 
-	r.RegisterRoute(router.RouteConfig[UpdateUserRequest, UpdateUserResponse]{
+	r.Route(router.RouteConfig[UpdateUserRequest, UpdateUserResponse]{
 		Path:    "/users/:id",
 		Methods: []router.HttpMethod{router.MethodPut}, // Use string literal or http.MethodPut constant
 		Codec:   codec.NewJSONCodec[UpdateUserRequest, UpdateUserResponse](),
 		Handler: UpdateUserHandler,
 	})
 
-	r.RegisterRoute(router.RouteConfig[DeleteUserRequest, DeleteUserResponse]{
+	r.Route(router.RouteConfig[DeleteUserRequest, DeleteUserResponse]{
 		Path:    "/users/:id",
 		Methods: []router.HttpMethod{router.MethodDelete},                    // Use string literal or http.MethodDelete constant
 		Codec:   codec.NewJSONCodec[DeleteUserRequest, DeleteUserResponse](), // Codec might not be used
 		Handler: DeleteUserHandler,
 	})
 
-	r.RegisterRoute(router.RouteConfig[ListUsersRequest, ListUsersResponse]{
+	r.Route(router.RouteConfig[ListUsersRequest, ListUsersResponse]{
 		Path:    "/users",
 		Methods: []router.HttpMethod{router.MethodGet},                     // Use string literal or http.MethodGet constant
 		Codec:   codec.NewJSONCodec[ListUsersRequest, ListUsersResponse](), // Codec might not be used if params are from query
 		Handler: ListUsersHandler,
 	})
 
-	r.RegisterRoute(router.RouteConfig[EmptyRequest, ErrorResponse]{
+	r.Route(router.RouteConfig[EmptyRequest, ErrorResponse]{
 		Path:    "/error",
 		Methods: []router.HttpMethod{router.MethodGet}, // Use string literal or http.MethodGet constant
 		Codec:   codec.NewJSONCodec[EmptyRequest, ErrorResponse](),

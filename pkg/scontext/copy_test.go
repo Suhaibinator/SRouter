@@ -124,6 +124,10 @@ func verifyFullSRouterContext(t *testing.T, ctx context.Context, testName string
 			t.Errorf("%s: PathParams[%d] not copied correctly. Expected %v, got %v", testName, i, param, copiedParams[i])
 		}
 	}
+	untypedParams, ok := GetPathParams(ctx)
+	if !ok || len(untypedParams) != len(params) {
+		t.Errorf("%s: untyped PathParams not copied correctly. Expected %v, got %v (ok: %v)", testName, params, untypedParams, ok)
+	}
 
 	copiedOrigin, copiedCreds, ok := GetCORSInfo[int, testUser](ctx)
 	if !ok || copiedOrigin != allowedOrigin || copiedCreds != credentialsAllowed {

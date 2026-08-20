@@ -83,8 +83,8 @@ func TestRegisterTypedRoute_QueryParamDecodeError(t *testing.T) {
 	// Use r.ServeHTTP for this test as it involves query params
 	req := httptest.NewRequest("GET", targetURL, nil)
 	rr := httptest.NewRecorder()
-	r.RegisterRoute(routeConfig) // Register the route
-	r.ServeHTTP(rr, req)         // Serve the request
+	r.Route(routeConfig) // Register the route
+	r.ServeHTTP(rr, req) // Serve the request
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code, "Expected status Bad Request")
 	// Optionally check response body for specific message
@@ -108,7 +108,7 @@ func TestRegisterTypedRoute_MissingPathParam(t *testing.T) {
 	}
 
 	// Register the route
-	r.RegisterRoute(routeConfig)
+	r.Route(routeConfig)
 
 	// Create request that matches the path pattern
 	req := httptest.NewRequest("GET", "/test/someValue", nil) // Request matches /test/:actualParam
@@ -148,8 +148,8 @@ func TestRegisterTypedRoute_PathParamDecodeError(t *testing.T) {
 	// Use r.ServeHTTP for this test as it involves path params processed by httprouter
 	req := httptest.NewRequest("GET", targetURL, nil)
 	rr := httptest.NewRecorder()
-	r.RegisterRoute(routeConfig) // Register the route
-	r.ServeHTTP(rr, req)         // Serve the request
+	r.Route(routeConfig) // Register the route
+	r.ServeHTTP(rr, req) // Serve the request
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code, "Expected status Bad Request")
 	// Optionally check response body for specific message

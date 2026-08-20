@@ -72,61 +72,46 @@ createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
 
 ## Registering Generic Routes
 
-Generic routes can be placed directly in a `SubRouterConfig`. Every
-`RouteConfig[Req, Resp]` implements `RouteDefinition`, and the router applies path
-prefixes, middleware, and configuration overrides through the same registration path
-used for standard routes.
+Every `RouteConfig[Req, Resp]` implements `RouteDefinition`, so typed and
+standard routes can be registered together on either a `Router` or a recursive
+`RouteGroup`.
 
 ```go
 // Define the route configuration (as shown previously)
 createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{ /* ... */ }
 
-// Define the SubRouterConfig
-apiV1SubRouter := router.SubRouterConfig{
-    PathPrefix: "/api/v1",
-    // Middlewares specific to this sub-router can go here
-    Routes: []router.RouteDefinition{
-        // RouteConfigBase and any RouteConfig[Req, Resp] can be mixed here.
-        createUserRoute,
-    },
-    // Optional overrides for all routes in this sub-router
-    Overrides: common.RouteOverrides{
-        // Timeout:     5 * time.Second,
-        // MaxBodySize: 4 << 20,
-        // RateLimit:   &common.RateLimitConfig[any, any]{...},
-    },
-}
+r := router.NewRouter[string, User](routerConfig, authFunc, userIDFunc)
+apiV1 := r.Group("/api").Group("/v1").
+    Timeout(5 * time.Second).
+    MaxBodySize(4 << 20)
 
-// This SubRouterConfig is then included in the main RouterConfig.SubRouters slice
-// passed to router.NewRouter.
-routerConfig := router.RouterConfig{
-    // ... Logger, GlobalTimeout, etc. ...
-    SubRouters: []router.SubRouterConfig{
-        apiV1SubRouter,
-        // Potentially other sub-routers (e.g., for root path: { PathPrefix: "", Routes: [...] })
-    },
-    // ...
-}
+// RouteConfigBase and any RouteConfig[Req, Resp] can be mixed in one call.
+apiV1.Route(
+    createUserRoute,
+    router.RouteConfigBase{ /* ... */ },
+)
 
-// Create the router
-// r := router.NewRouter[string, string](routerConfig, authFunc, userIDFunc)
+// Optional startup validation. ServeHTTP builds automatically if needed.
+if err := r.Build(); err != nil {
+    log.Fatal(err)
+}
 ```
 
-For imperative root registration, call `r.RegisterRoute(routeConfig)`. For an
-existing sub-router, call `r.RegisterRouteOnSubRouter(prefix, routeConfig)`.
-The typed config retains its `Req` and `Resp` pipeline behind the route interface,
-and both methods resolve effective settings automatically.
+For root registration, call `r.Route(routeConfig)`. For grouped registration,
+retain the group handle and call `group.Route(routeConfig)`. The typed config
+retains its `Req` and `Resp` pipeline behind the route interface, and both methods
+resolve effective settings automatically during `Build`.
 
 ## Key Components
 
 -   **`RouteConfig[T, U]`**: Defines the configuration for a generic route, including path, methods, auth level, codec, handler, **sanitizer**, and overrides.
 -   **`GenericHandler[T, U]`**: The function signature `func(*http.Request, T) (U, error)`. It receives the `http.Request` (for accessing context, headers, etc.) and the *potentially sanitized* decoded request object `T`. It returns the response object `U` and an `error`. If the error is non-nil, SRouter handles sending the appropriate HTTP error response (using `router.HTTPError` for specific status codes).
 -   **`Sanitizer func(T) (T, error)`**: An optional function that runs *after* the request data `T` is successfully decoded by the `Codec` but *before* the `GenericHandler` is called. It receives the decoded data (`T`) and can return a modified version of it (`T`). If it returns a non-nil error, the request processing stops, and a `400 Bad Request` (or the error specified if it's an `HTTPError`) is returned. If it returns the modified (or original) data and a nil error, that data is passed to the `GenericHandler`.
--   **`DisableTimeout bool`**: Disables the effective (global, sub-router, or route override) timeout for this route. Useful for long-lived generic endpoints such as streaming responses that still benefit from typed request/response handling.
+-   **`DisableTimeout bool`**: Disables the effective (global, route-group, or route override) timeout for this route. Useful for long-lived generic endpoints such as streaming responses that still benefit from typed request/response handling.
 -   **`Codec[T, U]`**: An interface responsible for decoding the request (`T`) and encoding the response (`U`). See [Custom Codecs](./codecs.md).
 -   **`RouteDefinition`**: The sealed heterogeneous route interface implemented directly by `RouteConfigBase` and every `RouteConfig[Req, Resp]`.
--   **`RegisterRoute`**: Registers either a standard or typed generic route on the root router.
--   **`RegisterRouteOnSubRouter`**: The equivalent method for dynamic registration on a configured sub-router.
+-   **`Router.Route`**: Adds standard or typed generic routes to the root group.
+-   **`RouteGroup.Route`**: Adds the same route definitions beneath a recursive group prefix.
 
 ## Source Types
 

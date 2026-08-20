@@ -163,66 +163,6 @@ func main() {
 
 	// Note: The router creates its own rate limiter internally
 
-	// Create auth subrouter
-	authSubrouter := router.SubRouterConfig{
-		PathPrefix: "/auth",
-		Routes: []router.RouteDefinition{
-			router.RouteConfigBase{
-				Path:    "/login",
-				Methods: []router.HttpMethod{router.MethodPost},
-				// Strict rate limit for auth endpoints (shared bucket)
-				Overrides: common.RouteOverrides{
-					RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-						BucketName:      "auth-endpoints",
-						Limit:           5,
-						Window:          time.Minute,
-						Strategy:        common.StrategyUser, // Use common.StrategyUser
-						ExceededHandler: http.HandlerFunc(rateLimitExceededHandler),
-					},
-				},
-				Handler: loginHandler,
-			},
-		},
-	}
-
-	// Create API subrouter
-	apiSubrouter := router.SubRouterConfig{
-		PathPrefix: "/api",
-		Routes: []router.RouteDefinition{
-			router.RouteConfigBase{
-				Path:    "/profile",
-				Methods: []router.HttpMethod{router.MethodGet},
-				// User-based rate limiting
-				Overrides: common.RouteOverrides{
-					RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-						BucketName: "user-profile",
-						Limit:      10,
-						Window:     time.Minute,
-						Strategy:   common.StrategyUser, // Use common.StrategyUser
-					},
-				},
-				Middlewares: []common.Middleware{
-					authMiddleware,
-				},
-				Handler: userProfileHandler,
-			},
-			router.RouteConfigBase{ // Add explicit type
-				Path:    "/public",
-				Methods: []router.HttpMethod{router.MethodGet},
-				// IP-based rate limiting
-				Overrides: common.RouteOverrides{
-					RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-						BucketName: "public-endpoints",
-						Limit:      20,
-						Window:     time.Minute,
-						Strategy:   common.StrategyIP, // Use common.StrategyIP
-					},
-				},
-				Handler: publicEndpointHandler,
-			},
-		},
-	}
-
 	// Create a router configuration with global rate limiting
 	routerConfig := router.RouterConfig{
 		ServiceName: "rate-limit-service", // Added ServiceName
@@ -238,11 +178,6 @@ func main() {
 		IPConfig: &router.IPConfig{ // Use router.IPConfig
 			Source:     router.IPSourceXForwardedFor, // Use router.IPSourceXForwardedFor
 			TrustProxy: true,
-		},
-		// Add subrouters to the configuration
-		SubRouters: []router.SubRouterConfig{
-			authSubrouter,
-			apiSubrouter,
 		},
 	}
 
@@ -275,6 +210,48 @@ func main() {
 
 	// Create a router with string as the user ID type (T) and User as the user type (U)
 	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
+
+	// Strict rate limit for auth endpoints (shared bucket).
+	r.Group("/auth").
+		RateLimit(&common.RateLimitConfig[any, any]{
+			BucketName:      "auth-endpoints",
+			Limit:           5,
+			Window:          time.Minute,
+			Strategy:        common.StrategyUser,
+			ExceededHandler: http.HandlerFunc(rateLimitExceededHandler),
+		}).
+		Route(router.RouteConfigBase{
+			Path:    "/login",
+			Methods: []router.HttpMethod{router.MethodPost},
+			Handler: loginHandler,
+		})
+
+	api := r.Group("/api")
+	// User-based rate limiting.
+	api.Group("/profile").
+		RateLimit(&common.RateLimitConfig[any, any]{
+			BucketName: "user-profile",
+			Limit:      10,
+			Window:     time.Minute,
+			Strategy:   common.StrategyUser,
+		}).
+		Use(authMiddleware).
+		Route(router.RouteConfigBase{
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: userProfileHandler,
+		})
+	// IP-based rate limiting.
+	api.Group("/public").
+		RateLimit(&common.RateLimitConfig[any, any]{
+			BucketName: "public-endpoints",
+			Limit:      20,
+			Window:     time.Minute,
+			Strategy:   common.StrategyIP,
+		}).
+		Route(router.RouteConfigBase{
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: publicEndpointHandler,
+		})
 
 	// Start the server
 	fmt.Println("Server listening on :8080")

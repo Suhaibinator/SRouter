@@ -60,12 +60,12 @@ Throughout the codebase, `T` represents the UserID type (must be comparable) and
 3. Client IP extraction based on IPConfig
 4. Metrics and trace ID injection
 5. httprouter path matching
-6. Middleware chain execution (Recovery → Auth → RateLimit → Route-specific → Global → Timeout → Handler)
+6. Middleware chain execution (Recovery → Auth → RateLimit → Global → outer groups → inner groups → Route → Timeout → Handler)
 7. Generic handler marshaling/unmarshaling (if applicable)
 
 ### Key Design Patterns
 - **Middleware Chain**: Composable middleware with configurable execution order
-- **Configuration Hierarchy**: Global → SubRouter → Route with cascading overrides
+- **Route Tree**: `Router.Group` creates recursive `RouteGroup` handles; policy inherits Global → outer groups → inner groups → Route
 - **Generic Routes**: Type-safe handlers with automatic codec-based marshaling
 - **Context Wrapper**: Single SRouterContext avoids deep context nesting
 
@@ -91,13 +91,14 @@ Flexible rate limiting with strategies:
 Uses Uber's ratelimit library with leaky bucket algorithm.
 
 ### Generic Route Registration
-Generic `RouteConfig` values can be placed directly in `SubRouterConfig.Routes`:
+Generic `RouteConfig` values can be registered directly on a `Router` or `RouteGroup`:
 ```go
 router.RouteConfig[ReqType, RespType]{...}
 ```
 
-For imperative registration, call `r.RegisterRoute(route)` or
-`r.RegisterRouteOnSubRouter(prefix, route)`. Both methods accept standard and typed routes.
+Call `r.Route(route)` for root routes or retain a group handle and call
+`group.Route(route)`. Both methods accept standard and typed routes. Route trees
+freeze at `Build` or the first request.
 
 ### Context Access
 Always use scontext package helpers for type-safe context access:

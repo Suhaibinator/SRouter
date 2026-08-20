@@ -133,7 +133,7 @@ func main() {
 	logger, _ := zap.NewProduction()
 	defer func() { _ = logger.Sync() }()
 
-	// Create a router configuration with sub-routers
+	// Create the router's global configuration.
 	routerConfig := router.RouterConfig{
 		ServiceName:       "subrouters-service", // Added ServiceName
 		Logger:            logger,
@@ -141,128 +141,6 @@ func main() {
 		GlobalMaxBodySize: 2 << 20, // 2 MB
 		Middlewares: []common.Middleware{
 			middleware.Recovery(logger),
-		},
-		SubRouters: []router.SubRouterConfig{
-			// API v1 sub-router
-			{
-				PathPrefix: "/api/v1",
-				Overrides: common.RouteOverrides{
-					Timeout: 2 * time.Second,
-				},
-				Middlewares: []common.Middleware{
-					VersionMiddleware("1.0"),
-				},
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:    "/users",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: v1GetUsersHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/users/:id",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: v1GetUserHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/users",
-						Methods: []router.HttpMethod{router.MethodPost},
-						Handler: v1CreateUserHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/slow",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: slowHandler,
-					},
-				},
-			},
-			// API v2 sub-router
-			{
-				PathPrefix: "/api/v2",
-				Overrides: common.RouteOverrides{
-					Timeout: 3 * time.Second,
-				},
-				Middlewares: []common.Middleware{
-					VersionMiddleware("2.0"),
-				},
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:    "/users",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: v2GetUsersHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/users/:id",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: v2GetUserHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/users",
-						Methods: []router.HttpMethod{router.MethodPost},
-						Handler: v2CreateUserHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/slow",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: slowHandler,
-						Overrides: common.RouteOverrides{
-							Timeout: 4 * time.Second, // Override sub-router timeout
-						},
-					},
-				},
-			},
-			// Admin sub-router
-			{
-				PathPrefix: "/admin",
-				Overrides: common.RouteOverrides{
-					MaxBodySize: 5 << 20, // 5 MB
-				},
-				Middlewares: []common.Middleware{
-					AdminAuthMiddleware(),
-				},
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:    "/dashboard",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: adminDashboardHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/users",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: adminUsersHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/settings",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: adminSettingsHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/large",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: largeResponseHandler,
-					},
-				},
-			},
-			// Public sub-router
-			{
-				PathPrefix: "/",
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:    "/",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: homeHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/about",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: aboutHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/contact",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: contactHandler,
-					},
-				},
-			},
 		},
 	}
 
@@ -287,6 +165,43 @@ func main() {
 
 	// Create a router with string as both the user ID and user type
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+
+	apiV1 := r.Group("/api/v1").Timeout(2 * time.Second).Use(VersionMiddleware("1.0"))
+	apiV1.Route(
+		router.RouteConfigBase{Path: "/users", Methods: []router.HttpMethod{router.MethodGet}, Handler: v1GetUsersHandler},
+		router.RouteConfigBase{Path: "/users/:id", Methods: []router.HttpMethod{router.MethodGet}, Handler: v1GetUserHandler},
+		router.RouteConfigBase{Path: "/users", Methods: []router.HttpMethod{router.MethodPost}, Handler: v1CreateUserHandler},
+		router.RouteConfigBase{Path: "/slow", Methods: []router.HttpMethod{router.MethodGet}, Handler: slowHandler},
+	)
+
+	apiV2 := r.Group("/api/v2").Timeout(3 * time.Second).Use(VersionMiddleware("2.0"))
+	apiV2.Route(
+		router.RouteConfigBase{Path: "/users", Methods: []router.HttpMethod{router.MethodGet}, Handler: v2GetUsersHandler},
+		router.RouteConfigBase{Path: "/users/:id", Methods: []router.HttpMethod{router.MethodGet}, Handler: v2GetUserHandler},
+		router.RouteConfigBase{Path: "/users", Methods: []router.HttpMethod{router.MethodPost}, Handler: v2CreateUserHandler},
+		router.RouteConfigBase{
+			Path:    "/slow",
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: slowHandler,
+			Overrides: common.RouteOverrides{
+				Timeout: 4 * time.Second,
+			},
+		},
+	)
+
+	admin := r.Group("/admin").MaxBodySize(5 << 20).Use(AdminAuthMiddleware())
+	admin.Route(
+		router.RouteConfigBase{Path: "/dashboard", Methods: []router.HttpMethod{router.MethodGet}, Handler: adminDashboardHandler},
+		router.RouteConfigBase{Path: "/users", Methods: []router.HttpMethod{router.MethodGet}, Handler: adminUsersHandler},
+		router.RouteConfigBase{Path: "/settings", Methods: []router.HttpMethod{router.MethodGet}, Handler: adminSettingsHandler},
+		router.RouteConfigBase{Path: "/large", Methods: []router.HttpMethod{router.MethodGet}, Handler: largeResponseHandler},
+	)
+
+	r.Route(
+		router.RouteConfigBase{Path: "/", Methods: []router.HttpMethod{router.MethodGet}, Handler: homeHandler},
+		router.RouteConfigBase{Path: "/about", Methods: []router.HttpMethod{router.MethodGet}, Handler: aboutHandler},
+		router.RouteConfigBase{Path: "/contact", Methods: []router.HttpMethod{router.MethodGet}, Handler: contactHandler},
+	)
 
 	// Start the server
 	fmt.Println("Sub-Routers Example Server listening on :8080")

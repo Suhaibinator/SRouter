@@ -1,5 +1,5 @@
 // Package router provides a flexible and feature-rich HTTP routing framework.
-// It supports middleware, sub-routers, generic handlers, and various configuration options.
+// It supports middleware, recursive route groups, generic handlers, and various configuration options.
 package router
 
 import (
@@ -31,6 +31,7 @@ import (
 type Router[T comparable, U any] struct {
 	config            RouterConfig
 	router            *httprouter.Router
+	routeTree         *routeTree
 	logger            *zap.Logger
 	middlewares       []common.Middleware
 	authFunction      func(context.Context, string) (*U, bool)
@@ -53,27 +54,6 @@ const defaultAuthHeaderName = "Authorization"
 
 type authTokenExtractor func(*http.Request) (string, bool, string)
 
-// RegisterSubRouterWithSubRouter registers a nested SubRouter with a parent SubRouter.
-// This helper function enables hierarchical route organization by adding a child
-// SubRouter to the parent's SubRouters slice.
-//
-// Important behaviors:
-// - Path prefixes are concatenated (parent + child)
-// - Configuration overrides are inherited unless the child sets IsolateOverrides
-// - Middlewares will be combined additively when routes are registered
-// - This modifies the parent SubRouterConfig by appending to its SubRouters slice
-//
-// Example:
-//
-//	parentRouter := SubRouterConfig{PathPrefix: "/api"}
-//	childRouter := SubRouterConfig{PathPrefix: "/v1", Overrides: common.RouteOverrides{Timeout: 5*time.Second}}
-//	RegisterSubRouterWithSubRouter(&parentRouter, childRouter)
-//	// Results in routes under /api/v1 with the child's timeout override
-func RegisterSubRouterWithSubRouter(parent *SubRouterConfig, child SubRouterConfig) {
-	// Add the child SubRouter to the parent's SubRouters field
-	parent.SubRouters = append(parent.SubRouters, child)
-}
-
 // NewRouter creates a new Router instance with the given configuration.
 // It initializes all components including the underlying httprouter, logging, middleware,
 // metrics, rate limiting, and registers all routes defined in the configuration.
@@ -83,16 +63,13 @@ func RegisterSubRouterWithSubRouter(parent *SubRouterConfig, child SubRouterConf
 //   - U: The user object type (e.g., User, Account)
 //
 // Parameters:
-//   - config: Router configuration including sub-routers, middleware, and settings
+//   - config: Router infrastructure, global middleware, and default route settings
 //   - authFunction: Function to validate tokens and return user objects
 //   - userIdFromuserFunction: Function to extract user ID from user object
 //
 // The router automatically sets up trace ID generation, metrics collection, and
 // CORS handling based on the provided configuration.
 func NewRouter[T comparable, U any](config RouterConfig, authFunction func(context.Context, string) (*U, bool), userIdFromuserFunction func(*U) T) *Router[T, U] {
-	// Initialize the httprouter
-	hr := httprouter.New()
-
 	// Set up the logger
 	logger := config.Logger
 	if logger == nil {
@@ -111,7 +88,8 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 	// Create the router
 	r := &Router[T, U]{
 		config:            config,
-		router:            hr,
+		router:            httprouter.New(),
+		routeTree:         newRouteTree(),
 		logger:            logger.Named("SRouter"),
 		authFunction:      authFunction,
 		getUserIdFromUser: userIdFromuserFunction,
@@ -197,106 +175,231 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 		}
 	}
 
-	// Register routes from sub-routers
-	for _, sr := range config.SubRouters {
-		r.registerSubRouterWithResolvedOverrides(sr, common.RouteOverrides{})
-	}
-
 	return r
 }
 
-// RegisterSubRouter registers a sub-router with the router after router creation.
-// This method allows dynamic registration of sub-routers at runtime.
-//
-// The sub-router's configuration is applied as follows:
-// - Path prefix is prepended to all routes in the sub-router
-// - Middlewares are added to (not replacing) global middlewares
-// - Configuration overrides (timeout, max body size, rate limit, auth token) inherit into nested sub-routers by default
-// - Nested sub-routers can set IsolateOverrides to ignore parent sub-router overrides
-//
-// This is useful for conditionally adding routes or building routes programmatically.
-func (r *Router[T, U]) RegisterSubRouter(sr SubRouterConfig) {
-	// Record the sub-router so later RegisterRouteOnSubRouter lookups
-	// can resolve it just like sub-routers provided in the initial config.
-	r.config.SubRouters = append(r.config.SubRouters, sr)
-	r.registerSubRouter(sr)
+type resolvedGroup struct {
+	prefix      string
+	timeout     time.Duration
+	maxBodySize int64
+	rateLimit   *common.RateLimitConfig[any, any]
+	authToken   authTokenConfigResolution
+	authLevel   *AuthLevel
+	middlewares []common.Middleware
 }
 
-// registerSubRouter registers all routes and nested sub-routers defined in a SubRouterConfig.
-// It applies the sub-router's path prefix, overrides, and middlewares.
-// For nested sub-routers, path prefixes are concatenated and configuration overrides are inherited unless isolated.
-// Middlewares are combined additively: global + sub-router + route-specific.
-func (r *Router[T, U]) registerSubRouter(sr SubRouterConfig) {
-	r.registerSubRouterWithResolvedOverrides(sr, common.RouteOverrides{})
+type routeKey struct {
+	method HttpMethod
+	path   string
 }
 
-func (r *Router[T, U]) registerSubRouterWithResolvedOverrides(sr SubRouterConfig, parentOverrides common.RouteOverrides) {
-	resolvedOverrides := resolveSubRouterOverrides(parentOverrides, sr)
-	sr.Overrides = resolvedOverrides
-
-	// Register routes defined in this sub-router
-	for _, routeDefinition := range sr.Routes {
-		r.registerRoute(routeDefinition.baseConfig(r, sr.PathPrefix), sr)
+// Build validates and compiles the route-group tree into a fresh dispatcher.
+// It is safe to call repeatedly; the first call freezes the tree and stores its
+// result. ServeHTTP calls Build automatically, so explicit use is primarily for
+// failing fast during application startup.
+func (r *Router[T, U]) Build() (err error) {
+	tree := r.routeTree
+	if tree.ready.Load() {
+		return tree.buildErr
 	}
-
-	// Register nested sub-routers recursively
-	for _, nestedSR := range sr.SubRouters {
-		// Create a new sub-router with the combined path prefix, inherited
-		// middlewares (additive: parent's run before the nested sub-router's),
-		// and inherited AuthLevel (unless the nested sub-router sets its own).
-		nestedSRWithPrefix := nestedSR
-		nestedSRWithPrefix.PathPrefix = sr.PathPrefix + nestedSR.PathPrefix
-		nestedSRWithPrefix.Middlewares = combineMiddlewares(sr.Middlewares, nestedSR.Middlewares)
-		if nestedSRWithPrefix.AuthLevel == nil {
-			nestedSRWithPrefix.AuthLevel = sr.AuthLevel
+	tree.mu.Lock()
+	defer tree.mu.Unlock()
+	if tree.ready.Load() {
+		return tree.buildErr
+	}
+	tree.frozen = true
+	defer tree.ready.Store(true)
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("build route tree: %v", recovered)
+			tree.buildErr = err
 		}
+	}()
 
-		// Register the nested sub-router
-		r.registerSubRouterWithResolvedOverrides(nestedSRWithPrefix, resolvedOverrides)
+	if r.config.GlobalTimeout < 0 {
+		tree.buildErr = fmt.Errorf("global timeout must not be negative")
+		return tree.buildErr
 	}
+	if r.config.GlobalMaxBodySize < 0 {
+		tree.buildErr = fmt.Errorf("global max body size must not be negative")
+		return tree.buildErr
+	}
+	if err := validateMiddlewares("router", r.middlewares); err != nil {
+		tree.buildErr = err
+		return err
+	}
+
+	candidate := httprouter.New()
+	initial := resolvedGroup{
+		timeout:     r.config.GlobalTimeout,
+		maxBodySize: r.config.GlobalMaxBodySize,
+		rateLimit:   r.config.GlobalRateLimit,
+		authToken:   r.initialAuthTokenConfig(),
+	}
+	seen := make(map[routeKey]struct{})
+	if err := r.buildGroup(candidate, tree.root, initial, seen, true); err != nil {
+		tree.buildErr = err
+		return err
+	}
+	r.router = candidate
+	clearRouteGroup(tree.root)
+	return nil
 }
 
-// registerRoute is the single configuration-resolution path for standard and
-// typed generic routes, whether they are declared on a sub-router or registered
-// imperatively on the root router.
-func (r *Router[T, U]) registerRoute(route RouteConfigBase, subRouter SubRouterConfig) {
-	fullPath := subRouter.PathPrefix + route.Path
-	timeout := r.getEffectiveTimeout(route.Overrides.Timeout, subRouter.Overrides.Timeout)
+func (r *Router[T, U]) buildGroup(candidate *httprouter.Router, group *RouteGroup, inherited resolvedGroup, seen map[routeKey]struct{}, root bool) error {
+	resolved := inherited
+	if !root {
+		if err := validateGroupPrefix(group.prefix); err != nil {
+			return err
+		}
+		resolved.prefix = joinGroupPath(inherited.prefix, group.prefix)
+	}
+	if group.policy.timeout.set {
+		if group.policy.timeout.value < 0 {
+			return fmt.Errorf("route group %q timeout must not be negative", resolved.prefix)
+		}
+		resolved.timeout = group.policy.timeout.value
+	}
+	if group.policy.maxBodySize.set {
+		if group.policy.maxBodySize.value < 0 {
+			return fmt.Errorf("route group %q max body size must not be negative", resolved.prefix)
+		}
+		resolved.maxBodySize = group.policy.maxBodySize.value
+	}
+	if group.policy.rateLimit.set {
+		resolved.rateLimit = group.policy.rateLimit.value
+	}
+	if group.policy.authToken.set {
+		if group.policy.authToken.value == nil {
+			resolved.authToken = authTokenConfigResolution{config: defaultAuthTokenConfig(), origin: authTokenOriginDefault}
+		} else {
+			resolved.authToken = authTokenConfigResolution{config: normalizeAuthTokenConfig(*group.policy.authToken.value), origin: authTokenOriginGroup}
+		}
+	}
+	if group.policy.authLevel.set {
+		if group.policy.authLevel.value < NoAuth || group.policy.authLevel.value > AuthRequired {
+			return fmt.Errorf("route group %q has invalid authentication level %d", resolved.prefix, group.policy.authLevel.value)
+		}
+		level := group.policy.authLevel.value
+		resolved.authLevel = &level
+	}
+	if err := validateMiddlewares(fmt.Sprintf("route group %q", resolved.prefix), group.middlewares); err != nil {
+		return err
+	}
+	resolved.middlewares = combineMiddlewares(inherited.middlewares, group.middlewares)
+
+	for _, definition := range group.routes {
+		if definition == nil {
+			return fmt.Errorf("route group %q contains a nil route", resolved.prefix)
+		}
+		route, err := definition.baseConfig(r, resolved.prefix)
+		if err != nil {
+			return err
+		}
+		if err := r.registerCompiledRoute(candidate, route, resolved, seen); err != nil {
+			return err
+		}
+	}
+	for _, child := range group.children {
+		if err := r.buildGroup(candidate, child, resolved, seen, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Router[T, U]) registerCompiledRoute(candidate *httprouter.Router, route RouteConfigBase, group resolvedGroup, seen map[routeKey]struct{}) error {
+	fullPath, err := joinRoutePath(group.prefix, route.Path)
+	if err != nil {
+		return err
+	}
+	if route.Handler == nil {
+		return fmt.Errorf("route %q has no handler", fullPath)
+	}
+	if len(route.Methods) == 0 {
+		return fmt.Errorf("route %q has no HTTP methods", fullPath)
+	}
+	if route.Overrides.Timeout < 0 {
+		return fmt.Errorf("route %q timeout must not be negative", fullPath)
+	}
+	if route.Overrides.MaxBodySize < 0 {
+		return fmt.Errorf("route %q max body size must not be negative", fullPath)
+	}
+	if route.AuthLevel != nil && (*route.AuthLevel < NoAuth || *route.AuthLevel > AuthRequired) {
+		return fmt.Errorf("route %q has invalid authentication level %d", fullPath, *route.AuthLevel)
+	}
+	if err := validateMiddlewares(fmt.Sprintf("route %q", fullPath), route.Middlewares); err != nil {
+		return err
+	}
+
+	timeout := group.timeout
+	if route.Overrides.Timeout > 0 {
+		timeout = route.Overrides.Timeout
+	}
 	if route.DisableTimeout {
 		timeout = 0
 	}
-	maxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, subRouter.Overrides.MaxBodySize)
-	rateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, subRouter.Overrides.RateLimit)
-	authTokenResolution := r.getEffectiveAuthTokenConfigWithOrigin(route.Overrides.AuthToken, subRouter.Overrides.AuthToken)
+	maxBodySize := group.maxBodySize
+	if route.Overrides.MaxBodySize > 0 {
+		maxBodySize = route.Overrides.MaxBodySize
+	}
+	rateLimitConfig := group.rateLimit
+	if route.Overrides.RateLimit != nil {
+		rateLimitConfig = route.Overrides.RateLimit
+	}
+	rateLimit := r.convertRateLimit(rateLimitConfig)
+	authTokenResolution := group.authToken
+	if route.Overrides.AuthToken != nil {
+		authTokenResolution = authTokenConfigResolution{config: normalizeAuthTokenConfig(*route.Overrides.AuthToken), origin: authTokenOriginRoute}
+	}
 
 	authLevel := route.AuthLevel
 	if authLevel == nil {
-		authLevel = subRouter.AuthLevel
+		authLevel = group.authLevel
 	}
 	r.warnOnBuiltinAuthTokenFallback(fullPath, route.Methods, authLevel, authTokenResolution)
 
-	middlewares := combineMiddlewares(subRouter.Middlewares, route.Middlewares)
+	middlewares := combineMiddlewares(group.middlewares, route.Middlewares)
 	handler := r.wrapHandler(route.Handler, authLevel, authTokenResolution.config, timeout, maxBodySize, rateLimit, middlewares)
 	for _, method := range route.Methods {
-		r.router.Handle(string(method), fullPath, r.convertToHTTPRouterHandle(handler, fullPath))
+		if method == "" {
+			return fmt.Errorf("route %q contains an empty HTTP method", fullPath)
+		}
+		key := routeKey{method: method, path: fullPath}
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("duplicate route %s %s", method, fullPath)
+		}
+		seen[key] = struct{}{}
+		if err := r.handleRoute(candidate, string(method), fullPath, handler); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func (r *Router[T, U]) handleRoute(candidate *httprouter.Router, method, path string, handler http.Handler) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("register %s %s: %v", method, path, recovered)
+		}
+	}()
+	candidate.Handle(method, path, r.convertToHTTPRouterHandle(handler, path))
+	return nil
 }
 
 // convertToHTTPRouterHandle converts an http.Handler to an httprouter.Handle.
 // It stores the route parameters and route template in the request context so they can be accessed by handlers.
 func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler, routeTemplate string) httprouter.Handle {
 	return func(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
-		// Add both path params and route template to the SRouterContext
+		if routerContext, ok := scontext.GetSRouterContext[T, U](req.Context()); ok {
+			scontext.SetRouteInfo(routerContext, ps, routeTemplate)
+			handler.ServeHTTP(w, req)
+			return
+		}
+
+		// Internal direct dispatcher use may not have passed through Router.ServeHTTP.
 		ctx := scontext.WithRouteInfo[T, U](req.Context(), ps, routeTemplate)
-
-		// For backwards compatibility, also store params at the ParamsKey for existing code
-		ctx = context.WithValue(ctx, ParamsKey, ps)
-
-		// Update the request object with the new context
-		reqWithParams := req.WithContext(ctx)
-
-		// Call the handler with the updated request object
-		handler.ServeHTTP(w, reqWithParams)
+		handler.ServeHTTP(w, req.WithContext(ctx))
 	}
 }
 
@@ -307,8 +410,8 @@ func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler, routeTemp
 // 2. Trace ID injection (if enabled)
 // 3. Authentication (if authLevel is set)
 // 4. Rate limiting (if rateLimit is set)
-// 5. Route-specific middlewares (from the middlewares parameter)
-// 6. Global middlewares (from RouterConfig, includes metrics if enabled)
+// 5. Global middlewares (from RouterConfig, including metrics if enabled)
+// 6. Group middlewares (root to leaf), followed by route middleware
 // 7. Timeout (innermost, if timeout > 0)
 // 8. Body size limit (in the base handler)
 //
@@ -361,11 +464,11 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLeve
 		chain = chain.Append(middleware.RateLimit(rateLimit, r.rateLimiter, r.logger))
 	}
 
-	// 5. Route-Specific Middlewares
-	chain = chain.Append(middlewares...)
+	// 5. Global middlewares (defined in RouterConfig)
+	chain = chain.Append(r.middlewares...)
 
-	// 6. Global Middlewares (defined in RouterConfig)
-	chain = chain.Append(r.middlewares...) // Note: This now includes ClientIPMiddleware added in NewRouter
+	// 6. Route-group middlewares (root to leaf), then route middleware
+	chain = chain.Append(middlewares...)
 
 	// 7. Timeout Handling (Sets context deadline)
 	if timeout > 0 {
@@ -485,62 +588,6 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 	}
 }
 
-type subRouterConfigPrefixMatch struct {
-	config SubRouterConfig
-	found  bool
-	exact  bool
-}
-
-func resolveSubRouterConfigForPrefix(subRouters []SubRouterConfig, targetPrefix string, parentPrefix string, parentOverrides common.RouteOverrides) (SubRouterConfig, bool) {
-	match := resolveSubRouterConfigForPrefixMatch(subRouters, targetPrefix, parentPrefix, parentOverrides, nil, nil)
-	if !match.found {
-		return SubRouterConfig{}, false
-	}
-	return match.config, true
-}
-
-func resolveSubRouterConfigForPrefixMatch(subRouters []SubRouterConfig, targetPrefix string, parentPrefix string, parentOverrides common.RouteOverrides, parentMiddlewares []common.Middleware, parentAuthLevel *AuthLevel) subRouterConfigPrefixMatch {
-	var fallback SubRouterConfig
-	fallbackFound := false
-
-	for _, sr := range subRouters {
-		fullPathPrefix := parentPrefix + sr.PathPrefix
-		resolvedOverrides := resolveSubRouterOverrides(parentOverrides, sr)
-		resolvedMiddlewares := combineMiddlewares(parentMiddlewares, sr.Middlewares)
-		resolvedAuthLevel := sr.AuthLevel
-		if resolvedAuthLevel == nil {
-			resolvedAuthLevel = parentAuthLevel
-		}
-		resolvedSR := sr
-		resolvedSR.PathPrefix = fullPathPrefix
-		resolvedSR.Overrides = resolvedOverrides
-		resolvedSR.Middlewares = resolvedMiddlewares
-		resolvedSR.AuthLevel = resolvedAuthLevel
-
-		if fullPathPrefix == targetPrefix {
-			return subRouterConfigPrefixMatch{config: resolvedSR, found: true, exact: true}
-		}
-		if sr.PathPrefix == targetPrefix && !fallbackFound {
-			fallback = resolvedSR
-			fallbackFound = true
-		}
-		childMatch := resolveSubRouterConfigForPrefixMatch(sr.SubRouters, targetPrefix, fullPathPrefix, resolvedOverrides, resolvedMiddlewares, resolvedAuthLevel)
-		if childMatch.found {
-			if childMatch.exact {
-				return childMatch
-			}
-			if !fallbackFound {
-				fallback = childMatch.config
-				fallbackFound = true
-			}
-		}
-	}
-	if fallbackFound {
-		return subRouterConfigPrefixMatch{config: fallback, found: true}
-	}
-	return subRouterConfigPrefixMatch{}
-}
-
 // combineMiddlewares returns a new slice containing parent middlewares followed
 // by child middlewares. The inputs are never modified and the result has its
 // own backing array.
@@ -554,31 +601,22 @@ func combineMiddlewares(parent, child []common.Middleware) []common.Middleware {
 	return combined
 }
 
-// RegisterRouteOnSubRouter registers a standard or typed generic route on a
-// configured sub-router after router creation.
-//
-// The method locates the sub-router by resolved full path prefix, applies its configuration
-// (middleware, timeouts, rate limits), and registers the route with the combined settings.
-// Relative sub-router prefixes are still accepted as a compatibility fallback when no resolved
-// full path prefix matches.
-// Returns an error if no sub-router with the given prefix exists.
-func (r *Router[UserID, User]) RegisterRouteOnSubRouter(
-	pathPrefix string,
-	route RouteDefinition,
-) error {
-	sr, found := resolveSubRouterConfigForPrefix(r.config.SubRouters, pathPrefix, "", common.RouteOverrides{})
-	if !found {
-		return fmt.Errorf("no sub-router found with prefix: %s", pathPrefix)
-	}
-
-	r.registerRoute(route.baseConfig(r, sr.PathPrefix), sr)
-	return nil
-}
-
 // ServeHTTP implements the http.Handler interface.
 // It handles HTTP requests by applying CORS, client IP extraction, metrics, tracing,
 // and then delegating to the underlying httprouter.
 func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	var buildErr error
+	if r.routeTree.ready.Load() {
+		buildErr = r.routeTree.buildErr
+	} else {
+		buildErr = r.Build()
+	}
+	if buildErr != nil {
+		r.logger.Error("Failed to build route tree", zap.Error(buildErr))
+		http.Error(w, "Router configuration error", http.StatusInternalServerError)
+		return
+	}
+
 	// Track the in-flight request for graceful shutdown. The Add must happen
 	// under the shutdown lock so it can never race with Shutdown's wg.Wait:
 	// Shutdown takes the write lock before waiting, so either this request is
@@ -605,8 +643,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// Apply Client IP Extraction
 	clientIP := extractClientIP(req, r.config.IPConfig)
-	ctx := scontext.WithClientIP[T, U](req.Context(), clientIP) // Use scontext
-	ctx = scontext.WithUserAgent[T, U](ctx, req.UserAgent())
+	ctx := scontext.WithClientInfo[T, U](req.Context(), clientIP, req.UserAgent())
 	req = req.WithContext(ctx)
 
 	// Apply request summary logging and status/bytes capture if enabled.
@@ -963,43 +1000,6 @@ func (r *Router[T, U]) Shutdown(ctx context.Context) error {
 	}
 }
 
-// getEffectiveTimeout returns the effective timeout for a route.
-// Precedence order (first non-zero value wins):
-// 1. Route-specific timeout
-// 2. Current or inherited sub-router timeout override
-// 3. Global timeout from RouterConfig
-func (r *Router[T, U]) getEffectiveTimeout(routeTimeout, subRouterTimeout time.Duration) time.Duration {
-	if routeTimeout > 0 {
-		return routeTimeout
-	}
-	if subRouterTimeout > 0 {
-		return subRouterTimeout
-	}
-	return r.config.GlobalTimeout
-}
-
-func resolveSubRouterOverrides(parentOverrides common.RouteOverrides, sr SubRouterConfig) common.RouteOverrides {
-	resolved := parentOverrides
-	if sr.IsolateOverrides {
-		resolved = common.RouteOverrides{}
-	}
-
-	if sr.Overrides.Timeout > 0 {
-		resolved.Timeout = sr.Overrides.Timeout
-	}
-	if sr.Overrides.MaxBodySize > 0 {
-		resolved.MaxBodySize = sr.Overrides.MaxBodySize
-	}
-	if sr.Overrides.RateLimit != nil {
-		resolved.RateLimit = sr.Overrides.RateLimit
-	}
-	if sr.Overrides.AuthToken != nil {
-		resolved.AuthToken = sr.Overrides.AuthToken
-	}
-
-	return resolved
-}
-
 func defaultAuthTokenConfig() common.AuthTokenConfig {
 	return common.AuthTokenConfig{
 		Source:     common.AuthTokenSourceHeader,
@@ -1010,10 +1010,10 @@ func defaultAuthTokenConfig() common.AuthTokenConfig {
 type authTokenConfigOrigin string
 
 const (
-	authTokenOriginRoute     authTokenConfigOrigin = "route"
-	authTokenOriginSubRouter authTokenConfigOrigin = "sub-router"
-	authTokenOriginGlobal    authTokenConfigOrigin = "global"
-	authTokenOriginDefault   authTokenConfigOrigin = "built-in default"
+	authTokenOriginRoute   authTokenConfigOrigin = "route"
+	authTokenOriginGroup   authTokenConfigOrigin = "route group"
+	authTokenOriginGlobal  authTokenConfigOrigin = "global"
+	authTokenOriginDefault authTokenConfigOrigin = "built-in default"
 )
 
 type authTokenConfigResolution struct {
@@ -1095,26 +1095,7 @@ func buildAuthTokenExtractor(config common.AuthTokenConfig) authTokenExtractor {
 	}
 }
 
-// getEffectiveAuthTokenConfigWithOrigin returns the effective auth token config
-// for a route along with the origin it was resolved from.
-// Precedence order (first non-nil value wins):
-// 1. Route-specific auth token config
-// 2. Sub-router auth token override
-// 3. Global auth token config from RouterConfig
-// 4. Default header-based auth token config
-func (r *Router[T, U]) getEffectiveAuthTokenConfigWithOrigin(routeAuth, subRouterAuth *common.AuthTokenConfig) authTokenConfigResolution {
-	if routeAuth != nil {
-		return authTokenConfigResolution{
-			config: normalizeAuthTokenConfig(*routeAuth),
-			origin: authTokenOriginRoute,
-		}
-	}
-	if subRouterAuth != nil {
-		return authTokenConfigResolution{
-			config: normalizeAuthTokenConfig(*subRouterAuth),
-			origin: authTokenOriginSubRouter,
-		}
-	}
+func (r *Router[T, U]) initialAuthTokenConfig() authTokenConfigResolution {
 	if r.config.GlobalAuthToken != nil {
 		return authTokenConfigResolution{
 			config: normalizeAuthTokenConfig(*r.config.GlobalAuthToken),
@@ -1126,71 +1107,35 @@ func (r *Router[T, U]) getEffectiveAuthTokenConfigWithOrigin(routeAuth, subRoute
 		origin: authTokenOriginDefault,
 	}
 }
-
-// getEffectiveMaxBodySize returns the effective max body size for a route.
-// Precedence order (first non-zero value wins):
-// 1. Route-specific max body size
-// 2. Current or inherited sub-router max body size override
-// 3. Global max body size from RouterConfig
-func (r *Router[T, U]) getEffectiveMaxBodySize(routeMaxBodySize, subRouterMaxBodySize int64) int64 {
-	if routeMaxBodySize > 0 {
-		return routeMaxBodySize
+func (r *Router[T, U]) convertRateLimit(config *common.RateLimitConfig[any, any]) *common.RateLimitConfig[T, U] {
+	if config == nil {
+		return nil
 	}
-	if subRouterMaxBodySize > 0 {
-		return subRouterMaxBodySize
+
+	var userIDFromUser func(U) T
+	if fromUser := config.UserIDFromUser; fromUser != nil {
+		userIDFromUser = func(user U) T {
+			id, _ := fromUser(user).(T)
+			return id
+		}
 	}
-	return r.config.GlobalMaxBodySize
-}
-
-// getEffectiveRateLimit returns the effective rate limit for a route.
-// Precedence order (first non-nil value wins):
-// 1. Route-specific rate limit
-// 2. Current or inherited sub-router rate limit override
-// 3. Global rate limit from RouterConfig
-// The function also converts the generic type parameters from [any, any] to [T, U].
-func (r *Router[T, U]) getEffectiveRateLimit(routeRateLimit, subRouterRateLimit *common.RateLimitConfig[any, any]) *common.RateLimitConfig[T, U] { // Use common types
-	// Convert the rate limit config to the correct type
-	convertConfig := func(config *common.RateLimitConfig[any, any]) *common.RateLimitConfig[T, U] { // Use common types
-		if config == nil {
-			return nil
-		}
-
-		// Adapt the user ID extraction functions across the type conversion so
-		// StrategyUser keeps working when configured via [any, any] overrides.
-		var userIDFromUser func(U) T
-		if fromUser := config.UserIDFromUser; fromUser != nil {
-			userIDFromUser = func(user U) T {
-				id, _ := fromUser(user).(T)
-				return id
-			}
-		}
-		var userIDToString func(T) string
-		if toString := config.UserIDToString; toString != nil {
-			userIDToString = func(userID T) string {
-				return toString(userID)
-			}
-		}
-
-		// Create a new config with the correct type parameters
-		return &common.RateLimitConfig[T, U]{ // Use common.RateLimitConfig
-			BucketName:      config.BucketName,
-			Limit:           config.Limit,
-			Window:          config.Window,
-			Strategy:        config.Strategy,
-			UserIDFromUser:  userIDFromUser,
-			UserIDToString:  userIDToString,
-			KeyExtractor:    config.KeyExtractor,
-			ExceededHandler: config.ExceededHandler,
+	var userIDToString func(T) string
+	if toString := config.UserIDToString; toString != nil {
+		userIDToString = func(userID T) string {
+			return toString(userID)
 		}
 	}
 
-	if routeRateLimit != nil {
-		return convertConfig(routeRateLimit)
+	return &common.RateLimitConfig[T, U]{
+		BucketName:      config.BucketName,
+		Limit:           config.Limit,
+		Window:          config.Window,
+		Strategy:        config.Strategy,
+		UserIDFromUser:  userIDFromUser,
+		UserIDToString:  userIDToString,
+		KeyExtractor:    config.KeyExtractor,
+		ExceededHandler: config.ExceededHandler,
 	}
-	if subRouterRateLimit != nil {
-		return convertConfig(subRouterRateLimit)
-	}
-	return convertConfig(r.config.GlobalRateLimit)
 }
 
 // baseFields returns common log fields for the request.

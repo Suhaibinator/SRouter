@@ -54,23 +54,6 @@ func main() {
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
 		Middlewares:       []common.Middleware{},
-		SubRouters: []router.SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Overrides: common.RouteOverrides{
-					Timeout:     3 * time.Second,
-					MaxBodySize: 2 << 20, // 2 MB
-				},
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:      "/health",
-						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: new(router.NoAuth), // Changed
-						Handler:   HealthCheckHandler,
-					},
-				},
-			},
-		},
 	}
 
 	// Define the auth function that takes a context and token and returns a *string and a boolean
@@ -94,9 +77,19 @@ func main() {
 
 	// Create a router with string as both the user ID and user type
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+	api := r.Group("/api").
+		Timeout(3 * time.Second).
+		MaxBodySize(2 << 20) // 2 MB
+
+	api.Route(router.RouteConfigBase{
+		Path:      "/health",
+		Methods:   []router.HttpMethod{router.MethodGet},
+		AuthLevel: new(router.NoAuth),
+		Handler:   HealthCheckHandler,
+	})
 
 	// Register a generic JSON route
-	// Since this route is under "/api", register it on that sub-router.
+	// Since this route is under "/api", register it on that group.
 	userRouteConfig := router.RouteConfig[CreateUserReq, CreateUserResp]{
 		Path:      "/users", // Relative path
 		Methods:   []router.HttpMethod{router.MethodPost},
@@ -107,13 +100,7 @@ func main() {
 		Codec:   codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
 		Handler: CreateUserHandler,
 	}
-	err := r.RegisterRouteOnSubRouter(
-		"/api", // Target sub-router prefix
-		userRouteConfig,
-	)
-	if err != nil {
-		log.Fatalf("Failed to register generic route on /api: %v", err)
-	}
+	api.Route(userRouteConfig)
 
 	// Start the server
 	fmt.Println("Server listening on :8080")

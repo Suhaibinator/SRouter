@@ -162,44 +162,6 @@ func main() {
 			middleware.Timeout(1 * time.Second), // Use variable
 			middleware.MaxBodySize(1 << 20),     // Use variable
 		},
-		SubRouters: []router.SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Middlewares: []common.Middleware{
-					TimingMiddleware(), // Measure request time
-				},
-				Routes: []router.RouteDefinition{ // Changed to []router.RouteDefinition
-					router.RouteConfigBase{
-						Path:    "/hello",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: SimpleHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/slow",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							// Simulate a slow operation
-							time.Sleep(500 * time.Millisecond)
-							w.Header().Set("Content-Type", "application/json")
-							_, _ = w.Write([]byte(`{"message":"Slow operation completed"}`))
-						},
-					},
-				},
-			},
-			{
-				PathPrefix: "/rate-limited",
-				Middlewares: []common.Middleware{
-					RateLimitMiddleware(2), // Limit to 2 requests per second
-				},
-				Routes: []router.RouteDefinition{ // Changed to []router.RouteDefinition
-					router.RouteConfigBase{
-						Path:    "/resource",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: SimpleHandler,
-					},
-				},
-			},
-		},
 	}
 
 	// Define the auth function that takes a context and token and returns a *string and a boolean
@@ -224,8 +186,35 @@ func main() {
 	// Create a router with string as both the user ID and user type
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
+	r.Group("/api").
+		Use(TimingMiddleware()).
+		Route(
+			router.RouteConfigBase{
+				Path:    "/hello",
+				Methods: []router.HttpMethod{router.MethodGet},
+				Handler: SimpleHandler,
+			},
+			router.RouteConfigBase{
+				Path:    "/slow",
+				Methods: []router.HttpMethod{router.MethodGet},
+				Handler: func(w http.ResponseWriter, r *http.Request) {
+					// Simulate a slow operation
+					time.Sleep(500 * time.Millisecond)
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"message":"Slow operation completed"}`))
+				},
+			},
+		)
+	r.Group("/rate-limited").
+		Use(RateLimitMiddleware(2)).
+		Route(router.RouteConfigBase{
+			Path:    "/resource",
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: SimpleHandler,
+		})
+
 	// Register a route with route-specific middleware
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/custom",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Middlewares: []common.Middleware{

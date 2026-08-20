@@ -41,7 +41,7 @@ func TestRegisterTypedRoute_Base64QueryParameter_DecodeBytesError(t *testing.T) 
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodGet},
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -69,7 +69,7 @@ func TestRegisterTypedRoute_Base62QueryParameter_DecodeBytesError(t *testing.T) 
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodGet},
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),

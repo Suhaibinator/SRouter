@@ -40,6 +40,9 @@ func TestGettersWithoutSRouterContext(t *testing.T) {
 	if params, ok := GetPathParamsFromContext[string, any](ctx); ok || params != nil {
 		t.Errorf("GetPathParamsFromContext = (%v, %v), want (nil, false)", params, ok)
 	}
+	if params, ok := GetPathParams(ctx); ok || params != nil {
+		t.Errorf("GetPathParams = (%v, %v), want (nil, false)", params, ok)
+	}
 	if origin, creds, ok := GetCORSInfo[string, any](ctx); ok || origin != "" || creds {
 		t.Errorf("GetCORSInfo = (%q, %v, %v), want (\"\", false, false)", origin, creds, ok)
 	}
