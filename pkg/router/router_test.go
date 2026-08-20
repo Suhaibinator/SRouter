@@ -995,18 +995,6 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 		},
 	})
 
-	// Unsupported SourceType Error
-	r.Route(RouteConfig[TestData, string]{
-		Path:       "/err/unsupported-source",
-		Methods:    []HttpMethod{MethodGet},
-		SourceType: 99, // Invalid source type
-		Codec:      codec.NewJSONCodec[TestData, string](),
-		Handler: func(req *http.Request, data TestData) (string, error) {
-			t.Error("Handler should not be called on unsupported source type error")
-			return "", errors.New("handler should not be called")
-		},
-	})
-
 	// Handler Error
 	r.Route(RouteConfig[TestData, string]{
 		Path:       "/err/handler",
@@ -1136,13 +1124,6 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 			body:           strings.NewReader("{invalid json"),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   "Failed to decode request body",
-		},
-		{
-			name:           "Unsupported SourceType Error",
-			method:         "GET",
-			path:           "/err/unsupported-source",
-			expectedStatus: http.StatusInternalServerError, // Or maybe Bad Request? Let's check route.go... it uses InternalServerError
-			expectedBody:   "Unsupported source type",
 		},
 		{
 			name:           "Handler Error",

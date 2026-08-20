@@ -131,8 +131,8 @@ func TestGetEffectiveRateLimitConvertsUserIDFunctions(t *testing.T) {
 		t.Errorf("UserIDToString(\"bob\") = %q, want %q", key, "key:bob")
 	}
 
-	// A UserIDFromUser returning a value of the wrong type must degrade to the
-	// zero user ID instead of panicking.
+	// A UserIDFromUser returning a value of the wrong type must fail loudly
+	// instead of collapsing unrelated users into the zero-value bucket.
 	wrongType := &common.RateLimitConfig[any, any]{
 		Limit:  1,
 		Window: time.Second,
@@ -144,9 +144,12 @@ func TestGetEffectiveRateLimitConvertsUserIDFunctions(t *testing.T) {
 	if converted == nil || converted.UserIDFromUser == nil {
 		t.Fatal("expected converted config with adapted UserIDFromUser")
 	}
-	if id := converted.UserIDFromUser("alice"); id != "" {
-		t.Errorf("UserIDFromUser with mismatched return type = %q, want zero value", id)
-	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected mismatched user ID type to panic")
+		}
+	}()
+	converted.UserIDFromUser("alice")
 }
 
 // TestExtractIPFromXForwardedForBlankEntries verifies that an X-Forwarded-For

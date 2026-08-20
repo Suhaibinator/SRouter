@@ -31,7 +31,7 @@ import (
 type Router[T comparable, U any] struct {
 	config            RouterConfig
 	router            *httprouter.Router
-	routeTree         *routeTree
+	routeTree         *routeTree[T, U]
 	logger            *zap.Logger
 	middlewares       []common.Middleware
 	authFunction      func(context.Context, string) (*U, bool)
@@ -88,8 +88,7 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 	// Create the router
 	r := &Router[T, U]{
 		config:            config,
-		router:            httprouter.New(),
-		routeTree:         newRouteTree(),
+		routeTree:         newRouteTree[T, U](),
 		logger:            logger.Named("SRouter"),
 		authFunction:      authFunction,
 		getUserIdFromUser: userIdFromuserFunction,
@@ -178,19 +177,14 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 	return r
 }
 
-type resolvedGroup struct {
+type resolvedGroup[T comparable, U any] struct {
 	prefix      string
 	timeout     time.Duration
 	maxBodySize int64
-	rateLimit   *common.RateLimitConfig[any, any]
+	rateLimit   *common.RateLimitConfig[T, U]
 	authToken   authTokenConfigResolution
 	authLevel   *AuthLevel
 	middlewares []common.Middleware
-}
-
-type routeKey struct {
-	method HttpMethod
-	path   string
 }
 
 // Build validates and compiles the route-group tree into a fresh dispatcher.
@@ -207,8 +201,8 @@ func (r *Router[T, U]) Build() (err error) {
 	if tree.ready.Load() {
 		return tree.buildErr
 	}
-	tree.frozen = true
 	defer tree.ready.Store(true)
+	defer clearRouteGroup(tree.root)
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("build route tree: %v", recovered)
@@ -230,23 +224,21 @@ func (r *Router[T, U]) Build() (err error) {
 	}
 
 	candidate := httprouter.New()
-	initial := resolvedGroup{
+	initial := resolvedGroup[T, U]{
 		timeout:     r.config.GlobalTimeout,
 		maxBodySize: r.config.GlobalMaxBodySize,
-		rateLimit:   r.config.GlobalRateLimit,
+		rateLimit:   r.convertRateLimit(r.config.GlobalRateLimit),
 		authToken:   r.initialAuthTokenConfig(),
 	}
-	seen := make(map[routeKey]struct{})
-	if err := r.buildGroup(candidate, tree.root, initial, seen, true); err != nil {
+	if err := r.buildGroup(candidate, tree.root, initial, true); err != nil {
 		tree.buildErr = err
 		return err
 	}
 	r.router = candidate
-	clearRouteGroup(tree.root)
 	return nil
 }
 
-func (r *Router[T, U]) buildGroup(candidate *httprouter.Router, group *RouteGroup, inherited resolvedGroup, seen map[routeKey]struct{}, root bool) error {
+func (r *Router[T, U]) buildGroup(candidate *httprouter.Router, group *RouteGroup[T, U], inherited resolvedGroup[T, U], root bool) error {
 	resolved := inherited
 	if !root {
 		if err := validateGroupPrefix(group.prefix); err != nil {
@@ -296,19 +288,19 @@ func (r *Router[T, U]) buildGroup(candidate *httprouter.Router, group *RouteGrou
 		if err != nil {
 			return err
 		}
-		if err := r.registerCompiledRoute(candidate, route, resolved, seen); err != nil {
+		if err := r.registerCompiledRoute(candidate, route, resolved); err != nil {
 			return err
 		}
 	}
 	for _, child := range group.children {
-		if err := r.buildGroup(candidate, child, resolved, seen, false); err != nil {
+		if err := r.buildGroup(candidate, child, resolved, false); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *Router[T, U]) registerCompiledRoute(candidate *httprouter.Router, route RouteConfigBase, group resolvedGroup, seen map[routeKey]struct{}) error {
+func (r *Router[T, U]) registerCompiledRoute(candidate *httprouter.Router, route RouteConfigBase, group resolvedGroup[T, U]) error {
 	fullPath, err := joinRoutePath(group.prefix, route.Path)
 	if err != nil {
 		return err
@@ -333,23 +325,22 @@ func (r *Router[T, U]) registerCompiledRoute(candidate *httprouter.Router, route
 	}
 
 	timeout := group.timeout
-	if route.Overrides.Timeout > 0 {
+	if route.Overrides.HasTimeout() {
 		timeout = route.Overrides.Timeout
 	}
 	if route.DisableTimeout {
 		timeout = 0
 	}
 	maxBodySize := group.maxBodySize
-	if route.Overrides.MaxBodySize > 0 {
+	if route.Overrides.HasMaxBodySize() {
 		maxBodySize = route.Overrides.MaxBodySize
 	}
 	rateLimitConfig := group.rateLimit
-	if route.Overrides.RateLimit != nil {
-		rateLimitConfig = route.Overrides.RateLimit
+	if route.Overrides.HasRateLimit() {
+		rateLimitConfig = r.convertRateLimit(route.Overrides.RateLimit)
 	}
-	rateLimit := r.convertRateLimit(rateLimitConfig)
 	authTokenResolution := group.authToken
-	if route.Overrides.AuthToken != nil {
+	if route.Overrides.HasAuthToken() {
 		authTokenResolution = authTokenConfigResolution{config: normalizeAuthTokenConfig(*route.Overrides.AuthToken), origin: authTokenOriginRoute}
 	}
 
@@ -357,19 +348,22 @@ func (r *Router[T, U]) registerCompiledRoute(candidate *httprouter.Router, route
 	if authLevel == nil {
 		authLevel = group.authLevel
 	}
+	if authLevel != nil && *authLevel != NoAuth {
+		if r.authFunction == nil {
+			return fmt.Errorf("route %q enables authentication without an authentication function", fullPath)
+		}
+		if r.getUserIdFromUser == nil {
+			return fmt.Errorf("route %q enables authentication without a user ID function", fullPath)
+		}
+	}
 	r.warnOnBuiltinAuthTokenFallback(fullPath, route.Methods, authLevel, authTokenResolution)
 
 	middlewares := combineMiddlewares(group.middlewares, route.Middlewares)
-	handler := r.wrapHandler(route.Handler, authLevel, authTokenResolution.config, timeout, maxBodySize, rateLimit, middlewares)
+	handler := r.wrapHandler(route.Handler, authLevel, authTokenResolution.config, timeout, maxBodySize, rateLimitConfig, middlewares)
 	for _, method := range route.Methods {
 		if method == "" {
 			return fmt.Errorf("route %q contains an empty HTTP method", fullPath)
 		}
-		key := routeKey{method: method, path: fullPath}
-		if _, exists := seen[key]; exists {
-			return fmt.Errorf("duplicate route %s %s", method, fullPath)
-		}
-		seen[key] = struct{}{}
 		if err := r.handleRoute(candidate, string(method), fullPath, handler); err != nil {
 			return err
 		}
@@ -588,12 +582,15 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 	}
 }
 
-// combineMiddlewares returns a new slice containing parent middlewares followed
-// by child middlewares. The inputs are never modified and the result has its
-// own backing array.
+// combineMiddlewares returns parent middleware followed by child middleware.
+// Build freezes the input slices, so an existing slice can be reused when the
+// other side is empty; only a true combination needs a new backing array.
 func combineMiddlewares(parent, child []common.Middleware) []common.Middleware {
-	if len(parent) == 0 && len(child) == 0 {
-		return nil
+	if len(parent) == 0 {
+		return child
+	}
+	if len(child) == 0 {
+		return parent
 	}
 	combined := make([]common.Middleware, 0, len(parent)+len(child))
 	combined = append(combined, parent...)
@@ -1107,6 +1104,7 @@ func (r *Router[T, U]) initialAuthTokenConfig() authTokenConfigResolution {
 		origin: authTokenOriginDefault,
 	}
 }
+
 func (r *Router[T, U]) convertRateLimit(config *common.RateLimitConfig[any, any]) *common.RateLimitConfig[T, U] {
 	if config == nil {
 		return nil
@@ -1115,7 +1113,10 @@ func (r *Router[T, U]) convertRateLimit(config *common.RateLimitConfig[any, any]
 	var userIDFromUser func(U) T
 	if fromUser := config.UserIDFromUser; fromUser != nil {
 		userIDFromUser = func(user U) T {
-			id, _ := fromUser(user).(T)
+			id, ok := fromUser(user).(T)
+			if !ok {
+				panic("router: rate limit UserIDFromUser returned an incompatible user ID type")
+			}
 			return id
 		}
 	}

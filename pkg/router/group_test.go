@@ -165,6 +165,40 @@ func TestBuildRejectsInvalidAndDuplicateRoutes(t *testing.T) {
 			},
 		},
 		{
+			name: "invalid typed source",
+			setup: func(r *Router[string, string]) {
+				r.Route(RouteConfig[string, string]{
+					Path:       "/x",
+					Methods:    []HttpMethod{MethodPost},
+					Codec:      codec.NewJSONCodec[string, string](),
+					Handler:    func(*http.Request, string) (string, error) { return "", nil },
+					SourceType: SourceType(999),
+				})
+			},
+		},
+		{
+			name: "missing typed query source key",
+			setup: func(r *Router[string, string]) {
+				r.Route(RouteConfig[string, string]{
+					Path:       "/x",
+					Methods:    []HttpMethod{MethodGet},
+					Codec:      codec.NewJSONCodec[string, string](),
+					Handler:    func(*http.Request, string) (string, error) { return "", nil },
+					SourceType: Base64QueryParameter,
+				})
+			},
+		},
+		{
+			name: "authentication without dependencies",
+			setup: func(r *Router[string, string]) {
+				r.Auth(AuthRequired).Route(RouteConfigBase{
+					Path:    "/x",
+					Methods: []HttpMethod{MethodGet},
+					Handler: func(http.ResponseWriter, *http.Request) {},
+				})
+			},
+		},
+		{
 			name: "duplicate route",
 			setup: func(r *Router[string, string]) {
 				r.Route(

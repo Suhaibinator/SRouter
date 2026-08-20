@@ -191,7 +191,7 @@ SRouter applies middleware by wrapping the final handler in `wrapHandler`. The e
 3.  **Authentication Middleware** (Applied internally if `AuthLevel` is `AuthRequired` or `AuthOptional`)
 4.  **Rate Limiting Middleware** (Applied internally if a rate limit config applies)
 5.  **Global middleware** (`RouterConfig.Middlewares`, including configured metrics)
-6.  **Route-group middleware** (outermost group to innermost group)
+6.  **Route-group middleware** (`Router.Use` root middleware, then outermost group to innermost group)
 7.  **Route middleware** (`RouteConfigBase.Middlewares` or `RouteConfig.Middlewares`)
 8.  **Timeout middleware** (if the effective timeout is positive)
 9.  **Body limit and actual handler**

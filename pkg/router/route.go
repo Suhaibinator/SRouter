@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
@@ -15,17 +16,18 @@ import (
 //
 // Middleware execution order:
 // 1. Global middlewares (from RouterConfig)
-// 2. Route-specific middlewares
+// 2. Root middlewares (from Router.Use)
+// 3. Route-specific middlewares
 //
 // Configuration precedence (most specific wins):
-// - Route settings > Global settings
+// - Route settings > root-group settings > global settings
 func (r *Router[T, U]) Route(routes ...RouteDefinition) *Router[T, U] {
 	r.routeTree.root.Route(routes...)
 	return r
 }
 
 // Group creates a first-level route group.
-func (r *Router[T, U]) Group(prefix string) *RouteGroup {
+func (r *Router[T, U]) Group(prefix string) *RouteGroup[T, U] {
 	return r.routeTree.root.Group(prefix)
 }
 
@@ -35,15 +37,61 @@ func (r *Router[T, U]) Use(middlewares ...common.Middleware) *Router[T, U] {
 	return r
 }
 
+// Timeout overrides the configured global timeout for root routes and groups.
+// A zero duration disables the inherited global timeout.
+func (r *Router[T, U]) Timeout(timeout time.Duration) *Router[T, U] {
+	r.routeTree.root.Timeout(timeout)
+	return r
+}
+
+// MaxBodySize overrides the configured global body limit for root routes and
+// groups. Zero disables the inherited global limit.
+func (r *Router[T, U]) MaxBodySize(bytes int64) *Router[T, U] {
+	r.routeTree.root.MaxBodySize(bytes)
+	return r
+}
+
+// RateLimit sets a type-safe root rate limit for all routes and groups. Nil
+// disables an inherited global rate limit.
+func (r *Router[T, U]) RateLimit(config *common.RateLimitConfig[T, U]) *Router[T, U] {
+	r.routeTree.root.RateLimit(config)
+	return r
+}
+
+// AuthToken overrides the configured global authentication token source for
+// root routes and groups. Nil restores the built-in Authorization header.
+func (r *Router[T, U]) AuthToken(config *common.AuthTokenConfig) *Router[T, U] {
+	r.routeTree.root.AuthToken(config)
+	return r
+}
+
+// Auth sets the default authentication level for root routes and groups.
+func (r *Router[T, U]) Auth(level AuthLevel) *Router[T, U] {
+	r.routeTree.root.Auth(level)
+	return r
+}
+
 // baseConfig makes every RouteConfig instantiation a RouteDefinition without
 // erasing its request or response types.
 func (route RouteConfig[Req, Resp]) baseConfig(runtime routeRuntime, pathPrefix string) (RouteConfigBase, error) {
-	fullPath := pathPrefix + route.Path
+	fullPath, err := joinRoutePath(pathPrefix, route.Path)
+	if err != nil {
+		return RouteConfigBase{}, err
+	}
 	if route.Codec == nil {
 		return RouteConfigBase{}, fmt.Errorf("typed route %q has no codec", fullPath)
 	}
 	if route.Handler == nil {
 		return RouteConfigBase{}, fmt.Errorf("typed route %q has no handler", fullPath)
+	}
+	switch route.SourceType {
+	case Body, Empty, Base64PathParameter, Base62PathParameter:
+	case Base64QueryParameter, Base62QueryParameter:
+		if route.SourceKey == "" {
+			return RouteConfigBase{}, fmt.Errorf("typed route %q has no query parameter source key", fullPath)
+		}
+	default:
+		return RouteConfigBase{}, fmt.Errorf("typed route %q has invalid source type %d", fullPath, route.SourceType)
 	}
 	if route.Sanitizer == nil {
 		runtime.warnMissingSanitizer(fullPath, route.Methods)

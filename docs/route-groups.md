@@ -63,10 +63,11 @@ changes the settings whose methods it calls:
 Middleware is additive. Public middleware executes in this order:
 
 1. `RouterConfig.Middlewares`
-2. outermost group middleware
-3. nested group middleware, from outer to inner
-4. route middleware
-5. route handler
+2. root-group middleware added with `Router.Use`
+3. outermost group middleware
+4. nested group middleware, from outer to inner
+5. route middleware
+6. route handler
 
 Route-specific auth, timeout, body-size, rate-limit, and auth-token settings
 still take precedence over inherited group policy.

@@ -28,7 +28,7 @@ routerConfig := router.RouterConfig{
 // Example: Route-group override
 r := router.NewRouter[string, User](routerConfig, authenticate, userID)
 sensitive := r.Group("/api").Group("/v1").Group("/sensitive").RateLimit(
-    &common.RateLimitConfig[any, any]{
+    &common.RateLimitConfig[string, User]{
         BucketName: "sensitive_api_user_limit",
         Limit:      20,
         Window:     time.Hour,
@@ -51,9 +51,9 @@ route := router.RouteConfig[MyReq, MyResp]{ // Use specific types for route conf
     // ... other route config
 }
 
-// Note: The type parameters for RateLimitConfig are generally [any, any]
-// as the rate limiting middleware itself doesn't usually depend on the
-// specific request/response types T and U of a generic route.
+// Group rate limits use the Router's UserID and User types. Global and
+// route-override fields retain [any, any] because RouterConfig and
+// RouteOverrides are non-generic.
 ```
 
 Key `RateLimitConfig` fields:

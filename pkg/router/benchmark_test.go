@@ -14,6 +14,7 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common" // Re-add common import
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 )
@@ -447,7 +448,7 @@ func newRouteTreeBenchmarkRouter(routeCount, depth int, withMiddleware bool) *Ro
 		return r
 	}
 
-	groups := make([]*RouteGroup, 0, depth)
+	groups := make([]*RouteGroup[string, string], 0, depth)
 	group := r.Group("/group-0")
 	groups = append(groups, group)
 	for level := 1; level < depth; level++ {
@@ -650,6 +651,42 @@ func BenchmarkCompiledRouteGroupDispatch(b *testing.B) {
 		b.Run(benchmark.name, func(b *testing.B) {
 			r, path := newServeRouteTreeBenchmarkRouter(benchmark.depth, benchmark.withMiddleware, benchmark.withPolicy)
 			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req = req.WithContext(scontext.WithClientInfo[string, string](req.Context(), "192.0.2.1", "benchmark"))
+			writer := discardBenchmarkResponseWriter{}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				r.router.ServeHTTP(writer, req)
+			}
+		})
+	}
+}
+
+// BenchmarkCompiledRouteParamAccess isolates parameterized matching and the
+// cost of reading route parameters from the shared SRouterContext.
+func BenchmarkCompiledRouteParamAccess(b *testing.B) {
+	for _, lookups := range []int{0, 1, 2} {
+		b.Run(fmt.Sprintf("lookups_%d", lookups), func(b *testing.B) {
+			r := NewRouter(RouterConfig{Logger: zap.NewNop()}, nopAuthFunc, userIDFromString)
+			parameterNames := [...]string{"id", "postID"}
+			r.Route(RouteConfigBase{
+				Path:    "/users/:id/posts/:postID",
+				Methods: []HttpMethod{MethodGet},
+				Handler: func(w http.ResponseWriter, req *http.Request) {
+					for _, name := range parameterNames[:lookups] {
+						if GetParam(req, name) == "" {
+							panic("benchmark route parameter is missing")
+						}
+					}
+					w.WriteHeader(http.StatusNoContent)
+				},
+			})
+			if err := r.Build(); err != nil {
+				b.Fatal(err)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/users/123/posts/456", nil)
+			req = req.WithContext(scontext.WithClientInfo[string, string](req.Context(), "192.0.2.1", "benchmark"))
 			writer := discardBenchmarkResponseWriter{}
 			b.ReportAllocs()
 			b.ResetTimer()

@@ -36,6 +36,11 @@ type RouterConfig struct {
 Routes do not live inside `RouterConfig`. Add them after `NewRouter` with
 `Router.Route` and `Router.Group`.
 
+The router itself is the root group. Its fluent `Use`, `Timeout`,
+`MaxBodySize`, `RateLimit`, `AuthToken`, and `Auth` methods override global
+defaults for the entire route tree; `RateLimit` is typed to the router's
+`UserID` and `User` parameters.
+
 ## Route groups
 
 ```go
@@ -54,14 +59,14 @@ v1.Route(routeA, routeB)
 Every group can recursively call:
 
 ```go
-Group(prefix string) *RouteGroup
-Route(routes ...RouteDefinition) *RouteGroup
-Use(middlewares ...common.Middleware) *RouteGroup
-Timeout(timeout time.Duration) *RouteGroup
-MaxBodySize(bytes int64) *RouteGroup
-RateLimit(config *common.RateLimitConfig[any, any]) *RouteGroup
-AuthToken(config *common.AuthTokenConfig) *RouteGroup
-Auth(level AuthLevel) *RouteGroup
+Group(prefix string) *RouteGroup[UserID, User]
+Route(routes ...RouteDefinition) *RouteGroup[UserID, User]
+Use(middlewares ...common.Middleware) *RouteGroup[UserID, User]
+Timeout(timeout time.Duration) *RouteGroup[UserID, User]
+MaxBodySize(bytes int64) *RouteGroup[UserID, User]
+RateLimit(config *common.RateLimitConfig[UserID, User]) *RouteGroup[UserID, User]
+AuthToken(config *common.AuthTokenConfig) *RouteGroup[UserID, User]
+Auth(level AuthLevel) *RouteGroup[UserID, User]
 ```
 
 Policy inherits independently for each field. A zero timeout/body limit or nil

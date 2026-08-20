@@ -427,8 +427,9 @@ func SetRouteInfo[T comparable, U any](rc *SRouterContext[T, U], params httprout
 	rc.mu.Unlock()
 }
 
-type pathParamsProvider interface {
+type routeInfoProvider interface {
 	getPathParams() (httprouter.Params, bool)
+	getRouteTemplate() (string, bool)
 }
 
 func (rc *SRouterContext[T, U]) getPathParams() (httprouter.Params, bool) {
@@ -440,27 +441,7 @@ func (rc *SRouterContext[T, U]) getPathParams() (httprouter.Params, bool) {
 	return rc.PathParams, true
 }
 
-// GetPathParams retrieves path parameters without requiring the caller to know
-// the router's user ID and user types. The context still contains the single
-// typed SRouterContext used by all other request metadata.
-func GetPathParams(ctx context.Context) (httprouter.Params, bool) {
-	provider, ok := ctx.Value(sRouterContextKey{}).(pathParamsProvider)
-	if !ok {
-		return nil, false
-	}
-	return provider.getPathParams()
-}
-
-// GetRouteTemplateFromContext retrieves the route template from the context.
-// The route template is the original path pattern (e.g., "/users/:id") before parameter substitution.
-// It returns the template and a boolean indicating whether it was found.
-// This is useful for metrics and logging where you want consistent route identifiers.
-// T is the User ID type (comparable), U is the User object type (any).
-func GetRouteTemplateFromContext[T comparable, U any](ctx context.Context) (string, bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok {
-		return "", false
-	}
+func (rc *SRouterContext[T, U]) getRouteTemplate() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if !rc.RouteTemplateSet {
@@ -469,30 +450,39 @@ func GetRouteTemplateFromContext[T comparable, U any](ctx context.Context) (stri
 	return rc.RouteTemplate, true
 }
 
+// GetRouteTemplateFromContext retrieves the route template from the context.
+// The route template is the original path pattern (e.g., "/users/:id") before parameter substitution.
+// It returns the template and a boolean indicating whether it was found.
+// This is useful for metrics and logging where you want consistent route identifiers.
+func GetRouteTemplateFromContext(ctx context.Context) (string, bool) {
+	provider, ok := ctx.Value(sRouterContextKey{}).(routeInfoProvider)
+	if !ok {
+		return "", false
+	}
+	return provider.getRouteTemplate()
+}
+
 // GetRouteTemplateFromRequest is a convenience function that extracts the route template from an http.Request.
 // It is equivalent to calling GetRouteTemplateFromContext with r.Context().
-// T is the User ID type (comparable), U is the User object type (any).
-func GetRouteTemplateFromRequest[T comparable, U any](r *http.Request) (string, bool) {
-	return GetRouteTemplateFromContext[T, U](r.Context())
+func GetRouteTemplateFromRequest(r *http.Request) (string, bool) {
+	return GetRouteTemplateFromContext(r.Context())
 }
 
 // GetPathParamsFromContext retrieves the path parameters from the context.
 // Path parameters are extracted by httprouter from the URL path (e.g., :id in "/users/:id").
 // It returns the parameters and a boolean indicating whether they were found.
-// T is the User ID type (comparable), U is the User object type (any).
-func GetPathParamsFromContext[T comparable, U any](ctx context.Context) (httprouter.Params, bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
+func GetPathParamsFromContext(ctx context.Context) (httprouter.Params, bool) {
+	provider, ok := ctx.Value(sRouterContextKey{}).(routeInfoProvider)
 	if !ok {
 		return nil, false
 	}
-	return rc.getPathParams()
+	return provider.getPathParams()
 }
 
 // GetPathParamsFromRequest is a convenience function that extracts path parameters from an http.Request.
 // It is equivalent to calling GetPathParamsFromContext with r.Context().
-// T is the User ID type (comparable), U is the User object type (any).
-func GetPathParamsFromRequest[T comparable, U any](r *http.Request) (httprouter.Params, bool) {
-	return GetPathParamsFromContext[T, U](r.Context())
+func GetPathParamsFromRequest(r *http.Request) (httprouter.Params, bool) {
+	return GetPathParamsFromContext(r.Context())
 }
 
 // WithCORSInfo adds CORS (Cross-Origin Resource Sharing) information to the context.

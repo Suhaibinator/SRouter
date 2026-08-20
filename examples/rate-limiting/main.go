@@ -213,7 +213,7 @@ func main() {
 
 	// Strict rate limit for auth endpoints (shared bucket).
 	r.Group("/auth").
-		RateLimit(&common.RateLimitConfig[any, any]{
+		RateLimit(&common.RateLimitConfig[string, User]{
 			BucketName:      "auth-endpoints",
 			Limit:           5,
 			Window:          time.Minute,
@@ -229,7 +229,7 @@ func main() {
 	api := r.Group("/api")
 	// User-based rate limiting.
 	api.Group("/profile").
-		RateLimit(&common.RateLimitConfig[any, any]{
+		RateLimit(&common.RateLimitConfig[string, User]{
 			BucketName: "user-profile",
 			Limit:      10,
 			Window:     time.Minute,
@@ -242,7 +242,7 @@ func main() {
 		})
 	// IP-based rate limiting.
 	api.Group("/public").
-		RateLimit(&common.RateLimitConfig[any, any]{
+		RateLimit(&common.RateLimitConfig[string, User]{
 			BucketName: "public-endpoints",
 			Limit:      20,
 			Window:     time.Minute,

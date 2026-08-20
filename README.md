@@ -187,7 +187,7 @@ if err := r.Build(); err != nil {
 }
 ```
 
-This registers `GET /api/v1/users/:id` and `POST /api/v1/users`. Group policy inherits per setting; `Timeout(0)`, `MaxBodySize(0)`, and `RateLimit(nil)` explicitly disable inherited values. Middleware executes global, then outer group to inner group, then route.
+This registers `GET /api/v1/users/:id` and `POST /api/v1/users`. Group policy inherits per setting; `Timeout(0)`, `MaxBodySize(0)`, and `RateLimit(nil)` explicitly disable inherited values. Middleware executes configured globals, `Router.Use` root middleware, outer group to inner group, then route middleware.
 
 Keep group handles when separate packages add routes. There is no prefix lookup API and route registration is frozen after `Build` or the first request. See [Route groups](docs/route-groups.md) for recursion, inheritance, validation, and lifecycle details.
 
@@ -488,7 +488,7 @@ routerConfig := router.RouterConfig{
 
 // Create the router, then override rate limiting for a route group.
 r := router.NewRouter[string, User](routerConfig, authFunction, userIDFromUser)
-apiV1 := r.Group("/api/v1").RateLimit(&common.RateLimitConfig[any, any]{
+apiV1 := r.Group("/api/v1").RateLimit(&common.RateLimitConfig[string, User]{
     BucketName: "api_v1_user_limit",
     Limit:      50,
     Window:     time.Hour,
@@ -1150,15 +1150,22 @@ type MetricsConfig struct {
 ### RouteGroup
 
 ```go
-r.Group(prefix) *RouteGroup
-group.Group(prefix) *RouteGroup
-group.Route(routes ...RouteDefinition) *RouteGroup
-group.Use(middlewares ...common.Middleware) *RouteGroup
-group.Timeout(timeout time.Duration) *RouteGroup
-group.MaxBodySize(bytes int64) *RouteGroup
-group.RateLimit(config *common.RateLimitConfig[any, any]) *RouteGroup
-group.AuthToken(config *common.AuthTokenConfig) *RouteGroup
-group.Auth(level AuthLevel) *RouteGroup
+r.Group(prefix) *RouteGroup[UserID, User]
+r.Route(routes ...RouteDefinition) *Router[UserID, User]
+r.Use(middlewares ...common.Middleware) *Router[UserID, User]
+r.Timeout(timeout time.Duration) *Router[UserID, User]
+r.MaxBodySize(bytes int64) *Router[UserID, User]
+r.RateLimit(config *common.RateLimitConfig[UserID, User]) *Router[UserID, User]
+r.AuthToken(config *common.AuthTokenConfig) *Router[UserID, User]
+r.Auth(level AuthLevel) *Router[UserID, User]
+group.Group(prefix) *RouteGroup[UserID, User]
+group.Route(routes ...RouteDefinition) *RouteGroup[UserID, User]
+group.Use(middlewares ...common.Middleware) *RouteGroup[UserID, User]
+group.Timeout(timeout time.Duration) *RouteGroup[UserID, User]
+group.MaxBodySize(bytes int64) *RouteGroup[UserID, User]
+group.RateLimit(config *common.RateLimitConfig[UserID, User]) *RouteGroup[UserID, User]
+group.AuthToken(config *common.AuthTokenConfig) *RouteGroup[UserID, User]
+group.Auth(level AuthLevel) *RouteGroup[UserID, User]
 r.Build() error
 ```
 

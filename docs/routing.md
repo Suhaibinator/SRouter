@@ -55,7 +55,7 @@ Groups can be nested to any practical depth. Retain the handle rather than
 looking it up by a path string:
 
 ```go
-func registerUsers(group *router.RouteGroup) {
+func registerUsers(group *router.RouteGroup[string, User]) {
 	group.Route(/* user routes */)
 }
 
