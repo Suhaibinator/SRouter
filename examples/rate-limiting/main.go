@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"log"
 	"net/http"
@@ -54,7 +54,7 @@ var tokens = map[string]string{
 // Handler functions
 func loginHandler(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -75,7 +75,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Return the token and user
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(LoginResponse{
+	_ = json.MarshalWrite(w, LoginResponse{
 		Token: token,
 		User:  user,
 	})
@@ -91,7 +91,7 @@ func userProfileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Return the user profile
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{
+	_ = json.MarshalWrite(w, APIResponse{
 		Success: true,
 		Message: "User profile retrieved successfully",
 		Data:    user,
@@ -101,7 +101,7 @@ func userProfileHandler(w http.ResponseWriter, r *http.Request) {
 func publicEndpointHandler(w http.ResponseWriter, r *http.Request) {
 	// Return a public response
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{
+	_ = json.MarshalWrite(w, APIResponse{
 		Success: true,
 		Message: "Public endpoint accessed successfully",
 		Data:    map[string]string{"info": "This is a public endpoint"},
@@ -150,7 +150,7 @@ func authMiddleware(next http.Handler) http.Handler {
 func rateLimitExceededHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusTooManyRequests)
-	json.NewEncoder(w).Encode(APIResponse{
+	_ = json.MarshalWrite(w, APIResponse{
 		Success: false,
 		Message: "Rate limit exceeded. Please try again later.",
 	})
@@ -159,69 +159,9 @@ func rateLimitExceededHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Note: The router creates its own rate limiter internally
-
-	// Create auth subrouter
-	authSubrouter := router.SubRouterConfig{
-		PathPrefix: "/auth",
-		Routes: []router.RouteDefinition{
-			router.RouteConfigBase{
-				Path:    "/login",
-				Methods: []router.HttpMethod{router.MethodPost},
-				// Strict rate limit for auth endpoints (shared bucket)
-				Overrides: common.RouteOverrides{
-					RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-						BucketName:      "auth-endpoints",
-						Limit:           5,
-						Window:          time.Minute,
-						Strategy:        common.StrategyUser, // Use common.StrategyUser
-						ExceededHandler: http.HandlerFunc(rateLimitExceededHandler),
-					},
-				},
-				Handler: loginHandler,
-			},
-		},
-	}
-
-	// Create API subrouter
-	apiSubrouter := router.SubRouterConfig{
-		PathPrefix: "/api",
-		Routes: []router.RouteDefinition{
-			router.RouteConfigBase{
-				Path:    "/profile",
-				Methods: []router.HttpMethod{router.MethodGet},
-				// User-based rate limiting
-				Overrides: common.RouteOverrides{
-					RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-						BucketName: "user-profile",
-						Limit:      10,
-						Window:     time.Minute,
-						Strategy:   common.StrategyUser, // Use common.StrategyUser
-					},
-				},
-				Middlewares: []common.Middleware{
-					authMiddleware,
-				},
-				Handler: userProfileHandler,
-			},
-			router.RouteConfigBase{ // Add explicit type
-				Path:    "/public",
-				Methods: []router.HttpMethod{router.MethodGet},
-				// IP-based rate limiting
-				Overrides: common.RouteOverrides{
-					RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-						BucketName: "public-endpoints",
-						Limit:      20,
-						Window:     time.Minute,
-						Strategy:   common.StrategyIP, // Use common.StrategyIP
-					},
-				},
-				Handler: publicEndpointHandler,
-			},
-		},
-	}
 
 	// Create a router configuration with global rate limiting
 	routerConfig := router.RouterConfig{
@@ -238,11 +178,6 @@ func main() {
 		IPConfig: &router.IPConfig{ // Use router.IPConfig
 			Source:     router.IPSourceXForwardedFor, // Use router.IPSourceXForwardedFor
 			TrustProxy: true,
-		},
-		// Add subrouters to the configuration
-		SubRouters: []router.SubRouterConfig{
-			authSubrouter,
-			apiSubrouter,
 		},
 	}
 
@@ -274,7 +209,49 @@ func main() {
 	}
 
 	// Create a router with string as the user ID type (T) and User as the user type (U)
-	r := router.NewRouter[string, User](routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
+
+	// Strict rate limit for auth endpoints (shared bucket).
+	r.Group("/auth").
+		RateLimit(&common.RateLimitConfig[string, User]{
+			BucketName:      "auth-endpoints",
+			Limit:           5,
+			Window:          time.Minute,
+			Strategy:        common.StrategyUser,
+			ExceededHandler: http.HandlerFunc(rateLimitExceededHandler),
+		}).
+		Route(router.RouteConfigBase{
+			Path:    "/login",
+			Methods: []router.HttpMethod{router.MethodPost},
+			Handler: loginHandler,
+		})
+
+	api := r.Group("/api")
+	// User-based rate limiting.
+	api.Group("/profile").
+		RateLimit(&common.RateLimitConfig[string, User]{
+			BucketName: "user-profile",
+			Limit:      10,
+			Window:     time.Minute,
+			Strategy:   common.StrategyUser,
+		}).
+		Use(authMiddleware).
+		Route(router.RouteConfigBase{
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: userProfileHandler,
+		})
+	// IP-based rate limiting.
+	api.Group("/public").
+		RateLimit(&common.RateLimitConfig[string, User]{
+			BucketName: "public-endpoints",
+			Limit:      20,
+			Window:     time.Minute,
+			Strategy:   common.StrategyIP,
+		}).
+		Route(router.RouteConfigBase{
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: publicEndpointHandler,
+		})
 
 	// Start the server
 	fmt.Println("Server listening on :8080")

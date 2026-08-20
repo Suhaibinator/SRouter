@@ -41,17 +41,16 @@ func TestErrorHandling(t *testing.T) {
 	}, authFunction, userIdFromUserFunction)
 
 	// Register a route that returns an error
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/error",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
-			// This will panic
-			_ = r.Context().Value(ParamsKey).(string) // Force a panic
+			panic("forced panic")
 		},
 	})
 
 	// Register a route that returns a custom error
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/custom-error",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +70,7 @@ func TestErrorHandling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code (should be 500 Internal Server Error because of the panic)
 	if resp.StatusCode != http.StatusInternalServerError {
@@ -83,7 +82,7 @@ func TestErrorHandling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code (should be 400 Bad Request)
 	if resp.StatusCode != http.StatusBadRequest {

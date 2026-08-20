@@ -28,7 +28,7 @@ type CreateUserResp struct {
 // HealthCheckHandler is a simple handler that returns a 200 OK
 func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"ok"}`))
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
 // CreateUserHandler is a generic handler that creates a user
@@ -45,7 +45,7 @@ func CreateUserHandler(r *http.Request, req CreateUserReq) (CreateUserResp, erro
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create a router configuration
 	routerConfig := router.RouterConfig{
@@ -54,23 +54,6 @@ func main() {
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
 		Middlewares:       []common.Middleware{},
-		SubRouters: []router.SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Overrides: common.RouteOverrides{
-					Timeout:     3 * time.Second,
-					MaxBodySize: 2 << 20, // 2 MB
-				},
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:      "/health",
-						Methods:   []router.HttpMethod{router.MethodGet},
-						AuthLevel: new(router.NoAuth), // Changed
-						Handler:   HealthCheckHandler,
-					},
-				},
-			},
-		},
 	}
 
 	// Define the auth function that takes a context and token and returns a *string and a boolean
@@ -94,9 +77,19 @@ func main() {
 
 	// Create a router with string as both the user ID and user type
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+	api := r.Group("/api").
+		Timeout(3 * time.Second).
+		MaxBodySize(2 << 20) // 2 MB
+
+	api.Route(router.RouteConfigBase{
+		Path:      "/health",
+		Methods:   []router.HttpMethod{router.MethodGet},
+		AuthLevel: new(router.NoAuth),
+		Handler:   HealthCheckHandler,
+	})
 
 	// Register a generic JSON route
-	// Note: Since this route is under "/api", we use RegisterGenericRouteOnSubRouter
+	// Since this route is under "/api", register it on that group.
 	userRouteConfig := router.RouteConfig[CreateUserReq, CreateUserResp]{
 		Path:      "/users", // Relative path
 		Methods:   []router.HttpMethod{router.MethodPost},
@@ -107,14 +100,7 @@ func main() {
 		Codec:   codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
 		Handler: CreateUserHandler,
 	}
-	err := router.RegisterGenericRouteOnSubRouter[CreateUserReq, CreateUserResp, string, string](
-		r,
-		"/api", // Target sub-router prefix
-		userRouteConfig,
-	)
-	if err != nil {
-		log.Fatalf("Failed to register generic route on /api: %v", err)
-	}
+	api.Route(userRouteConfig)
 
 	// Start the server
 	fmt.Println("Server listening on :8080")

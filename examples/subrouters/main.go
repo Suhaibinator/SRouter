@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
@@ -16,67 +17,67 @@ import (
 // API version 1 handlers
 func v1GetUsersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"version":"v1","users":[{"id":1,"name":"John"},{"id":2,"name":"Jane"}]}`))
+	_, _ = w.Write([]byte(`{"version":"v1","users":[{"id":1,"name":"John"},{"id":2,"name":"Jane"}]}`))
 }
 
 func v1GetUserHandler(w http.ResponseWriter, r *http.Request) {
 	id := router.GetParam(r, "id")
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(fmt.Sprintf(`{"version":"v1","user":{"id":%s,"name":"User %s"}}`, id, id)))
+	_, _ = fmt.Fprintf(w, `{"version":"v1","user":{"id":%s,"name":"User %s"}}`, id, id)
 }
 
 func v1CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"version":"v1","message":"User created","user":{"id":3,"name":"New User"}}`))
+	_, _ = w.Write([]byte(`{"version":"v1","message":"User created","user":{"id":3,"name":"New User"}}`))
 }
 
 // API version 2 handlers
 func v2GetUsersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"version":"v2","data":{"users":[{"id":1,"name":"John","email":"john@example.com"},{"id":2,"name":"Jane","email":"jane@example.com"}]}}`))
+	_, _ = w.Write([]byte(`{"version":"v2","data":{"users":[{"id":1,"name":"John","email":"john@example.com"},{"id":2,"name":"Jane","email":"jane@example.com"}]}}`))
 }
 
 func v2GetUserHandler(w http.ResponseWriter, r *http.Request) {
 	id := router.GetParam(r, "id")
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(fmt.Sprintf(`{"version":"v2","data":{"user":{"id":%s,"name":"User %s","email":"user%s@example.com"}}}`, id, id, id)))
+	_, _ = fmt.Fprintf(w, `{"version":"v2","data":{"user":{"id":%s,"name":"User %s","email":"user%s@example.com"}}}`, id, id, id)
 }
 
 func v2CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"version":"v2","data":{"message":"User created","user":{"id":3,"name":"New User","email":"newuser@example.com"}}}`))
+	_, _ = w.Write([]byte(`{"version":"v2","data":{"message":"User created","user":{"id":3,"name":"New User","email":"newuser@example.com"}}}`))
 }
 
 // Admin handlers
 func adminDashboardHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"Admin Dashboard"}`))
+	_, _ = w.Write([]byte(`{"message":"Admin Dashboard"}`))
 }
 
 func adminUsersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"Admin Users"}`))
+	_, _ = w.Write([]byte(`{"message":"Admin Users"}`))
 }
 
 func adminSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"Admin Settings"}`))
+	_, _ = w.Write([]byte(`{"message":"Admin Settings"}`))
 }
 
 // Public handlers
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"Welcome to the home page"}`))
+	_, _ = w.Write([]byte(`{"message":"Welcome to the home page"}`))
 }
 
 func aboutHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"About us"}`))
+	_, _ = w.Write([]byte(`{"message":"About us"}`))
 }
 
 func contactHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"Contact us"}`))
+	_, _ = w.Write([]byte(`{"message":"Contact us"}`))
 }
 
 // Slow handler for demonstrating timeouts
@@ -84,7 +85,7 @@ func slowHandler(w http.ResponseWriter, r *http.Request) {
 	// Simulate a slow operation
 	time.Sleep(3 * time.Second)
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"This is a slow response"}`))
+	_, _ = w.Write([]byte(`{"message":"This is a slow response"}`))
 }
 
 // Large response handler for demonstrating body size limits
@@ -92,13 +93,14 @@ func largeResponseHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Generate a large response
-	response := `{"message":"This is a large response","data":"`
-	for i := 0; i < 1024*1024; i++ { // 1MB of data
-		response += "X"
+	var response strings.Builder
+	response.WriteString(`{"message":"This is a large response","data":"`)
+	for range 1024 * 1024 { // 1MB of data
+		response.WriteString("X")
 	}
-	response += `"}`
+	response.WriteString(`"}`)
 
-	w.Write([]byte(response))
+	_, _ = w.Write([]byte(response.String()))
 }
 
 // Version middleware adds a version header
@@ -129,9 +131,9 @@ func AdminAuthMiddleware() common.Middleware {
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
-	// Create a router configuration with sub-routers
+	// Create the router's global configuration.
 	routerConfig := router.RouterConfig{
 		ServiceName:       "subrouters-service", // Added ServiceName
 		Logger:            logger,
@@ -139,128 +141,6 @@ func main() {
 		GlobalMaxBodySize: 2 << 20, // 2 MB
 		Middlewares: []common.Middleware{
 			middleware.Recovery(logger),
-		},
-		SubRouters: []router.SubRouterConfig{
-			// API v1 sub-router
-			{
-				PathPrefix: "/api/v1",
-				Overrides: common.RouteOverrides{
-					Timeout: 2 * time.Second,
-				},
-				Middlewares: []common.Middleware{
-					VersionMiddleware("1.0"),
-				},
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:    "/users",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: v1GetUsersHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/users/:id",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: v1GetUserHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/users",
-						Methods: []router.HttpMethod{router.MethodPost},
-						Handler: v1CreateUserHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/slow",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: slowHandler,
-					},
-				},
-			},
-			// API v2 sub-router
-			{
-				PathPrefix: "/api/v2",
-				Overrides: common.RouteOverrides{
-					Timeout: 3 * time.Second,
-				},
-				Middlewares: []common.Middleware{
-					VersionMiddleware("2.0"),
-				},
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:    "/users",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: v2GetUsersHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/users/:id",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: v2GetUserHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/users",
-						Methods: []router.HttpMethod{router.MethodPost},
-						Handler: v2CreateUserHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/slow",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: slowHandler,
-						Overrides: common.RouteOverrides{
-							Timeout: 4 * time.Second, // Override sub-router timeout
-						},
-					},
-				},
-			},
-			// Admin sub-router
-			{
-				PathPrefix: "/admin",
-				Overrides: common.RouteOverrides{
-					MaxBodySize: 5 << 20, // 5 MB
-				},
-				Middlewares: []common.Middleware{
-					AdminAuthMiddleware(),
-				},
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:    "/dashboard",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: adminDashboardHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/users",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: adminUsersHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/settings",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: adminSettingsHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/large",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: largeResponseHandler,
-					},
-				},
-			},
-			// Public sub-router
-			{
-				PathPrefix: "/",
-				Routes: []router.RouteDefinition{
-					router.RouteConfigBase{
-						Path:    "/",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: homeHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/about",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: aboutHandler,
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/contact",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: contactHandler,
-					},
-				},
-			},
 		},
 	}
 
@@ -285,6 +165,43 @@ func main() {
 
 	// Create a router with string as both the user ID and user type
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+
+	apiV1 := r.Group("/api/v1").Timeout(2 * time.Second).Use(VersionMiddleware("1.0"))
+	apiV1.Route(
+		router.RouteConfigBase{Path: "/users", Methods: []router.HttpMethod{router.MethodGet}, Handler: v1GetUsersHandler},
+		router.RouteConfigBase{Path: "/users/:id", Methods: []router.HttpMethod{router.MethodGet}, Handler: v1GetUserHandler},
+		router.RouteConfigBase{Path: "/users", Methods: []router.HttpMethod{router.MethodPost}, Handler: v1CreateUserHandler},
+		router.RouteConfigBase{Path: "/slow", Methods: []router.HttpMethod{router.MethodGet}, Handler: slowHandler},
+	)
+
+	apiV2 := r.Group("/api/v2").Timeout(3 * time.Second).Use(VersionMiddleware("2.0"))
+	apiV2.Route(
+		router.RouteConfigBase{Path: "/users", Methods: []router.HttpMethod{router.MethodGet}, Handler: v2GetUsersHandler},
+		router.RouteConfigBase{Path: "/users/:id", Methods: []router.HttpMethod{router.MethodGet}, Handler: v2GetUserHandler},
+		router.RouteConfigBase{Path: "/users", Methods: []router.HttpMethod{router.MethodPost}, Handler: v2CreateUserHandler},
+		router.RouteConfigBase{
+			Path:    "/slow",
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: slowHandler,
+			Overrides: common.RouteOverrides{
+				Timeout: 4 * time.Second,
+			},
+		},
+	)
+
+	admin := r.Group("/admin").MaxBodySize(5 << 20).Use(AdminAuthMiddleware())
+	admin.Route(
+		router.RouteConfigBase{Path: "/dashboard", Methods: []router.HttpMethod{router.MethodGet}, Handler: adminDashboardHandler},
+		router.RouteConfigBase{Path: "/users", Methods: []router.HttpMethod{router.MethodGet}, Handler: adminUsersHandler},
+		router.RouteConfigBase{Path: "/settings", Methods: []router.HttpMethod{router.MethodGet}, Handler: adminSettingsHandler},
+		router.RouteConfigBase{Path: "/large", Methods: []router.HttpMethod{router.MethodGet}, Handler: largeResponseHandler},
+	)
+
+	r.Route(
+		router.RouteConfigBase{Path: "/", Methods: []router.HttpMethod{router.MethodGet}, Handler: homeHandler},
+		router.RouteConfigBase{Path: "/about", Methods: []router.HttpMethod{router.MethodGet}, Handler: aboutHandler},
+		router.RouteConfigBase{Path: "/contact", Methods: []router.HttpMethod{router.MethodGet}, Handler: contactHandler},
+	)
 
 	// Start the server
 	fmt.Println("Sub-Routers Example Server listening on :8080")

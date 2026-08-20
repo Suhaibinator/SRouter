@@ -321,7 +321,7 @@ func TestRateLimitMiddlewareCustomStrategySuccess(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Second request should succeed
 	resp, err = client.Get(server.URL)
@@ -331,7 +331,7 @@ func TestRateLimitMiddlewareCustomStrategySuccess(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Third request should fail (based on the custom key)
 	resp, err = client.Get(server.URL)
@@ -341,7 +341,7 @@ func TestRateLimitMiddlewareCustomStrategySuccess(t *testing.T) {
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("Expected status code %d, got %d", http.StatusTooManyRequests, resp.StatusCode)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Verify the mock limiter was called 3 times (indicating the custom key was used)
 	if mockLimiter.allowCount != 3 {
@@ -387,7 +387,7 @@ func TestRateLimitMiddlewareCustomStrategyNilExtractor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Verify the status code is Internal Server Error
 	if resp.StatusCode != http.StatusInternalServerError {
@@ -450,7 +450,7 @@ func TestRateLimitMiddlewareCustomStrategyError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Verify the status code is Internal Server Error
 	if resp.StatusCode != http.StatusInternalServerError {
@@ -737,7 +737,7 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status OK even without IP middleware (limiter allows first), got %d", resp.StatusCode)
 	}
-	resp.Body.Close() // Close body
+	_ = resp.Body.Close() // Close body
 
 	// Verify that an error log was generated about IP middleware not being configured
 	errorLogs := observed.FilterMessage("Client IP not found in context for StrategyIP rate limiting. Ensure router.ClientIPMiddleware is applied first.").All()
@@ -788,7 +788,7 @@ func TestRateLimitMiddlewareDefaultStrategy(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
-	resp.Body.Close() // Close the response body
+	_ = resp.Body.Close() // Close the response body
 
 	// Second request should succeed
 	resp, err = client.Get(server.URL)
@@ -798,7 +798,7 @@ func TestRateLimitMiddlewareDefaultStrategy(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
-	resp.Body.Close() // Close the response body
+	_ = resp.Body.Close() // Close the response body
 
 	// Third request should fail with 429 Too Many Requests
 	resp, err = client.Get(server.URL)
@@ -808,7 +808,7 @@ func TestRateLimitMiddlewareDefaultStrategy(t *testing.T) {
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("Expected status code %d, got %d", http.StatusTooManyRequests, resp.StatusCode)
 	}
-	resp.Body.Close() // Close the response body
+	_ = resp.Body.Close() // Close the response body
 
 	// Check rate limit headers on the last response
 	limitHeader := resp.Header.Get("X-RateLimit-Limit")
@@ -834,7 +834,7 @@ func TestUberRateLimiter_WindowSemanticsAndNonBlocking(t *testing.T) {
 	start := time.Now()
 
 	// The first `limit` requests are allowed.
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		allowed, _, _ := limiter.Allow(key, limit, window)
 		if !allowed {
 			t.Fatalf("request %d should be allowed (limit %d per %v)", i+1, limit, window)
@@ -842,7 +842,7 @@ func TestUberRateLimiter_WindowSemanticsAndNonBlocking(t *testing.T) {
 	}
 
 	// Subsequent requests within the window are denied immediately.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		allowed, remaining, reset := limiter.Allow(key, limit, window)
 		if allowed {
 			t.Fatalf("request beyond limit should be denied (window semantics: %d per %v)", limit, window)

@@ -34,10 +34,10 @@ func TestGettersWithoutSRouterContext(t *testing.T) {
 	if traceID := GetTraceIDFromContext[string, any](ctx); traceID != "" {
 		t.Errorf("GetTraceIDFromContext = %q, want \"\"", traceID)
 	}
-	if tmpl, ok := GetRouteTemplateFromContext[string, any](ctx); ok || tmpl != "" {
+	if tmpl, ok := GetRouteTemplateFromContext(ctx); ok || tmpl != "" {
 		t.Errorf("GetRouteTemplateFromContext = (%q, %v), want (\"\", false)", tmpl, ok)
 	}
-	if params, ok := GetPathParamsFromContext[string, any](ctx); ok || params != nil {
+	if params, ok := GetPathParamsFromContext(ctx); ok || params != nil {
 		t.Errorf("GetPathParamsFromContext = (%v, %v), want (nil, false)", params, ok)
 	}
 	if origin, creds, ok := GetCORSInfo[string, any](ctx); ok || origin != "" || creds {

@@ -16,16 +16,12 @@ import (
 
 func TestGenericRouteHandlerError(t *testing.T) {
 	// Create a test router with dummy auth functions
-	getUserByID := func(ctx context.Context, userID string) (*interface{}, bool) {
+	getUserByID := func(ctx context.Context, userID string) (*any, bool) {
 		return nil, false
 	}
-	getUserID := func(user *interface{}) int {
+	getUserID := func(user *any) int {
 		return 0
 	}
-
-	router := NewRouter(RouterConfig{
-		Logger: zap.NewNop(),
-	}, getUserByID, getUserID)
 
 	type TestRequest struct {
 		Value string `json:"value"`
@@ -46,8 +42,13 @@ func TestGenericRouteHandlerError(t *testing.T) {
 
 			// Check if handler set an error
 			middlewareExecuted = true
-			middlewareSawError, _ = scontext.GetHandlerErrorFromRequest[int, interface{}](r)
+			middlewareSawError, _ = scontext.GetHandlerErrorFromRequest[int, any](r)
 		})
+	}
+	newTestRouter := func(route RouteConfig[TestRequest, TestResponse]) *Router[int, any] {
+		r := NewRouter(RouterConfig{Logger: zap.NewNop()}, getUserByID, getUserID)
+		r.Route(route)
+		return r
 	}
 
 	t.Run("Handler error is stored in context", func(t *testing.T) {
@@ -58,7 +59,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		expectedErr := errors.New("handler error")
 
 		// Register a generic route that returns an error
-		RegisterGenericRoute(router, RouteConfig[TestRequest, TestResponse]{
+		router := newTestRouter(RouteConfig[TestRequest, TestResponse]{
 			Path:        "/error",
 			Methods:     []HttpMethod{MethodGet},
 			AuthLevel:   new(NoAuth),
@@ -67,7 +68,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 				return TestResponse{}, expectedErr
 			},
 			Codec: &codec.JSONCodec[TestRequest, TestResponse]{},
-		}, 0, 0, nil)
+		})
 
 		// Make request with valid JSON body
 		req := httptest.NewRequest("GET", "/error", strings.NewReader(`{"value":"test"}`))
@@ -98,7 +99,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		middlewareSawError = nil
 
 		// Register a generic route that succeeds
-		RegisterGenericRoute(router, RouteConfig[TestRequest, TestResponse]{
+		router := newTestRouter(RouteConfig[TestRequest, TestResponse]{
 			Path:        "/success",
 			Methods:     []HttpMethod{MethodGet},
 			AuthLevel:   new(NoAuth),
@@ -107,7 +108,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 				return TestResponse{Result: "success"}, nil
 			},
 			Codec: &codec.JSONCodec[TestRequest, TestResponse]{},
-		}, 0, 0, nil)
+		})
 
 		// Make request with valid JSON body
 		req := httptest.NewRequest("GET", "/success", strings.NewReader(`{"value":"test"}`))
@@ -143,7 +144,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		}
 
 		// Register a generic route that returns a custom HTTP error
-		RegisterGenericRoute(router, RouteConfig[TestRequest, TestResponse]{
+		router := newTestRouter(RouteConfig[TestRequest, TestResponse]{
 			Path:        "/custom-error",
 			Methods:     []HttpMethod{MethodGet},
 			AuthLevel:   new(NoAuth),
@@ -152,7 +153,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 				return TestResponse{}, customErr
 			},
 			Codec: &codec.JSONCodec[TestRequest, TestResponse]{},
-		}, 0, 0, nil)
+		})
 
 		// Make request with valid JSON body
 		req := httptest.NewRequest("GET", "/custom-error", strings.NewReader(`{"value":"test"}`))
@@ -174,7 +175,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 }
 
 func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
-	getUserByID := func(ctx context.Context, userID string) (*interface{}, bool) {
+	getUserByID := func(ctx context.Context, userID string) (*any, bool) {
 		return nil, false
 	}
 	getUserID := func(user *any) int {
@@ -200,7 +201,7 @@ func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
 				next.ServeHTTP(w, r)
 
 				executionOrder = append(executionOrder, name+"-after")
-				if err, ok := scontext.GetHandlerErrorFromRequest[int, interface{}](r); ok {
+				if err, ok := scontext.GetHandlerErrorFromRequest[int, any](r); ok {
 					errorsSeen = append(errorsSeen, err)
 				}
 			})
@@ -214,7 +215,7 @@ func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
 
 		expectedErr := errors.New("multi-middleware error")
 
-		RegisterGenericRoute(router, RouteConfig[TestRequest, TestResponse]{
+		router.Route(RouteConfig[TestRequest, TestResponse]{
 			Path:      "/multi-middleware",
 			Methods:   []HttpMethod{MethodGet},
 			AuthLevel: new(NoAuth),
@@ -227,7 +228,7 @@ func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
 				return TestResponse{}, expectedErr
 			},
 			Codec: &codec.JSONCodec[TestRequest, TestResponse]{},
-		}, 0, 0, nil)
+		})
 
 		// Make request with valid JSON body
 		req := httptest.NewRequest("GET", "/multi-middleware", strings.NewReader(`{}`))

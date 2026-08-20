@@ -51,7 +51,7 @@ func main() {
 	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
 
 	// Register a route that logs with trace ID
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/hello",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +80,7 @@ func main() {
 	})
 
 	// Register a route that demonstrates propagating trace ID to a downstream service
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/downstream",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +119,7 @@ func main() {
 				http.Error(w, "Failed to call downstream service", http.StatusInternalServerError)
 				return
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			// Log success
 			logger.Info("Downstream service call successful",

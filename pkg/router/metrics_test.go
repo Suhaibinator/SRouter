@@ -37,7 +37,7 @@ func TestMetricsConfig(t *testing.T) {
 		mocks.MockUserIDFromUser)
 
 	// Register a route
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/test",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +85,7 @@ func TestMetrics(t *testing.T) {
 	}, authFunction, userIdFromUserFunction)
 
 	// Register a route
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/test",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -193,8 +193,8 @@ func TestMetricsResponseWriterFlush(t *testing.T) {
 
 	// Create a metrics response writer with string as both the user ID and user type
 	mrw := &metricsResponseWriter[string, string]{
-		baseResponseWriter: baseResponseWriter{ResponseWriter: rr},
-		statusCode:         http.StatusOK,
+		ResponseWriter: rr,
+		statusCode:     http.StatusOK,
 	}
 
 	// Call Flush
@@ -221,7 +221,7 @@ func TestTracing(t *testing.T) {
 	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser) // Use mock functions
 
 	// Register a route
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/test",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -270,8 +270,8 @@ func TestMetricsResponseWriter(t *testing.T) {
 
 	// Create a metrics response writer with string as both the user ID and user type
 	mrw := &metricsResponseWriter[string, string]{
-		baseResponseWriter: baseResponseWriter{ResponseWriter: rr},
-		statusCode:         http.StatusOK,
+		ResponseWriter: rr,
+		statusCode:     http.StatusOK,
 	}
 
 	// Set a different status code

@@ -2,7 +2,7 @@ package router
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -34,7 +34,7 @@ type UnmarshalableResponse struct {
 	Channel chan int `json:"channel"` // channels cannot be marshaled to JSON
 }
 
-// Test request and response types for subrouter tests
+// Test request and response types for routegroup tests
 type TestProfileRequest struct {
 	// Empty request, we'll get the user from the context
 }
@@ -120,20 +120,20 @@ func SourceTestHandler(r *http.Request, req SourceTestRequest) (SourceTestRespon
 
 // --- Tests ---
 
-// TestRegisterGenericRouteWithBody tests RegisterGenericRoute with body source type
+// TestRegisterTypedRouteWithBody tests typed route registration with body source type
 // (from register_generic_route_test.go)
-func TestRegisterGenericRouteWithBody(t *testing.T) {
+func TestRegisterTypedRouteWithBody(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	reqBody := RequestType{ID: "123", Name: "John"}
 	reqBytes, _ := json.Marshal(reqBody)
@@ -169,19 +169,19 @@ func errorSanitizer(req RequestType) (RequestType, error) {
 	return req, errors.New("sanitizer error")
 }
 
-// TestRegisterGenericRouteWithSanitizerSuccess tests successful sanitization
-func TestRegisterGenericRouteWithSanitizerSuccess(t *testing.T) {
+// TestRegisterTypedRouteWithSanitizerSuccess tests successful sanitization
+func TestRegisterTypedRouteWithSanitizerSuccess(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test-sanitize-success",
 		Methods:    []HttpMethod{MethodPost},
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType], // Handler should receive sanitized data
 		SourceType: Body,
 		Sanitizer:  nameSanitizer, // Add the successful sanitizer
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	reqBody := RequestType{ID: "sanitize1", Name: "Original"}
 	reqBytes, _ := json.Marshal(reqBody)
@@ -211,19 +211,19 @@ func TestRegisterGenericRouteWithSanitizerSuccess(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithSanitizerError tests sanitizer returning an error
-func TestRegisterGenericRouteWithSanitizerError(t *testing.T) {
+// TestRegisterTypedRouteWithSanitizerError tests sanitizer returning an error
+func TestRegisterTypedRouteWithSanitizerError(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test-sanitize-error",
 		Methods:    []HttpMethod{MethodPost},
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
 		Sanitizer:  errorSanitizer, // Add the erroring sanitizer
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	reqBody := RequestType{ID: "sanitize2", Name: "ErrorCase"}
 	reqBytes, _ := json.Marshal(reqBody)
@@ -247,20 +247,20 @@ func TestRegisterGenericRouteWithSanitizerError(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithUnsupportedSourceType tests RegisterGenericRoute with an unsupported source type
+// TestRegisterTypedRouteWithUnsupportedSourceType tests typed route registration with an unsupported source type
 // (from register_generic_route_test.go)
-func TestRegisterGenericRouteWithUnsupportedSourceType(t *testing.T) {
+func TestRegisterTypedRouteWithUnsupportedSourceType(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: SourceType(999), // Unsupported source type
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rr := httptest.NewRecorder()
@@ -271,22 +271,22 @@ func TestRegisterGenericRouteWithUnsupportedSourceType(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithAuthRequired tests RegisterGenericRoute with AuthRequired
+// TestRegisterTypedRouteWithAuthRequired tests typed route registration with AuthRequired
 // (from register_generic_route_auth_test.go)
-func TestRegisterGenericRouteWithAuthRequired(t *testing.T) {
+func TestRegisterTypedRouteWithAuthRequired(t *testing.T) {
 	logger := zap.NewNop()
 	// Auth function always returns true
 	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user123"; return &user, true }
 	r := NewRouter(RouterConfig{Logger: logger}, authFunc, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
 		AuthLevel:  new(AuthRequired), // Changed
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	reqBody := RequestType{ID: "123", Name: "John"}
 	reqBytes, _ := json.Marshal(reqBody)
@@ -309,22 +309,22 @@ func TestRegisterGenericRouteWithAuthRequired(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithAuthOptional tests RegisterGenericRoute with AuthOptional
+// TestRegisterTypedRouteWithAuthOptional tests typed route registration with AuthOptional
 // (from register_generic_route_auth_test.go)
-func TestRegisterGenericRouteWithAuthOptional(t *testing.T) {
+func TestRegisterTypedRouteWithAuthOptional(t *testing.T) {
 	logger := zap.NewNop()
 	// Auth function always returns true
 	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user123"; return &user, true }
 	r := NewRouter(RouterConfig{Logger: logger}, authFunc, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 		Handler:    testGenericHandler[RequestType, ResponseType],
 		SourceType: Body,
 		AuthLevel:  new(AuthOptional), // Changed
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	// With valid token
 	reqBody := RequestType{ID: "123", Name: "John"}
@@ -365,13 +365,13 @@ func TestRegisterGenericRouteWithAuthOptional(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithBase62QueryParameter tests RegisterGenericRoute with base62 query parameter source type
+// TestRegisterTypedRouteWithBase62QueryParameter tests typed route registration with base62 query parameter source type
 // (from register_generic_route_base62_test.go)
-func TestRegisterGenericRouteWithBase62QueryParameter(t *testing.T) {
+func TestRegisterTypedRouteWithBase62QueryParameter(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -379,7 +379,7 @@ func TestRegisterGenericRouteWithBase62QueryParameter(t *testing.T) {
 		SourceType: Base62QueryParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	// Base62 encoded {"id":"123","name":"John"}
 	base62Data := "MeHBdAdIGZQif5kLNcARNp0cYy5QevNaNOX"
@@ -400,13 +400,13 @@ func TestRegisterGenericRouteWithBase62QueryParameter(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithBase62PathParameter tests RegisterGenericRoute with base62 path parameter source type
+// TestRegisterTypedRouteWithBase62PathParameter tests typed route registration with base62 path parameter source type
 // (from register_generic_route_base62_test.go)
-func TestRegisterGenericRouteWithBase62PathParameter(t *testing.T) {
+func TestRegisterTypedRouteWithBase62PathParameter(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:data",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -414,7 +414,7 @@ func TestRegisterGenericRouteWithBase62PathParameter(t *testing.T) {
 		SourceType: Base62PathParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	// Base62 encoded {"id":"123","name":"John"}
 	base62Data := "MeHBdAdIGZQif5kLNcARNp0cYy5QevNaNOX"
@@ -435,13 +435,13 @@ func TestRegisterGenericRouteWithBase62PathParameter(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithBase62QueryParameterMissing tests RegisterGenericRoute with missing base62 query parameter
+// TestRegisterTypedRouteWithBase62QueryParameterMissing tests typed route registration with missing base62 query parameter
 // (from register_generic_route_base62_test.go)
-func TestRegisterGenericRouteWithBase62QueryParameterMissing(t *testing.T) {
+func TestRegisterTypedRouteWithBase62QueryParameterMissing(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -449,7 +449,7 @@ func TestRegisterGenericRouteWithBase62QueryParameterMissing(t *testing.T) {
 		SourceType: Base62QueryParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rr := httptest.NewRecorder()
@@ -460,13 +460,13 @@ func TestRegisterGenericRouteWithBase62QueryParameterMissing(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithBase62QueryParameterInvalid tests RegisterGenericRoute with invalid base62 query parameter
+// TestRegisterTypedRouteWithBase62QueryParameterInvalid tests typed route registration with invalid base62 query parameter
 // (from register_generic_route_base62_test.go)
-func TestRegisterGenericRouteWithBase62QueryParameterInvalid(t *testing.T) {
+func TestRegisterTypedRouteWithBase62QueryParameterInvalid(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -474,7 +474,7 @@ func TestRegisterGenericRouteWithBase62QueryParameterInvalid(t *testing.T) {
 		SourceType: Base62QueryParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	req := httptest.NewRequest("GET", "/test?data=invalid!@#$", nil)
 	rr := httptest.NewRecorder()
@@ -485,13 +485,13 @@ func TestRegisterGenericRouteWithBase62QueryParameterInvalid(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithBase62PathParameterMissing tests RegisterGenericRoute with missing base62 path parameter
+// TestRegisterTypedRouteWithBase62PathParameterMissing tests typed route registration with missing base62 path parameter
 // (from register_generic_route_base62_test.go)
-func TestRegisterGenericRouteWithBase62PathParameterMissing(t *testing.T) {
+func TestRegisterTypedRouteWithBase62PathParameterMissing(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:somevalue",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -499,7 +499,7 @@ func TestRegisterGenericRouteWithBase62PathParameterMissing(t *testing.T) {
 		SourceType: Base62PathParameter,
 		SourceKey:  "nonexistent",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	req := httptest.NewRequest("GET", "/test/somevalue", nil)
 	rr := httptest.NewRecorder()
@@ -510,13 +510,13 @@ func TestRegisterGenericRouteWithBase62PathParameterMissing(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithBase62PathParameterInvalid tests RegisterGenericRoute with invalid base62 path parameter
+// TestRegisterTypedRouteWithBase62PathParameterInvalid tests typed route registration with invalid base62 path parameter
 // (from register_generic_route_base62_test.go)
-func TestRegisterGenericRouteWithBase62PathParameterInvalid(t *testing.T) {
+func TestRegisterTypedRouteWithBase62PathParameterInvalid(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:data",
 		Methods:    []HttpMethod{MethodGet}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -524,7 +524,7 @@ func TestRegisterGenericRouteWithBase62PathParameterInvalid(t *testing.T) {
 		SourceType: Base62PathParameter,
 		SourceKey:  "data",
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	req := httptest.NewRequest("GET", "/test/invalid!@#$", nil)
 	rr := httptest.NewRecorder()
@@ -535,13 +535,13 @@ func TestRegisterGenericRouteWithBase62PathParameterInvalid(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithEncodeError tests registering a generic route with an encode error
+// TestRegisterTypedRouteWithEncodeError tests registering a generic route with an encode error
 // (from register_generic_route_error_test.go - adapted)
-func TestRegisterGenericRouteWithEncodeError(t *testing.T) {
+func TestRegisterTypedRouteWithEncodeError(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, UnmarshalableResponse]{
+	r.Route(RouteConfig[RequestType, UnmarshalableResponse]{
 		Path:    "/greet-encode-error",
 		Methods: []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:   codec.NewJSONCodec[RequestType, UnmarshalableResponse](),
@@ -551,7 +551,7 @@ func TestRegisterGenericRouteWithEncodeError(t *testing.T) {
 			}, nil
 		},
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	req, _ := http.NewRequest("POST", "/greet-encode-error", strings.NewReader(`{"name":"John","age":30}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -563,9 +563,9 @@ func TestRegisterGenericRouteWithEncodeError(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithMiddleware tests RegisterGenericRoute with middleware
+// TestRegisterTypedRouteWithMiddleware tests typed route registration with middleware
 // (from register_generic_route_middleware_test.go)
-func TestRegisterGenericRouteWithMiddleware(t *testing.T) {
+func TestRegisterTypedRouteWithMiddleware(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
@@ -576,7 +576,7 @@ func TestRegisterGenericRouteWithMiddleware(t *testing.T) {
 		})
 	}
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:        "/test",
 		Methods:     []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:       codec.NewJSONCodec[RequestType, ResponseType](),
@@ -584,7 +584,7 @@ func TestRegisterGenericRouteWithMiddleware(t *testing.T) {
 		SourceType:  Body,
 		Middlewares: []common.Middleware{middleware},
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	reqBody := RequestType{ID: "123", Name: "John"}
 	reqBytes, _ := json.Marshal(reqBody)
@@ -609,16 +609,16 @@ func TestRegisterGenericRouteWithMiddleware(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithTimeout tests RegisterGenericRoute with timeout
+// TestRegisterTypedRouteWithTimeout tests typed route registration with timeout
 // (from register_generic_route_middleware_test.go)
-func TestRegisterGenericRouteWithTimeout(t *testing.T) {
+func TestRegisterTypedRouteWithTimeout(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
 	timeout := 1 * time.Millisecond
 	ctxErrCh := make(chan error, 1)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:    "/test",
 		Methods: []HttpMethod{MethodPost},
 		Codec:   codec.NewJSONCodec[RequestType, ResponseType](),
@@ -629,7 +629,7 @@ func TestRegisterGenericRouteWithTimeout(t *testing.T) {
 		},
 		SourceType: Body,
 		Overrides:  common.RouteOverrides{Timeout: timeout},
-	}, timeout, 0, nil)
+	})
 
 	reqBody := RequestType{ID: "123", Name: "John"}
 	reqBytes, err := json.Marshal(reqBody)
@@ -653,9 +653,9 @@ func TestRegisterGenericRouteWithTimeout(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithMaxBodySize tests RegisterGenericRoute with max body size
+// TestRegisterTypedRouteWithMaxBodySize tests typed route registration with max body size
 // (from register_generic_route_middleware_test.go)
-func TestRegisterGenericRouteWithMaxBodySize(t *testing.T) {
+func TestRegisterTypedRouteWithMaxBodySize(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
@@ -667,7 +667,7 @@ func TestRegisterGenericRouteWithMaxBodySize(t *testing.T) {
 	// Set the MaxBodySize to allow only the small body (plus a bit of buffer)
 	maxBodySize := int64(smallSize + 5) // Small buffer to ensure small body passes
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -675,7 +675,7 @@ func TestRegisterGenericRouteWithMaxBodySize(t *testing.T) {
 		SourceType: Body,
 		Overrides:  common.RouteOverrides{MaxBodySize: maxBodySize},
 		// AuthLevel: nil (default NoAuth)
-	}, time.Duration(0), maxBodySize, nil) // Use maxBodySize here, timeout 0, rate limit nil
+	})
 
 	// Request with small body (should succeed)
 	reqBodySmall := smallBody
@@ -709,8 +709,8 @@ func TestRegisterGenericRouteWithMaxBodySize(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRouteWithBase64Parameters verifies base64 data from query and path sources.
-func TestRegisterGenericRouteWithBase64Parameters(t *testing.T) {
+// TestRegisterTypedRouteWithBase64Parameters verifies base64 data from query and path sources.
+func TestRegisterTypedRouteWithBase64Parameters(t *testing.T) {
 	logger := zap.NewNop()
 	base64Data := "eyJpZCI6IjEyMyIsIm5hbWUiOiJKb2huIn0=" // {"id":"123","name":"John"}
 
@@ -738,14 +738,14 @@ func TestRegisterGenericRouteWithBase64Parameters(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-			RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+			r.Route(RouteConfig[RequestType, ResponseType]{
 				Path:       tc.path,
 				Methods:    []HttpMethod{MethodGet},
 				Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
 				Handler:    testGenericHandler[RequestType, ResponseType],
 				SourceType: tc.sourceType,
 				SourceKey:  "data",
-			}, time.Duration(0), int64(0), nil)
+			})
 
 			req := httptest.NewRequest("GET", tc.requestURL, nil)
 			rr := httptest.NewRecorder()

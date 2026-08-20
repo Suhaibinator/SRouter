@@ -41,7 +41,7 @@ routerConfig := router.RouterConfig{
         EnableQPS:        true,  // Collect request counter (requests_total)
         EnableErrors:     true,  // Collect error counter by status code (request_errors_total)
     },
-    // ... other config (SubRouters, Middlewares, etc.)
+    // ... other global config and middleware
 }
 
 r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)

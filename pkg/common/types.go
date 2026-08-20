@@ -43,7 +43,7 @@ type RateLimiter interface {
 // within the middleware or route registration logic where the types are known.
 type RateLimitConfig[T comparable, U any] struct {
 	// BucketName provides a namespace for the rate limit.
-	// If multiple routes/subrouters share the same BucketName, they share the same rate limit counters.
+	// If multiple routes or route groups share the same BucketName, they share the same rate limit counters.
 	BucketName string
 
 	// Limit is the maximum number of requests allowed within the Window.

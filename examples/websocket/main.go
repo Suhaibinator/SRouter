@@ -24,7 +24,7 @@ var upgrader = websocket.Upgrader{
 func main() {
 	// 1. Setup Server
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	routerConfig := router.RouterConfig{
 		ServiceName:   "websocket-example",
@@ -42,17 +42,17 @@ func main() {
 	r := router.NewRouter(routerConfig, authFunc, userIdFunc)
 
 	// REST Endpoint
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/hello",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Hello, World!"))
+			_, _ = w.Write([]byte("Hello, World!"))
 		},
 	})
 
 	// WebSocket Endpoint
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:           "/ws",
 		Methods:        []router.HttpMethod{router.MethodGet},
 		DisableTimeout: true, // Crucial: disables global timeout
@@ -62,7 +62,7 @@ func main() {
 				logger.Error("upgrade failed", zap.Error(err))
 				return
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			for {
 				messageType, p, err := conn.ReadMessage()
@@ -96,7 +96,9 @@ func main() {
 	testWebSocket(port)
 
 	// Shutdown
-	server.Shutdown(context.Background())
+	if err := server.Shutdown(context.Background()); err != nil {
+		log.Printf("Server shutdown failed: %v", err)
+	}
 	fmt.Println("Done.")
 }
 
@@ -106,7 +108,7 @@ func testREST(port string) {
 	if err != nil {
 		log.Fatalf("REST request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		log.Fatalf("REST expected status 200, got %d", resp.StatusCode)
@@ -125,7 +127,7 @@ func testWebSocket(port string) {
 	if err != nil {
 		log.Fatalf("WebSocket dial failed: %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	msg := "hello websocket"
 	err = c.WriteMessage(websocket.TextMessage, []byte(msg))

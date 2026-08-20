@@ -197,10 +197,7 @@ func ListUsersHandler(r *http.Request, req ListUsersRequest) (ListUsersResponse,
 	if limit <= 0 {
 		limit = 10
 	}
-	offset := req.Offset
-	if offset < 0 {
-		offset = 0
-	}
+	offset := max(req.Offset, 0)
 
 	// Get all users
 	var userList []User
@@ -217,10 +214,7 @@ func ListUsersHandler(r *http.Request, req ListUsersRequest) (ListUsersResponse,
 		}, nil
 	}
 
-	end := offset + limit
-	if end > total {
-		end = total
-	}
+	end := min(offset+limit, total)
 
 	// Return the response
 	return ListUsersResponse{
@@ -306,48 +300,48 @@ func main() {
 	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
 
 	// Register generic routes
-	router.RegisterGenericRoute(r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+	r.Route(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users",
 		Methods:   []router.HttpMethod{router.MethodPost}, // Use string literal or http.MethodPost constant
 		Codec:     codec.NewJSONCodec[CreateUserRequest, CreateUserResponse](),
 		Handler:   CreateUserHandler,
 		Sanitizer: SanitizeCreateUserRequest, // Add the sanitizer function here
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
-	router.RegisterGenericRoute(r, router.RouteConfig[GetUserRequest, GetUserResponse]{
+	r.Route(router.RouteConfig[GetUserRequest, GetUserResponse]{
 		Path:    "/users/:id",
 		Methods: []router.HttpMethod{router.MethodGet},                 // Use string literal or http.MethodGet constant
 		Codec:   codec.NewJSONCodec[GetUserRequest, GetUserResponse](), // Codec might not be used if ID is only from path
 		Handler: GetUserHandler,
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
-	router.RegisterGenericRoute(r, router.RouteConfig[UpdateUserRequest, UpdateUserResponse]{
+	r.Route(router.RouteConfig[UpdateUserRequest, UpdateUserResponse]{
 		Path:    "/users/:id",
 		Methods: []router.HttpMethod{router.MethodPut}, // Use string literal or http.MethodPut constant
 		Codec:   codec.NewJSONCodec[UpdateUserRequest, UpdateUserResponse](),
 		Handler: UpdateUserHandler,
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
-	router.RegisterGenericRoute(r, router.RouteConfig[DeleteUserRequest, DeleteUserResponse]{
+	r.Route(router.RouteConfig[DeleteUserRequest, DeleteUserResponse]{
 		Path:    "/users/:id",
 		Methods: []router.HttpMethod{router.MethodDelete},                    // Use string literal or http.MethodDelete constant
 		Codec:   codec.NewJSONCodec[DeleteUserRequest, DeleteUserResponse](), // Codec might not be used
 		Handler: DeleteUserHandler,
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
-	router.RegisterGenericRoute(r, router.RouteConfig[ListUsersRequest, ListUsersResponse]{
+	r.Route(router.RouteConfig[ListUsersRequest, ListUsersResponse]{
 		Path:    "/users",
 		Methods: []router.HttpMethod{router.MethodGet},                     // Use string literal or http.MethodGet constant
 		Codec:   codec.NewJSONCodec[ListUsersRequest, ListUsersResponse](), // Codec might not be used if params are from query
 		Handler: ListUsersHandler,
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
-	router.RegisterGenericRoute(r, router.RouteConfig[EmptyRequest, ErrorResponse]{
+	r.Route(router.RouteConfig[EmptyRequest, ErrorResponse]{
 		Path:    "/error",
 		Methods: []router.HttpMethod{router.MethodGet}, // Use string literal or http.MethodGet constant
 		Codec:   codec.NewJSONCodec[EmptyRequest, ErrorResponse](),
 		Handler: ErrorHandler,
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	// Start the server
 	fmt.Println("Generic Routes Example Server listening on :8080")

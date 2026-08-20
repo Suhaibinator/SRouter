@@ -86,7 +86,7 @@ func (m *MetricsMiddlewareImpl[T, U]) Handler(name string, handler http.Handler)
 
 		// Get the route template from the context if available, using the correct generic types T and U
 		routeIdentifier := name // Default to the name parameter if no route template is found
-		routeTemplate, hasTemplate := scontext.GetRouteTemplateFromRequest[T, U](r)
+		routeTemplate, hasTemplate := scontext.GetRouteTemplateFromRequest(r)
 		if hasTemplate {
 			routeIdentifier = routeTemplate
 		}

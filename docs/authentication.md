@@ -4,7 +4,7 @@ SRouter provides a flexible authentication system integrated with its routing co
 
 ## Authentication Levels and Built-in Middleware
 
-SRouter defines three authentication levels using the `router.AuthLevel` type. You specify the required level for a route in its `RouteConfigBase` or `RouteConfig[T, U]` using the `AuthLevel` field (which is a pointer, `*router.AuthLevel`). If `AuthLevel` is `nil`, the route inherits the default level from its parent sub-router, or ultimately defaults to `NoAuth` if no parent specifies it.
+SRouter defines three authentication levels using `router.AuthLevel`. A route sets its level through the `AuthLevel` pointer field. If nil, it inherits from its innermost route group and ultimately defaults to `NoAuth`.
 
 Setting `AuthLevel` to `AuthOptional` or `AuthRequired` activates **built-in middleware** within the router. This middleware performs the following based on the level:
 
@@ -85,7 +85,7 @@ r := router.NewRouter[string, MyUserType](routerConfig, myAuthValidator, myGetID
 
 ## Auth Token Source
 
-By default, the built-in middleware reads the token from the `Authorization` header and trims a `Bearer ` prefix if present. You can set an application-wide source via `RouterConfig.GlobalAuthToken`, then override it per sub-router or per route via `common.RouteOverrides.AuthToken`:
+By default, the built-in middleware reads the token from the `Authorization` header and trims a `Bearer ` prefix if present. Set an application-wide source with `RouterConfig.GlobalAuthToken`, override a subtree with `group.AuthToken`, or override one route with `common.RouteOverrides.AuthToken`:
 
 ```go
 routerConfig := router.RouterConfig{
@@ -94,6 +94,12 @@ routerConfig := router.RouterConfig{
         CookieName: "auth_token",
     },
 }
+
+r := router.NewRouter[string, User](routerConfig, authenticate, userID)
+r.Group("/api").AuthToken(&common.AuthTokenConfig{
+    Source:     common.AuthTokenSourceCookie,
+    CookieName: "api_token",
+})
 ```
 
 ```go
@@ -107,11 +113,11 @@ Overrides: common.RouteOverrides{
 
 Notes:
 - Only the configured source is honored (no fallback to other sources).
-- Auth token source precedence is route override, current or inherited sub-router override, global config, then the built-in `Authorization` header default.
-- Nested sub-routers inherit auth token overrides unless `SubRouterConfig.IsolateOverrides` is true.
+- Auth token source precedence is route override, innermost group, outer groups, global config, then the built-in `Authorization` header default.
+- `group.AuthToken(nil)` resets that subtree to the built-in header source.
 - If `Source` is `AuthTokenSourceHeader` and `HeaderName` is empty, it defaults to `Authorization`.
 - If `Source` is `AuthTokenSourceCookie` and `CookieName` is empty, the built-in middleware logs a warning at registration time.
-- If an `AuthRequired` route falls all the way back to the built-in default because no route, sub-router, or global auth token source is configured, SRouter logs a registration-time warning.
+- If an `AuthRequired` route falls all the way back to the built-in default because no route, group, or global source is configured, SRouter logs a build-time warning.
 
 ## Custom Authentication Middleware
 
@@ -129,7 +135,7 @@ Your custom middleware is responsible for:
 
 **Important Note on OPTIONS Requests:** CORS preflight requests (OPTIONS with Origin header and CORS-specific headers) are handled at the CORS layer before reaching authentication middleware. Regular OPTIONS requests are subject to normal authentication requirements. Your custom authentication middleware should handle OPTIONS requests consistently with your security requirements.
 
-**Applying Custom Middleware:** Add your custom authentication middleware globally in `RouterConfig.Middlewares` or per-sub-router in `SubRouterConfig.Middlewares`. Ensure it runs *before* other middleware that might depend on the user context (like user-based rate limiting). If using custom middleware, you might set `AuthLevel` to `NoAuth` for relevant routes to prevent the built-in middleware from running unnecessarily.
+**Applying Custom Middleware:** Add custom authentication middleware globally in `RouterConfig.Middlewares` or to a subtree with `group.Use`. If using custom middleware, set `AuthLevel` to `NoAuth` where the built-in middleware should not also run.
 
 ```go
 // Example: Applying a custom API Key validation middleware globally

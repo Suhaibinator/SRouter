@@ -60,7 +60,7 @@ func userHandler(req *http.Request, data UserRequest) (UserResponse, error) {
 func main() {
 	// Create a logger
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Define the auth function that takes a context and token and returns a *string and a boolean
 	authFunction := func(ctx context.Context, token string) (*string, bool) {
@@ -81,77 +81,56 @@ func main() {
 		return *user // Dereference pointer
 	}
 
-	// Create JSON codecs for our generic routes (must be done before defining SubRouterConfig)
+	// Create JSON codecs for our generic routes.
 	greetingCodec := codec.NewJSONCodec[GreetingRequest, GreetingResponse]()
 	userCodec := codec.NewJSONCodec[UserRequest, UserResponse]()
 
-	// Create a sub-router for API v1 with declarative generic route
-	apiV1SubRouter := router.SubRouterConfig{
-		PathPrefix: "/api/v1",
-		Routes: []router.RouteDefinition{
-			// Standard route
-			router.RouteConfigBase{
-				Path:      "/hello",
-				Methods:   []router.HttpMethod{router.MethodGet},
-				AuthLevel: new(router.NoAuth),
-				Handler: func(w http.ResponseWriter, r *http.Request) {
-					w.Header().Set("Content-Type", "application/json")
-					w.Write([]byte(`{"message":"Hello from API v1!"}`))
-				},
-			},
-			// Declarative generic route using the helper
-			router.NewGenericRouteDefinition[GreetingRequest, GreetingResponse, string, string](
-				router.RouteConfig[GreetingRequest, GreetingResponse]{
-					Path:      "/greet", // Path relative to the sub-router prefix
-					Methods:   []router.HttpMethod{router.MethodPost},
-					AuthLevel: new(router.NoAuth),
-					Codec:     greetingCodec,
-					Handler:   greetingHandler,
-				},
-			),
-		},
-	}
-
-	// Create a sub-router for API v2 with declarative generic routes
-	apiV2SubRouter := router.SubRouterConfig{
-		PathPrefix: "/api/v2",
-		Routes: []router.RouteDefinition{
-			// Declarative generic route for users
-			router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
-				router.RouteConfig[UserRequest, UserResponse]{
-					Path:      "/users",
-					Methods:   []router.HttpMethod{router.MethodPost},
-					AuthLevel: new(router.NoAuth),
-					Codec:     userCodec,
-					Handler:   userHandler,
-				},
-			),
-			// Declarative generic route for greeting
-			router.NewGenericRouteDefinition[GreetingRequest, GreetingResponse, string, string](
-				router.RouteConfig[GreetingRequest, GreetingResponse]{
-					Path:      "/greet",
-					Methods:   []router.HttpMethod{router.MethodPost},
-					AuthLevel: new(router.NoAuth),
-					Codec:     greetingCodec,
-					Handler:   greetingHandler,
-				},
-			),
-		},
-	}
-
 	// Create a router with string as both the user ID and user type
-	// Register the sub-routers declaratively
-	r := router.NewRouter[string, string](router.RouterConfig{
+	r := router.NewRouter(router.RouterConfig{
 		ServiceName:   "subrouter-generic-service", // Added ServiceName
 		Logger:        logger,
 		GlobalTimeout: 5 * time.Second,
-		SubRouters:    []router.SubRouterConfig{apiV1SubRouter, apiV2SubRouter}, // Register sub-routers
 	}, authFunction, userIdFromUserFunction)
 
-	// --- Imperative registration is no longer needed ---
+	apiV1 := r.Group("/api/v1")
+	apiV1.Route(
+		router.RouteConfigBase{
+			Path:      "/hello",
+			Methods:   []router.HttpMethod{router.MethodGet},
+			AuthLevel: new(router.NoAuth),
+			Handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"message":"Hello from API v1!"}`))
+			},
+		},
+		router.RouteConfig[GreetingRequest, GreetingResponse]{
+			Path:      "/greet",
+			Methods:   []router.HttpMethod{router.MethodPost},
+			AuthLevel: new(router.NoAuth),
+			Codec:     greetingCodec,
+			Handler:   greetingHandler,
+		},
+	)
+
+	r.Group("/api/v2").Route(
+		router.RouteConfig[UserRequest, UserResponse]{
+			Path:      "/users",
+			Methods:   []router.HttpMethod{router.MethodPost},
+			AuthLevel: new(router.NoAuth),
+			Codec:     userCodec,
+			Handler:   userHandler,
+		},
+		router.RouteConfig[GreetingRequest, GreetingResponse]{
+			Path:      "/greet",
+			Methods:   []router.HttpMethod{router.MethodPost},
+			AuthLevel: new(router.NoAuth),
+			Codec:     greetingCodec,
+			Handler:   greetingHandler,
+		},
+	)
 
 	// Start the server
-	fmt.Println("SubRouter Generic Routes Example Server listening on :8080")
+	fmt.Println("Route Group Generic Routes Example Server listening on :8080")
 	fmt.Println("Available endpoints:")
 	fmt.Println("API v1:")
 	fmt.Println("  - GET /api/v1/hello")

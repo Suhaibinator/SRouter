@@ -62,7 +62,7 @@ func basicHandler(req *http.Request, data testRequest) (testResponse, error) {
 // --- Test Cases ---
 
 // Test case for scenario 1: Failed to decode query parameter data
-func TestRegisterGenericRoute_QueryParamDecodeError(t *testing.T) {
+func TestRegisterTypedRoute_QueryParamDecodeError(t *testing.T) {
 	r := router.NewRouter[string, string](router.RouterConfig{}, nil, nil) // Use value receiver
 	mockCodec := &mockErrorCodec{}                                         // Codec that forces DecodeBytes error
 
@@ -83,8 +83,8 @@ func TestRegisterGenericRoute_QueryParamDecodeError(t *testing.T) {
 	// Use r.ServeHTTP for this test as it involves query params
 	req := httptest.NewRequest("GET", targetURL, nil)
 	rr := httptest.NewRecorder()
-	router.RegisterGenericRoute(r, routeConfig, 0, 0, nil) // Register the route
-	r.ServeHTTP(rr, req)                                   // Serve the request
+	r.Route(routeConfig) // Register the route
+	r.ServeHTTP(rr, req) // Serve the request
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code, "Expected status Bad Request")
 	// Optionally check response body for specific message
@@ -92,7 +92,7 @@ func TestRegisterGenericRoute_QueryParamDecodeError(t *testing.T) {
 }
 
 // Test case for scenario 2: Missing required path parameter
-func TestRegisterGenericRoute_MissingPathParam(t *testing.T) {
+func TestRegisterTypedRoute_MissingPathParam(t *testing.T) {
 	r := router.NewRouter[string, string](router.RouterConfig{}, nil, nil) // Use value receiver
 	// Use a standard codec, the error is missing param, not decoding
 	jsonCodec := codec.NewJSONCodec[testRequest, testResponse]()
@@ -108,7 +108,7 @@ func TestRegisterGenericRoute_MissingPathParam(t *testing.T) {
 	}
 
 	// Register the route
-	router.RegisterGenericRoute(r, routeConfig, 0, 0, nil)
+	r.Route(routeConfig)
 
 	// Create request that matches the path pattern
 	req := httptest.NewRequest("GET", "/test/someValue", nil) // Request matches /test/:actualParam
@@ -116,7 +116,7 @@ func TestRegisterGenericRoute_MissingPathParam(t *testing.T) {
 
 	// Serve the request using the router
 	// httprouter will populate context with {"actualParam": "someValue"}
-	// Inside RegisterGenericRoute, GetParam(req, "missingKey") will be called.
+	// Inside the typed route pipeline, GetParam(req, "missingKey") will be called.
 	// Since "missingKey" is not in the context, GetParam returns "".
 	r.ServeHTTP(rr, req)
 
@@ -127,7 +127,7 @@ func TestRegisterGenericRoute_MissingPathParam(t *testing.T) {
 }
 
 // Test case for scenario 3: Failed to decode path parameter data
-func TestRegisterGenericRoute_PathParamDecodeError(t *testing.T) {
+func TestRegisterTypedRoute_PathParamDecodeError(t *testing.T) {
 	r := router.NewRouter[string, string](router.RouterConfig{}, nil, nil) // Use value receiver
 	mockCodec := &mockErrorCodec{}                                         // Codec that forces DecodeBytes error
 
@@ -148,8 +148,8 @@ func TestRegisterGenericRoute_PathParamDecodeError(t *testing.T) {
 	// Use r.ServeHTTP for this test as it involves path params processed by httprouter
 	req := httptest.NewRequest("GET", targetURL, nil)
 	rr := httptest.NewRecorder()
-	router.RegisterGenericRoute(r, routeConfig, 0, 0, nil) // Register the route
-	r.ServeHTTP(rr, req)                                   // Serve the request
+	r.Route(routeConfig) // Register the route
+	r.ServeHTTP(rr, req) // Serve the request
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code, "Expected status Bad Request")
 	// Optionally check response body for specific message

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"time"
 
@@ -512,16 +513,14 @@ func (s *PrometheusSummary) Objectives() map[float64]float64 {
 // Helper function to convert Prometheus labels to metrics.Tags
 func convertLabelsToTags(labels prometheus.Labels) metrics.Tags {
 	tags := make(metrics.Tags)
-	for k, v := range labels {
-		tags[k] = v
-	}
+	maps.Copy(tags, labels)
 	return tags
 }
 
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create a Prometheus registry
 	registry := NewPrometheusRegistry()
@@ -540,28 +539,6 @@ func main() {
 			EnableThroughput: true,
 			EnableQPS:        true,
 			EnableErrors:     true,
-		},
-		SubRouters: []router.SubRouterConfig{
-			{
-				PathPrefix: "/api",
-				Routes: []router.RouteDefinition{ // Changed to []any
-					router.RouteConfigBase{
-						Path:    "/hello",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							w.Header().Set("Content-Type", "application/json")
-							w.Write([]byte(`{"message":"Hello, World!"}`))
-						},
-					},
-					router.RouteConfigBase{ // Add explicit type
-						Path:    "/error",
-						Methods: []router.HttpMethod{router.MethodGet},
-						Handler: func(w http.ResponseWriter, r *http.Request) {
-							http.Error(w, "Something went wrong", http.StatusInternalServerError)
-						},
-					},
-				},
-			},
 		},
 	}
 
@@ -586,6 +563,23 @@ func main() {
 
 	// Create a router with string as both the user ID and user type
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+	r.Group("/api").Route(
+		router.RouteConfigBase{
+			Path:    "/hello",
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"message":"Hello, World!"}`))
+			},
+		},
+		router.RouteConfigBase{
+			Path:    "/error",
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "Something went wrong", http.StatusInternalServerError)
+			},
+		},
+	)
 
 	// Create a metrics handler
 	metricsHandler := registry.Handler()

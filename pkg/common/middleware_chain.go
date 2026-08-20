@@ -3,6 +3,7 @@ package common
 
 import (
 	"net/http"
+	"slices"
 )
 
 // MiddlewareChain represents a chain of middleware
@@ -33,8 +34,8 @@ func (c MiddlewareChain) Prepend(middlewares ...Middleware) MiddlewareChain {
 
 // Then applies the middleware chain to a handler
 func (c MiddlewareChain) Then(h http.Handler) http.Handler {
-	for i := len(c) - 1; i >= 0; i-- {
-		h = c[i](h)
+	for _, v := range slices.Backward(c) {
+		h = v(h)
 	}
 	return h
 }

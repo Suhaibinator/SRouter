@@ -225,11 +225,11 @@ func myHandler(w http.ResponseWriter, r *http.Request) {
     fmt.Printf("Trace ID: %s\n", traceID)
 
     // Get route metadata
-    route, ok := scontext.GetRouteTemplateFromRequest[string, MyUserType](r)
+    route, ok := scontext.GetRouteTemplateFromRequest(r)
     if ok {
         fmt.Printf("Route Template: %s\n", route)
     }
-    params, ok := scontext.GetPathParamsFromRequest[string, MyUserType](r)
+    params, ok := scontext.GetPathParamsFromRequest(r)
     if ok {
         fmt.Printf("Path Params: %v\n", params)
     }

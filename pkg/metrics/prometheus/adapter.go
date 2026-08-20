@@ -203,9 +203,7 @@ func (b *PrometheusGaugeBuilder) Build() srouter_metrics.Gauge {
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
-		for k, v := range b.opts.ConstLabels {
-			tags[k] = v
-		}
+		maps.Copy(tags, b.opts.ConstLabels)
 		return &PrometheusGauge{registry: b.registry, metric: promGauge, name: b.opts.Name, description: b.opts.Help, tags: tags}
 	}
 }
@@ -394,9 +392,7 @@ func (b *PrometheusSummaryBuilder) Build() srouter_metrics.Summary {
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
-		for k, v := range b.opts.ConstLabels {
-			tags[k] = v
-		}
+		maps.Copy(tags, b.opts.ConstLabels)
 		return &PrometheusSummary{registry: b.registry, metric: promSummary, name: b.opts.Name, description: b.opts.Help, tags: tags, objectives: b.opts.Objectives}
 	}
 }

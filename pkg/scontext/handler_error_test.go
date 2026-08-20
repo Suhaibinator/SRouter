@@ -91,7 +91,7 @@ func TestHandlerError(t *testing.T) {
 		testErr := errors.New("type-specific error")
 
 		// Set error with one type parameter set
-		ctx = WithHandlerError[string, interface{}](ctx, testErr)
+		ctx = WithHandlerError[string, any](ctx, testErr)
 
 		// Try to get with different type parameters - should not find it
 		_, ok := GetHandlerError[int, string](ctx)
@@ -100,7 +100,7 @@ func TestHandlerError(t *testing.T) {
 		}
 
 		// Get with correct type parameters
-		err, ok := GetHandlerError[string, interface{}](ctx)
+		err, ok := GetHandlerError[string, any](ctx)
 		if !ok {
 			t.Error("Expected handler error to be found with correct type parameters")
 		}
@@ -130,7 +130,7 @@ func TestHandlerErrorInMiddleware(t *testing.T) {
 
 		// Simulate a handler that sets an error in context
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// This simulates what RegisterGenericRoute does when handler returns error
+			// This simulates what a typed route does when its handler returns an error.
 			ctx := WithHandlerError[int, string](r.Context(), testErr)
 			*r = *r.WithContext(ctx)
 

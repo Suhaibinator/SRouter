@@ -1,5 +1,5 @@
 // Package router provides a flexible and feature-rich HTTP routing framework.
-// It supports middleware, sub-routers, generic handlers, and various configuration options.
+// It supports middleware, recursive route groups, generic handlers, and various configuration options.
 package router
 
 import (
@@ -140,93 +140,67 @@ type RouterConfig struct {
 	TraceLoggingUseInfo bool                              // Use Info level for trace logging
 	TraceIDBufferSize   int                               // Buffer size for trace ID generator (0 disables trace ID)
 	MetricsConfig       *MetricsConfig                    // Metrics configuration (optional)
-	SubRouters          []SubRouterConfig                 // Sub-routers with their own configurations
 	Middlewares         []common.Middleware               // Global middlewares applied to all routes
 	AddUserObjectToCtx  bool                              // Add user object to context
 	CORSConfig          *CORSConfig                       // CORS configuration (optional, if nil CORS is disabled)
 }
 
-// RouteDefinition is an interface that all route types must implement.
-// This allows SubRouterConfig.Routes to store both standard and generic routes in a type-safe manner.
-type RouteDefinition interface {
-	isRouteDefinition()
+// routeRuntime is the non-generic bridge between route definitions and a Router.
+// It keeps Router's user types out of RouteDefinition while preserving typed generic
+// request and response handling inside RouteConfig.
+type routeRuntime interface {
+	handleError(http.ResponseWriter, *http.Request, error, int, string)
+	recordHandlerError(*http.Request, error)
+	warnMissingSanitizer(string, []HttpMethod)
 }
 
-// GenericRouteRegistrationFunc defines the function signature for registering a generic route declaratively.
-// This function is stored in SubRouterConfig.Routes and called during router initialization.
-// It receives the router instance and the SubRouterConfig it belongs to, allowing it to:
-// - Calculate effective settings based on sub-router configuration
-// - Apply the sub-router's path prefix
-// - Combine middlewares appropriately
-// - Register the route with all settings applied
-//
-// This type is used internally by NewGenericRouteDefinition.
-type GenericRouteRegistrationFunc[T comparable, U any] func(r *Router[T, U], sr SubRouterConfig)
-
-// Implement RouteDefinition for GenericRouteRegistrationFunc
-func (GenericRouteRegistrationFunc[T, U]) isRouteDefinition() {}
-
-// SubRouterConfig defines configuration for a group of routes with a common path prefix.
-// This allows for organizing routes into logical groups and applying shared configuration.
-// Sub-routers can be nested to create hierarchical routing structures with concatenated path prefixes.
-//
-// Important behaviors:
-// - Path prefixes are concatenated when nesting (e.g., "/api" + "/v1" = "/api/v1")
-// - Configuration overrides are inherited by nested sub-routers unless IsolateOverrides is true
-// - Middlewares are additive - they combine with parent and global middlewares
-// - Routes can be added declaratively via the Routes field or imperatively after router creation
-type SubRouterConfig struct {
-	PathPrefix       string                // Common path prefix for all routes in this sub-router
-	Overrides        common.RouteOverrides // Configuration overrides for routes in this sub-router
-	IsolateOverrides bool                  // If true, nested override inheritance starts fresh at this sub-router
-	Routes           []RouteDefinition     // Routes in this sub-router. Can contain RouteConfigBase or GenericRouteRegistrationFunc
-	Middlewares      []common.Middleware   // Middlewares applied to all routes in this sub-router (additive with global middlewares)
-	// SubRouters is a slice of nested sub-routers.
-	// Nested sub-routers inherit the parent's path prefix (concatenated) and configuration overrides
-	// unless IsolateOverrides is set on the nested sub-router.
-	SubRouters []SubRouterConfig // Nested sub-routers with concatenated path prefixes
-	AuthLevel  *AuthLevel        // Default authentication level for all routes in this sub-router (overridden by route-specific AuthLevel)
+// RouteDefinition is implemented by both RouteConfigBase and every
+// RouteConfig[Req, Resp] instantiation. The unexported method intentionally
+// seals the interface to route definitions provided by this package.
+type RouteDefinition interface {
+	baseConfig(routeRuntime, string) (RouteConfigBase, error)
 }
 
 // RouteConfigBase defines the base configuration for a standard (non-generic) route.
 // It includes settings for path, HTTP methods, authentication, timeouts, and middleware.
 // This is used for routes that work directly with http.ResponseWriter and *http.Request.
 //
-// Configuration precedence (when used within a sub-router):
-// - Route settings override sub-router settings
-// - Sub-router settings override global settings
+// Configuration precedence (when used within a route group):
+// - Route settings override route-group settings
+// - Route-group settings override global settings
 // - Middlewares are additive (not replaced)
 type RouteConfigBase struct {
-	Path           string                // Route path (will be prefixed with sub-router path prefix if applicable)
+	Path           string                // Route path, relative to its route group when grouped
 	Methods        []HttpMethod          // HTTP methods this route handles (use constants like MethodGet)
-	AuthLevel      *AuthLevel            // Authentication level for this route. If nil, inherits from sub-router or defaults to NoAuth
+	AuthLevel      *AuthLevel            // Authentication level for this route. If nil, inherits from its route group or defaults to NoAuth
 	Overrides      common.RouteOverrides // Configuration overrides for this specific route
 	Handler        http.HandlerFunc      // Standard HTTP handler function
-	Middlewares    []common.Middleware   // Middlewares applied to this specific route (combined with sub-router and global middlewares)
+	Middlewares    []common.Middleware   // Middlewares applied after global and route-group middlewares
 	DisableTimeout bool                  // Indicates if the timeout should be disabled for this route (e.g., for WebSockets or long-lived connections).
 }
 
-// Implement RouteDefinition for RouteConfigBase
-func (RouteConfigBase) isRouteDefinition() {}
+func (route RouteConfigBase) baseConfig(routeRuntime, string) (RouteConfigBase, error) {
+	return route, nil
+}
 
 // RouteConfig defines a route with generic request and response types.
 // It provides type-safe request/response handling with automatic marshaling/unmarshaling.
 // The framework handles decoding the request into type T and encoding the response of type U.
 //
-// Configuration precedence (when used within a sub-router):
-// - Route settings override sub-router settings
-// - Sub-router settings override global settings
+// Configuration precedence (when used within a route group):
+// - Route settings override route-group settings
+// - Route-group settings override global settings
 // - Middlewares are additive (not replaced)
 //
-// Use NewGenericRouteDefinition to register these routes within SubRouterConfig.Routes.
+// RouteConfig values can be registered directly on Router or RouteGroup.
 type RouteConfig[T any, U any] struct {
-	Path           string                // Route path (will be prefixed with sub-router path prefix if applicable)
+	Path           string                // Route path, relative to its route group when grouped
 	Methods        []HttpMethod          // HTTP methods this route handles (use constants like MethodGet)
-	AuthLevel      *AuthLevel            // Authentication level for this route. If nil, inherits from sub-router or defaults to NoAuth
+	AuthLevel      *AuthLevel            // Authentication level for this route. If nil, inherits from its route group or defaults to NoAuth
 	Overrides      common.RouteOverrides // Configuration overrides for this specific route
 	Codec          codec.Codec[T, U]     // Codec for marshaling/unmarshaling request and response (required)
 	Handler        GenericHandler[T, U]  // Generic handler function (required)
-	Middlewares    []common.Middleware   // Middlewares applied to this specific route (combined with sub-router and global middlewares)
+	Middlewares    []common.Middleware   // Middlewares applied after global and route-group middlewares
 	SourceType     SourceType            // Where to retrieve request data from (defaults to Body)
 	SourceKey      string                // Parameter name for query/path parameters (required when SourceType is not Body/Empty)
 	Sanitizer      func(T) (T, error)    // Optional function to validate/transform request data after decoding
@@ -237,6 +211,6 @@ type RouteConfig[T any, U any] struct {
 // It takes an http.Request and a typed request data object, and returns a typed response
 // object and an error. This allows for strongly-typed request and response handling.
 // The type parameters T and U represent the request and response data types respectively.
-// When used with RegisterGenericRoute, the framework automatically handles decoding the
+// When registered with Router.Route or RouteGroup.Route, the framework automatically handles decoding the
 // request and encoding the response using the specified Codec.
 type GenericHandler[T any, U any] func(r *http.Request, data T) (U, error)

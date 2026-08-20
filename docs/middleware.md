@@ -148,8 +148,8 @@ func TransactionMiddleware(db *YourDBType, logger *zap.Logger) common.Middleware
 Middleware can be applied at three levels:
 
 1.  **Global**: Added to `RouterConfig.Middlewares`. Applied to *all* routes handled by the router.
-2.  **Sub-Router**: Added to `SubRouterConfig.Middlewares`. Applied to all routes within that sub-router (and its nested sub-routers), *after* any global middleware.
-3.  **Route-Specific**: Added to `RouteConfigBase.Middlewares` or `RouteConfig.Middlewares`. Applied only to that specific route, *after* any global and sub-router middleware.
+2.  **Route group**: Added with `group.Use`. Applied to that group and descendants after global middleware, from outer groups to inner groups.
+3.  **Route-specific**: Added to `RouteConfigBase.Middlewares` or `RouteConfig.Middlewares`. Applied after global and group middleware.
 
 ```go
 // Example applying middleware at different levels
@@ -161,29 +161,21 @@ routerConfig := router.RouterConfig{
         mymiddleware.AddHeaderMiddleware("X-Global", "true"), // Global: Custom middleware
         // Note: Request logging is handled internally if EnableTraceLogging is true
     },
-    SubRouters: []router.SubRouterConfig{
-        {
-            PathPrefix: "/api/v1",
-            Middlewares: []common.Middleware{
-                MyCustomAuthMiddleware(), // Sub-Router: Runs before global middleware
-                mymiddleware.AddHeaderMiddleware("X-API-Version", "v1"), // Sub-Router: Custom middleware
-            },
-            Routes: []router.RouteDefinition{
-                router.RouteConfigBase{
-                    Path: "/users",
-                    Methods: []router.HttpMethod{router.MethodGet},
-                    Middlewares: []common.Middleware{
-                        mymiddleware.LogUserIDMiddleware(logger), // Route: Runs last before handler
-                    },
-                    Handler: GetUsersHandler,
-                    AuthLevel: new(router.AuthRequired), // Example: Requires authentication
-                },
-                // ... other v1 routes
-            },
-        },
-    },
-    // ...
 }
+
+r := router.NewRouter[string, User](routerConfig, authenticate, userID)
+r.Group("/api").Group("/v1").Use(
+    MyCustomAuthMiddleware(),
+    mymiddleware.AddHeaderMiddleware("X-API-Version", "v1"),
+).Route(router.RouteConfigBase{
+    Path:    "/users",
+    Methods: []router.HttpMethod{router.MethodGet},
+    Middlewares: []common.Middleware{
+        mymiddleware.LogUserIDMiddleware(logger),
+    },
+    Handler:   GetUsersHandler,
+    AuthLevel: new(router.AuthRequired),
+})
 
 // Note: CORS preflight requests (OPTIONS with Origin header and CORS-specific headers)
 // are handled at the CORS layer before reaching authentication middleware.
@@ -198,13 +190,13 @@ SRouter applies middleware by wrapping the final handler in `wrapHandler`. The e
 2.  **Trace ID Middleware** (Applied internally if `RouterConfig.TraceIDBufferSize > 0`)
 3.  **Authentication Middleware** (Applied internally if `AuthLevel` is `AuthRequired` or `AuthOptional`)
 4.  **Rate Limiting Middleware** (Applied internally if a rate limit config applies)
-5.  **Route-Specific and Sub-Router Middlewares** (`SubRouterConfig.Middlewares` then `RouteConfig.Middlewares`)
-6.  **Global Middlewares** (`RouterConfig.Middlewares`, plus internally-added middleware such as the metrics middleware)
-7.  **Timeout Middleware** (Applied if `timeout > 0` and the route does not set `DisableTimeout`)
-8.  **Base Handler** (shutdown check and request body size limit)
-9.  **Your Actual Handler** (`http.HandlerFunc` or `GenericHandler`)
+5.  **Global middleware** (`RouterConfig.Middlewares`, including configured metrics)
+6.  **Route-group middleware** (`Router.Use` root middleware, then outermost group to innermost group)
+7.  **Route middleware** (`RouteConfigBase.Middlewares` or `RouteConfig.Middlewares`)
+8.  **Timeout middleware** (if the effective timeout is positive)
+9.  **Body limit and actual handler**
 
-Note: Sub-router and route-specific middlewares are combined (sub-router first, then route-specific) and run *outside* the global middlewares — that is, route/sub-router middleware wraps the global middleware chain.
+The route tree is flattened during `Build`, so group middleware adds ordinary precomposed wrappers and no request-time tree traversal.
 
 Middleware within the *same slice* (e.g., `RouterConfig.Middlewares`) are applied in the order they appear in the slice; the first one in the slice becomes the outermost wrapper.
 

@@ -59,7 +59,7 @@ func TestMetricsConfigMiddlewareFactory(t *testing.T) {
 		},
 	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	r.RegisterRoute(RouteConfigBase{
+	r.Route(RouteConfigBase{
 		Path:    "/factory",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +111,7 @@ func TestGetEffectiveRateLimitConvertsUserIDFunctions(t *testing.T) {
 		},
 	}
 
-	got := r.getEffectiveRateLimit(src, nil)
+	got := r.convertRateLimit(src)
 	if got == nil {
 		t.Fatal("expected a converted rate limit config, got nil")
 	}
@@ -131,9 +131,8 @@ func TestGetEffectiveRateLimitConvertsUserIDFunctions(t *testing.T) {
 		t.Errorf("UserIDToString(\"bob\") = %q, want %q", key, "key:bob")
 	}
 
-	// A UserIDFromUser returning a value of the wrong type must degrade to the
-	// zero user ID instead of panicking. Passed as the sub-router override to
-	// exercise that precedence level too.
+	// A UserIDFromUser returning a value of the wrong type must fail loudly
+	// instead of collapsing unrelated users into the zero-value bucket.
 	wrongType := &common.RateLimitConfig[any, any]{
 		Limit:  1,
 		Window: time.Second,
@@ -141,13 +140,16 @@ func TestGetEffectiveRateLimitConvertsUserIDFunctions(t *testing.T) {
 			return 42 // not a string
 		},
 	}
-	converted := r.getEffectiveRateLimit(nil, wrongType)
+	converted := r.convertRateLimit(wrongType)
 	if converted == nil || converted.UserIDFromUser == nil {
-		t.Fatal("expected converted sub-router config with adapted UserIDFromUser")
+		t.Fatal("expected converted config with adapted UserIDFromUser")
 	}
-	if id := converted.UserIDFromUser("alice"); id != "" {
-		t.Errorf("UserIDFromUser with mismatched return type = %q, want zero value", id)
-	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected mismatched user ID type to panic")
+		}
+	}()
+	converted.UserIDFromUser("alice")
 }
 
 // TestExtractIPFromXForwardedForBlankEntries verifies that an X-Forwarded-For

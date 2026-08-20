@@ -3,6 +3,7 @@ package metrics
 import (
 	"bufio"
 	"errors"
+	"maps"
 	"math/rand"
 	"net"
 	"net/http"
@@ -29,7 +30,7 @@ func TestRandomSampler(t *testing.T) {
 	// Test with a mid-range rate using a deterministic random source
 	sampler = NewRandomSamplerWithRand(0.5, rand.New(rand.NewSource(42)))
 	samples := 0
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		if sampler.Sample() {
 			samples++
 		}
@@ -255,12 +256,8 @@ func (c *MockCounter) WithTags(tags Tags) Metric {
 		tags:        make(Tags),
 		value:       c.value,
 	}
-	for k, v := range c.tags {
-		newCounter.tags[k] = v
-	}
-	for k, v := range tags {
-		newCounter.tags[k] = v
-	}
+	maps.Copy(newCounter.tags, c.tags)
+	maps.Copy(newCounter.tags, tags)
 	return newCounter
 }
 
@@ -355,12 +352,8 @@ func (g *MockGauge) WithTags(tags Tags) Metric {
 		tags:        make(Tags),
 		value:       g.value,
 	}
-	for k, v := range g.tags {
-		newGauge.tags[k] = v
-	}
-	for k, v := range tags {
-		newGauge.tags[k] = v
-	}
+	maps.Copy(newGauge.tags, g.tags)
+	maps.Copy(newGauge.tags, tags)
 	return newGauge
 }
 
@@ -480,12 +473,8 @@ func (h *MockHistogram) WithTags(tags Tags) Metric {
 		buckets:      h.buckets,
 		observations: h.observations,
 	}
-	for k, v := range h.tags {
-		newHistogram.tags[k] = v
-	}
-	for k, v := range tags {
-		newHistogram.tags[k] = v
-	}
+	maps.Copy(newHistogram.tags, h.tags)
+	maps.Copy(newHistogram.tags, tags)
 	return newHistogram
 }
 
@@ -599,12 +588,8 @@ func (s *MockSummary) WithTags(tags Tags) Metric {
 		objectives:   s.objectives,
 		observations: s.observations,
 	}
-	for k, v := range s.tags {
-		newSummary.tags[k] = v
-	}
-	for k, v := range tags {
-		newSummary.tags[k] = v
-	}
+	maps.Copy(newSummary.tags, s.tags)
+	maps.Copy(newSummary.tags, tags)
 	return newSummary
 }
 
@@ -1031,7 +1016,7 @@ func TestMetricsMiddlewareImpl_Handler_WithRouteTemplate(t *testing.T) {
 	// Add route template to context
 	expectedTemplate := "/users/:id"
 	ctx := req.Context()
-	ctx = scontext.WithRouteInfo[string, interface{}](ctx, nil, expectedTemplate)
+	ctx = scontext.WithRouteInfo[string, any](ctx, nil, expectedTemplate)
 	req = req.WithContext(ctx)
 
 	// Set Content-Length to test throughput metrics

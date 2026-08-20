@@ -16,13 +16,13 @@ import (
 )
 
 // Counter for active requests
-var activeRequests int32
+var activeRequests atomic.Int32
 
 // SlowHandler is a handler that simulates a slow operation
 func SlowHandler(w http.ResponseWriter, r *http.Request) {
 	// Increment active requests counter
-	atomic.AddInt32(&activeRequests, 1)
-	defer atomic.AddInt32(&activeRequests, -1)
+	activeRequests.Add(1)
+	defer activeRequests.Add(-1)
 
 	// Get the duration from the query parameter
 	durationStr := r.URL.Query().Get("duration")
@@ -43,7 +43,7 @@ func SlowHandler(w http.ResponseWriter, r *http.Request) {
 	case <-time.After(duration):
 		// Operation completed successfully
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"message":"Slow operation completed successfully"}`))
+		_, _ = w.Write([]byte(`{"message":"Slow operation completed successfully"}`))
 		fmt.Println("Slow request completed")
 	case <-r.Context().Done():
 		// Request was canceled (e.g., due to timeout or shutdown)
@@ -55,19 +55,19 @@ func SlowHandler(w http.ResponseWriter, r *http.Request) {
 // QuickHandler is a handler that returns immediately
 func QuickHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"Quick operation completed"}`))
+	_, _ = w.Write([]byte(`{"message":"Quick operation completed"}`))
 }
 
 // StatusHandler returns the current server status
 func StatusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(fmt.Sprintf(`{"active_requests":%d}`, atomic.LoadInt32(&activeRequests))))
+	_, _ = fmt.Fprintf(w, `{"active_requests":%d}`, activeRequests.Load())
 }
 
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create a router configuration
 	routerConfig := router.RouterConfig{
@@ -100,19 +100,19 @@ func main() {
 	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
 
 	// Register routes
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/slow",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: SlowHandler,
 	})
 
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/quick",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: QuickHandler,
 	})
 
-	r.RegisterRoute(router.RouteConfigBase{
+	r.Route(router.RouteConfigBase{
 		Path:    "/status",
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: StatusHandler,
@@ -168,7 +168,7 @@ func main() {
 
 	// Wait for active requests to complete
 	for {
-		active := atomic.LoadInt32(&activeRequests)
+		active := activeRequests.Load()
 		if active == 0 {
 			break
 		}

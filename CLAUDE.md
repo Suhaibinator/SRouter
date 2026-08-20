@@ -41,7 +41,7 @@ golangci-lint run
 
 ## Architecture Overview
 
-SRouter is a high-performance HTTP router framework built on `julienschmidt/httprouter` with Go generics support (requires Go 1.26.0+). The codebase follows a layered architecture with clear separation of concerns.
+SRouter is a high-performance HTTP router framework built on `julienschmidt/httprouter` with Go generics support (requires Go 1.27+). The codebase follows a layered architecture with clear separation of concerns.
 
 ### Core Type Parameters
 Throughout the codebase, `T` represents the UserID type (must be comparable) and `U` represents the User object type. These generic parameters enable type-safe authentication and context management.
@@ -60,12 +60,12 @@ Throughout the codebase, `T` represents the UserID type (must be comparable) and
 3. Client IP extraction based on IPConfig
 4. Metrics and trace ID injection
 5. httprouter path matching
-6. Middleware chain execution (Recovery → Auth → RateLimit → Route-specific → Global → Timeout → Handler)
+6. Middleware chain execution (Recovery → Auth → RateLimit → Global → outer groups → inner groups → Route → Timeout → Handler)
 7. Generic handler marshaling/unmarshaling (if applicable)
 
 ### Key Design Patterns
 - **Middleware Chain**: Composable middleware with configurable execution order
-- **Configuration Hierarchy**: Global → SubRouter → Route with cascading overrides
+- **Route Tree**: `Router.Group` creates recursive `RouteGroup` handles; policy inherits Global → outer groups → inner groups → Route
 - **Generic Routes**: Type-safe handlers with automatic codec-based marshaling
 - **Context Wrapper**: Single SRouterContext avoids deep context nesting
 
@@ -91,12 +91,14 @@ Flexible rate limiting with strategies:
 Uses Uber's ratelimit library with leaky bucket algorithm.
 
 ### Generic Route Registration
-Generic routes should be registered using `NewGenericRouteDefinition` within SubRouterConfig.Routes for declarative configuration:
+Generic `RouteConfig` values can be registered directly on a `Router` or `RouteGroup`:
 ```go
-router.NewGenericRouteDefinition[ReqType, RespType, UserIDType, UserType](
-    router.RouteConfig[ReqType, RespType]{...}
-)
+router.RouteConfig[ReqType, RespType]{...}
 ```
+
+Call `r.Route(route)` for root routes or retain a group handle and call
+`group.Route(route)`. Both methods accept standard and typed routes. Route trees
+freeze at `Build` or the first request.
 
 ### Context Access
 Always use scontext package helpers for type-safe context access:

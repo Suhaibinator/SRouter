@@ -52,10 +52,10 @@ func DecodeBase62(s string) ([]byte, error) {
 
 	// Build a character -> value map
 	charMap := make(map[rune]int)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		charMap[rune('0'+i)] = i
 	}
-	for i := 0; i < 26; i++ {
+	for i := range 26 {
 		charMap[rune('A'+i)] = 10 + i
 		charMap[rune('a'+i)] = 36 + i
 	}

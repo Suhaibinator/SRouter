@@ -25,7 +25,7 @@ type AuthTokenConfig struct {
 	CookieName string
 }
 
-// RouteOverrides contains settings that can be overridden at different levels (global, sub-router, route).
+// RouteOverrides contains per-route settings that replace inherited global or route-group policy.
 // These overrides follow a hierarchy where the most specific setting takes precedence.
 type RouteOverrides struct {
 	// Timeout overrides the default timeout for requests.

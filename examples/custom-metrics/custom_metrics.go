@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,12 +35,15 @@ func (r *CustomMetricsRegistry) Counter(name, help string, labels prometheus.Lab
 	r.countersMu.Lock()
 	defer r.countersMu.Unlock()
 
-	key := name
+	var key strings.Builder
+	key.WriteString(name)
 	for k, v := range labels {
-		key += k + ":" + v
+		key.WriteString(k)
+		key.WriteString(":")
+		key.WriteString(v)
 	}
 
-	if counter, ok := r.counters[key]; ok {
+	if counter, ok := r.counters[key.String()]; ok {
 		return counter
 	}
 
@@ -50,7 +54,7 @@ func (r *CustomMetricsRegistry) Counter(name, help string, labels prometheus.Lab
 	})
 
 	r.registry.MustRegister(counter)
-	r.counters[key] = counter
+	r.counters[key.String()] = counter
 
 	return counter
 }
@@ -60,12 +64,15 @@ func (r *CustomMetricsRegistry) Gauge(name, help string, labels prometheus.Label
 	r.gaugesMu.Lock()
 	defer r.gaugesMu.Unlock()
 
-	key := name
+	var key strings.Builder
+	key.WriteString(name)
 	for k, v := range labels {
-		key += k + ":" + v
+		key.WriteString(k)
+		key.WriteString(":")
+		key.WriteString(v)
 	}
 
-	if gauge, ok := r.gauges[key]; ok {
+	if gauge, ok := r.gauges[key.String()]; ok {
 		return gauge
 	}
 
@@ -76,7 +83,7 @@ func (r *CustomMetricsRegistry) Gauge(name, help string, labels prometheus.Label
 	})
 
 	r.registry.MustRegister(gauge)
-	r.gauges[key] = gauge
+	r.gauges[key.String()] = gauge
 
 	return gauge
 }
@@ -86,12 +93,15 @@ func (r *CustomMetricsRegistry) Histogram(name, help string, labels prometheus.L
 	r.histogramsMu.Lock()
 	defer r.histogramsMu.Unlock()
 
-	key := name
+	var key strings.Builder
+	key.WriteString(name)
 	for k, v := range labels {
-		key += k + ":" + v
+		key.WriteString(k)
+		key.WriteString(":")
+		key.WriteString(v)
 	}
 
-	if histogram, ok := r.histograms[key]; ok {
+	if histogram, ok := r.histograms[key.String()]; ok {
 		return histogram
 	}
 
@@ -107,7 +117,7 @@ func (r *CustomMetricsRegistry) Histogram(name, help string, labels prometheus.L
 	})
 
 	r.registry.MustRegister(histogram)
-	r.histograms[key] = histogram
+	r.histograms[key.String()] = histogram
 
 	return histogram
 }
