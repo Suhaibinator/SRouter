@@ -2,7 +2,7 @@ package codec
 
 import (
 	"bytes"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -65,7 +65,7 @@ func TestJSONCodec(t *testing.T) {
 
 	// Decode the response body
 	var decodedResp TestResponse
-	err = json.NewDecoder(rr.Body).Decode(&decodedResp)
+	err = json.UnmarshalRead(rr.Body, &decodedResp)
 	if err != nil {
 		t.Fatalf("Failed to decode response body: %v", err)
 	}
@@ -76,6 +76,63 @@ func TestJSONCodec(t *testing.T) {
 	}
 	if decodedResp.Age != 30 {
 		t.Errorf("Expected age to be %d, got %d", 30, decodedResp.Age)
+	}
+}
+
+func TestJSONCodecV2Defaults(t *testing.T) {
+	type TestRequest struct {
+		Name string `json:"name"`
+	}
+
+	codec := NewJSONCodec[TestRequest, struct{}]()
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{
+			name: "duplicate object name",
+			body: []byte(`{"name":"first","name":"second"}`),
+		},
+		{
+			name: "invalid UTF-8",
+			body: []byte{'{', '"', 'n', 'a', 'm', 'e', '"', ':', '"', 0xff, '"', '}'},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := codec.DecodeBytes(tt.body); err == nil {
+				t.Fatal("DecodeBytes() unexpectedly accepted invalid JSON")
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/test", bytes.NewReader(tt.body))
+			if _, err := codec.Decode(req); err == nil {
+				t.Fatal("Decode() unexpectedly accepted invalid JSON")
+			}
+		})
+	}
+}
+
+func TestJSONCodecOptions(t *testing.T) {
+	type TestRequest struct {
+		Name string `json:"name"`
+	}
+
+	codec := NewJSONCodec[TestRequest, struct{}](
+		json.MatchCaseInsensitiveNames(true),
+		json.RejectUnknownMembers(true),
+	)
+
+	decoded, err := codec.DecodeBytes([]byte(`{"NAME":"John"}`))
+	if err != nil {
+		t.Fatalf("DecodeBytes() returned error: %v", err)
+	}
+	if decoded.Name != "John" {
+		t.Fatalf("DecodeBytes() Name = %q, want %q", decoded.Name, "John")
+	}
+
+	if _, err := codec.DecodeBytes([]byte(`{"name":"John","extra":true}`)); err == nil {
+		t.Fatal("DecodeBytes() unexpectedly accepted an unknown object member")
 	}
 }
 

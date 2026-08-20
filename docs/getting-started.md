@@ -12,11 +12,10 @@ go get github.com/Suhaibinator/SRouter
 
 ## Requirements
 
-- Go 1.26.0 or higher
+- Go 1.27 or higher
 - Dependencies (managed via Go modules):
   - [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter) v1.3.0 (Core routing engine)
   - [go.uber.org/zap](https://github.com/uber-go/zap) v1.27.0 (Structured logging)
-  - [github.com/google/uuid](https://github.com/google/uuid) v1.6.0 (Used internally, e.g., trace IDs)
   - [go.uber.org/ratelimit](https://github.com/uber-go/ratelimit) v0.3.1 (Used by built-in rate limiting middleware)
   - [google.golang.org/protobuf](https://github.com/protocolbuffers/protobuf-go) v1.36.6 (Required if using `ProtoCodec`)
   - [gorm.io/gorm](https://gorm.io/) v1.30.0 (Required if using `GormTransactionWrapper` or related DB features)

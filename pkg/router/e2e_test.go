@@ -3,7 +3,7 @@ package router
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -183,7 +183,7 @@ func TestE2EFullStackAPI(t *testing.T) {
 			t.Fatalf("expected status %d, got %d", http.StatusOK, resp.StatusCode)
 		}
 		var created e2eCreateUserResponse
-		if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		if err := json.UnmarshalRead(resp.Body, &created); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
 		if created.ID != "user-1" {
@@ -747,7 +747,7 @@ func TestE2EConcurrentRequests(t *testing.T) {
 				return
 			}
 			var echoed e2eCreateUserResponse
-			if err := json.NewDecoder(resp.Body).Decode(&echoed); err != nil {
+			if err := json.UnmarshalRead(resp.Body, &echoed); err != nil {
 				errs <- fmt.Errorf("request %d: failed to decode response: %w", i, err)
 				return
 			}

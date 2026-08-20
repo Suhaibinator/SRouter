@@ -38,7 +38,7 @@ type CreateUserResp struct {
 
  // Simulate successful creation
  createdUser := CreateUserResp{
-  ID:    "user-" + uuid.NewString(), // Example ID
+  ID:    "user-" + uuid.New().String(), // Example ID
   Name:  req.Name,
   Email: req.Email,
  }

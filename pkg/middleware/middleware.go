@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,8 +27,8 @@ import (
 //	// Results in: logging(auth(rateLimit(handler)))
 func Chain(middlewares ...Middleware) Middleware {
 	return func(next http.Handler) http.Handler {
-		for i := len(middlewares) - 1; i >= 0; i-- {
-			next = middlewares[i](next)
+		for _, middleware := range slices.Backward(middlewares) {
+			next = middleware(next)
 		}
 		return next
 	}

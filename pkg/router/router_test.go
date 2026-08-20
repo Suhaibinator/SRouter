@@ -3,7 +3,7 @@ package router
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -216,7 +216,7 @@ func TestJSONCodec(t *testing.T) {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
 	var respBody RouterTestResponse
-	err = json.NewDecoder(resp.Body).Decode(&respBody)
+	err = json.UnmarshalRead(resp.Body, &respBody)
 	if err != nil {
 		t.Fatalf("Failed to decode response body: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestGetParamsCoverage(t *testing.T) { // Renamed to avoid conflict
 		}
 		userId := GetParam(r, "id")
 		postId := GetParam(r, "postId")
-		_, err := w.Write([]byte(fmt.Sprintf("User: %s, Post: %s", userId, postId)))
+		_, err := fmt.Fprintf(w, "User: %s, Post: %s", userId, postId)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
 			return
@@ -423,7 +423,7 @@ func TestUserAuthCoverage(t *testing.T) { // Renamed to avoid conflict
 		if userID != "user123" {
 			t.Errorf("Expected user ID %q, got %q", "user123", userID)
 		}
-		_, err := w.Write([]byte(fmt.Sprintf("User ID: %s", userID)))
+		_, err := fmt.Fprintf(w, "User ID: %s", userID)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Failed to write response: %v", err), http.StatusInternalServerError)
 			return
@@ -1702,7 +1702,7 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 
 	// Check response body
 	var respBody DefResp
-	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
+	if err := json.UnmarshalRead(resp.Body, &respBody); err != nil {
 		t.Fatalf("Failed to decode response body: %v", err)
 	}
 	expectedResp := "Processed: test-value"
@@ -2118,10 +2118,10 @@ func TestConcurrentRequests(t *testing.T) {
 	}
 
 	// Launch goroutines
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(goroutineIndex int) {
 			defer wg.Done()
-			for j := 0; j < requestsPerGoroutine; j++ {
+			for j := range requestsPerGoroutine {
 				var req *http.Request
 				var err error
 				targetURL := ""

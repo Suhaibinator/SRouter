@@ -54,7 +54,7 @@ func TransactionMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 
 		// Check if handler returned an error
-		if err, ok := scontext.GetHandlerErrorFromRequest[string, interface{}](r); ok && err != nil {
+		if err, ok := scontext.GetHandlerErrorFromRequest[string, any](r); ok && err != nil {
 			log.Printf("Handler error detected: %v", err)
 			tx.Rollback()
 		} else {
@@ -72,7 +72,7 @@ func ErrorLoggingMiddleware(logger *zap.Logger) common.Middleware {
 			next.ServeHTTP(w, r)
 
 			// Check for handler errors and log them with context
-			if err, ok := scontext.GetHandlerErrorFromRequest[string, interface{}](r); ok && err != nil {
+			if err, ok := scontext.GetHandlerErrorFromRequest[string, any](r); ok && err != nil {
 				// Extract additional context
 				path := r.URL.Path
 				method := r.Method
@@ -94,15 +94,15 @@ func main() {
 	defer logger.Sync()
 
 	// Create router with basic configuration
-	r := router.NewRouter[string, interface{}](
+	r := router.NewRouter[string, any](
 		router.RouterConfig{
 			Logger: logger,
 		},
 		// Simple auth functions for demo
-		func(ctx context.Context, userID string) (*interface{}, bool) {
+		func(ctx context.Context, userID string) (*any, bool) {
 			return nil, false
 		},
-		func(user *interface{}) string {
+		func(user *any) string {
 			return ""
 		},
 	)
@@ -174,7 +174,7 @@ func main() {
 
 			next.ServeHTTP(w, r)
 
-			if err, ok := scontext.GetHandlerErrorFromRequest[string, interface{}](r); ok && err != nil {
+			if err, ok := scontext.GetHandlerErrorFromRequest[string, any](r); ok && err != nil {
 				// Check if it's a client error (4xx) - don't rollback for these
 				var httpErr *router.HTTPError
 				if errors.As(err, &httpErr) && httpErr.StatusCode >= 400 && httpErr.StatusCode < 500 {

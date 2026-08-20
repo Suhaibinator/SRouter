@@ -2,7 +2,7 @@ package router
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	json "encoding/json/v2"
 	"math/big"
 	"net/http"
 	"net/http/httptest"

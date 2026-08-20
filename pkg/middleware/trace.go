@@ -5,10 +5,10 @@ import (
 	"encoding/hex"
 	"net/http"
 	"sync"
+	"uuid"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
-	"github.com/google/uuid"
 )
 
 // IDGenerator provides efficient generation of trace IDs by precomputing them.
@@ -71,11 +71,7 @@ func (g *IDGenerator) Stop() {
 }
 
 func generateUUID() string {
-	// Generate a new UUID and return it as a string
-	id, err := uuid.NewV7()
-	if err != nil {
-		id = uuid.New()
-	}
+	id := uuid.NewV7()
 	return hex.EncodeToString(id[:])
 }
 

@@ -67,10 +67,9 @@ go get github.com/Suhaibinator/SRouter
 
 ## Requirements
 
-- Go 1.26.0 or higher
+- Go 1.27 or higher
 - [julienschmidt/httprouter](https://github.com/julienschmidt/httprouter) v1.3.0 or higher for high-performance routing
 - [go.uber.org/zap](https://github.com/uber-go/zap) v1.27.0 or higher for structured logging
-- [github.com/google/uuid](https://github.com/google/uuid) v1.6.0 or higher for trace ID generation
 - [go.uber.org/ratelimit](https://github.com/uber-go/ratelimit) v0.3.1 or higher for rate limiting
 - [google.golang.org/protobuf](https://github.com/protocolbuffers/protobuf-go) (indirect, used by ProtoCodec)
 - [gorm.io/gorm](https://github.com/go-gorm/gorm) (indirect, used in examples/context management)
@@ -1427,7 +1426,7 @@ SRouter provides two built-in codecs in the `pkg/codec` package:
 Uses JSON for marshaling and unmarshaling:
 
 ```go
-codec.NewJSONCodec[T, U]() *codec.JSONCodec[T, U]
+codec.NewJSONCodec[T, U](...json.Options) *codec.JSONCodec[T, U]
 ```
 
 ### ProtoCodec

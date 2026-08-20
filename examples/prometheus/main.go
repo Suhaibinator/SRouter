@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"time"
 
@@ -512,9 +513,7 @@ func (s *PrometheusSummary) Objectives() map[float64]float64 {
 // Helper function to convert Prometheus labels to metrics.Tags
 func convertLabelsToTags(labels prometheus.Labels) metrics.Tags {
 	tags := make(metrics.Tags)
-	for k, v := range labels {
-		tags[k] = v
-	}
+	maps.Copy(tags, labels)
 	return tags
 }
 

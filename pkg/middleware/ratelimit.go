@@ -435,10 +435,9 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 			} else {
 				// Rate limit exceeded
 				// Set Retry-After header (seconds)
-				retryAfterSeconds := int64(reset.Seconds())
-				if retryAfterSeconds < 1 {
-					retryAfterSeconds = 1 // Minimum 1 second
-				}
+				retryAfterSeconds := max(int64(reset.Seconds()),
+					// Minimum 1 second
+					1)
 				w.Header().Set("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
 
 				logger.Warn("Rate limit exceeded",

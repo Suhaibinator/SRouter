@@ -16,13 +16,13 @@ import (
 )
 
 // Counter for active requests
-var activeRequests int32
+var activeRequests atomic.Int32
 
 // SlowHandler is a handler that simulates a slow operation
 func SlowHandler(w http.ResponseWriter, r *http.Request) {
 	// Increment active requests counter
-	atomic.AddInt32(&activeRequests, 1)
-	defer atomic.AddInt32(&activeRequests, -1)
+	activeRequests.Add(1)
+	defer activeRequests.Add(-1)
 
 	// Get the duration from the query parameter
 	durationStr := r.URL.Query().Get("duration")
@@ -61,7 +61,7 @@ func QuickHandler(w http.ResponseWriter, r *http.Request) {
 // StatusHandler returns the current server status
 func StatusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(fmt.Sprintf(`{"active_requests":%d}`, atomic.LoadInt32(&activeRequests))))
+	w.Write([]byte(fmt.Sprintf(`{"active_requests":%d}`, activeRequests.Load())))
 }
 
 func main() {
@@ -168,7 +168,7 @@ func main() {
 
 	// Wait for active requests to complete
 	for {
-		active := atomic.LoadInt32(&activeRequests)
+		active := activeRequests.Load()
 		if active == 0 {
 			break
 		}

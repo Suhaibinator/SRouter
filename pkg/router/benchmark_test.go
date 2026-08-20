@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -109,7 +109,7 @@ func BenchmarkRouteWithParams(b *testing.B) {
 			id := GetParam(r, "id")
 			postId := GetParam(r, "postId")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(fmt.Sprintf("User ID: %s, Post ID: %s", id, postId)))
+			_, _ = fmt.Fprintf(w, "User ID: %s, Post ID: %s", id, postId)
 		},
 	})
 
@@ -338,7 +338,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 
 	// Register many routes
 	routeCount := 1000
-	for i := 0; i < routeCount; i++ {
+	for i := range routeCount {
 		path := fmt.Sprintf("/route%d", i)
 		r.RegisterRoute(RouteConfigBase{
 			Path:    path,
@@ -355,8 +355,8 @@ func BenchmarkMemoryUsage(b *testing.B) {
 	// The original benchmark ran ServeHTTP b.N times, which isn't the goal here.
 	// We want memory usage *of the router structure itself*.
 	// Let's just report the memory after setup.
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		// We need *something* in the loop for the benchmark to run.
 		// Accessing a route is minimal overhead compared to setup.
 		req, _ := http.NewRequest(http.MethodGet, "/route0", nil)

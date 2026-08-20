@@ -197,10 +197,7 @@ func ListUsersHandler(r *http.Request, req ListUsersRequest) (ListUsersResponse,
 	if limit <= 0 {
 		limit = 10
 	}
-	offset := req.Offset
-	if offset < 0 {
-		offset = 0
-	}
+	offset := max(req.Offset, 0)
 
 	// Get all users
 	var userList []User
@@ -217,10 +214,7 @@ func ListUsersHandler(r *http.Request, req ListUsersRequest) (ListUsersResponse,
 		}, nil
 	}
 
-	end := offset + limit
-	if end > total {
-		end = total
-	}
+	end := min(offset+limit, total)
 
 	// Return the response
 	return ListUsersResponse{

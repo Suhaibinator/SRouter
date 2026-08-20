@@ -54,10 +54,10 @@ func TestGetLimiter_Coverage(t *testing.T) {
 	var firstLimiter *slidingWindowLimiter
 	var once sync.Once
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < callsPerGoroutine; j++ {
+			for range callsPerGoroutine {
 				// Call Allow which will internally call getLimiter
 				allowed, _, _ := limiter.Allow(key, limit, window)
 				assert.True(t, allowed, "Request should be allowed initially")
@@ -86,7 +86,7 @@ func TestGetLimiter_Coverage(t *testing.T) {
 
 	// Final check that only one limiter was created for the key/limit/window combination
 	count := 0
-	limiter.limiters.Range(func(k, v interface{}) bool {
+	limiter.limiters.Range(func(k, v any) bool {
 		if k == compositeKey {
 			count++
 		}

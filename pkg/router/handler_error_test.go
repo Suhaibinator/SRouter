@@ -16,10 +16,10 @@ import (
 
 func TestGenericRouteHandlerError(t *testing.T) {
 	// Create a test router with dummy auth functions
-	getUserByID := func(ctx context.Context, userID string) (*interface{}, bool) {
+	getUserByID := func(ctx context.Context, userID string) (*any, bool) {
 		return nil, false
 	}
-	getUserID := func(user *interface{}) int {
+	getUserID := func(user *any) int {
 		return 0
 	}
 
@@ -46,7 +46,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 
 			// Check if handler set an error
 			middlewareExecuted = true
-			middlewareSawError, _ = scontext.GetHandlerErrorFromRequest[int, interface{}](r)
+			middlewareSawError, _ = scontext.GetHandlerErrorFromRequest[int, any](r)
 		})
 	}
 
@@ -174,7 +174,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 }
 
 func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
-	getUserByID := func(ctx context.Context, userID string) (*interface{}, bool) {
+	getUserByID := func(ctx context.Context, userID string) (*any, bool) {
 		return nil, false
 	}
 	getUserID := func(user *any) int {
@@ -200,7 +200,7 @@ func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
 				next.ServeHTTP(w, r)
 
 				executionOrder = append(executionOrder, name+"-after")
-				if err, ok := scontext.GetHandlerErrorFromRequest[int, interface{}](r); ok {
+				if err, ok := scontext.GetHandlerErrorFromRequest[int, any](r); ok {
 					errorsSeen = append(errorsSeen, err)
 				}
 			})

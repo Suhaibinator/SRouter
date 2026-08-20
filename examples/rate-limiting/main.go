@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	json "encoding/json/v2"
 	"fmt"
 	"log"
 	"net/http"
@@ -54,7 +54,7 @@ var tokens = map[string]string{
 // Handler functions
 func loginHandler(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.UnmarshalRead(r.Body, &req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -75,7 +75,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Return the token and user
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(LoginResponse{
+	json.MarshalWrite(w, LoginResponse{
 		Token: token,
 		User:  user,
 	})
@@ -91,7 +91,7 @@ func userProfileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Return the user profile
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{
+	json.MarshalWrite(w, APIResponse{
 		Success: true,
 		Message: "User profile retrieved successfully",
 		Data:    user,
@@ -101,7 +101,7 @@ func userProfileHandler(w http.ResponseWriter, r *http.Request) {
 func publicEndpointHandler(w http.ResponseWriter, r *http.Request) {
 	// Return a public response
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{
+	json.MarshalWrite(w, APIResponse{
 		Success: true,
 		Message: "Public endpoint accessed successfully",
 		Data:    map[string]string{"info": "This is a public endpoint"},
@@ -150,7 +150,7 @@ func authMiddleware(next http.Handler) http.Handler {
 func rateLimitExceededHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusTooManyRequests)
-	json.NewEncoder(w).Encode(APIResponse{
+	json.MarshalWrite(w, APIResponse{
 		Success: false,
 		Message: "Rate limit exceeded. Please try again later.",
 	})
@@ -274,7 +274,7 @@ func main() {
 	}
 
 	// Create a router with string as the user ID type (T) and User as the user type (U)
-	r := router.NewRouter[string, User](routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
 
 	// Start the server
 	fmt.Println("Server listening on :8080")

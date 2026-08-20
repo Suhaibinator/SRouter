@@ -5,7 +5,7 @@ package router
 import (
 	"bufio"
 	"context"
-	"encoding/json" // Added for JSON marshalling
+	json "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net"
@@ -1296,14 +1296,13 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 	fields = r.addTrace(fields, req)
 
 	// Check for specific error types
-	var httpErr *HTTPError
 	if errors.Is(err, context.DeadlineExceeded) {
 		// Handle timeout specifically
 		statusCode = http.StatusRequestTimeout // Or http.StatusGatewayTimeout
 		message = "Request Timeout"
 		// Log specifically as timeout
 		r.logger.Error("Request timed out (detected in handler)", fields...)
-	} else if errors.As(err, &httpErr) {
+	} else if httpErr, ok := errors.AsType[*HTTPError](err); ok {
 		// Handle custom HTTPError
 		statusCode = httpErr.StatusCode
 		message = httpErr.Message
@@ -1367,7 +1366,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 			errorMap["trace_id"] = traceID
 		}
 
-		if err := json.NewEncoder(mrw.ResponseWriter).Encode(errorPayload); err != nil {
+		if err := json.MarshalWrite(mrw.ResponseWriter, errorPayload); err != nil {
 			r.logger.Error("Failed to write JSON error response",
 				zap.Error(err),
 				zap.Int("original_status", statusCode),
@@ -1426,7 +1425,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 	}
 
 	// Marshal and write the JSON response
-	if err := json.NewEncoder(w).Encode(errorPayload); err != nil {
+	if err := json.MarshalWrite(w, errorPayload); err != nil {
 		// Log an error if we fail to marshal/write the JSON error response itself
 		// At this point, we can't easily send a different error to the client.
 		r.logger.Error("Failed to write JSON error response",
@@ -1471,7 +1470,7 @@ func NewHTTPError(statusCode int, message string) *HTTPError {
 // This prevents the server from crashing when a handler panics.
 func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		rw := &recoveryResponseWriter{baseResponseWriter: baseResponseWriter{ResponseWriter: w}}
+		rw := &recoveryResponseWriter{ResponseWriter: w}
 		defer func() {
 			if rec := recover(); rec != nil {
 				fields := append([]zap.Field{zap.Any("panic", rec)}, r.baseFields(req)...)

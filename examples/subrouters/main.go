@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
@@ -92,13 +93,14 @@ func largeResponseHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Generate a large response
-	response := `{"message":"This is a large response","data":"`
-	for i := 0; i < 1024*1024; i++ { // 1MB of data
-		response += "X"
+	var response strings.Builder
+	response.WriteString(`{"message":"This is a large response","data":"`)
+	for range 1024 * 1024 { // 1MB of data
+		response.WriteString("X")
 	}
-	response += `"}`
+	response.WriteString(`"}`)
 
-	w.Write([]byte(response))
+	w.Write([]byte(response.String()))
 }
 
 // Version middleware adds a version header

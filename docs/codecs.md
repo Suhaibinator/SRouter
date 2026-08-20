@@ -41,13 +41,24 @@ SRouter typically provides codecs for common formats in the `pkg/codec` package:
 
 ### `codec.JSONCodec`
 
-Handles standard JSON encoding and decoding using Go's `encoding/json` package.
+Handles JSON encoding and decoding using Go's `encoding/json/v2` package. The
+v2 defaults reject duplicate object names and invalid UTF-8, and match struct
+field names case-sensitively.
 
 ```go
-import "github.com/Suhaibinator/SRouter/pkg/codec"
+import (
+    json "encoding/json/v2"
+
+    "github.com/Suhaibinator/SRouter/pkg/codec"
+)
 
 // Create a new JSON codec for specific request/response types
 jsonCodec := codec.NewJSONCodec[MyRequest, MyResponse]()
+
+// Optional encoding/json/v2 options apply to both encoding and decoding.
+strictJSONCodec := codec.NewJSONCodec[MyRequest, MyResponse](
+    json.RejectUnknownMembers(true),
+)
 
 // Use it in RouteConfig
 route := router.RouteConfig[MyRequest, MyResponse]{
@@ -186,7 +197,7 @@ Remember to handle errors appropriately within your codec methods, potentially r
 ## Codec Reference
 
 -   **`codec.Codec[T, U]`**: Interface defining methods `NewRequest() T`, `Decode(*http.Request) (T, error)`, `DecodeBytes([]byte) (T, error)`, and `Encode(http.ResponseWriter, U) error`.
--   **`codec.NewJSONCodec[T, U]() *codec.JSONCodec[T, U]`**: Constructor for the built-in JSON codec.
+-   **`codec.NewJSONCodec[T, U](...json.Options) *codec.JSONCodec[T, U]`**: Constructor for the built-in JSON v2 codec.
 -   **`codec.NewProtoCodec[T, U]() *codec.ProtoCodec[T, U]`**: Constructor for the built-in Protocol Buffers codec.
 
 See the `examples/codec` directory for runnable examples using different codecs.

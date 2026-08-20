@@ -834,7 +834,7 @@ func TestUberRateLimiter_WindowSemanticsAndNonBlocking(t *testing.T) {
 	start := time.Now()
 
 	// The first `limit` requests are allowed.
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		allowed, _, _ := limiter.Allow(key, limit, window)
 		if !allowed {
 			t.Fatalf("request %d should be allowed (limit %d per %v)", i+1, limit, window)
@@ -842,7 +842,7 @@ func TestUberRateLimiter_WindowSemanticsAndNonBlocking(t *testing.T) {
 	}
 
 	// Subsequent requests within the window are denied immediately.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		allowed, remaining, reset := limiter.Allow(key, limit, window)
 		if allowed {
 			t.Fatalf("request beyond limit should be denied (window semantics: %d per %v)", limit, window)
