@@ -189,7 +189,7 @@ func BenchmarkGenericRouteBody(b *testing.B) {
 
 	// Remove err assignment, use RouteConfig, add missing args, use correct SourceType
 	// Use RouteConfig directly, not embedding RouteConfigBase. Rename GenericHandler to Handler.
-	RegisterGenericRoute(r, RouteConfig[GenericRequestData, GenericResponseData]{
+	r.RegisterRoute(RouteConfig[GenericRequestData, GenericResponseData]{
 		Path:       "/generic/body",          // Direct field
 		Methods:    []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:      jsonCodec,
@@ -201,7 +201,7 @@ func BenchmarkGenericRouteBody(b *testing.B) {
 				ID:      "some-id",
 			}, nil
 		},
-	}, time.Duration(0), int64(0), nil) // Add missing arguments
+	}) // Add missing arguments
 	// require.NoError(b, err) // Remove error check
 
 	// Prepare request body outside the parallel loop if possible, ensure it's thread-safe to read
@@ -236,7 +236,7 @@ func BenchmarkGenericRoutePathParam(b *testing.B) {
 
 	// Remove err assignment, use RouteConfig, add missing args, use correct SourceType
 	// Use RouteConfig directly, not embedding RouteConfigBase. Rename GenericHandler to Handler.
-	RegisterGenericRoute(r, RouteConfig[GenericPathParamData, GenericResponseData]{
+	r.RegisterRoute(RouteConfig[GenericPathParamData, GenericResponseData]{
 		Path:    "/generic/param/:data",  // Direct field
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
 		// Codec:      codec.NewNopCodec(), // Or a codec designed for path params
@@ -278,7 +278,7 @@ func BenchmarkGenericRoutePathParam(b *testing.B) {
 		// Need to explicitly tell the router how to bind path params to the struct
 		// if the codec doesn't handle it automatically. This might involve custom logic
 		// or a specific codec implementation. For benchmark, manual extraction is okay.
-	}, time.Duration(0), int64(0), nil) // Add missing arguments
+	}) // Add missing arguments
 	// require.NoError(b, err) // Remove error check
 
 	// Prepare encoded path parameter value

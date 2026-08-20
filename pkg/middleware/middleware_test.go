@@ -134,7 +134,7 @@ func TestMaxBodySize(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(fmt.Sprintf("Body size: %d", len(body))))
+		_, _ = fmt.Fprintf(w, "Body size: %d", len(body))
 	})
 
 	// Apply the MaxBodySize middleware with a limit of 10 bytes

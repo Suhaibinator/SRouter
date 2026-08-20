@@ -133,7 +133,7 @@ func TestGlobalAuthTokenCookieUsedAcrossRegistrationStyles(t *testing.T) {
 						AuthLevel: authLevel,
 						Handler:   okHandler,
 					},
-					NewGenericRouteDefinition[authTokenTestRequest, authTokenTestResponse, string, string](authTokenGenericRoute("/generic", authLevel)),
+					authTokenGenericRoute("/generic", authLevel),
 				},
 				SubRouters: []SubRouterConfig{
 					{
@@ -159,11 +159,11 @@ func TestGlobalAuthTokenCookieUsedAcrossRegistrationStyles(t *testing.T) {
 		AuthLevel: authLevel,
 		Handler:   okHandler,
 	})
-	RegisterGenericRoute(r, authTokenGenericRoute("/direct-generic", authLevel), 0, 0, nil)
+	r.RegisterRoute(authTokenGenericRoute("/direct-generic", authLevel))
 
-	err := RegisterGenericRouteOnSubRouter(r, "/dynamic", authTokenGenericRoute("/generic", authLevel))
+	err := r.RegisterRouteOnSubRouter("/dynamic", authTokenGenericRoute("/generic", authLevel))
 	if err != nil {
-		t.Fatalf("RegisterGenericRouteOnSubRouter failed: %v", err)
+		t.Fatalf("RegisterRouteOnSubRouter failed: %v", err)
 	}
 
 	tests := []struct {

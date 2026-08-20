@@ -34,26 +34,26 @@ func protectedUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"message":"Hello, %s! This is a protected resource", "user_id":"%s", "email":"%s", "roles":["%s"]}`,
+	_, _ = fmt.Fprintf(w, `{"message":"Hello, %s! This is a protected resource", "user_id":"%s", "email":"%s", "roles":["%s"]}`,
 		user.Name, user.ID, user.Email, strings.Join(user.Roles, `","`))
 }
 
 // Protected resource that requires authentication but doesn't use the user object
 func protectedHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"This is a protected resource"}`))
+	_, _ = w.Write([]byte(`{"message":"This is a protected resource"}`))
 }
 
 // Public resource that doesn't require authentication
 func publicHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"This is a public resource"}`))
+	_, _ = w.Write([]byte(`{"message":"This is a public resource"}`))
 }
 
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Mock user database
 	users := map[string]User{

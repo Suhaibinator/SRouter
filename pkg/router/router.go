@@ -216,7 +216,7 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 //
 // This is useful for conditionally adding routes or building routes programmatically.
 func (r *Router[T, U]) RegisterSubRouter(sr SubRouterConfig) {
-	// Record the sub-router so later lookups (e.g. RegisterGenericRouteOnSubRouter)
+	// Record the sub-router so later RegisterRouteOnSubRouter lookups
 	// can resolve it just like sub-routers provided in the initial config.
 	r.config.SubRouters = append(r.config.SubRouters, sr)
 	r.registerSubRouter(sr)
@@ -236,53 +236,7 @@ func (r *Router[T, U]) registerSubRouterWithResolvedOverrides(sr SubRouterConfig
 
 	// Register routes defined in this sub-router
 	for _, routeDefinition := range sr.Routes {
-		switch route := routeDefinition.(type) {
-		case RouteConfigBase:
-			// Handle standard RouteConfigBase
-			fullPath := sr.PathPrefix + route.Path
-
-			// Get effective settings considering overrides
-			timeout := r.getEffectiveTimeout(route.Overrides.Timeout, sr.Overrides.Timeout)
-
-			// If route has timeout disabled, set timeout to 0
-			if route.DisableTimeout {
-				timeout = 0
-			}
-
-			maxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, sr.Overrides.MaxBodySize)
-			rateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, sr.Overrides.RateLimit)
-			authTokenResolution := r.getEffectiveAuthTokenConfigWithOrigin(route.Overrides.AuthToken, sr.Overrides.AuthToken)
-			authLevel := route.AuthLevel // Use route-specific first
-			if authLevel == nil {
-				authLevel = sr.AuthLevel // Fallback to sub-router default
-			}
-			r.warnOnBuiltinAuthTokenFallback(fullPath, route.Methods, authLevel, authTokenResolution)
-
-			// Combine middlewares: sub-router + route-specific
-			allMiddlewares := make([]common.Middleware, 0, len(sr.Middlewares)+len(route.Middlewares))
-			allMiddlewares = append(allMiddlewares, sr.Middlewares...)
-			allMiddlewares = append(allMiddlewares, route.Middlewares...)
-
-			// Create a handler with all middlewares applied (global middlewares are added inside wrapHandler)
-			handler := r.wrapHandler(route.Handler, authLevel, authTokenResolution.config, timeout, maxBodySize, rateLimit, allMiddlewares)
-
-			// Register the route with httprouter
-			for _, method := range route.Methods {
-				r.router.Handle(string(method), fullPath, r.convertToHTTPRouterHandle(handler, fullPath)) // Convert HttpMethod to string
-			}
-
-		case GenericRouteRegistrationFunc[T, U]:
-			// Handle generic route registration function
-			// The function itself will handle calculating effective settings and calling RegisterGenericRoute
-			route(r, sr) // Call the registration function
-
-		default:
-			// Log or handle unexpected type in Routes slice
-			r.logger.Warn("Unsupported type found in SubRouterConfig.Routes",
-				zap.String("pathPrefix", sr.PathPrefix),
-				zap.Any("type", fmt.Sprintf("%T", routeDefinition)),
-			)
-		}
+		r.registerRoute(routeDefinition.baseConfig(r, sr.PathPrefix), sr)
 	}
 
 	// Register nested sub-routers recursively
@@ -299,6 +253,32 @@ func (r *Router[T, U]) registerSubRouterWithResolvedOverrides(sr SubRouterConfig
 
 		// Register the nested sub-router
 		r.registerSubRouterWithResolvedOverrides(nestedSRWithPrefix, resolvedOverrides)
+	}
+}
+
+// registerRoute is the single configuration-resolution path for standard and
+// typed generic routes, whether they are declared on a sub-router or registered
+// imperatively on the root router.
+func (r *Router[T, U]) registerRoute(route RouteConfigBase, subRouter SubRouterConfig) {
+	fullPath := subRouter.PathPrefix + route.Path
+	timeout := r.getEffectiveTimeout(route.Overrides.Timeout, subRouter.Overrides.Timeout)
+	if route.DisableTimeout {
+		timeout = 0
+	}
+	maxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, subRouter.Overrides.MaxBodySize)
+	rateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, subRouter.Overrides.RateLimit)
+	authTokenResolution := r.getEffectiveAuthTokenConfigWithOrigin(route.Overrides.AuthToken, subRouter.Overrides.AuthToken)
+
+	authLevel := route.AuthLevel
+	if authLevel == nil {
+		authLevel = subRouter.AuthLevel
+	}
+	r.warnOnBuiltinAuthTokenFallback(fullPath, route.Methods, authLevel, authTokenResolution)
+
+	middlewares := combineMiddlewares(subRouter.Middlewares, route.Middlewares)
+	handler := r.wrapHandler(route.Handler, authLevel, authTokenResolution.config, timeout, maxBodySize, rateLimit, middlewares)
+	for _, method := range route.Methods {
+		r.router.Handle(string(method), fullPath, r.convertToHTTPRouterHandle(handler, fullPath))
 	}
 }
 
@@ -574,74 +554,24 @@ func combineMiddlewares(parent, child []common.Middleware) []common.Middleware {
 	return combined
 }
 
-// RegisterGenericRouteOnSubRouter registers a generic route on a specific sub-router after router creation.
-// This function is primarily used for dynamic route registration after the router has been initialized.
-// For static route configuration, prefer using NewGenericRouteDefinition within SubRouterConfig.Routes.
+// RegisterRouteOnSubRouter registers a standard or typed generic route on a
+// configured sub-router after router creation.
 //
-// The function locates the sub-router by resolved full path prefix, applies its configuration
+// The method locates the sub-router by resolved full path prefix, applies its configuration
 // (middleware, timeouts, rate limits), and registers the route with the combined settings.
 // Relative sub-router prefixes are still accepted as a compatibility fallback when no resolved
 // full path prefix matches.
-//
-// Type parameters:
-//   - Req: Request type for the route
-//   - Resp: Response type for the route
-//   - UserID: Must match the router's T type parameter
-//   - User: Must match the router's U type parameter
-//
 // Returns an error if no sub-router with the given prefix exists.
-//
-// Note: This is considered an advanced use case. The preferred approach is declarative
-// route registration using NewGenericRouteDefinition in SubRouterConfig.
-func RegisterGenericRouteOnSubRouter[Req any, Resp any, UserID comparable, User any](
-	r *Router[UserID, User],
+func (r *Router[UserID, User]) RegisterRouteOnSubRouter(
 	pathPrefix string,
-	route RouteConfig[Req, Resp],
+	route RouteDefinition,
 ) error {
-	// Find the sub-router config matching the prefix
 	sr, found := resolveSubRouterConfigForPrefix(r.config.SubRouters, pathPrefix, "", common.RouteOverrides{})
 	if !found {
-		// Option 1: Return an error if prefix doesn't match any configured sub-router
 		return fmt.Errorf("no sub-router found with prefix: %s", pathPrefix)
-		// Option 2: Log a warning and proceed with global defaults (less strict)
-		// r.logger.Warn("No sub-router found with prefix, registering route with global defaults", zap.String("prefix", pathPrefix))
-		// sr = nil // Ensure sr is nil if not found
 	}
 
-	// Determine effective settings using sub-router overrides if found
-	var subRouterTimeout time.Duration
-	var subRouterMaxBodySize int64
-	var subRouterRateLimit *common.RateLimitConfig[any, any] // Use common type here
-	var subRouterMiddlewares []common.Middleware
-	subRouterTimeout = sr.Overrides.Timeout
-	subRouterMaxBodySize = sr.Overrides.MaxBodySize
-	subRouterRateLimit = sr.Overrides.RateLimit // This is already common.RateLimitConfig[any, any]
-	subRouterMiddlewares = sr.Middlewares
-
-	// Create a new route config instance to avoid modifying the original
-	finalRouteConfig := route
-
-	// Prefix the path
-	finalRouteConfig.Path = sr.PathPrefix + route.Path
-
-	// Combine middleware: sub-router + route-specific.
-	// Note: Global middlewares are added later by wrapHandler; including them
-	// here would apply them twice.
-	allMiddlewares := make([]common.Middleware, 0, len(subRouterMiddlewares)+len(route.Middlewares))
-	allMiddlewares = append(allMiddlewares, subRouterMiddlewares...) // Sub-router first
-	allMiddlewares = append(allMiddlewares, route.Middlewares...)    // Then route-specific
-	finalRouteConfig.Middlewares = allMiddlewares                    // Overwrite middlewares in the config passed down
-
-	// Get effective timeout, max body size, rate limit considering overrides
-	effectiveTimeout := r.getEffectiveTimeout(route.Overrides.Timeout, subRouterTimeout)
-	effectiveMaxBodySize := r.getEffectiveMaxBodySize(route.Overrides.MaxBodySize, subRouterMaxBodySize)
-	effectiveRateLimit := r.getEffectiveRateLimit(route.Overrides.RateLimit, subRouterRateLimit) // This returns *common.RateLimitConfig[UserID, User]
-	effectiveAuthTokenResolution := r.getEffectiveAuthTokenConfigWithOrigin(route.Overrides.AuthToken, sr.Overrides.AuthToken)
-	finalRouteConfig.Overrides.AuthToken = &effectiveAuthTokenResolution.config
-
-	// Call the underlying generic registration function with the modified config
-	registerGenericRouteWithAuthTokenResolution(r, finalRouteConfig, effectiveTimeout, effectiveMaxBodySize, effectiveRateLimit, effectiveAuthTokenResolution)
-
+	r.registerRoute(route.baseConfig(r, sr.PathPrefix), sr)
 	return nil
 }
 

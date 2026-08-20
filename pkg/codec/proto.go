@@ -57,7 +57,7 @@ func (c *ProtoCodec[T, U]) Decode(r *http.Request) (T, error) {
 		var zero T
 		return zero, err
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	if err := protoUnmarshal(body, msg); err != nil {
 		var zero T

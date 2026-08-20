@@ -62,9 +62,9 @@ func TestStrategyUserRateLimitViaOverrides(t *testing.T) {
 	}
 }
 
-// Regression test for BUGS.md #2: RegisterGenericRouteOnSubRouter must not
+// Regression test for BUGS.md #2: RegisterRouteOnSubRouter must not
 // apply global middlewares twice.
-func TestRegisterGenericRouteOnSubRouterAppliesGlobalsOnce(t *testing.T) {
+func TestRegisterRouteOnSubRouterAppliesGlobalsOnce(t *testing.T) {
 	var globalCount atomic.Int64
 
 	r := NewRouter(RouterConfig{
@@ -73,7 +73,7 @@ func TestRegisterGenericRouteOnSubRouterAppliesGlobalsOnce(t *testing.T) {
 		SubRouters:  []SubRouterConfig{{PathPrefix: "/api"}},
 	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	err := RegisterGenericRouteOnSubRouter(r, "/api", RouteConfig[map[string]string, map[string]string]{
+	err := r.RegisterRouteOnSubRouter("/api", RouteConfig[map[string]string, map[string]string]{
 		Path:    "/echo",
 		Methods: []HttpMethod{MethodGet},
 		Codec:   codec.NewJSONCodec[map[string]string, map[string]string](),
@@ -84,7 +84,7 @@ func TestRegisterGenericRouteOnSubRouterAppliesGlobalsOnce(t *testing.T) {
 		Sanitizer:  func(d map[string]string) (map[string]string, error) { return d, nil },
 	})
 	if err != nil {
-		t.Fatalf("RegisterGenericRouteOnSubRouter failed: %v", err)
+		t.Fatalf("RegisterRouteOnSubRouter failed: %v", err)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/echo", nil)
@@ -185,13 +185,13 @@ func TestNestedSubRouterInheritsParentAuthLevel(t *testing.T) {
 }
 
 // Regression test for BUGS.md #15: sub-routers added via RegisterSubRouter
-// after router creation must be discoverable by RegisterGenericRouteOnSubRouter.
-func TestRegisterGenericRouteOnDynamicallyAddedSubRouter(t *testing.T) {
+// after router creation must be discoverable by RegisterRouteOnSubRouter.
+func TestRegisterRouteOnDynamicallyAddedSubRouter(t *testing.T) {
 	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
 	r.RegisterSubRouter(SubRouterConfig{PathPrefix: "/late"})
 
-	err := RegisterGenericRouteOnSubRouter(r, "/late", RouteConfig[map[string]string, map[string]string]{
+	err := r.RegisterRouteOnSubRouter("/late", RouteConfig[map[string]string, map[string]string]{
 		Path:    "/route",
 		Methods: []HttpMethod{MethodGet},
 		Codec:   codec.NewJSONCodec[map[string]string, map[string]string](),

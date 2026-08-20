@@ -58,7 +58,7 @@ func CustomMetricsExample() {
 		// Simulate some work
 		time.Sleep(100 * time.Millisecond)
 
-		fmt.Fprintf(w, "Hello, World!")
+		_, _ = fmt.Fprintf(w, "Hello, World!")
 	})
 
 	// Wrap the handler with the metrics middleware

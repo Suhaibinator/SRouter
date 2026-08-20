@@ -119,7 +119,7 @@ func main() {
 				http.Error(w, "Failed to call downstream service", http.StatusInternalServerError)
 				return
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			// Log success
 			logger.Info("Downstream service call successful",

@@ -520,7 +520,7 @@ func convertLabelsToTags(labels prometheus.Labels) metrics.Tags {
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create a Prometheus registry
 	registry := NewPrometheusRegistry()
@@ -549,7 +549,7 @@ func main() {
 						Methods: []router.HttpMethod{router.MethodGet},
 						Handler: func(w http.ResponseWriter, r *http.Request) {
 							w.Header().Set("Content-Type", "application/json")
-							w.Write([]byte(`{"message":"Hello, World!"}`))
+							_, _ = w.Write([]byte(`{"message":"Hello, World!"}`))
 						},
 					},
 					router.RouteConfigBase{ // Add explicit type

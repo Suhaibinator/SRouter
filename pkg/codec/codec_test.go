@@ -221,7 +221,7 @@ func (c *CustomProtoCodec) Decode(r *http.Request) (*MockProtoMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	return &MockProtoMessage{Data: body}, nil
 }

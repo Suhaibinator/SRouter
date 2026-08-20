@@ -71,7 +71,7 @@ func main() {
 				PathPrefix: "", // Root-level routes
 				Routes: []router.RouteDefinition{
 					helloRoute,
-					// Add more RouteConfigBase or GenericRouteRegistrationFunc here
+					// Add more RouteConfigBase or typed RouteConfig values here
 				},
 				// Middlewares specific to this sub-router can be added here
 			},

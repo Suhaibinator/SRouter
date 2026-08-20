@@ -119,24 +119,22 @@ func TestE2EFullStackAPI(t *testing.T) {
 							_, _ = fmt.Fprintf(w, `{"id":%q,"name":%q}`, userID, user.Name)
 						},
 					},
-					NewGenericRouteDefinition[e2eCreateUserRequest, e2eCreateUserResponse, string, e2eUser](
-						RouteConfig[e2eCreateUserRequest, e2eCreateUserResponse]{
-							Path:    "/users",
-							Methods: []HttpMethod{MethodPost},
-							Codec:   codec.NewJSONCodec[e2eCreateUserRequest, e2eCreateUserResponse](),
-							Sanitizer: func(req e2eCreateUserRequest) (e2eCreateUserRequest, error) {
-								req.Name = strings.TrimSpace(req.Name)
-								return req, nil
-							},
-							Handler: func(req *http.Request, data e2eCreateUserRequest) (e2eCreateUserResponse, error) {
-								return e2eCreateUserResponse{
-									ID:    "user-1",
-									Name:  data.Name,
-									Email: data.Email,
-								}, nil
-							},
+					RouteConfig[e2eCreateUserRequest, e2eCreateUserResponse]{
+						Path:    "/users",
+						Methods: []HttpMethod{MethodPost},
+						Codec:   codec.NewJSONCodec[e2eCreateUserRequest, e2eCreateUserResponse](),
+						Sanitizer: func(req e2eCreateUserRequest) (e2eCreateUserRequest, error) {
+							req.Name = strings.TrimSpace(req.Name)
+							return req, nil
 						},
-					),
+						Handler: func(req *http.Request, data e2eCreateUserRequest) (e2eCreateUserResponse, error) {
+							return e2eCreateUserResponse{
+								ID:    "user-1",
+								Name:  data.Name,
+								Email: data.Email,
+							}, nil
+						},
+					},
 				},
 			},
 		},
@@ -709,14 +707,14 @@ func TestE2EConcurrentRequests(t *testing.T) {
 		TraceIDBufferSize: 100,
 	}, authFunc, userIDFunc)
 
-	RegisterGenericRoute(r, RouteConfig[e2eCreateUserRequest, e2eCreateUserResponse]{
+	r.RegisterRoute(RouteConfig[e2eCreateUserRequest, e2eCreateUserResponse]{
 		Path:    "/echo",
 		Methods: []HttpMethod{MethodPost},
 		Codec:   codec.NewJSONCodec[e2eCreateUserRequest, e2eCreateUserResponse](),
 		Handler: func(req *http.Request, data e2eCreateUserRequest) (e2eCreateUserResponse, error) {
 			return e2eCreateUserResponse{Name: data.Name, Email: data.Email}, nil
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	server := httptest.NewServer(r)
 	defer server.Close()

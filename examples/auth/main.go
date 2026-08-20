@@ -16,19 +16,19 @@ import (
 // Protected resource that requires authentication
 func protectedHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"This is a protected resource"}`))
+	_, _ = w.Write([]byte(`{"message":"This is a protected resource"}`))
 }
 
 // Public resource that doesn't require authentication
 func publicHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"This is a public resource"}`))
+	_, _ = w.Write([]byte(`{"message":"This is a public resource"}`))
 }
 
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Define valid tokens for bearer token auth
 	bearerTokens := map[string]int64{

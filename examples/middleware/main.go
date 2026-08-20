@@ -16,7 +16,7 @@ import (
 // SimpleHandler is a simple handler that returns a message
 func SimpleHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"Hello, World!"}`))
+	_, _ = w.Write([]byte(`{"message":"Hello, World!"}`))
 }
 
 // RequestIDMiddleware adds a request ID to the response headers
@@ -135,7 +135,7 @@ func DetailedLoggingMiddleware(logger *zap.Logger) common.Middleware {
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create custom headers
 	customHeaders := map[string]string{
@@ -181,7 +181,7 @@ func main() {
 							// Simulate a slow operation
 							time.Sleep(500 * time.Millisecond)
 							w.Header().Set("Content-Type", "application/json")
-							w.Write([]byte(`{"message":"Slow operation completed"}`))
+							_, _ = w.Write([]byte(`{"message":"Slow operation completed"}`))
 						},
 					},
 				},

@@ -399,7 +399,7 @@ func TestGenericRouteIntegration(t *testing.T) {
 		})
 
 	// Register a generic route
-	RegisterGenericRoute(r, RouteConfig[TestRequest, TestResponse]{
+	r.RegisterRoute(RouteConfig[TestRequest, TestResponse]{
 		Path:    "/greet",
 		Methods: []HttpMethod{MethodPost}, // Use HttpMethod enum
 		Codec:   codec.NewJSONCodec[TestRequest, TestResponse](),
@@ -409,7 +409,7 @@ func TestGenericRouteIntegration(t *testing.T) {
 				Age:      data.Age,
 			}, nil
 		},
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	// Create a request
 	reqBody := `{"name":"John","age":30}`

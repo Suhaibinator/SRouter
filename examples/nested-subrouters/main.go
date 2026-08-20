@@ -92,7 +92,7 @@ func profileHandler(req *http.Request, data ProfileRequest) (ProfileResponse, er
 func main() {
 	// Create a logger
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Define the auth function that takes a context and token and returns a *string and a boolean
 	authFunction := func(ctx context.Context, token string) (*string, bool) {
@@ -125,7 +125,7 @@ func main() {
 				AuthLevel: new(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
-					w.Write([]byte(`{"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"},{"id":3,"name":"Charlie"}]}`))
+					_, _ = w.Write([]byte(`{"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"},{"id":3,"name":"Charlie"}]}`))
 				},
 			},
 		},
@@ -142,7 +142,7 @@ func main() {
 				AuthLevel: new(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
-					w.Write([]byte(`{"message":"Hello from API v1!"}`))
+					_, _ = w.Write([]byte(`{"message":"Hello from API v1!"}`))
 				},
 			},
 		},
@@ -172,7 +172,7 @@ func main() {
 				AuthLevel: new(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
-					w.Write([]byte(`{"message":"Hello from API v2!"}`))
+					_, _ = w.Write([]byte(`{"message":"Hello from API v2!"}`))
 				},
 			},
 		},
@@ -189,7 +189,7 @@ func main() {
 				AuthLevel: new(router.NoAuth), // Changed
 				Handler: func(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("Content-Type", "application/json")
-					w.Write([]byte(`{"status":"ok"}`))
+					_, _ = w.Write([]byte(`{"status":"ok"}`))
 				},
 			},
 		},
@@ -214,8 +214,7 @@ func main() {
 	profileCodec := codec.NewJSONCodec[ProfileRequest, ProfileResponse]()
 
 	// Register generic route for /api/v1/greet
-	errV1Greet := router.RegisterGenericRouteOnSubRouter(
-		r,
+	errV1Greet := r.RegisterRouteOnSubRouter(
 		"/api/v1", // Target prefix
 		router.RouteConfig[GreetingRequest, GreetingResponse]{
 			Path:      "/greet", // Relative path
@@ -230,8 +229,7 @@ func main() {
 	}
 
 	// Register generic route for /api/v1/users/info
-	errV1UserInfo := router.RegisterGenericRouteOnSubRouter(
-		r,
+	errV1UserInfo := r.RegisterRouteOnSubRouter(
 		"/api/v1/users", // Target prefix (nested)
 		router.RouteConfig[UserRequest, UserResponse]{
 			Path:      "/info", // Relative path
@@ -246,8 +244,7 @@ func main() {
 	}
 
 	// Register generic route for /api/v2/users/info
-	errV2UserInfo := router.RegisterGenericRouteOnSubRouter(
-		r,
+	errV2UserInfo := r.RegisterRouteOnSubRouter(
 		"/api/v2/users", // Target prefix (nested)
 		router.RouteConfig[UserRequest, UserResponse]{
 			Path:      "/info", // Relative path
@@ -262,8 +259,7 @@ func main() {
 	}
 
 	// Register generic route for /api/v2/auth/profile
-	errV2AuthProfile := router.RegisterGenericRouteOnSubRouter(
-		r,
+	errV2AuthProfile := r.RegisterRouteOnSubRouter(
 		"/api/v2/auth", // Target prefix (nested)
 		router.RouteConfig[ProfileRequest, ProfileResponse]{
 			Path:      "/profile", // Relative path

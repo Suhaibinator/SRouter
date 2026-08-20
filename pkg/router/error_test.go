@@ -71,7 +71,7 @@ func TestErrorHandling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code (should be 500 Internal Server Error because of the panic)
 	if resp.StatusCode != http.StatusInternalServerError {
@@ -83,7 +83,7 @@ func TestErrorHandling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code (should be 400 Bad Request)
 	if resp.StatusCode != http.StatusBadRequest {

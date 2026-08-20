@@ -58,7 +58,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		expectedErr := errors.New("handler error")
 
 		// Register a generic route that returns an error
-		RegisterGenericRoute(router, RouteConfig[TestRequest, TestResponse]{
+		router.RegisterRoute(RouteConfig[TestRequest, TestResponse]{
 			Path:        "/error",
 			Methods:     []HttpMethod{MethodGet},
 			AuthLevel:   new(NoAuth),
@@ -67,7 +67,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 				return TestResponse{}, expectedErr
 			},
 			Codec: &codec.JSONCodec[TestRequest, TestResponse]{},
-		}, 0, 0, nil)
+		})
 
 		// Make request with valid JSON body
 		req := httptest.NewRequest("GET", "/error", strings.NewReader(`{"value":"test"}`))
@@ -98,7 +98,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		middlewareSawError = nil
 
 		// Register a generic route that succeeds
-		RegisterGenericRoute(router, RouteConfig[TestRequest, TestResponse]{
+		router.RegisterRoute(RouteConfig[TestRequest, TestResponse]{
 			Path:        "/success",
 			Methods:     []HttpMethod{MethodGet},
 			AuthLevel:   new(NoAuth),
@@ -107,7 +107,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 				return TestResponse{Result: "success"}, nil
 			},
 			Codec: &codec.JSONCodec[TestRequest, TestResponse]{},
-		}, 0, 0, nil)
+		})
 
 		// Make request with valid JSON body
 		req := httptest.NewRequest("GET", "/success", strings.NewReader(`{"value":"test"}`))
@@ -143,7 +143,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		}
 
 		// Register a generic route that returns a custom HTTP error
-		RegisterGenericRoute(router, RouteConfig[TestRequest, TestResponse]{
+		router.RegisterRoute(RouteConfig[TestRequest, TestResponse]{
 			Path:        "/custom-error",
 			Methods:     []HttpMethod{MethodGet},
 			AuthLevel:   new(NoAuth),
@@ -152,7 +152,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 				return TestResponse{}, customErr
 			},
 			Codec: &codec.JSONCodec[TestRequest, TestResponse]{},
-		}, 0, 0, nil)
+		})
 
 		// Make request with valid JSON body
 		req := httptest.NewRequest("GET", "/custom-error", strings.NewReader(`{"value":"test"}`))
@@ -214,7 +214,7 @@ func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
 
 		expectedErr := errors.New("multi-middleware error")
 
-		RegisterGenericRoute(router, RouteConfig[TestRequest, TestResponse]{
+		router.RegisterRoute(RouteConfig[TestRequest, TestResponse]{
 			Path:      "/multi-middleware",
 			Methods:   []HttpMethod{MethodGet},
 			AuthLevel: new(NoAuth),
@@ -227,7 +227,7 @@ func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
 				return TestResponse{}, expectedErr
 			},
 			Codec: &codec.JSONCodec[TestRequest, TestResponse]{},
-		}, 0, 0, nil)
+		})
 
 		// Make request with valid JSON body
 		req := httptest.NewRequest("GET", "/multi-middleware", strings.NewReader(`{}`))

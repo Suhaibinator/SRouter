@@ -75,7 +75,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Return the token and user
 	w.Header().Set("Content-Type", "application/json")
-	json.MarshalWrite(w, LoginResponse{
+	_ = json.MarshalWrite(w, LoginResponse{
 		Token: token,
 		User:  user,
 	})
@@ -91,7 +91,7 @@ func userProfileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Return the user profile
 	w.Header().Set("Content-Type", "application/json")
-	json.MarshalWrite(w, APIResponse{
+	_ = json.MarshalWrite(w, APIResponse{
 		Success: true,
 		Message: "User profile retrieved successfully",
 		Data:    user,
@@ -101,7 +101,7 @@ func userProfileHandler(w http.ResponseWriter, r *http.Request) {
 func publicEndpointHandler(w http.ResponseWriter, r *http.Request) {
 	// Return a public response
 	w.Header().Set("Content-Type", "application/json")
-	json.MarshalWrite(w, APIResponse{
+	_ = json.MarshalWrite(w, APIResponse{
 		Success: true,
 		Message: "Public endpoint accessed successfully",
 		Data:    map[string]string{"info": "This is a public endpoint"},
@@ -150,7 +150,7 @@ func authMiddleware(next http.Handler) http.Handler {
 func rateLimitExceededHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusTooManyRequests)
-	json.MarshalWrite(w, APIResponse{
+	_ = json.MarshalWrite(w, APIResponse{
 		Success: false,
 		Message: "Rate limit exceeded. Please try again later.",
 	})
@@ -159,7 +159,7 @@ func rateLimitExceededHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Note: The router creates its own rate limiter internally
 

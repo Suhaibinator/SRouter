@@ -36,7 +36,7 @@ func SuccessHandler(req *http.Request, body TestRequest) (*TestResponse, error) 
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create router configuration with CORS settings
 	routerConfig := router.RouterConfig{
@@ -58,23 +58,19 @@ func main() {
 				PathPrefix: "/api",
 				Routes: []router.RouteDefinition{
 					// Route that will return an error
-					router.NewGenericRouteDefinition[TestRequest, *TestResponse, string, string](
-						router.RouteConfig[TestRequest, *TestResponse]{
-							Path:    "/error",
-							Methods: []router.HttpMethod{router.MethodPost, router.MethodOptions},
-							Handler: ErrorHandler,
-							Codec:   codec.NewJSONCodec[TestRequest, *TestResponse](),
-						},
-					),
+					router.RouteConfig[TestRequest, *TestResponse]{
+						Path:    "/error",
+						Methods: []router.HttpMethod{router.MethodPost, router.MethodOptions},
+						Handler: ErrorHandler,
+						Codec:   codec.NewJSONCodec[TestRequest, *TestResponse](),
+					},
 					// Route that will succeed
-					router.NewGenericRouteDefinition[TestRequest, *TestResponse, string, string](
-						router.RouteConfig[TestRequest, *TestResponse]{
-							Path:    "/success",
-							Methods: []router.HttpMethod{router.MethodPost, router.MethodOptions},
-							Handler: SuccessHandler,
-							Codec:   codec.NewJSONCodec[TestRequest, *TestResponse](),
-						},
-					),
+					router.RouteConfig[TestRequest, *TestResponse]{
+						Path:    "/success",
+						Methods: []router.HttpMethod{router.MethodPost, router.MethodOptions},
+						Handler: SuccessHandler,
+						Codec:   codec.NewJSONCodec[TestRequest, *TestResponse](),
+					},
 				},
 			},
 		},
@@ -89,7 +85,7 @@ func main() {
 	}
 
 	// Create the router
-	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
 
 	// Start the server
 	fmt.Println("Server running on http://localhost:8080")

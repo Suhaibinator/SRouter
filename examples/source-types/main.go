@@ -127,34 +127,34 @@ func main() {
 
 	// 1. Standard body-based route (default) - GET doesn't typically have a body,
 	//    so this route relies on the path parameter :id being extracted in the handler.
-	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
+	r.RegisterRoute(router.RouteConfig[GetUserRequest, GetUserResponse]{
 		Path:    "/users/body/:id", // Path param :id used by handler
 		Methods: []router.HttpMethod{router.MethodGet},
 		Codec:   codec.NewJSONCodec[GetUserRequest, GetUserResponse](), // Codec might not be used for GET
 		Handler: GetUserHandler,
 		// SourceType defaults to Body, but GET requests usually don't send a body.
 		// The handler is adapted to check path params.
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	// 2. Base64 query parameter route
-	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
+	r.RegisterRoute(router.RouteConfig[GetUserRequest, GetUserResponse]{
 		Path:       "/users/query", // No path param needed here as data comes from query
 		Methods:    []router.HttpMethod{router.MethodGet},
 		Codec:      codec.NewJSONCodec[GetUserRequest, GetUserResponse](),
 		Handler:    GetUserHandler,
 		SourceType: router.Base64QueryParameter,
 		SourceKey:  "data", // Will look for ?data=base64encodedstring
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	// 3. Base64 path parameter route
-	router.RegisterGenericRoute[GetUserRequest, GetUserResponse, string, string](r, router.RouteConfig[GetUserRequest, GetUserResponse]{
+	r.RegisterRoute(router.RouteConfig[GetUserRequest, GetUserResponse]{
 		Path:       "/users/path/:data", // Path param :data contains the base64 payload
 		Methods:    []router.HttpMethod{router.MethodGet},
 		Codec:      codec.NewJSONCodec[GetUserRequest, GetUserResponse](),
 		Handler:    GetUserHandler,
 		SourceType: router.Base64PathParameter,
 		SourceKey:  "data", // Will use the :data path parameter
-	}, time.Duration(0), int64(0), nil) // Added effective settings
+	})
 
 	// Start the server
 	fmt.Println("Source Types Example Server listening on :8080")

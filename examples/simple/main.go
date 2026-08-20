@@ -28,7 +28,7 @@ type CreateUserResp struct {
 // HealthCheckHandler is a simple handler that returns a 200 OK
 func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status":"ok"}`))
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
 // CreateUserHandler is a generic handler that creates a user
@@ -45,7 +45,7 @@ func CreateUserHandler(r *http.Request, req CreateUserReq) (CreateUserResp, erro
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create a router configuration
 	routerConfig := router.RouterConfig{
@@ -96,7 +96,7 @@ func main() {
 	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
 	// Register a generic JSON route
-	// Note: Since this route is under "/api", we use RegisterGenericRouteOnSubRouter
+	// Since this route is under "/api", register it on that sub-router.
 	userRouteConfig := router.RouteConfig[CreateUserReq, CreateUserResp]{
 		Path:      "/users", // Relative path
 		Methods:   []router.HttpMethod{router.MethodPost},
@@ -107,8 +107,7 @@ func main() {
 		Codec:   codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
 		Handler: CreateUserHandler,
 	}
-	err := router.RegisterGenericRouteOnSubRouter[CreateUserReq, CreateUserResp, string, string](
-		r,
+	err := r.RegisterRouteOnSubRouter(
 		"/api", // Target sub-router prefix
 		userRouteConfig,
 	)

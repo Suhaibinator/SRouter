@@ -56,10 +56,10 @@ func TransactionMiddleware(next http.Handler) http.Handler {
 		// Check if handler returned an error
 		if err, ok := scontext.GetHandlerErrorFromRequest[string, any](r); ok && err != nil {
 			log.Printf("Handler error detected: %v", err)
-			tx.Rollback()
+			_ = tx.Rollback()
 		} else {
 			log.Println("No handler error, committing transaction")
-			tx.Commit()
+			_ = tx.Commit()
 		}
 	})
 }
@@ -91,7 +91,7 @@ func ErrorLoggingMiddleware(logger *zap.Logger) common.Middleware {
 func main() {
 	// Create logger
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create router with basic configuration
 	r := router.NewRouter[string, any](
@@ -108,7 +108,7 @@ func main() {
 	)
 
 	// Register a route that succeeds
-	router.RegisterGenericRoute(r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+	r.RegisterRoute(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users/success",
 		Methods:   []router.HttpMethod{router.MethodPost},
 		AuthLevel: new(router.NoAuth),
@@ -129,10 +129,10 @@ func main() {
 			}, nil
 		},
 		Codec: &codec.JSONCodec[CreateUserRequest, CreateUserResponse]{},
-	}, 0, 0, nil)
+	})
 
 	// Register a route that fails with validation error
-	router.RegisterGenericRoute(r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+	r.RegisterRoute(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users/validation-error",
 		Methods:   []router.HttpMethod{router.MethodPost},
 		AuthLevel: new(router.NoAuth),
@@ -148,10 +148,10 @@ func main() {
 			}
 		},
 		Codec: &codec.JSONCodec[CreateUserRequest, CreateUserResponse]{},
-	}, 0, 0, nil)
+	})
 
 	// Register a route that fails with internal error
-	router.RegisterGenericRoute(r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+	r.RegisterRoute(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users/internal-error",
 		Methods:   []router.HttpMethod{router.MethodPost},
 		AuthLevel: new(router.NoAuth),
@@ -164,7 +164,7 @@ func main() {
 			return CreateUserResponse{}, errors.New("database connection failed")
 		},
 		Codec: &codec.JSONCodec[CreateUserRequest, CreateUserResponse]{},
-	}, 0, 0, nil)
+	})
 
 	// Example of custom middleware that decides transaction fate based on error type
 	customTransactionMiddleware := func(next http.Handler) http.Handler {
@@ -179,19 +179,19 @@ func main() {
 				var httpErr *router.HTTPError
 				if errors.As(err, &httpErr) && httpErr.StatusCode >= 400 && httpErr.StatusCode < 500 {
 					log.Printf("Client error detected (status %d), committing transaction", httpErr.StatusCode)
-					tx.Commit()
+					_ = tx.Commit()
 				} else {
 					log.Printf("Server error detected, rolling back transaction")
-					tx.Rollback()
+					_ = tx.Rollback()
 				}
 			} else {
-				tx.Commit()
+				_ = tx.Commit()
 			}
 		})
 	}
 
 	// Register a route with custom transaction logic
-	router.RegisterGenericRoute(r, router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+	r.RegisterRoute(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
 		Path:      "/users/custom-transaction",
 		Methods:   []router.HttpMethod{router.MethodPost},
 		AuthLevel: new(router.NoAuth),
@@ -216,7 +216,7 @@ func main() {
 			}, nil
 		},
 		Codec: &codec.JSONCodec[CreateUserRequest, CreateUserResponse]{},
-	}, 0, 0, nil)
+	})
 
 	// Start server
 	addr := ":8080"

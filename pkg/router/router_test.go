@@ -51,7 +51,7 @@ func TestRouteMatching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
@@ -91,7 +91,7 @@ func TestSubRouterOverrides(t *testing.T) {
 	if errSlow != nil {
 		t.Fatalf("Failed to send request to /api/slow: %v", errSlow)
 	}
-	defer respSlow.Body.Close()
+	defer func() { _ = respSlow.Body.Close() }()
 	if respSlow.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d for /api/slow, got %d", http.StatusOK, respSlow.StatusCode)
 	}
@@ -99,7 +99,7 @@ func TestSubRouterOverrides(t *testing.T) {
 	if errFast != nil {
 		t.Fatalf("Failed to send request to /api/fast: %v", errFast)
 	}
-	defer respFast.Body.Close()
+	defer func() { _ = respFast.Body.Close() }()
 	if respFast.StatusCode != http.StatusRequestTimeout {
 		t.Errorf("Expected status code %d for /api/fast, got %d", http.StatusRequestTimeout, respFast.StatusCode)
 	}
@@ -153,7 +153,7 @@ func TestBodySizeLimits(t *testing.T) {
 	if errSmallOK != nil {
 		t.Fatalf("Failed to send small request to /api/small: %v", errSmallOK)
 	}
-	defer respSmallOK.Body.Close()
+	defer func() { _ = respSmallOK.Body.Close() }()
 	if respSmallOK.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d for /api/small with small body, got %d", http.StatusOK, respSmallOK.StatusCode)
 	}
@@ -163,7 +163,7 @@ func TestBodySizeLimits(t *testing.T) {
 	if errSmallLarge != nil {
 		t.Fatalf("Failed to send large request to /api/small: %v", errSmallLarge)
 	}
-	defer respSmallLarge.Body.Close()
+	defer func() { _ = respSmallLarge.Body.Close() }()
 	if respSmallLarge.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Errorf("Expected status code %d for /api/small with large body, got %d", http.StatusRequestEntityTooLarge, respSmallLarge.StatusCode)
 	}
@@ -174,7 +174,7 @@ func TestBodySizeLimits(t *testing.T) {
 	if errMediumOK != nil {
 		t.Fatalf("Failed to send medium request to /api/medium: %v", errMediumOK)
 	}
-	defer respMediumOK.Body.Close()
+	defer func() { _ = respMediumOK.Body.Close() }()
 	if respMediumOK.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d for /api/medium with medium body, got %d", http.StatusOK, respMediumOK.StatusCode)
 	}
@@ -184,7 +184,7 @@ func TestBodySizeLimits(t *testing.T) {
 	if errMediumLarge != nil {
 		t.Fatalf("Failed to send large request to /api/medium: %v", errMediumLarge)
 	}
-	defer respMediumLarge.Body.Close()
+	defer func() { _ = respMediumLarge.Body.Close() }()
 	if respMediumLarge.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Errorf("Expected status code %d for /api/medium with large body, got %d", http.StatusRequestEntityTooLarge, respMediumLarge.StatusCode)
 	}
@@ -200,10 +200,9 @@ func TestJSONCodec(t *testing.T) {
 	}
 	logger, _ := zap.NewProduction()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	// Pass zero values for effective settings as this test doesn't involve sub-routers
-	RegisterGenericRoute(r, RouteConfig[RouterTestRequest, RouterTestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[RouterTestRequest, RouterTestResponse](), Handler: func(r *http.Request, req RouterTestRequest) (RouterTestResponse, error) {
+	r.RegisterRoute(RouteConfig[RouterTestRequest, RouterTestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[RouterTestRequest, RouterTestResponse](), Handler: func(r *http.Request, req RouterTestRequest) (RouterTestResponse, error) {
 		return RouterTestResponse{Greeting: "Hello, " + req.Name + "!"}, nil
-	}}, time.Duration(0), int64(0), nil) // Added effective settings
+	}})
 	server := httptest.NewServer(r)
 	defer server.Close()
 	reqBody, _ := json.Marshal(RouterTestRequest{Name: "John"})
@@ -211,7 +210,7 @@ func TestJSONCodec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
@@ -285,7 +284,7 @@ func TestMiddlewareChaining(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
@@ -325,7 +324,7 @@ func TestShutdown(t *testing.T) {
 			close(done)
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		// If the request completes, check the status code
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusServiceUnavailable {
 			t.Errorf("Expected status code %d or %d, got %d", http.StatusOK, http.StatusServiceUnavailable, resp.StatusCode)
@@ -365,7 +364,7 @@ func TestRegisterRouteCoverage(t *testing.T) { // Renamed to avoid conflict
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
@@ -401,7 +400,7 @@ func TestGetParamsCoverage(t *testing.T) { // Renamed to avoid conflict
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
@@ -442,7 +441,7 @@ func TestUserAuthCoverage(t *testing.T) { // Renamed to avoid conflict
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, resp.StatusCode)
 	}
@@ -469,7 +468,7 @@ func TestSimpleErrorCoverage(t *testing.T) { // Renamed to avoid conflict
 	if errErr != nil {
 		t.Fatalf("Failed to send request to /error: %v", errErr)
 	}
-	defer respErr.Body.Close()
+	defer func() { _ = respErr.Body.Close() }()
 	if respErr.StatusCode != http.StatusBadRequest {
 		t.Errorf("Expected status code %d for /error, got %d", http.StatusBadRequest, respErr.StatusCode)
 	}
@@ -481,7 +480,7 @@ func TestSimpleErrorCoverage(t *testing.T) { // Renamed to avoid conflict
 	if errReg != nil {
 		t.Fatalf("Failed to send request to /regular-error: %v", errReg)
 	}
-	defer respReg.Body.Close()
+	defer func() { _ = respReg.Body.Close() }()
 	if respReg.StatusCode != http.StatusInternalServerError {
 		t.Errorf("Expected status code %d for /regular-error, got %d", http.StatusInternalServerError, respReg.StatusCode)
 	}
@@ -550,8 +549,8 @@ func TestNewRouterWithNilLogger(t *testing.T) {
 	}
 }
 
-// TestRegisterGenericRoute tests registering a generic route
-func TestRegisterGenericRouteCoverage(t *testing.T) { // Renamed to avoid conflict
+// TestRegisterTypedRoute tests registering a generic route
+func TestRegisterTypedRouteCoverage(t *testing.T) { // Renamed to avoid conflict
 	// Corrected struct tag syntax (removed semicolons, ensured proper spacing)
 	type TestRequest struct {
 		Name string `json:"name"`
@@ -562,10 +561,9 @@ func TestRegisterGenericRouteCoverage(t *testing.T) { // Renamed to avoid confli
 		Age      int    `json:"age"`
 	}
 	r := NewRouter(RouterConfig{}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	// Pass zero values for effective settings
-	RegisterGenericRoute(r, RouteConfig[TestRequest, TestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
+	r.RegisterRoute(RouteConfig[TestRequest, TestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
 		return TestResponse{Greeting: "Hello, " + data.Name, Age: data.Age}, nil
-	}}, time.Duration(0), int64(0), nil) // Added effective settings
+	}})
 	req, _ := http.NewRequest("POST", "/greet", strings.NewReader(`{"name":"John","age":30}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -606,8 +604,8 @@ func TestHandleErrorWithHTTPError(t *testing.T) {
 	assert.Equal(t, expectedBody, respBody, "Expected JSON body content mismatch")
 }
 
-// TestRegisterGenericRouteWithError tests registering a generic route with an error
-func TestRegisterGenericRouteWithErrorCoverage(t *testing.T) { // Renamed to avoid conflict
+// TestRegisterTypedRouteWithError tests registering a generic route with an error
+func TestRegisterTypedRouteWithErrorCoverage(t *testing.T) { // Renamed to avoid conflict
 	// Corrected struct tag syntax
 	type TestRequest struct {
 		Name string `json:"name"`
@@ -618,10 +616,9 @@ func TestRegisterGenericRouteWithErrorCoverage(t *testing.T) { // Renamed to avo
 		Age      int    `json:"age"`
 	}
 	r := NewRouter(RouterConfig{}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	// Pass zero values for effective settings
-	RegisterGenericRoute(r, RouteConfig[TestRequest, TestResponse]{Path: "/greet-error", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
+	r.RegisterRoute(RouteConfig[TestRequest, TestResponse]{Path: "/greet-error", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
 		return TestResponse{}, errors.New("handler error")
-	}}, time.Duration(0), int64(0), nil) // Added effective settings
+	}})
 	req, _ := http.NewRequest("POST", "/greet-error", strings.NewReader(`{"name":"John","age":30}`))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -838,8 +835,8 @@ func TestResolveSubRouterConfigForPrefix(t *testing.T) {
 	})
 }
 
-// TestRegisterGenericRouteOnSubRouter tests the functional registration method
-func TestRegisterGenericRouteOnSubRouter(t *testing.T) {
+// TestRegisterRouteOnSubRouter tests the functional registration method
+func TestRegisterRouteOnSubRouter(t *testing.T) {
 	logger := zap.NewNop()
 	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user"; return &user, true }
 	userIDFunc := func(user *string) string {
@@ -870,9 +867,9 @@ func TestRegisterGenericRouteOnSubRouter(t *testing.T) {
 	}
 
 	// Register the route on the nested sub-router
-	err := RegisterGenericRouteOnSubRouter(r, "/api/v1/users", routeCfg)
+	err := r.RegisterRouteOnSubRouter("/api/v1/users", routeCfg)
 	if err != nil {
-		t.Fatalf("RegisterGenericRouteOnSubRouter failed: %v", err)
+		t.Fatalf("RegisterRouteOnSubRouter failed: %v", err)
 	}
 
 	// Test the registered route
@@ -897,14 +894,31 @@ func TestRegisterGenericRouteOnSubRouter(t *testing.T) {
 		t.Errorf("Expected age %d, got %d", 42, resp.Age)
 	}
 
+	// The same method accepts a standard route definition.
+	err = r.RegisterRouteOnSubRouter("/api/v1/users", RouteConfigBase{
+		Path:    "/health",
+		Methods: []HttpMethod{MethodGet},
+		Handler: func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+	if err != nil {
+		t.Fatalf("RegisterRouteOnSubRouter failed for standard route: %v", err)
+	}
+	rr = httptest.NewRecorder()
+	r.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/v1/users/health", nil))
+	if rr.Code != http.StatusNoContent {
+		t.Errorf("Expected standard route status %d, got %d", http.StatusNoContent, rr.Code)
+	}
+
 	// Test registering on non-existent prefix
-	err = RegisterGenericRouteOnSubRouter(r, "/api/v2", routeCfg)
+	err = r.RegisterRouteOnSubRouter("/api/v2", routeCfg)
 	if err == nil {
 		t.Errorf("Expected an error when registering on non-existent prefix, but got nil")
 	}
 }
 
-func TestRegisterGenericRouteOnSubRouterRelativeNestedPrefixUsesResolvedPath(t *testing.T) {
+func TestRegisterRouteOnSubRouterRelativeNestedPrefixUsesResolvedPath(t *testing.T) {
 	logger := zap.NewNop()
 	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user"; return &user, true }
 	userIDFunc := func(user *string) string {
@@ -935,9 +949,9 @@ func TestRegisterGenericRouteOnSubRouterRelativeNestedPrefixUsesResolvedPath(t *
 		},
 	}
 
-	err := RegisterGenericRouteOnSubRouter(r, "/v1", routeCfg)
+	err := r.RegisterRouteOnSubRouter("/v1", routeCfg)
 	if err != nil {
-		t.Fatalf("RegisterGenericRouteOnSubRouter failed: %v", err)
+		t.Fatalf("RegisterRouteOnSubRouter failed: %v", err)
 	}
 
 	reqBody := `{"name":"Relative","age":42}`
@@ -1057,43 +1071,43 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 	}
 
 	// Register Base64 route with empty SourceKey
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/base64/:dataParam", // Path parameter name is 'dataParam'
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64PathParameter,
 		SourceKey:  "",                                     // Empty SourceKey, should use 'dataParam'
 		Codec:      codec.NewJSONCodec[TestData, string](), // Use JSON codec for request and response
 		Handler:    verifyHandler(testPayload.Value),
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Register Base62 route with empty SourceKey
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/base62/:valueParam", // Path parameter name is 'valueParam'
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base62PathParameter,
 		SourceKey:  "",                                     // Empty SourceKey, should use 'valueParam'
 		Codec:      codec.NewJSONCodec[TestData, string](), // Use JSON codec for request and response
 		Handler:    verifyHandler(testPayload.Value),
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Register routes to test "no path parameters found" error
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/no-params-base64", // No path parameters
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64PathParameter,
 		SourceKey:  "", // Empty SourceKey
 		Codec:      codec.NewJSONCodec[TestData, string](),
 		Handler:    verifyHandler(testPayload.Value), // Handler shouldn't be reached
-	}, time.Duration(0), int64(0), nil)
+	})
 
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/no-params-base62", // No path parameters
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base62PathParameter,
 		SourceKey:  "", // Empty SourceKey
 		Codec:      codec.NewJSONCodec[TestData, string](),
 		Handler:    verifyHandler(testPayload.Value), // Handler shouldn't be reached
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Create test server
 	server := httptest.NewServer(r)
@@ -1151,7 +1165,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to send request: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != tc.expectedStatus {
 				bodyBytes, _ := io.ReadAll(resp.Body)
@@ -1285,8 +1299,8 @@ func TestWriteJSONError_CORSHeaders(t *testing.T) {
 
 // --- New Test for Generic Route Error Paths ---
 
-// TestRegisterGenericRouteErrorPaths covers various error scenarios in RegisterGenericRoute.
-func TestRegisterGenericRouteErrorPaths(t *testing.T) {
+// TestRegisterTypedRouteErrorPaths covers various error scenarios in typed route registration.
+func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	// Use an observer logger to capture logs for specific error messages
 	core, observedLogs := observer.New(zapcore.ErrorLevel) // Capture Error level logs
 	logger := zap.New(core)
@@ -1297,7 +1311,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 
 	// Unmarshal Path Param Error (Base64)
 	invalidJSONBase64 := base64.StdEncoding.EncodeToString([]byte("{invalid json"))
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/err/unmarshal-path/:data",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64PathParameter,
@@ -1307,10 +1321,10 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on unmarshal error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Unmarshal Query Param Error (Base64)
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/err/unmarshal-query",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64QueryParameter,
@@ -1320,10 +1334,10 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on unmarshal error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Missing Query Param Error
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/err/missing-query",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64QueryParameter, // Type doesn't matter much here
@@ -1333,10 +1347,10 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on missing query param error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Body Decode Error
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/err/body-decode",
 		Methods:    []HttpMethod{MethodPost},
 		SourceType: Body,
@@ -1345,10 +1359,10 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on body decode error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Unsupported SourceType Error
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/err/unsupported-source",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: 99, // Invalid source type
@@ -1357,10 +1371,10 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on unsupported source type error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Handler Error
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/err/handler",
 		Methods:    []HttpMethod{MethodPost},
 		SourceType: Body,
@@ -1368,13 +1382,13 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 		Handler: func(req *http.Request, data TestData) (string, error) {
 			return "", errors.New("internal handler error") // Explicitly return error
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Response Encode Error
 	type UnencodableResponse struct {
 		Ch chan int `json:"ch"` // Channels cannot be JSON encoded
 	}
-	RegisterGenericRoute(r, RouteConfig[TestData, UnencodableResponse]{
+	r.RegisterRoute(RouteConfig[TestData, UnencodableResponse]{
 		Path:       "/err/resp-encode",
 		Methods:    []HttpMethod{MethodPost},
 		SourceType: Body,
@@ -1382,10 +1396,10 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 		Handler: func(req *http.Request, data TestData) (UnencodableResponse, error) {
 			return UnencodableResponse{Ch: make(chan int)}, nil // Return unencodable type
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Base64 Query Decode Error
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/err/base64-query-decode",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64QueryParameter,
@@ -1395,10 +1409,10 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on base64 decode error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Base62 Query Decode Error
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/err/base62-query-decode",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base62QueryParameter,
@@ -1408,10 +1422,10 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on base62 decode error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Base64 Path Decode Error (already covered in TestGenericRoutePathParameterFallback, but good to have here too)
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/err/base64-path-decode/:data",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base64PathParameter,
@@ -1421,10 +1435,10 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on base64 decode error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Base62 Path Decode Error (already covered in TestGenericRoutePathParameterFallback, but good to have here too)
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/err/base62-path-decode/:data",
 		Methods:    []HttpMethod{MethodGet},
 		SourceType: Base62PathParameter,
@@ -1434,10 +1448,10 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			t.Error("Handler should not be called on base62 decode error")
 			return "", errors.New("handler should not be called")
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// Context Deadline Exceeded Error
-	RegisterGenericRoute(r, RouteConfig[TestData, string]{
+	r.RegisterRoute(RouteConfig[TestData, string]{
 		Path:       "/err/deadline-exceeded",
 		Methods:    []HttpMethod{MethodPost},
 		SourceType: Body, // Source type doesn't matter much here
@@ -1445,7 +1459,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 		Handler: func(req *http.Request, data TestData) (string, error) {
 			return "", context.DeadlineExceeded // Explicitly return this error
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// --- Test Server ---
 	server := httptest.NewServer(r)
@@ -1565,7 +1579,7 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to send request: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			if resp.StatusCode != tc.expectedStatus {
 				bodyBytes, _ := io.ReadAll(resp.Body)
@@ -1616,8 +1630,9 @@ func TestRegisterGenericRouteErrorPaths(t *testing.T) {
 	}
 }
 
-// TestNewGenericRouteDefinition tests the helper function for creating declarative generic route definitions.
-func TestNewGenericRouteDefinition(t *testing.T) {
+// TestRouteConfigDirectDefinition tests placing a typed route config directly
+// in a sub-router's heterogeneous route list.
+func TestRouteConfigDirectDefinition(t *testing.T) {
 	logger := zap.NewNop()
 
 	// Define types and handler
@@ -1651,9 +1666,6 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 		},
 	}
 
-	// Create the registration function using the helper
-	regFunc := NewGenericRouteDefinition[DefReq, DefResp, string, string](routeCfg)
-
 	// Define sub-router config with overrides and middleware
 	subRouterCfg := SubRouterConfig{
 		PathPrefix: "/sub",
@@ -1668,7 +1680,7 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 				})
 			},
 		},
-		Routes: []RouteDefinition{regFunc}, // Add the registration function here
+		Routes: []RouteDefinition{routeCfg},
 	}
 
 	// Create router with the sub-router
@@ -1692,7 +1704,7 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check status
 	if resp.StatusCode != http.StatusOK {
@@ -1725,15 +1737,13 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 			Timeout: 500 * time.Millisecond, // Route timeout
 		},
 	}
-	slowRegFunc := NewGenericRouteDefinition[DefReq, DefResp, string, string](slowRouteCfg)
-
 	// Create new router with this route
 	slowSubRouterCfg := SubRouterConfig{
 		PathPrefix: "/sub-slow",
 		Overrides: common.RouteOverrides{
 			Timeout: 1 * time.Second, // Sub-router timeout
 		},
-		Routes: []RouteDefinition{slowRegFunc},
+		Routes: []RouteDefinition{slowRouteCfg},
 	}
 	slowRouter := NewRouter(RouterConfig{
 		Logger:     logger,
@@ -1755,7 +1765,7 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 		// If it's a timeout error, the test passes for this part.
 		// However, the server might still send a 504. Let's check the response if available.
 		if slowResp != nil {
-			defer slowResp.Body.Close()
+			defer func() { _ = slowResp.Body.Close() }()
 			if slowResp.StatusCode != http.StatusRequestTimeout { // Check for 504 Gateway Timeout
 				bodyBytes, _ := io.ReadAll(slowResp.Body)
 				t.Errorf("Expected status %d after timeout, got %d. Body: %s", http.StatusRequestTimeout, slowResp.StatusCode, string(bodyBytes))
@@ -1763,67 +1773,11 @@ func TestNewGenericRouteDefinition(t *testing.T) {
 		}
 	} else {
 		// If no error, check the status code directly
-		defer slowResp.Body.Close()
+		defer func() { _ = slowResp.Body.Close() }()
 		if slowResp.StatusCode != http.StatusRequestTimeout {
 			bodyBytes, _ := io.ReadAll(slowResp.Body)
 			t.Errorf("Expected status %d due to route timeout, got %d. Body: %s", http.StatusRequestTimeout, slowResp.StatusCode, string(bodyBytes))
 		}
-	}
-}
-
-// unsupportedRouteType is a test type that implements RouteDefinition but is not supported by the router.
-type unsupportedRouteType struct{}
-
-func (unsupportedRouteType) isRouteDefinition() {}
-
-// TestRegisterSubRouter_UnsupportedRouteType tests the default case in registerSubRouter's switch statement.
-func TestRegisterSubRouter_UnsupportedRouteType(t *testing.T) {
-	// Create an observer logger
-	observedZapCore, observedLogs := observer.New(zapcore.WarnLevel)
-	observedLogger := zap.New(observedZapCore)
-
-	// Define sub-router config with an invalid route type
-	subRouterCfg := SubRouterConfig{
-		PathPrefix: "/invalid",
-		Routes:     []RouteDefinition{unsupportedRouteType{}}, // Add an unsupported route type
-	}
-
-	// Create router config
-	routerConfig := RouterConfig{
-		Logger:     observedLogger,
-		SubRouters: []SubRouterConfig{subRouterCfg},
-	}
-
-	// Create the router (this will trigger registerSubRouter)
-	_ = NewRouter(routerConfig, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-
-	// Assert that a warning was logged
-	assert.Equal(t, 1, observedLogs.Len(), "Expected exactly one log entry")
-	if observedLogs.Len() > 0 {
-		logEntry := observedLogs.AllUntimed()[0]
-		assert.Equal(t, zapcore.WarnLevel, logEntry.Level, "Expected log level to be Warn")
-		assert.Equal(t, "Unsupported type found in SubRouterConfig.Routes", logEntry.Message, "Expected specific warning message")
-
-		// Check context fields
-		expectedContext := map[string]any{
-			"pathPrefix": "/invalid",
-			"type":       "router.unsupportedRouteType", // The type of the invalid item
-		}
-		// Convert zapcore.Field to map for easier comparison
-		actualContext := make(map[string]any)
-		for _, field := range logEntry.Context {
-			switch field.Type {
-			case zapcore.StringType:
-				actualContext[field.Key] = field.String
-			case zapcore.Int64Type: // Handle other types if necessary
-				actualContext[field.Key] = field.Integer
-			default:
-				actualContext[field.Key] = field.Interface // Use Interface for Any type
-			}
-		}
-
-		assert.Equal(t, expectedContext["pathPrefix"], actualContext["pathPrefix"], "Expected pathPrefix field to match")
-		assert.Equal(t, expectedContext["type"], actualContext["type"], "Expected type field to match")
 	}
 }
 
@@ -1875,7 +1829,7 @@ func TestAuthRequiredMiddleware_OptionsRequireAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OPTIONS request failed: %v", err)
 	}
-	defer respOptionsInvalid.Body.Close()
+	defer func() { _ = respOptionsInvalid.Body.Close() }()
 	assert.Equal(t, http.StatusUnauthorized, respOptionsInvalid.StatusCode, "OPTIONS request with invalid auth should return Unauthorized")
 
 	// Test OPTIONS request with valid auth (should pass)
@@ -1885,7 +1839,7 @@ func TestAuthRequiredMiddleware_OptionsRequireAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OPTIONS request failed: %v", err)
 	}
-	defer respOptionsValid.Body.Close()
+	defer func() { _ = respOptionsValid.Body.Close() }()
 	assert.Equal(t, http.StatusOK, respOptionsValid.StatusCode, "OPTIONS request with valid auth should return OK")
 
 	// Test GET request with invalid auth (should fail)
@@ -1895,7 +1849,7 @@ func TestAuthRequiredMiddleware_OptionsRequireAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Invalid GET request failed: %v", err)
 	}
-	defer respInvalid.Body.Close()
+	defer func() { _ = respInvalid.Body.Close() }()
 	assert.Equal(t, http.StatusUnauthorized, respInvalid.StatusCode, "Invalid GET request should return Unauthorized")
 
 	// Test GET request with valid auth (should pass)
@@ -1905,7 +1859,7 @@ func TestAuthRequiredMiddleware_OptionsRequireAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Valid GET request failed: %v", err)
 	}
-	defer respValid.Body.Close()
+	defer func() { _ = respValid.Body.Close() }()
 	assert.Equal(t, http.StatusOK, respValid.StatusCode, "Valid GET request should return OK")
 	bodyBytes, _ := io.ReadAll(respValid.Body)
 	assert.Equal(t, "OK", string(bodyBytes), "Valid GET request body mismatch")
@@ -1973,7 +1927,7 @@ func TestAuthOptionalMiddleware_OptionsBypass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OPTIONS request failed: %v", err)
 	}
-	defer respOptions.Body.Close()
+	defer func() { _ = respOptions.Body.Close() }()
 	assert.Equal(t, http.StatusOK, respOptions.StatusCode, "OPTIONS request should return OK")
 
 	// Test GET request with invalid auth (should pass, no user context)
@@ -1983,7 +1937,7 @@ func TestAuthOptionalMiddleware_OptionsBypass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Invalid GET request failed: %v", err)
 	}
-	defer respInvalid.Body.Close()
+	defer func() { _ = respInvalid.Body.Close() }()
 	assert.Equal(t, http.StatusOK, respInvalid.StatusCode, "Invalid GET request should return OK for optional auth")
 	bodyBytesInv, _ := io.ReadAll(respInvalid.Body)
 	assert.Equal(t, "OK", string(bodyBytesInv), "Invalid GET request body mismatch")
@@ -1994,7 +1948,7 @@ func TestAuthOptionalMiddleware_OptionsBypass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("No auth GET request failed: %v", err)
 	}
-	defer respNoAuth.Body.Close()
+	defer func() { _ = respNoAuth.Body.Close() }()
 	assert.Equal(t, http.StatusOK, respNoAuth.StatusCode, "No auth GET request should return OK for optional auth")
 	bodyBytesNo, _ := io.ReadAll(respNoAuth.Body)
 	assert.Equal(t, "OK", string(bodyBytesNo), "No auth GET request body mismatch")
@@ -2006,7 +1960,7 @@ func TestAuthOptionalMiddleware_OptionsBypass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Valid GET request failed: %v", err)
 	}
-	defer respValid.Body.Close()
+	defer func() { _ = respValid.Body.Close() }()
 	assert.Equal(t, http.StatusOK, respValid.StatusCode, "Valid GET request should return OK for optional auth")
 	bodyBytesVal, _ := io.ReadAll(respValid.Body)
 	assert.Equal(t, "OK", string(bodyBytesVal), "Valid GET request body mismatch")
@@ -2069,14 +2023,14 @@ func TestConcurrentRequests(t *testing.T) {
 	// 3. Generic POST route
 	type ConcurrentReq struct{ Data string }
 	type ConcurrentResp struct{ Res string }
-	RegisterGenericRoute(r, RouteConfig[ConcurrentReq, ConcurrentResp]{
+	r.RegisterRoute(RouteConfig[ConcurrentReq, ConcurrentResp]{
 		Path:    "/generic",
 		Methods: []HttpMethod{MethodPost},
 		Codec:   codec.NewJSONCodec[ConcurrentReq, ConcurrentResp](),
 		Handler: func(req *http.Request, data ConcurrentReq) (ConcurrentResp, error) {
 			return ConcurrentResp{Res: "Generic OK: " + data.Data}, nil
 		},
-	}, time.Duration(0), int64(0), nil)
+	})
 
 	// 4. Route with middleware
 	r.RegisterRoute(RouteConfigBase{
@@ -2173,7 +2127,7 @@ func TestConcurrentRequests(t *testing.T) {
 
 				// Ensure body is read and closed to reuse connection
 				_, _ = io.Copy(io.Discard, resp.Body)
-				resp.Body.Close()
+				_ = resp.Body.Close()
 			}
 		}(i)
 	}

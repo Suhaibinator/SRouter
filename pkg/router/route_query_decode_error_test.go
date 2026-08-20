@@ -37,11 +37,11 @@ func encodeBase62(b []byte) string {
 	return string(out)
 }
 
-func TestRegisterGenericRoute_Base64QueryParameter_DecodeBytesError(t *testing.T) {
+func TestRegisterTypedRoute_Base64QueryParameter_DecodeBytesError(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodGet},
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -51,7 +51,7 @@ func TestRegisterGenericRoute_Base64QueryParameter_DecodeBytesError(t *testing.T
 			t.Fatalf("handler should not be called on decode error")
 			return ResponseType{}, nil
 		},
-	}, 0, 0, nil)
+	})
 
 	invalidJSONBase64 := base64.StdEncoding.EncodeToString([]byte("{invalid json"))
 	req := httptest.NewRequest(http.MethodGet, "/test?qdata="+invalidJSONBase64, nil)
@@ -65,11 +65,11 @@ func TestRegisterGenericRoute_Base64QueryParameter_DecodeBytesError(t *testing.T
 	require.Equal(t, "Failed to decode query parameter data", body["error"]["message"])
 }
 
-func TestRegisterGenericRoute_Base62QueryParameter_DecodeBytesError(t *testing.T) {
+func TestRegisterTypedRoute_Base62QueryParameter_DecodeBytesError(t *testing.T) {
 	logger := zap.NewNop()
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
-	RegisterGenericRoute(r, RouteConfig[RequestType, ResponseType]{
+	r.RegisterRoute(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
 		Methods:    []HttpMethod{MethodGet},
 		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
@@ -79,7 +79,7 @@ func TestRegisterGenericRoute_Base62QueryParameter_DecodeBytesError(t *testing.T
 			t.Fatalf("handler should not be called on decode error")
 			return ResponseType{}, nil
 		},
-	}, 0, 0, nil)
+	})
 
 	invalidJSONBase62 := encodeBase62([]byte("{invalid json"))
 	req := httptest.NewRequest(http.MethodGet, "/test?qdata="+invalidJSONBase62, nil)

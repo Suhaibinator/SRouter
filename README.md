@@ -177,17 +177,15 @@ apiV1SubRouter := router.SubRouterConfig{
 			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: GetUserHandler,
 		},
-		// Declarative generic route using the helper
-		router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, string, string](
-			router.RouteConfig[CreateUserReq, CreateUserResp]{
-				Path:      "/users", // Path relative to the sub-router prefix (/api/v1/users)
-				Methods:   []router.HttpMethod{router.MethodPost},
-				AuthLevel: new(router.AuthRequired),
-				Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
-				Handler:   CreateUserHandler,
-				// Middlewares, Timeout, MaxBodySize, RateLimit can be set here too
-			},
-		),
+		// Typed generic routes are valid RouteDefinition values directly.
+		router.RouteConfig[CreateUserReq, CreateUserResp]{
+			Path:      "/users", // Path relative to the sub-router prefix (/api/v1/users)
+			Methods:   []router.HttpMethod{router.MethodPost},
+			AuthLevel: new(router.AuthRequired),
+			Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
+			Handler:   CreateUserHandler,
+			// Middlewares, Timeout, MaxBodySize, RateLimit can be set here too
+		},
 	},
 }
 
@@ -225,9 +223,7 @@ usersV1SubRouter := router.SubRouterConfig{
         PathPrefix: "/users", // Relative to /api/v1
         Routes: []router.RouteDefinition{
 		router.RouteConfigBase{ Path: "/:id", Methods: []router.HttpMethod{router.MethodGet}, Handler: GetUserHandler },
-		router.NewGenericRouteDefinition[UserReq, UserResp, string, string](
-			router.RouteConfig[UserReq, UserResp]{ Path: "/info", Methods: []router.HttpMethod{router.MethodPost}, Codec: userCodec, Handler: UserInfoHandler },
-		),
+		router.RouteConfig[UserReq, UserResp]{ Path: "/info", Methods: []router.HttpMethod{router.MethodPost}, Codec: userCodec, Handler: UserInfoHandler },
 	},
 }
 apiV1SubRouter := router.SubRouterConfig{
@@ -283,25 +279,21 @@ func CreateUserHandler(r *http.Request, req CreateUserReq) (CreateUserResp, erro
  }, nil
 }
 
-// Register the generic route directly on the router (not part of a sub-router)
-// Note: RegisterGenericRoute requires effective settings (timeout, max body size, rate limit).
-// These are typically zero/nil when registering directly on the root router, inheriting global defaults.
-// Use NewGenericRouteDefinition within SubRouterConfig.Routes for declarative registration within sub-routers.
-router.RegisterGenericRoute[CreateUserReq, CreateUserResp, string, string](r,
-	router.RouteConfig[CreateUserReq, CreateUserResp]{
-		Path:        "/standalone/users",
-		Methods:     []router.HttpMethod{router.MethodPost},
-		AuthLevel:   new(router.AuthRequired), // pointer to an AuthLevel value
-		Codec:       codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
-		Handler:     CreateUserHandler,
-	},
-	2*time.Second, // Pass effective timeout (supply your desired/global value)
-	1<<20,         // Pass effective max body size
-	nil,           // Pass effective rate limit (nil for none)
-)
+// Register directly on the root router. Req and Resp stay attached to the config,
+// and global settings plus route overrides are resolved automatically.
+r.RegisterRoute(router.RouteConfig[CreateUserReq, CreateUserResp]{
+	Path:      "/standalone/users",
+	Methods:   []router.HttpMethod{router.MethodPost},
+	AuthLevel: new(router.AuthRequired),
+	Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](),
+	Handler:   CreateUserHandler,
+	Overrides: common.RouteOverrides{Timeout: 2 * time.Second, MaxBodySize: 1 << 20},
+})
 ```
 
-Note that the `RegisterGenericRoute` function takes four type parameters: the request type, the response type, the user ID type (`T`), and the user object type (`U`). The last two should match the type parameters of your router. It also requires the *effective* timeout, max body size, and rate limit configuration to be passed explicitly. These effective values are calculated based on global, sub-router, and route-specific settings. When registering directly on the root router, you typically pass the global defaults (or `nil` for rate limit if inheriting). Use `NewGenericRouteDefinition` within `SubRouterConfig.Routes` for declarative registration within sub-routers, as it handles the calculation of effective settings automatically.
+`RegisterRoute` accepts both standard `RouteConfigBase` values and typed
+`RouteConfig[Req, Resp]` values. The typed request/response pipeline remains intact,
+and the same config can be placed directly in `SubRouterConfig.Routes`.
 
 ### Using Path Parameters
 
@@ -957,62 +949,52 @@ SRouter supports the following source types (defined as constants in the `router
 1. **Body** (default): Retrieves data from the request body.
 
    ```go
-   router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
-       router.RouteConfig[UserRequest, UserResponse]{
-           // ...
-           // SourceType defaults to Body if not specified
-       },
-   )
+   router.RouteConfig[UserRequest, UserResponse]{
+	   // ...
+	   // SourceType defaults to Body if not specified
+   }
    ```
 
 2. **Base64QueryParameter**: Retrieves data from a base64-encoded query parameter.
 
    ```go
-   router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
-       router.RouteConfig[UserRequest, UserResponse]{
-           // ...
-           SourceType: router.Base64QueryParameter,
-           SourceKey:  "data", // Will look for ?data=base64encodedstring
-       },
-   )
+   router.RouteConfig[UserRequest, UserResponse]{
+	   // ...
+	   SourceType: router.Base64QueryParameter,
+	   SourceKey:  "data", // Will look for ?data=base64encodedstring
+   }
    ```
 
 3. **Base62QueryParameter**: Retrieves data from a base62-encoded query parameter.
 
    ```go
-   router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
-       router.RouteConfig[UserRequest, UserResponse]{
-           // ...
-           SourceType: router.Base62QueryParameter,
-           SourceKey:  "data", // Will look for ?data=base62encodedstring
-       },
-   )
+   router.RouteConfig[UserRequest, UserResponse]{
+	   // ...
+	   SourceType: router.Base62QueryParameter,
+	   SourceKey:  "data", // Will look for ?data=base62encodedstring
+   }
    ```
 
 4. **Base64PathParameter**: Retrieves data from a base64-encoded path parameter.
 
    ```go
-   router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
-       router.RouteConfig[UserRequest, UserResponse]{
-           Path:       "/users/:data",
-           // ...
-           SourceType: router.Base64PathParameter,
-           SourceKey:  "data", // Will use the :data path parameter
-       },
-   )
+   router.RouteConfig[UserRequest, UserResponse]{
+	   Path:       "/users/:data",
+	   // ...
+	   SourceType: router.Base64PathParameter,
+	   SourceKey:  "data", // Will use the :data path parameter
+   }
    ```
 
 5. **Base62PathParameter**: Retrieves data from a base62-encoded path parameter.
 
    ```go
-   router.NewGenericRouteDefinition[UserRequest, UserResponse, string, string](
-       router.RouteConfig[UserRequest, UserResponse]{
-           Path:       "/users/:data",
-           // ...
-           SourceType: router.Base62PathParameter,
-           SourceKey:  "data", // Will use the :data path parameter
-       },
-   )
+   router.RouteConfig[UserRequest, UserResponse]{
+	   Path:       "/users/:data",
+	   // ...
+	   SourceType: router.Base62PathParameter,
+	   SourceKey:  "data", // Will use the :data path parameter
+   }
    ```
 
 See the `examples/source-types` directory for a complete example.
@@ -1062,17 +1044,15 @@ func NewXMLCodec[T any, U any]() *XMLCodec[T, U] {
  return &XMLCodec[T, U]{}
 }
 
-// Use the XML codec with a generic route definition within SubRouterConfig.Routes
-xmlRouteDef := router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, string, string](
-    router.RouteConfig[CreateUserReq, CreateUserResp]{
-        Path:        "/api/users",
-        Methods:     []router.HttpMethod{router.MethodPost},
-        AuthLevel:   new(router.NoAuth), // pointer to an AuthLevel value
-        Codec:       NewXMLCodec[CreateUserReq, CreateUserResp](),
-        Handler:     CreateUserHandler, // Assume handler exists
-    },
-)
-// Add xmlRouteDef to SubRouterConfig.Routes
+// This value can be placed directly in SubRouterConfig.Routes.
+xmlRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
+	Path:      "/api/users",
+	Methods:   []router.HttpMethod{router.MethodPost},
+	AuthLevel: new(router.NoAuth), // pointer to an AuthLevel value
+	Codec:     NewXMLCodec[CreateUserReq, CreateUserResp](),
+	Handler:   CreateUserHandler, // Assume handler exists
+}
+// Add xmlRoute to SubRouterConfig.Routes.
 ```
 
 ### Metrics
@@ -1239,7 +1219,7 @@ type SubRouterConfig struct {
  PathPrefix       string                // Common path prefix for all routes in this sub-router
  Overrides        common.RouteOverrides // Timeout/body size/rate limit/auth token overrides for this sub-router
  IsolateOverrides bool                  // Ignore parent sub-router overrides; globals still apply
- Routes           []RouteDefinition     // Routes (RouteConfigBase or GenericRouteDefinition)
+ Routes           []RouteDefinition     // RouteConfigBase or typed RouteConfig values
  Middlewares      []common.Middleware   // Middlewares applied to all routes in this sub-router
  SubRouters       []SubRouterConfig     // Nested sub-routers
  AuthLevel        *AuthLevel            // Default auth level for routes in this sub-router (nil inherits)

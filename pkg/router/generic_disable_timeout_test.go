@@ -19,14 +19,14 @@ func slowGenericHandler(r *http.Request, data struct{}) (map[string]string, erro
 
 func TestGenericRouteDefinitionDisableTimeoutBypassesGlobalTimeout(t *testing.T) {
 	newGenericRoute := func(path string, disableTimeout bool) RouteDefinition {
-		return NewGenericRouteDefinition[struct{}, map[string]string, string, string](RouteConfig[struct{}, map[string]string]{
+		return RouteConfig[struct{}, map[string]string]{
 			Path:           path,
 			Methods:        []HttpMethod{MethodGet},
 			Codec:          codec.NewJSONCodec[struct{}, map[string]string](),
 			SourceType:     Empty,
 			DisableTimeout: disableTimeout,
 			Handler:        slowGenericHandler,
-		})
+		}
 	}
 
 	r := NewRouter[string, string](RouterConfig{
@@ -55,7 +55,7 @@ func TestGenericRouteDefinitionDisableTimeoutBypassesGlobalTimeout(t *testing.T)
 	}
 }
 
-func TestRegisterGenericRouteOnSubRouterDisableTimeoutBypassesSubRouterTimeout(t *testing.T) {
+func TestRegisterRouteOnSubRouterDisableTimeoutBypassesSubRouterTimeout(t *testing.T) {
 	r := NewRouter[string, string](RouterConfig{
 		Logger: zap.NewNop(),
 		SubRouters: []SubRouterConfig{{
@@ -68,7 +68,7 @@ func TestRegisterGenericRouteOnSubRouterDisableTimeoutBypassesSubRouterTimeout(t
 
 	registerGenericRoute := func(path string, disableTimeout bool) {
 		t.Helper()
-		err := RegisterGenericRouteOnSubRouter(r, "/api", RouteConfig[struct{}, map[string]string]{
+		err := r.RegisterRouteOnSubRouter("/api", RouteConfig[struct{}, map[string]string]{
 			Path:           path,
 			Methods:        []HttpMethod{MethodGet},
 			Codec:          codec.NewJSONCodec[struct{}, map[string]string](),
@@ -77,7 +77,7 @@ func TestRegisterGenericRouteOnSubRouterDisableTimeoutBypassesSubRouterTimeout(t
 			Handler:        slowGenericHandler,
 		})
 		if err != nil {
-			t.Fatalf("RegisterGenericRouteOnSubRouter failed: %v", err)
+			t.Fatalf("RegisterRouteOnSubRouter failed: %v", err)
 		}
 	}
 

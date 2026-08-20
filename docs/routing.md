@@ -8,7 +8,7 @@ Sub-routers allow you to group related routes under a common path prefix and app
 
 ### Defining Sub-Routers
 
-Sub-routers are defined using the `SubRouterConfig` struct and added to the `SubRouters` slice within the main `RouterConfig`. Routes can be added declaratively within the sub-router configuration or imperatively after router creation using `RegisterGenericRouteOnSubRouter` or by registering entire sub-routers with `RegisterSubRouter`.
+Sub-routers are defined using the `SubRouterConfig` struct and added to the `SubRouters` slice within the main `RouterConfig`. Routes can be added declaratively within the sub-router configuration or imperatively after router creation using `RegisterRouteOnSubRouter` or by registering entire sub-routers with `RegisterSubRouter`.
 
 ```go
 // Define sub-router configurations
@@ -34,17 +34,15 @@ apiV1SubRouter := router.SubRouterConfig{
 			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: GetUserHandler, // Assume this handler exists
 		},
-		// Declarative generic route using the helper
-		router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, string, string](
-			router.RouteConfig[CreateUserReq, CreateUserResp]{
-				Path:      "/users", // Path relative to the sub-router prefix (/api/v1/users)
-				Methods:   []router.HttpMethod{router.MethodPost},
-				AuthLevel: new(router.AuthRequired), // Example: Requires authentication
-				Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Assume codec exists
-				Handler:   CreateUserHandler, // Assume this generic handler exists
-				// Middlewares, Overrides can be set here too, overriding sub-router settings
-			},
-		),
+		// Typed generic route stored directly as a RouteDefinition
+		router.RouteConfig[CreateUserReq, CreateUserResp]{
+			Path:      "/users", // Path relative to the sub-router prefix (/api/v1/users)
+			Methods:   []router.HttpMethod{router.MethodPost},
+			AuthLevel: new(router.AuthRequired), // Example: Requires authentication
+			Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Assume codec exists
+			Handler:   CreateUserHandler, // Assume this generic handler exists
+			// Middlewares, Overrides can be set here too, overriding sub-router settings
+		},
 	},
 }
 
@@ -104,9 +102,7 @@ usersV1SubRouter := router.SubRouterConfig{
         // Overrides: common.RouteOverrides{Timeout: 1 * time.Second}, // Could override /api/v1's timeout
         Routes: []router.RouteDefinition{
 		router.RouteConfigBase{ Path: "/:id", Methods: []router.HttpMethod{router.MethodGet}, Handler: GetUserHandler }, // /api/v1/users/:id
-		router.NewGenericRouteDefinition[UserReq, UserResp, string, string]( // Assume types/codec/handler exist
-			router.RouteConfig[UserReq, UserResp]{ Path: "/info", Methods: []router.HttpMethod{router.MethodPost}, Codec: userCodec, Handler: UserInfoHandler }, // /api/v1/users/info
-		),
+		router.RouteConfig[UserReq, UserResp]{ Path: "/info", Methods: []router.HttpMethod{router.MethodPost}, Codec: userCodec, Handler: UserInfoHandler }, // /api/v1/users/info
 	},
 }
 
@@ -151,15 +147,14 @@ While routes are typically defined declaratively within `SubRouterConfig`, you c
 
 #### Registering Individual Routes
 
-Use `RegisterGenericRouteOnSubRouter` to add a single generic route to an existing sub-router:
+Use `RegisterRouteOnSubRouter` to add a standard or typed generic route to an existing sub-router:
 
 ```go
 // After creating the router
 r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
 
 // Register a generic route on a specific sub-router
-err := router.RegisterGenericRouteOnSubRouter[CreateUserReq, CreateUserResp](
-    r,
+err := r.RegisterRouteOnSubRouter(
     "/api/v1", // Target sub-router path prefix
     router.RouteConfig[CreateUserReq, CreateUserResp]{
         Path:      "/users", // Path relative to the sub-router prefix
@@ -174,7 +169,7 @@ if err != nil {
 }
 ```
 
-This function will:
+This method will:
 - Find the sub-router with the matching path prefix
 - Apply the sub-router's configuration (middleware, timeouts, etc.)
 - Prefix the route path with the sub-router's path prefix

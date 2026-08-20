@@ -55,7 +55,7 @@ func placeholderGetUserID(user *string) string {
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction() // Use zap logger
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create a new router instance with default config and placeholder context functions
 	// Using [string, string] for UserID (T) and User (U) types.
@@ -77,9 +77,8 @@ func main() {
 	}
 
 	// Register the generic route directly on the router instance 'r'
-	// Provide zero/nil for effective settings (timeout, body size, rate limit)
 	// as these are not overridden at the route level here.
-	router.RegisterGenericRoute(r, routeCfg, 0, 0, nil)
+	r.RegisterRoute(routeCfg)
 
 	// Start the HTTP server
 	port := ":8080"

@@ -820,14 +820,14 @@ func TestCORSWithGenericRoutes(t *testing.T) {
 				})
 
 			// Register a generic route using the package-level types
-			RegisterGenericRoute(r, RouteConfig[genericCORSTestRequest, genericCORSTestResponse]{
+			r.RegisterRoute(RouteConfig[genericCORSTestRequest, genericCORSTestResponse]{
 				Path:    "/test",
 				Methods: []HttpMethod{MethodPost},
 				Handler: func(req *http.Request, data genericCORSTestRequest) (genericCORSTestResponse, error) {
 					return genericCORSTestResponse{Result: "Success: " + data.Value}, nil
 				},
 				Codec: &genericCORSTestCodec{}, // Use the package-level test codec
-			}, 0, 0, nil)
+			})
 
 			// Create a request
 			reqBody := `{"value":"test"}`

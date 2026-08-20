@@ -91,12 +91,13 @@ Flexible rate limiting with strategies:
 Uses Uber's ratelimit library with leaky bucket algorithm.
 
 ### Generic Route Registration
-Generic routes should be registered using `NewGenericRouteDefinition` within SubRouterConfig.Routes for declarative configuration:
+Generic `RouteConfig` values can be placed directly in `SubRouterConfig.Routes`:
 ```go
-router.NewGenericRouteDefinition[ReqType, RespType, UserIDType, UserType](
-    router.RouteConfig[ReqType, RespType]{...}
-)
+router.RouteConfig[ReqType, RespType]{...}
 ```
+
+For imperative registration, call `r.RegisterRoute(route)` or
+`r.RegisterRouteOnSubRouter(prefix, route)`. Both methods accept standard and typed routes.
 
 ### Context Access
 Always use scontext package helpers for type-safe context access:

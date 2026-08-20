@@ -1,6 +1,6 @@
 # Generic Routes
 
-SRouter leverages Go 1.18+ generics to provide type-safe handling of request and response data. This eliminates the need for manual type assertions and reduces boilerplate code.
+SRouter leverages Go 1.27+ generics to provide type-safe handling of request and response data. This eliminates the need for manual type assertions and reduces boilerplate code.
 
 ## Defining Generic Routes
 
@@ -72,7 +72,10 @@ createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
 
 ## Registering Generic Routes
 
-The **preferred and recommended** way to register generic routes is declaratively within a `SubRouterConfig` using the `NewGenericRouteDefinition` helper function. This ensures that path prefixes, middleware, and configuration overrides (timeout, max body size, rate limit) are correctly applied.
+Generic routes can be placed directly in a `SubRouterConfig`. Every
+`RouteConfig[Req, Resp]` implements `RouteDefinition`, and the router applies path
+prefixes, middleware, and configuration overrides through the same registration path
+used for standard routes.
 
 ```go
 // Define the route configuration (as shown previously)
@@ -83,12 +86,8 @@ apiV1SubRouter := router.SubRouterConfig{
     PathPrefix: "/api/v1",
     // Middlewares specific to this sub-router can go here
     Routes: []router.RouteDefinition{
-        // ... other routes (RouteConfigBase or other NewGenericRouteDefinition calls) ...
-
-        // Use NewGenericRouteDefinition to wrap the generic RouteConfig.
-        // The last two type parameters (string, string) must match the
-        // UserIDType and UserObjectType used in NewRouter[UserIDType, UserObjectType].
-        router.NewGenericRouteDefinition[CreateUserReq, CreateUserResp, string, string](createUserRoute),
+        // RouteConfigBase and any RouteConfig[Req, Resp] can be mixed here.
+        createUserRoute,
     },
     // Optional overrides for all routes in this sub-router
     Overrides: common.RouteOverrides{
@@ -113,7 +112,10 @@ routerConfig := router.RouterConfig{
 // r := router.NewRouter[string, string](routerConfig, authFunc, userIDFunc)
 ```
 
-**Note on Direct Registration:** While a `router.RegisterGenericRoute` function exists, it's primarily used internally by `NewGenericRouteDefinition`. Direct use is discouraged as it bypasses the sub-router configuration logic (path prefixing, middleware application, override calculation) and requires manual calculation and passing of effective settings, which can be error-prone. Always prefer the declarative approach using `NewGenericRouteDefinition` within `SubRouterConfig`.
+For imperative root registration, call `r.RegisterRoute(routeConfig)`. For an
+existing sub-router, call `r.RegisterRouteOnSubRouter(prefix, routeConfig)`.
+The typed config retains its `Req` and `Resp` pipeline behind the route interface,
+and both methods resolve effective settings automatically.
 
 ## Key Components
 
@@ -122,8 +124,9 @@ routerConfig := router.RouterConfig{
 -   **`Sanitizer func(T) (T, error)`**: An optional function that runs *after* the request data `T` is successfully decoded by the `Codec` but *before* the `GenericHandler` is called. It receives the decoded data (`T`) and can return a modified version of it (`T`). If it returns a non-nil error, the request processing stops, and a `400 Bad Request` (or the error specified if it's an `HTTPError`) is returned. If it returns the modified (or original) data and a nil error, that data is passed to the `GenericHandler`.
 -   **`DisableTimeout bool`**: Disables the effective (global, sub-router, or route override) timeout for this route. Useful for long-lived generic endpoints such as streaming responses that still benefit from typed request/response handling.
 -   **`Codec[T, U]`**: An interface responsible for decoding the request (`T`) and encoding the response (`U`). See [Custom Codecs](./codecs.md).
--   **`NewGenericRouteDefinition`**: The **recommended** helper function used within `SubRouterConfig.Routes` to wrap a `RouteConfig[T, U]` for declarative registration, ensuring proper application of sub-router settings.
--   **`RegisterGenericRoute`**: An internal function called by `NewGenericRouteDefinition`. Direct use is discouraged.
+-   **`RouteDefinition`**: The sealed heterogeneous route interface implemented directly by `RouteConfigBase` and every `RouteConfig[Req, Resp]`.
+-   **`RegisterRoute`**: Registers either a standard or typed generic route on the root router.
+-   **`RegisterRouteOnSubRouter`**: The equivalent method for dynamic registration on a configured sub-router.
 
 ## Source Types
 

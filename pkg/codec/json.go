@@ -26,7 +26,7 @@ func (c *JSONCodec[T, U]) NewRequest() T {
 // along with the zero value of T.
 func (c *JSONCodec[T, U]) Decode(r *http.Request) (T, error) {
 	data := c.NewRequest() // Use NewRequest to get an instance
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	// We need to unmarshal into a pointer for JSON, even if T is not a pointer type itself.
 	// If T is already a pointer, &data will be **Type, which json.UnmarshalRead handles.

@@ -25,7 +25,7 @@ type User struct {
 // Handler for routes with no authentication
 func noAuthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"This route does not require authentication"}`))
+	_, _ = w.Write([]byte(`{"message":"This route does not require authentication"}`))
 }
 
 // Handler for routes with optional authentication
@@ -36,10 +36,10 @@ func optionalAuthHandler(w http.ResponseWriter, r *http.Request) {
 	user, ok := scontext.GetUserFromRequest[*User, User](r) // Use scontext
 	if ok && user != nil {
 		// User is authenticated
-		fmt.Fprintf(w, `{"message":"Hello, %s! This route has optional authentication", "authenticated":true}`, user.Name)
+		_, _ = fmt.Fprintf(w, `{"message":"Hello, %s! This route has optional authentication", "authenticated":true}`, user.Name)
 	} else {
 		// User is not authenticated
-		w.Write([]byte(`{"message":"This route has optional authentication", "authenticated":false}`))
+		_, _ = w.Write([]byte(`{"message":"This route has optional authentication", "authenticated":false}`))
 	}
 }
 
@@ -56,14 +56,14 @@ func requiredAuthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// User is authenticated
-	fmt.Fprintf(w, `{"message":"Hello, %s! This route requires authentication", "user_id":"%s", "email":"%s"}`,
+	_, _ = fmt.Fprintf(w, `{"message":"Hello, %s! This route requires authentication", "user_id":"%s", "email":"%s"}`,
 		user.Name, user.ID, user.Email)
 }
 
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Mock user database
 	users := map[string]User{

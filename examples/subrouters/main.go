@@ -17,67 +17,67 @@ import (
 // API version 1 handlers
 func v1GetUsersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"version":"v1","users":[{"id":1,"name":"John"},{"id":2,"name":"Jane"}]}`))
+	_, _ = w.Write([]byte(`{"version":"v1","users":[{"id":1,"name":"John"},{"id":2,"name":"Jane"}]}`))
 }
 
 func v1GetUserHandler(w http.ResponseWriter, r *http.Request) {
 	id := router.GetParam(r, "id")
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(fmt.Sprintf(`{"version":"v1","user":{"id":%s,"name":"User %s"}}`, id, id)))
+	_, _ = fmt.Fprintf(w, `{"version":"v1","user":{"id":%s,"name":"User %s"}}`, id, id)
 }
 
 func v1CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"version":"v1","message":"User created","user":{"id":3,"name":"New User"}}`))
+	_, _ = w.Write([]byte(`{"version":"v1","message":"User created","user":{"id":3,"name":"New User"}}`))
 }
 
 // API version 2 handlers
 func v2GetUsersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"version":"v2","data":{"users":[{"id":1,"name":"John","email":"john@example.com"},{"id":2,"name":"Jane","email":"jane@example.com"}]}}`))
+	_, _ = w.Write([]byte(`{"version":"v2","data":{"users":[{"id":1,"name":"John","email":"john@example.com"},{"id":2,"name":"Jane","email":"jane@example.com"}]}}`))
 }
 
 func v2GetUserHandler(w http.ResponseWriter, r *http.Request) {
 	id := router.GetParam(r, "id")
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(fmt.Sprintf(`{"version":"v2","data":{"user":{"id":%s,"name":"User %s","email":"user%s@example.com"}}}`, id, id, id)))
+	_, _ = fmt.Fprintf(w, `{"version":"v2","data":{"user":{"id":%s,"name":"User %s","email":"user%s@example.com"}}}`, id, id, id)
 }
 
 func v2CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"version":"v2","data":{"message":"User created","user":{"id":3,"name":"New User","email":"newuser@example.com"}}}`))
+	_, _ = w.Write([]byte(`{"version":"v2","data":{"message":"User created","user":{"id":3,"name":"New User","email":"newuser@example.com"}}}`))
 }
 
 // Admin handlers
 func adminDashboardHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"Admin Dashboard"}`))
+	_, _ = w.Write([]byte(`{"message":"Admin Dashboard"}`))
 }
 
 func adminUsersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"Admin Users"}`))
+	_, _ = w.Write([]byte(`{"message":"Admin Users"}`))
 }
 
 func adminSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"Admin Settings"}`))
+	_, _ = w.Write([]byte(`{"message":"Admin Settings"}`))
 }
 
 // Public handlers
 func homeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"Welcome to the home page"}`))
+	_, _ = w.Write([]byte(`{"message":"Welcome to the home page"}`))
 }
 
 func aboutHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"About us"}`))
+	_, _ = w.Write([]byte(`{"message":"About us"}`))
 }
 
 func contactHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"Contact us"}`))
+	_, _ = w.Write([]byte(`{"message":"Contact us"}`))
 }
 
 // Slow handler for demonstrating timeouts
@@ -85,7 +85,7 @@ func slowHandler(w http.ResponseWriter, r *http.Request) {
 	// Simulate a slow operation
 	time.Sleep(3 * time.Second)
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"message":"This is a slow response"}`))
+	_, _ = w.Write([]byte(`{"message":"This is a slow response"}`))
 }
 
 // Large response handler for demonstrating body size limits
@@ -100,7 +100,7 @@ func largeResponseHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	response.WriteString(`"}`)
 
-	w.Write([]byte(response.String()))
+	_, _ = w.Write([]byte(response.String()))
 }
 
 // Version middleware adds a version header
@@ -131,7 +131,7 @@ func AdminAuthMiddleware() common.Middleware {
 func main() {
 	// Create a logger
 	logger, _ := zap.NewProduction()
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
 	// Create a router configuration with sub-routers
 	routerConfig := router.RouterConfig{

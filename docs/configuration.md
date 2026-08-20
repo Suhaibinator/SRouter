@@ -145,7 +145,7 @@ type SubRouterConfig struct {
         IsolateOverrides bool
 
         // Routes is a slice containing route definitions. Must contain RouteConfigBase
-        // or GenericRouteRegistrationFunc values.
+        // or typed RouteConfig[Req, Resp] values.
         Routes []RouteDefinition
 
         // Middlewares is a slice of middlewares applied only to routes within this

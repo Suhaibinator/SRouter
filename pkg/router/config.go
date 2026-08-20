@@ -146,25 +146,21 @@ type RouterConfig struct {
 	CORSConfig          *CORSConfig                       // CORS configuration (optional, if nil CORS is disabled)
 }
 
-// RouteDefinition is an interface that all route types must implement.
-// This allows SubRouterConfig.Routes to store both standard and generic routes in a type-safe manner.
-type RouteDefinition interface {
-	isRouteDefinition()
+// routeRuntime is the non-generic bridge between route definitions and a Router.
+// It keeps Router's user types out of RouteDefinition while preserving typed generic
+// request and response handling inside RouteConfig.
+type routeRuntime interface {
+	handleError(http.ResponseWriter, *http.Request, error, int, string)
+	recordHandlerError(*http.Request, error)
+	warnMissingSanitizer(string, []HttpMethod)
 }
 
-// GenericRouteRegistrationFunc defines the function signature for registering a generic route declaratively.
-// This function is stored in SubRouterConfig.Routes and called during router initialization.
-// It receives the router instance and the SubRouterConfig it belongs to, allowing it to:
-// - Calculate effective settings based on sub-router configuration
-// - Apply the sub-router's path prefix
-// - Combine middlewares appropriately
-// - Register the route with all settings applied
-//
-// This type is used internally by NewGenericRouteDefinition.
-type GenericRouteRegistrationFunc[T comparable, U any] func(r *Router[T, U], sr SubRouterConfig)
-
-// Implement RouteDefinition for GenericRouteRegistrationFunc
-func (GenericRouteRegistrationFunc[T, U]) isRouteDefinition() {}
+// RouteDefinition is implemented by both RouteConfigBase and every
+// RouteConfig[Req, Resp] instantiation. The unexported method intentionally
+// seals the interface to route definitions provided by this package.
+type RouteDefinition interface {
+	baseConfig(routeRuntime, string) RouteConfigBase
+}
 
 // SubRouterConfig defines configuration for a group of routes with a common path prefix.
 // This allows for organizing routes into logical groups and applying shared configuration.
@@ -179,7 +175,7 @@ type SubRouterConfig struct {
 	PathPrefix       string                // Common path prefix for all routes in this sub-router
 	Overrides        common.RouteOverrides // Configuration overrides for routes in this sub-router
 	IsolateOverrides bool                  // If true, nested override inheritance starts fresh at this sub-router
-	Routes           []RouteDefinition     // Routes in this sub-router. Can contain RouteConfigBase or GenericRouteRegistrationFunc
+	Routes           []RouteDefinition     // Standard and typed generic routes in this sub-router
 	Middlewares      []common.Middleware   // Middlewares applied to all routes in this sub-router (additive with global middlewares)
 	// SubRouters is a slice of nested sub-routers.
 	// Nested sub-routers inherit the parent's path prefix (concatenated) and configuration overrides
@@ -206,8 +202,9 @@ type RouteConfigBase struct {
 	DisableTimeout bool                  // Indicates if the timeout should be disabled for this route (e.g., for WebSockets or long-lived connections).
 }
 
-// Implement RouteDefinition for RouteConfigBase
-func (RouteConfigBase) isRouteDefinition() {}
+func (route RouteConfigBase) baseConfig(routeRuntime, string) RouteConfigBase {
+	return route
+}
 
 // RouteConfig defines a route with generic request and response types.
 // It provides type-safe request/response handling with automatic marshaling/unmarshaling.
@@ -218,7 +215,7 @@ func (RouteConfigBase) isRouteDefinition() {}
 // - Sub-router settings override global settings
 // - Middlewares are additive (not replaced)
 //
-// Use NewGenericRouteDefinition to register these routes within SubRouterConfig.Routes.
+// RouteConfig values can be placed directly in SubRouterConfig.Routes.
 type RouteConfig[T any, U any] struct {
 	Path           string                // Route path (will be prefixed with sub-router path prefix if applicable)
 	Methods        []HttpMethod          // HTTP methods this route handles (use constants like MethodGet)
@@ -237,6 +234,6 @@ type RouteConfig[T any, U any] struct {
 // It takes an http.Request and a typed request data object, and returns a typed response
 // object and an error. This allows for strongly-typed request and response handling.
 // The type parameters T and U represent the request and response data types respectively.
-// When used with RegisterGenericRoute, the framework automatically handles decoding the
+// When used with RegisterRoute, the framework automatically handles decoding the
 // request and encoding the response using the specified Codec.
 type GenericHandler[T any, U any] func(r *http.Request, data T) (U, error)
