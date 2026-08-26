@@ -154,10 +154,9 @@ func main() {
 			middleware.Recovery(logger),       // Use variable
 			DetailedLoggingMiddleware(logger), // Log detailed request/response info
 			// CORS middleware removed, handled by RouterConfig.CORSConfig now
-			HeadersMiddleware(customHeaders),    // Add custom headers
-			RequestIDMiddleware(),               // Add request ID
-			middleware.Timeout(1 * time.Second), // Use variable
-			middleware.MaxBodySize(1 << 20),     // Use variable
+			HeadersMiddleware(customHeaders), // Add custom headers
+			RequestIDMiddleware(),            // Add request ID
+			middleware.MaxBodySize(1 << 20),  // Use variable
 		},
 	}
 

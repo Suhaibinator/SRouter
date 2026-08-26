@@ -1,16 +1,12 @@
 // Package middleware provides a collection of HTTP middleware components for the SRouter framework.
 // These middleware components can be used to add functionality such as logging, recovery from panics,
-// authentication, request timeouts, and more to your HTTP handlers.
+// authentication, and more to your HTTP handlers.
 package middleware
 
 import (
-	"context"
 	"net/http"
 	"runtime/debug"
 	"slices"
-	"sync"
-	"sync/atomic"
-	"time"
 
 	"go.uber.org/zap"
 )
@@ -74,124 +70,6 @@ func maxBodySize(maxSize int64) Middleware {
 			// Call the next handler
 			next.ServeHTTP(w, r)
 		})
-	}
-}
-
-// Timeout is a middleware that sets a timeout for the request processing.
-// If the handler takes longer than the specified timeout to respond,
-// the middleware will cancel the request context and return a 408 Request Timeout response,
-// but only if the handler has not already started writing a response.
-// Once the timeout fires, any further handler writes are rejected with
-// http.ErrHandlerTimeout instead of racing with the timeout response.
-// This prevents long-running requests from blocking server resources indefinitely.
-func timeout(timeout time.Duration) Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Create a context with a timeout
-			ctx, cancel := context.WithTimeout(r.Context(), timeout)
-			defer cancel()
-
-			// Create a new request with the timeout context
-			r = r.WithContext(ctx)
-
-			// Create a mutex to protect access to the response writer
-			var wMutex sync.Mutex
-
-			// Create a wrapped response writer that uses the mutex
-			wrappedW := &mutexResponseWriter{
-				ResponseWriter: w,
-				mu:             &wMutex,
-			}
-
-			// Use a channel to signal when the handler is done
-			done := make(chan struct{})
-			go func() {
-				next.ServeHTTP(wrappedW, r)
-				close(done)
-			}()
-
-			select {
-			case <-done:
-				// Handler finished normally
-				return
-			case <-ctx.Done():
-				// Timeout occurred. If the handler already started writing
-				// (or claims the response concurrently with the timeout),
-				// don't write a second response on top of it.
-				if wrappedW.wroteHeader.Load() || !wrappedW.markTimedOut() {
-					return
-				}
-
-				// Serialize with any handler write currently in progress.
-				wMutex.Lock()
-				http.Error(w, "Request Timeout", http.StatusRequestTimeout)
-				wMutex.Unlock()
-				return
-			}
-		})
-	}
-}
-
-// mutexResponseWriter is a wrapper around http.ResponseWriter that uses a mutex to protect access
-// and tracks whether the response has been started. Once timedOut is set, all writes are rejected
-// so a late handler can never touch the underlying writer after the timeout response was sent.
-type mutexResponseWriter struct {
-	http.ResponseWriter
-	mu          *sync.Mutex
-	wroteHeader atomic.Bool // Tracks if WriteHeader or Write has been called
-	timedOut    atomic.Bool // When true, reject all writes to the underlying writer
-}
-
-// markTimedOut transitions the writer into the timed-out state, rejecting all
-// further handler writes, and attempts to claim the response for the timeout
-// handler. It returns false if a handler write claimed the response first (in
-// the window between the caller's last check and this transition), in which
-// case the timeout response must be suppressed.
-func (rw *mutexResponseWriter) markTimedOut() bool {
-	rw.timedOut.Store(true)
-	return rw.wroteHeader.CompareAndSwap(false, true)
-}
-
-// WriteHeader acquires the mutex and calls the underlying ResponseWriter.WriteHeader.
-// This ensures thread-safety when setting the status code from multiple goroutines.
-func (rw *mutexResponseWriter) WriteHeader(statusCode int) {
-	if rw.timedOut.Load() {
-		return
-	}
-	rw.mu.Lock()
-	defer rw.mu.Unlock()
-	if !rw.wroteHeader.Swap(true) {
-		rw.ResponseWriter.WriteHeader(statusCode)
-	}
-}
-
-// Write acquires the mutex and calls the underlying ResponseWriter.Write.
-// This ensures thread-safety when writing the response body from multiple goroutines.
-func (rw *mutexResponseWriter) Write(b []byte) (int, error) {
-	if rw.timedOut.Load() {
-		return 0, http.ErrHandlerTimeout
-	}
-	rw.mu.Lock()
-	defer rw.mu.Unlock()
-	// Re-check under the lock: the timeout response may have been written
-	// while this write was waiting for the mutex.
-	if rw.timedOut.Load() {
-		return 0, http.ErrHandlerTimeout
-	}
-	rw.wroteHeader.Store(true)
-	return rw.ResponseWriter.Write(b)
-}
-
-// Flush acquires the mutex and calls the underlying ResponseWriter.Flush if it implements http.Flusher.
-// This ensures thread-safety when flushing the response from multiple goroutines.
-func (rw *mutexResponseWriter) Flush() {
-	if rw.timedOut.Load() {
-		return
-	}
-	rw.mu.Lock()
-	defer rw.mu.Unlock()
-	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
 	}
 }
 
