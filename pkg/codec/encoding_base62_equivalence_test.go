@@ -114,6 +114,9 @@ func TestDecodeBase62MatchesReference(t *testing.T) {
 		"héllo",
 		strings.Repeat("z", 64) + "!",
 		"日本語",
+		strings.Repeat("z", base62DecodeLeafDigits),
+		strings.Repeat("z", base62DecodeLeafDigits+1),
+		"000" + strings.Repeat("z", 2*base62DecodeLeafDigits+1),
 	}
 
 	rng := rand.New(rand.NewSource(1))
@@ -193,21 +196,37 @@ func TestEncodeBase62MatchesReference(t *testing.T) {
 	}
 }
 
-// TestDecodeBase62LargeInputIsFast guards the fix for the quadratic decode:
-// a 1 MiB value (the most Go's default MaxHeaderBytes admits) previously took
-// roughly 15 seconds. Threshold is deliberately loose to stay stable on slow CI.
-func TestDecodeBase62LargeInputIsFast(t *testing.T) {
+// TestDecodeBase62LargeInputScalesSubquadratically guards against returning to
+// a growing-integer multiply for every digit. Comparing two input sizes keeps
+// the assertion independent of the absolute speed of the test machine.
+func TestDecodeBase62LargeInputScalesSubquadratically(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping timing test in short mode")
+		t.Skip("skipping scaling test in short mode")
 	}
 
-	input := strings.Repeat("z", 1<<20)
-	start := time.Now()
-	if _, err := DecodeBase62(input); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	fastestDecode := func(size int) time.Duration {
+		t.Helper()
+		best := time.Duration(1<<63 - 1)
+		input := strings.Repeat("z", size)
+		for range 3 {
+			start := time.Now()
+			if _, err := DecodeBase62(input); err != nil {
+				t.Fatalf("decoding %d bytes: %v", size, err)
+			}
+			best = min(best, time.Since(start))
+		}
+		return best
 	}
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Errorf("decoding 1 MiB took %v; quadratic behaviour may have returned", elapsed)
+
+	const smallSize = 1 << 18
+	smallDuration := fastestDecode(smallSize)
+	largeDuration := fastestDecode(4 * smallSize)
+
+	// Four times the input costs roughly sixteen times as much with the old
+	// quadratic conversion. Allow substantial headroom for scheduler and GC
+	// noise while still distinguishing the balanced conversion.
+	if largeDuration > 10*smallDuration {
+		t.Errorf("decode time grew from %v to %v for 4x input; want less than 10x growth", smallDuration, largeDuration)
 	}
 }
 

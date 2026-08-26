@@ -12,6 +12,10 @@ import (
 // '0'-'9' are 0-9, 'A'-'Z' are 10-35, and 'a'-'z' are 36-61.
 const base62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
+// base62DecodeLeafDigits bounds the quadratic work done by math/big.SetString.
+// Larger values are assembled from leaves with a balanced multiplication tree.
+const base62DecodeLeafDigits = 256
+
 // swapASCIICase maps between this package's base62 alphabet and the one
 // math/big uses for bases above 36.
 //
@@ -29,6 +33,61 @@ func swapASCIICase(s []byte) {
 			s[i] = c - ('a' - 'A')
 		}
 	}
+}
+
+// decodeBase62Digits converts digits written in math/big's base-62 alphabet.
+// math/big.SetString parses non-power-of-two bases by repeatedly multiplying a
+// growing integer, which is quadratic for large inputs. Keep that work inside
+// fixed-size leaves, then concatenate the leaves with a balanced tree:
+//
+//	left || right = left*62^len(right) + right
+//
+// The powers are shared by digit length so each tree level computes them once.
+func decodeBase62Digits(digits []byte) (*big.Int, bool) {
+	base := big.NewInt(62)
+	powers := map[int]*big.Int{
+		0: big.NewInt(1),
+		1: base,
+	}
+
+	var power func(int) *big.Int
+	power = func(n int) *big.Int {
+		if p, ok := powers[n]; ok {
+			return p
+		}
+
+		half := power(n / 2)
+		p := new(big.Int).Mul(half, half)
+		if n%2 != 0 {
+			p.Mul(p, base)
+		}
+		powers[n] = p
+		return p
+	}
+
+	var decode func([]byte) (*big.Int, bool)
+	decode = func(part []byte) (*big.Int, bool) {
+		if len(part) <= base62DecodeLeafDigits {
+			value, ok := new(big.Int).SetString(string(part), 62)
+			return value, ok
+		}
+
+		mid := len(part) / 2
+		left, ok := decode(part[:mid])
+		if !ok {
+			return nil, false
+		}
+		right, ok := decode(part[mid:])
+		if !ok {
+			return nil, false
+		}
+
+		left.Mul(left, power(len(part)-mid))
+		left.Add(left, right)
+		return left, true
+	}
+
+	return decode(digits)
 }
 
 // DecodeBase64 decodes a base64-encoded string to bytes.
@@ -86,27 +145,28 @@ func DecodeBase62(s string) ([]byte, error) {
 			return nil, fmt.Errorf("invalid base62 character: %q", r)
 		}
 	}
-	swapASCIICase(digits)
-
-	// SetString uses a divide-and-conquer conversion for long inputs, which
-	// avoids the quadratic cost of multiplying a growing big.Int once per
-	// digit. Every byte is known valid, so this cannot fail.
-	var result big.Int
-	if _, ok := result.SetString(string(digits), 62); !ok {
-		return nil, fmt.Errorf("invalid base62 string")
-	}
-
 	// Count leading '0' characters: each one encodes a leading zero byte that
 	// the big.Int representation cannot carry.
 	leadingZeros := 0
-	for _, c := range s {
+	for _, c := range digits {
 		if c != '0' {
 			break
 		}
 		leadingZeros++
 	}
 
-	decoded := result.Bytes()
+	var decoded []byte
+	if leadingZeros < len(digits) {
+		digits = digits[leadingZeros:]
+		swapASCIICase(digits)
+
+		result, ok := decodeBase62Digits(digits)
+		if !ok {
+			return nil, fmt.Errorf("invalid base62 string")
+		}
+		decoded = result.Bytes()
+	}
+
 	if leadingZeros > 0 {
 		withZeros := make([]byte, leadingZeros+len(decoded))
 		copy(withZeros[leadingZeros:], decoded)
