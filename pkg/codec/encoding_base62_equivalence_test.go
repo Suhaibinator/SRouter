@@ -150,6 +150,51 @@ func TestDecodeBase62MatchesReference(t *testing.T) {
 	}
 }
 
+func TestDecodeBase62DigitsRejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "leaf",
+			input: "!",
+		},
+		{
+			name:  "left subtree",
+			input: "!" + strings.Repeat("z", base62DecodeLeafDigits),
+		},
+		{
+			name:  "right subtree",
+			input: strings.Repeat("z", base62DecodeLeafDigits) + "!",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value, ok := decodeBase62Digits([]byte(tt.input))
+			if ok {
+				t.Fatal("expected invalid input to be rejected")
+			}
+			if value != nil {
+				t.Fatalf("value = %v, want nil", value)
+			}
+		})
+	}
+}
+
+func TestDecodeBase62MagnitudeRejectsInvalidString(t *testing.T) {
+	decoded, err := decodeBase62Magnitude([]byte("!"))
+	if err == nil {
+		t.Fatal("expected invalid input to return an error")
+	}
+	if err.Error() != "invalid base62 string" {
+		t.Fatalf("error = %q, want %q", err, "invalid base62 string")
+	}
+	if decoded != nil {
+		t.Fatalf("decoded = %x, want nil", decoded)
+	}
+}
+
 func TestEncodeBase62MatchesReference(t *testing.T) {
 	cases := [][]byte{
 		nil,

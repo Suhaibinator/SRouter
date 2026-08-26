@@ -90,6 +90,14 @@ func decodeBase62Digits(digits []byte) (*big.Int, bool) {
 	return decode(digits)
 }
 
+func decodeBase62Magnitude(digits []byte) ([]byte, error) {
+	result, ok := decodeBase62Digits(digits)
+	if !ok {
+		return nil, fmt.Errorf("invalid base62 string")
+	}
+	return result.Bytes(), nil
+}
+
 // DecodeBase64 decodes a base64-encoded string to bytes.
 // It uses the standard base64 encoding as defined in RFC 4648.
 // This function is used by the router when processing requests with Base64QueryParameter
@@ -160,11 +168,11 @@ func DecodeBase62(s string) ([]byte, error) {
 		digits = digits[leadingZeros:]
 		swapASCIICase(digits)
 
-		result, ok := decodeBase62Digits(digits)
-		if !ok {
-			return nil, fmt.Errorf("invalid base62 string")
+		var err error
+		decoded, err = decodeBase62Magnitude(digits)
+		if err != nil {
+			return nil, err
 		}
-		decoded = result.Bytes()
 	}
 
 	if leadingZeros > 0 {
