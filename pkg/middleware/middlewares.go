@@ -15,7 +15,6 @@ var (
 	// From middleware.go
 	Recovery    = recovery
 	MaxBodySize = maxBodySize
-	Timeout     = timeout
 )
 
 // Note: Generic middleware constructors (Authentication*, New*Middleware, RateLimit, etc.)

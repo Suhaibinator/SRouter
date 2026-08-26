@@ -35,6 +35,11 @@ type Codec[T any, U any] interface {
 
 ```
 
+> **Body-size safety:** Every route whose `SourceType` is `Body` (the default)
+> must inherit or set a positive `MaxBodySize`. The built-in JSON and protobuf
+> codecs rely on this router boundary while consuming the request stream. A
+> timeout does not cap the number of bytes read.
+
 ## Built-in Codecs
 
 SRouter typically provides codecs for common formats in the `pkg/codec` package:
@@ -65,6 +70,7 @@ route := router.RouteConfig[MyRequest, MyResponse]{
     // ... Path, Methods, Handler ...
     Codec: jsonCodec,
 }
+r.MaxBodySize(1 << 20).Route(route) // 1 MiB
 ```
 
 ### `codec.ProtoCodec`
@@ -89,6 +95,7 @@ route := router.RouteConfig[*pb.MyRequestProto, *pb.MyResponseProto]{
     // ... Path, Methods, Handler ...
     Codec: protoCodec,
 }
+r.MaxBodySize(1 << 20).Route(route) // 1 MiB
 ```
 
 ## Creating Custom Codecs
@@ -100,6 +107,7 @@ package customcodec
 
 import (
         "encoding/xml"
+        "fmt"
         "io"
         "net/http"
         "github.com/Suhaibinator/SRouter/pkg/codec"  // For Codec interface
@@ -139,7 +147,8 @@ func (c *XMLCodec[T, U]) Decode(r *http.Request) (T, error) {
 
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		return data, router.NewHTTPError(http.StatusInternalServerError, "Failed to read request body")
+		// Preserve *http.MaxBytesError so SRouter can return HTTP 413.
+		return data, fmt.Errorf("read XML request body: %w", err)
 	}
 	defer r.Body.Close()
 
@@ -186,11 +195,20 @@ func (c *XMLCodec[T, U]) Encode(w http.ResponseWriter, resp U) error {
 // --- Usage ---
 // xmlCodec := customcodec.NewXMLCodec[customcodec.MyXMLRequest, customcodec.MyXMLResponse]()
 // route := router.RouteConfig[customcodec.MyXMLRequest, customcodec.MyXMLResponse]{
-//     // ...
-//     Codec: xmlCodec,
-//     // ...
+//     Path:      "/xml",
+//     Methods:   []router.HttpMethod{router.MethodPost},
+//     Codec:     xmlCodec,
+//     // Handler: ...
 // }
+// r.MaxBodySize(1 << 20).Route(route) // 1 MiB
 ```
+
+Whole-body codecs such as this one must run behind a positive effective
+`MaxBodySize` so `http.MaxBytesReader` rejects oversized input before `io.ReadAll`
+can allocate it. Set the limit globally, on the containing group, or in the route
+override as shown above. A request timeout does not replace this byte limit. If a
+codec can be called outside SRouter, add an equivalent limit inside that codec or
+use a streaming decoder.
 
 Remember to handle errors appropriately within your codec methods, potentially returning `router.HTTPError` for client-side issues (like bad input formatting) or standard errors for server-side issues (which SRouter will likely turn into a 500 response).
 

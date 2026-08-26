@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         go-version: ['1.27']
@@ -18,10 +18,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v7
       with:
         go-version: ${{ matrix.go-version }}
         cache: true
@@ -32,20 +32,28 @@ jobs:
     - name: Verify dependencies
       run: go mod verify
     - name: Run tests
-      run: go test -v -race -coverpkg=github.com/Suhaibinator/SRouter/pkg/codec,github.com/Suhaibinator/SRouter/pkg/common,github.com/Suhaibinator/SRouter/pkg/metrics,github.com/Suhaibinator/SRouter/pkg/metrics/prometheus,github.com/Suhaibinator/SRouter/pkg/middleware,github.com/Suhaibinator/SRouter/pkg/router -coverprofile=coverage.txt -covermode=atomic ./pkg/...
+      shell: bash
+      run: |
+        go test -v -race \
+          -coverpkg="github.com/Suhaibinator/SRouter/pkg/codec,github.com/Suhaibinator/SRouter/pkg/common,github.com/Suhaibinator/SRouter/pkg/metrics,github.com/Suhaibinator/SRouter/pkg/metrics/prometheus,github.com/Suhaibinator/SRouter/pkg/middleware,github.com/Suhaibinator/SRouter/pkg/router" \
+          -coverprofile=coverage.txt \
+          -covermode=atomic \
+          ./pkg/...
 
     - name: Check coverage
+      shell: bash
       run: |
         go tool cover -func=coverage.txt
         COVERAGE=$(go tool cover -func=coverage.txt | grep total | awk '{print $3}' | tr -d '%')
-        if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+        COVERAGE_WHOLE=${COVERAGE%%.*}
+        if (( COVERAGE_WHOLE < 80 )); then
           echo "Code coverage is below 80%: $COVERAGE%"
           exit 1
         fi
         echo "Code coverage is $COVERAGE%"
 
     - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v5
+      uses: codecov/codecov-action@v7
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: false
@@ -55,10 +63,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v7
       with:
         go-version: '1.27.0'
         cache: true
@@ -71,7 +79,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         go-version: ['1.27.0']
@@ -79,10 +87,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v7
       with:
         go-version: ${{ matrix.go-version }}
         cache: true
@@ -95,10 +103,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v7
       with:
         go-version: '1.27.0'
         cache: true
@@ -111,10 +119,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v7
       with:
         go-version: '1.27.0'
         cache: true

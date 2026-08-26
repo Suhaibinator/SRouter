@@ -1,15 +1,12 @@
 package middleware
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -161,162 +158,6 @@ func TestMaxBodySize(t *testing.T) {
 	wrappedHandler.ServeHTTP(rec, req)
 
 	// Check that the response status code is 200
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, rec.Code)
-	}
-}
-
-// mockResponseWriter is a mock http.ResponseWriter that implements http.Flusher
-type mockResponseWriter struct {
-	http.ResponseWriter
-	flushed bool
-}
-
-func (m *mockResponseWriter) Flush() {
-	m.flushed = true
-}
-
-// TestMutexResponseWriter_Write tests the Write method of mutexResponseWriter
-func TestMutexResponseWriter_Write(t *testing.T) {
-	// Create a mock response writer
-	rec := httptest.NewRecorder()
-
-	// Create a mutex
-	mu := &sync.Mutex{}
-
-	// Create a mutexResponseWriter
-	mrw := &mutexResponseWriter{
-		ResponseWriter: rec,
-		mu:             mu,
-	}
-
-	// Write some data
-	data := []byte("test data")
-	n, err := mrw.Write(data)
-
-	// Check that the write was successful
-	if err != nil {
-		t.Errorf("Expected no error, got %v", err)
-	}
-	if n != len(data) {
-		t.Errorf("Expected to write %d bytes, wrote %d", len(data), n)
-	}
-	if rec.Body.String() != "test data" {
-		t.Errorf("Expected body to be 'test data', got '%s'", rec.Body.String())
-	}
-}
-
-// TestMutexResponseWriter_Flush tests the Flush method of mutexResponseWriter
-func TestMutexResponseWriter_Flush(t *testing.T) {
-	// Create a mock response writer that implements http.Flusher
-	rec := &mockResponseWriter{
-		ResponseWriter: httptest.NewRecorder(),
-	}
-
-	// Create a mutex
-	mu := &sync.Mutex{}
-
-	// Create a mutexResponseWriter
-	mrw := &mutexResponseWriter{
-		ResponseWriter: rec,
-		mu:             mu,
-	}
-
-	// Flush the response
-	mrw.Flush()
-
-	// Check that the flush was called
-	if !rec.flushed {
-		t.Error("Expected Flush to be called")
-	}
-}
-
-// mockErrorWriter is a mock http.ResponseWriter that returns an error on Write
-type mockErrorWriter struct {
-	http.ResponseWriter
-}
-
-func (m *mockErrorWriter) Write(p []byte) (int, error) {
-	return 0, errors.New("write error")
-}
-
-// TestMutexResponseWriter_WriteError tests the Write method of mutexResponseWriter with an error
-func TestMutexResponseWriter_WriteError(t *testing.T) {
-	// Create a mock response writer that returns an error on Write
-	rec := &mockErrorWriter{
-		ResponseWriter: httptest.NewRecorder(),
-	}
-
-	// Create a mutex
-	mu := &sync.Mutex{}
-
-	// Create a mutexResponseWriter
-	mrw := &mutexResponseWriter{
-		ResponseWriter: rec,
-		mu:             mu,
-	}
-
-	// Write some data
-	data := []byte("test data")
-	n, err := mrw.Write(data)
-
-	// Check that the write error was propagated
-	if err == nil {
-		t.Error("Expected an error, got nil")
-	}
-	if n != 0 {
-		t.Errorf("Expected to write 0 bytes, wrote %d", n)
-	}
-}
-
-// TestTimeout_ContextCancellation tests the Timeout middleware with a context cancellation
-func TestTimeout_ContextCancellation(t *testing.T) {
-	// Create a test handler that sleeps for 100ms
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-time.After(100 * time.Millisecond):
-			w.WriteHeader(http.StatusOK)
-		case <-r.Context().Done():
-			// Context was cancelled, do nothing
-		}
-	})
-
-	// Apply the Timeout middleware with a 50ms timeout
-	timeoutMiddleware := Timeout(50 * time.Millisecond) // Use the variable
-	wrappedHandler := timeoutMiddleware(handler)
-
-	// Create a test request
-	req := httptest.NewRequest("GET", "/test", nil)
-	rec := httptest.NewRecorder()
-
-	// Call the handler
-	wrappedHandler.ServeHTTP(rec, req)
-
-	// Check that the response status code is 408 (Request Timeout)
-	if rec.Code != http.StatusRequestTimeout {
-		t.Errorf("Expected status code %d, got %d", http.StatusRequestTimeout, rec.Code)
-	}
-}
-
-// TestTimeout_HandlerCompletes tests the Timeout middleware with a handler that completes before the timeout
-func TestTimeout_HandlerCompletes(t *testing.T) {
-	// Create a test handler that returns immediately
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	// Apply the Timeout middleware with a 1s timeout
-	timeoutMiddleware := Timeout(1 * time.Second) // Use the variable
-	wrappedHandler := timeoutMiddleware(handler)
-
-	// Create a test request
-	req := httptest.NewRequest("GET", "/test", nil)
-	rec := httptest.NewRecorder()
-
-	// Call the handler
-	wrappedHandler.ServeHTTP(rec, req)
-
-	// Check that the response status code is 200 (OK)
 	if rec.Code != http.StatusOK {
 		t.Errorf("Expected status code %d, got %d", http.StatusOK, rec.Code)
 	}

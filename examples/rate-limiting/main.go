@@ -165,8 +165,9 @@ func main() {
 
 	// Create a router configuration with global rate limiting
 	routerConfig := router.RouterConfig{
-		ServiceName: "rate-limit-service", // Added ServiceName
-		Logger:      logger,
+		ServiceName:       "rate-limit-service", // Added ServiceName
+		Logger:            logger,
+		GlobalMaxBodySize: 1 << 20, // 1 MiB; bound the login JSON body before decoding
 		// Global rate limit (applies to all routes)
 		GlobalRateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
 			BucketName: "global",

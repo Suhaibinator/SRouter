@@ -72,21 +72,18 @@ func HeadersMiddleware(headers map[string]string) common.Middleware {
 	}
 }
 
-// RateLimitMiddleware implements a simple rate limiter
-func RateLimitMiddleware(requestsPerSecond int) common.Middleware {
-	// Create a channel to control the rate
-	ticker := time.NewTicker(time.Second / time.Duration(requestsPerSecond))
-	defer ticker.Stop()
-
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Wait for a token from the ticker
-			<-ticker.C
-
-			// Call the next handler
-			next.ServeHTTP(w, r)
-		})
-	}
+// RateLimitMiddleware implements a simple, non-blocking rate limiter.
+func RateLimitMiddleware(requestsPerSecond int, logger *zap.Logger) common.Middleware {
+	return middleware.RateLimit(
+		&common.RateLimitConfig[string, string]{
+			BucketName: "middleware-example",
+			Limit:      requestsPerSecond,
+			Window:     time.Second,
+			Strategy:   common.StrategyIP,
+		},
+		middleware.NewUberRateLimiter(),
+		logger,
+	)
 }
 
 // LoggingResponseWriter is a wrapper around http.ResponseWriter that captures the status code
@@ -157,10 +154,9 @@ func main() {
 			middleware.Recovery(logger),       // Use variable
 			DetailedLoggingMiddleware(logger), // Log detailed request/response info
 			// CORS middleware removed, handled by RouterConfig.CORSConfig now
-			HeadersMiddleware(customHeaders),    // Add custom headers
-			RequestIDMiddleware(),               // Add request ID
-			middleware.Timeout(1 * time.Second), // Use variable
-			middleware.MaxBodySize(1 << 20),     // Use variable
+			HeadersMiddleware(customHeaders), // Add custom headers
+			RequestIDMiddleware(),            // Add request ID
+			middleware.MaxBodySize(1 << 20),  // Use variable
 		},
 	}
 
@@ -206,7 +202,7 @@ func main() {
 			},
 		)
 	r.Group("/rate-limited").
-		Use(RateLimitMiddleware(2)).
+		Use(RateLimitMiddleware(2, logger)).
 		Route(router.RouteConfigBase{
 			Path:    "/resource",
 			Methods: []router.HttpMethod{router.MethodGet},

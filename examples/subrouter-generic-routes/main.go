@@ -87,9 +87,10 @@ func main() {
 
 	// Create a router with string as both the user ID and user type
 	r := router.NewRouter(router.RouterConfig{
-		ServiceName:   "subrouter-generic-service", // Added ServiceName
-		Logger:        logger,
-		GlobalTimeout: 5 * time.Second,
+		ServiceName:       "subrouter-generic-service", // Added ServiceName
+		Logger:            logger,
+		GlobalTimeout:     5 * time.Second,
+		GlobalMaxBodySize: 1 << 20, // 1 MiB; applies to every grouped body route
 	}, authFunction, userIdFromUserFunction)
 
 	apiV1 := r.Group("/api/v1")

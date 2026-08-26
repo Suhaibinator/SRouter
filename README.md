@@ -988,7 +988,9 @@ xmlRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
 	Codec:     NewXMLCodec[CreateUserReq, CreateUserResp](),
 	Handler:   CreateUserHandler, // Assume handler exists
 }
-r.Route(xmlRoute)
+// Whole-body codecs must have a finite byte limit before io.ReadAll. This root
+// policy applies to xmlRoute; use a group or route override for a narrower limit.
+r.MaxBodySize(1 << 20).Route(xmlRoute) // 1 MiB
 ```
 
 ### Metrics
