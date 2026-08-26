@@ -35,7 +35,8 @@ func swapASCIICase(s []byte) {
 	}
 }
 
-// decodeBase62Digits converts digits written in math/big's base-62 alphabet.
+// decodeValidatedBase62Digits converts nonempty, prevalidated digits written
+// in math/big's base-62 alphabet.
 // math/big.SetString parses non-power-of-two bases by repeatedly multiplying a
 // growing integer, which is quadratic for large inputs. Keep that work inside
 // fixed-size leaves, then concatenate the leaves with a balanced tree:
@@ -43,7 +44,7 @@ func swapASCIICase(s []byte) {
 //	left || right = left*62^len(right) + right
 //
 // The powers are shared by digit length so each tree level computes them once.
-func decodeBase62Digits(digits []byte) (*big.Int, bool) {
+func decodeValidatedBase62Digits(digits []byte) *big.Int {
 	base := big.NewInt(62)
 	powers := map[int]*big.Int{
 		0: big.NewInt(1),
@@ -65,37 +66,25 @@ func decodeBase62Digits(digits []byte) (*big.Int, bool) {
 		return p
 	}
 
-	var decode func([]byte) (*big.Int, bool)
-	decode = func(part []byte) (*big.Int, bool) {
+	var decode func([]byte) *big.Int
+	decode = func(part []byte) *big.Int {
 		if len(part) <= base62DecodeLeafDigits {
-			value, ok := new(big.Int).SetString(string(part), 62)
-			return value, ok
+			// SetString cannot fail because DecodeBase62 validated and
+			// translated every digit before calling this helper.
+			value, _ := new(big.Int).SetString(string(part), 62)
+			return value
 		}
 
 		mid := len(part) / 2
-		left, ok := decode(part[:mid])
-		if !ok {
-			return nil, false
-		}
-		right, ok := decode(part[mid:])
-		if !ok {
-			return nil, false
-		}
+		left := decode(part[:mid])
+		right := decode(part[mid:])
 
 		left.Mul(left, power(len(part)-mid))
 		left.Add(left, right)
-		return left, true
+		return left
 	}
 
 	return decode(digits)
-}
-
-func decodeBase62Magnitude(digits []byte) ([]byte, error) {
-	result, ok := decodeBase62Digits(digits)
-	if !ok {
-		return nil, fmt.Errorf("invalid base62 string")
-	}
-	return result.Bytes(), nil
 }
 
 // DecodeBase64 decodes a base64-encoded string to bytes.
@@ -168,11 +157,7 @@ func DecodeBase62(s string) ([]byte, error) {
 		digits = digits[leadingZeros:]
 		swapASCIICase(digits)
 
-		var err error
-		decoded, err = decodeBase62Magnitude(digits)
-		if err != nil {
-			return nil, err
-		}
+		decoded = decodeValidatedBase62Digits(digits).Bytes()
 	}
 
 	if leadingZeros > 0 {
