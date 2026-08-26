@@ -60,8 +60,9 @@ func main() {
 	// Create a new router instance with default config and placeholder context functions
 	// Using [string, string] for UserID (T) and User (U) types.
 	r := router.NewRouter(router.RouterConfig{
-		ServiceName: "codec-service", // Added ServiceName
-		Logger:      logger,          // Added Logger
+		ServiceName:       "codec-service", // Added ServiceName
+		Logger:            logger,          // Added Logger
+		GlobalMaxBodySize: 1 << 20,         // 1 MiB; bound whole-body protobuf decoding
 	}, placeholderAuth, placeholderGetUserID)
 
 	// Instantiate the ProtoCodec (can be done once outside the handler if reused)

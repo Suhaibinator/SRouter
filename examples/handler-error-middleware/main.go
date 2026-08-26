@@ -96,7 +96,8 @@ func main() {
 	// Create router with basic configuration
 	r := router.NewRouter[string, any](
 		router.RouterConfig{
-			Logger: logger,
+			Logger:            logger,
+			GlobalMaxBodySize: 1 << 20, // 1 MiB; bound JSON decoding before middleware runs
 		},
 		// Simple auth functions for demo
 		func(ctx context.Context, userID string) (*any, bool) {
