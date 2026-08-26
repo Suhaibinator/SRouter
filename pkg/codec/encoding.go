@@ -79,7 +79,7 @@ func DecodeBase62(s string) ([]byte, error) {
 	// rather than after the arbitrary-precision conversion has already run.
 	digits := []byte(s)
 	for i, c := range digits {
-		if !(c >= '0' && c <= '9' || c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z') {
+		if (c < '0' || c > '9') && (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
 			// Report the whole rune, not the leading byte, so multi-byte input
 			// produces a readable error.
 			r, _ := utf8.DecodeRuneInString(s[i:])
