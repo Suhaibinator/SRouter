@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net/http" // Ensure net/http is imported
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
@@ -83,12 +85,79 @@ type ListUsersResponse struct {
 	Total int    `json:"total"`
 }
 
+// userStore protects the example's in-memory state because net/http may invoke
+// handlers concurrently.
+type userStore struct {
+	mu     sync.RWMutex
+	users  map[string]User
+	nextID uint64
+}
+
+func newUserStore(initial map[string]User, nextID uint64) *userStore {
+	users := make(map[string]User, len(initial))
+	for id, user := range initial {
+		users[id] = user
+	}
+	return &userStore{users: users, nextID: nextID}
+}
+
+func (s *userStore) create(name, email string) User {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	id := strconv.FormatUint(s.nextID, 10)
+	s.nextID++
+	user := User{ID: id, Name: name, Email: email}
+	s.users[id] = user
+	return user
+}
+
+func (s *userStore) get(id string) (User, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	user, ok := s.users[id]
+	return user, ok
+}
+
+func (s *userStore) update(id, name, email string) (User, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	user, ok := s.users[id]
+	if !ok {
+		return User{}, false
+	}
+	user.Name = name
+	user.Email = email
+	s.users[id] = user
+	return user, true
+}
+
+func (s *userStore) delete(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.users[id]; !ok {
+		return false
+	}
+	delete(s.users, id)
+	return true
+}
+
+func (s *userStore) list() []User {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	users := make([]User, 0, len(s.users))
+	for _, user := range s.users {
+		users = append(users, user)
+	}
+	return users
+}
+
 // In-memory user store
-var users = map[string]User{
+var users = newUserStore(map[string]User{
 	"1": {ID: "1", Name: "John Doe", Email: "john@example.com"},
 	"2": {ID: "2", Name: "Jane Smith", Email: "jane@example.com"},
 	"3": {ID: "3", Name: "Bob Johnson", Email: "bob@example.com"},
-}
+}, 4)
 
 // CreateUserHandler handles creating a user
 func CreateUserHandler(r *http.Request, req CreateUserRequest) (CreateUserResponse, error) {
@@ -100,18 +169,8 @@ func CreateUserHandler(r *http.Request, req CreateUserRequest) (CreateUserRespon
 		return CreateUserResponse{}, router.NewHTTPError(http.StatusBadRequest, "Email is required")
 	}
 
-	// Generate a new ID (in a real app, this would be done by the database)
-	id := fmt.Sprintf("%d", len(users)+1)
-
-	// Create the user
-	user := User{
-		ID:    id,
-		Name:  req.Name,
-		Email: req.Email,
-	}
-
-	// Store the user
-	users[id] = user
+	// Create the user (in a real app, this would be done by the database)
+	user := users.create(req.Name, req.Email)
 
 	// Return the response
 	return CreateUserResponse(user), nil
@@ -126,7 +185,7 @@ func GetUserHandler(r *http.Request, req GetUserRequest) (GetUserResponse, error
 	}
 
 	// Get the user
-	user, ok := users[id]
+	user, ok := users.get(id)
 	if !ok {
 		return GetUserResponse{}, router.NewHTTPError(http.StatusNotFound, "User not found")
 	}
@@ -151,16 +210,11 @@ func UpdateUserHandler(r *http.Request, req UpdateUserRequest) (UpdateUserRespon
 		return UpdateUserResponse{}, router.NewHTTPError(http.StatusBadRequest, "Email is required")
 	}
 
-	// Get the user
-	user, ok := users[id]
+	// Update the user
+	user, ok := users.update(id, req.Name, req.Email)
 	if !ok {
 		return UpdateUserResponse{}, router.NewHTTPError(http.StatusNotFound, "User not found")
 	}
-
-	// Update the user
-	user.Name = req.Name
-	user.Email = req.Email
-	users[id] = user
 
 	// Return the response
 	return UpdateUserResponse(user), nil
@@ -174,14 +228,10 @@ func DeleteUserHandler(r *http.Request, req DeleteUserRequest) (DeleteUserRespon
 		return DeleteUserResponse{}, router.NewHTTPError(http.StatusBadRequest, "User ID is required")
 	}
 
-	// Get the user
-	_, ok := users[id]
-	if !ok {
+	// Delete the user
+	if !users.delete(id) {
 		return DeleteUserResponse{}, router.NewHTTPError(http.StatusNotFound, "User not found")
 	}
-
-	// Delete the user
-	delete(users, id)
 
 	// Return the response
 	return DeleteUserResponse{
@@ -200,10 +250,7 @@ func ListUsersHandler(r *http.Request, req ListUsersRequest) (ListUsersResponse,
 	offset := max(req.Offset, 0)
 
 	// Get all users
-	var userList []User
-	for _, user := range users {
-		userList = append(userList, user)
-	}
+	userList := users.list()
 
 	// Apply pagination
 	total := len(userList)
