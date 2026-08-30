@@ -143,6 +143,30 @@ func TestWriteJSONError_MutexResponseWriter_LogsOnEncodeFailure(t *testing.T) {
 	}
 }
 
+func TestWriteJSONError_EncodeFailureGeneratesCorrelationTrace(t *testing.T) {
+	core, logs := observer.New(zap.ErrorLevel)
+	r := NewRouter(
+		RouterConfig{Logger: zap.New(core)},
+		mocks.MockAuthFunction,
+		mocks.MockUserIDFromUser,
+	)
+	req := httptest.NewRequest(http.MethodDelete, "http://example.com/widgets/42", nil)
+
+	r.writeJSONError(&errResponseWriter{}, req, http.StatusInternalServerError, "Internal Server Error", "")
+
+	entries := logs.AllUntimed()
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if traceID, ok := fields["trace_id"].(string); !ok || traceID == "" {
+		t.Errorf("trace_id = %#v, want generated non-empty string", fields["trace_id"])
+	}
+	if fields["method"] != http.MethodDelete || fields["path"] != "/widgets/42" {
+		t.Errorf("request context = %#v", fields)
+	}
+}
+
 func TestWriteJSONError_MutexResponseWriter_NoOpWhenHeaderAlreadyWritten(t *testing.T) {
 	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 

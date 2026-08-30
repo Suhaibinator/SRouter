@@ -11,6 +11,7 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks" // Use centralized mocks
 	"github.com/Suhaibinator/SRouter/pkg/scontext"              // Added scontext import
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 )
 
@@ -243,6 +244,48 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 	}
 	if rr.Body.String() != "OK" {
 		t.Errorf("Expected response body %q without Bearer prefix, got %q", "OK", rr.Body.String())
+	}
+}
+
+func TestAuthRequiredRejectionIsInfoWithBoundaryContext(t *testing.T) {
+	core, logs := observer.New(zap.DebugLevel)
+	r := NewRouter(RouterConfig{Logger: zap.New(core)}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	handler := r.authRequiredMiddlewareWithConfig(defaultAuthTokenConfig())(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("next handler called after authentication rejection")
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/private", nil)
+	req.RemoteAddr = "203.0.113.9:8080"
+	req = req.WithContext(scontext.WithTraceID[string, string](req.Context(), "router-auth-trace"))
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("response status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+	entries := logs.AllUntimed()
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %d, want exactly 1: %#v", len(entries), entries)
+	}
+	entry := entries[0]
+	if entry.Level != zapcore.InfoLevel || entry.Message != "Authentication failed" {
+		t.Errorf("log = (%s, %q), want (info, Authentication failed)", entry.Level, entry.Message)
+	}
+	fields := entry.ContextMap()
+	wants := map[string]any{
+		"method":      http.MethodGet,
+		"path":        "/private",
+		"remote_addr": "203.0.113.9:8080",
+		"status_code": int64(http.StatusUnauthorized),
+		"trace_id":    "router-auth-trace",
+	}
+	for key, want := range wants {
+		if got := fields[key]; got != want {
+			t.Errorf("%s = %#v, want %#v", key, got, want)
+		}
+	}
+	if reason, ok := fields["error"].(string); !ok || reason == "" {
+		t.Errorf("error reason = %#v, want non-empty string", fields["error"])
 	}
 }
 

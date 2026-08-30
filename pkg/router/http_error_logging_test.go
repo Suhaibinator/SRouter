@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks"
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -191,5 +192,135 @@ func TestHTTPErrorFieldSnapshotsAreIndependent(t *testing.T) {
 
 	if _, ok := withFields.LogLevel(); ok {
 		t.Fatal("WithLogLevel mutated its receiver")
+	}
+}
+
+func TestHTTPErrorConstructorsAccessorsAndNilBuilders(t *testing.T) {
+	plain := NewHTTPError(http.StatusTeapot, "short and stout")
+	if plain.StatusCode != http.StatusTeapot || plain.Message != "short and stout" {
+		t.Fatalf("NewHTTPError() = %#v", plain)
+	}
+	if got := plain.Error(); got != "418: short and stout" {
+		t.Fatalf("Error() = %q, want %q", got, "418: short and stout")
+	}
+	if plain.Cause() != nil || plain.Unwrap() != nil {
+		t.Fatal("plain HTTPError unexpectedly has a cause")
+	}
+	if fields := plain.Fields(); len(fields) != 0 {
+		t.Fatalf("plain HTTPError fields = %#v, want none", fields)
+	}
+	if level, ok := plain.LogLevel(); ok {
+		t.Fatalf("plain HTTPError log level = (%s, true), want no override", level)
+	}
+
+	cause := errors.New("storage unavailable")
+	caused := NewHTTPErrorWithCause(http.StatusServiceUnavailable, "try again later", cause)
+	if caused.StatusCode != http.StatusServiceUnavailable || caused.Message != "try again later" {
+		t.Fatalf("NewHTTPErrorWithCause() = %#v", caused)
+	}
+	if caused.Cause() != cause || caused.Unwrap() != cause || !errors.Is(caused, cause) {
+		t.Fatal("caused HTTPError did not retain its cause")
+	}
+
+	var nilErr *HTTPError
+	if got := nilErr.WithFields(zap.String("ignored", "value")); got != nil {
+		t.Fatalf("nil.WithFields() = %#v, want nil", got)
+	}
+	if got := nilErr.WithLogLevel(zapcore.WarnLevel); got != nil {
+		t.Fatalf("nil.WithLogLevel() = %#v, want nil", got)
+	}
+}
+
+func TestHTTPErrorSeverityOverrideTakesPrecedence(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       *HTTPError
+		wantLevel zapcore.Level
+	}{
+		{
+			name:      "client response promoted to invariant error",
+			err:       NewHTTPError(http.StatusBadRequest, "bad request").WithLogLevel(zapcore.ErrorLevel),
+			wantLevel: zapcore.ErrorLevel,
+		},
+		{
+			name:      "server response explicitly downgraded to warning",
+			err:       NewHTTPError(http.StatusServiceUnavailable, "temporarily unavailable").WithLogLevel(zapcore.WarnLevel),
+			wantLevel: zapcore.WarnLevel,
+		},
+		{
+			name: "deadline cause uses warning default",
+			err: NewHTTPErrorWithCause(
+				http.StatusGatewayTimeout,
+				"upstream timeout",
+				fmt.Errorf("upstream: %w", context.DeadlineExceeded),
+			),
+			wantLevel: zapcore.WarnLevel,
+		},
+		{
+			name: "cancellation cause uses debug default",
+			err: NewHTTPErrorWithCause(
+				http.StatusInternalServerError,
+				"request stopped",
+				fmt.Errorf("downstream: %w", context.Canceled),
+			),
+			wantLevel: zapcore.DebugLevel,
+		},
+		{
+			name: "override wins over cancellation default",
+			err: NewHTTPErrorWithCause(
+				http.StatusConflict,
+				"invariant response",
+				fmt.Errorf("downstream: %w", context.Canceled),
+			).WithLogLevel(zapcore.ErrorLevel),
+			wantLevel: zapcore.ErrorLevel,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, logs := observedErrorRouter()
+			req := httptest.NewRequest(http.MethodGet, "/severity", nil)
+			rr := httptest.NewRecorder()
+
+			r.handleError(rr, req, tt.err, http.StatusInternalServerError, "internal")
+
+			entries := logs.AllUntimed()
+			if len(entries) != 1 {
+				t.Fatalf("log entries = %d, want 1", len(entries))
+			}
+			if entries[0].Level != tt.wantLevel {
+				t.Errorf("log level = %s, want %s", entries[0].Level, tt.wantLevel)
+			}
+			if rr.Code != tt.err.StatusCode {
+				t.Errorf("response status = %d, want %d", rr.Code, tt.err.StatusCode)
+			}
+		})
+	}
+}
+
+func TestHandleErrorUsesExistingTraceAndReportsInvalidStatus(t *testing.T) {
+	r, logs := observedErrorRouter()
+	req := httptest.NewRequest(http.MethodPatch, "/invalid-status", nil)
+	req = req.WithContext(scontext.WithTraceID[string, string](req.Context(), "existing-trace"))
+	rr := httptest.NewRecorder()
+
+	r.handleError(rr, req, NewHTTPError(299, "must not escape"), http.StatusBadGateway, "gateway failure")
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("response status = %d, want %d", rr.Code, http.StatusInternalServerError)
+	}
+	if strings.Contains(rr.Body.String(), "must not escape") {
+		t.Fatalf("response disclosed invalid HTTPError message: %s", rr.Body.String())
+	}
+	entries := logs.AllUntimed()
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if fields["trace_id"] != "existing-trace" {
+		t.Errorf("trace_id = %#v, want existing trace", fields["trace_id"])
+	}
+	if fields["invalid_status_code"] != int64(299) {
+		t.Errorf("invalid_status_code = %#v, want 299", fields["invalid_status_code"])
 	}
 }
