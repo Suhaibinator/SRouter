@@ -342,15 +342,19 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 				// Get IP from context (must be set by router.ClientIPMiddleware)
 				ip, ipFound := scontext.GetClientIP[T, U](r.Context()) // Use scontext
 				if !ipFound || ip == "" {
+					key = r.RemoteAddr
 					logger.Error("Client IP not found in context for StrategyIP rate limiting. Ensure router.ClientIPMiddleware is applied first.",
+						zap.String("invariant", "rate_limit_client_ip_context_present"),
+						zap.String("operation", "rate_limit"),
+						zap.String("stage", "key_extraction"),
+						zap.String("expected", "non-empty client IP in request context"),
+						zap.String("actual", "client IP missing"),
+						zap.String("fallback", "remote_addr"),
+						zap.String("bucket", config.BucketName),
+						zap.String("remote_addr", key),
 						zap.String("method", r.Method),
 						zap.String("path", r.URL.Path),
 					)
-					// Decide how to handle: block, allow, or use RemoteAddr as unsafe fallback?
-					// Using RemoteAddr might be okay for basic DoS protection but not accurate behind proxies.
-					// For now, let's use RemoteAddr as a fallback but log prominently.
-					key = r.RemoteAddr // Unsafe fallback
-					logger.Warn("Falling back to RemoteAddr for StrategyIP rate limiting.", zap.String("remote_addr", key))
 				} else {
 					key = ip
 				}
@@ -364,10 +368,26 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 					ip, ipFound := scontext.GetClientIP[T, U](r.Context()) // Use scontext
 					if !ipFound || ip == "" {
 						key = r.RemoteAddr // Unsafe fallback
-						logger.Warn("User key not found, falling back to RemoteAddr for rate limiting.", zap.String("remote_addr", key))
+						logger.Warn("User key not found, falling back to RemoteAddr for rate limiting.",
+							zap.String("operation", "rate_limit"),
+							zap.String("reason", "user key missing"),
+							zap.String("fallback", "remote_addr"),
+							zap.String("bucket", config.BucketName),
+							zap.String("remote_addr", key),
+							zap.String("method", r.Method),
+							zap.String("path", r.URL.Path),
+						)
 					} else {
 						key = ip
-						logger.Info("User key not found, falling back to ClientIP from context for rate limiting.", zap.String("client_ip", key))
+						logger.Warn("User key not found, falling back to ClientIP from context for rate limiting.",
+							zap.String("operation", "rate_limit"),
+							zap.String("reason", "user key missing"),
+							zap.String("fallback", "client_ip"),
+							zap.String("bucket", config.BucketName),
+							zap.String("client_ip", key),
+							zap.String("method", r.Method),
+							zap.String("path", r.URL.Path),
+						)
 					}
 				}
 
@@ -375,6 +395,13 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 				strategyUsed = "Custom"
 				if config.KeyExtractor == nil {
 					logger.Error("KeyExtractor function is required for StrategyCustom rate limiting.",
+						zap.String("invariant", "rate_limit_custom_key_extractor_configured"),
+						zap.String("operation", "rate_limit"),
+						zap.String("stage", "configuration"),
+						zap.String("expected", "non-nil custom key extractor"),
+						zap.String("actual", "nil"),
+						zap.String("fallback", "abort request with 500"),
+						zap.String("bucket", config.BucketName),
 						zap.String("method", r.Method),
 						zap.String("path", r.URL.Path),
 					)
@@ -394,6 +421,13 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 				// If custom extractor returns empty key, maybe fallback? Or treat as error?
 				if key == "" {
 					logger.Error("Custom KeyExtractor returned an empty key.",
+						zap.String("invariant", "rate_limit_custom_key_nonempty"),
+						zap.String("operation", "rate_limit"),
+						zap.String("stage", "key_extraction"),
+						zap.String("expected", "non-empty custom rate-limit key"),
+						zap.String("actual", "empty"),
+						zap.String("fallback", "abort request with 500"),
+						zap.String("bucket", config.BucketName),
 						zap.String("method", r.Method),
 						zap.String("path", r.URL.Path),
 					)
@@ -402,18 +436,26 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 				}
 
 			default:
-				// Treat unknown strategy as IP-based, but log a warning
 				strategyUsed = "Unknown (defaulting to IP)"
-				logger.Warn("Unknown rate limit strategy specified, defaulting to IP.",
-					zap.Int("strategy_value", int(config.Strategy)),
-				)
+				fallback := "client_ip"
 				ip, ipFound := scontext.GetClientIP[T, U](r.Context()) // Use scontext
 				if !ipFound || ip == "" {
 					key = r.RemoteAddr // Unsafe fallback
-					logger.Warn("Defaulting to RemoteAddr for rate limiting due to unknown strategy.", zap.String("remote_addr", key))
+					fallback = "remote_addr"
 				} else {
 					key = ip
 				}
+				logger.Error("Unknown rate limit strategy specified, defaulting to IP.",
+					zap.String("invariant", "rate_limit_strategy_known"),
+					zap.String("operation", "rate_limit"),
+					zap.String("stage", "configuration"),
+					zap.String("expected", "known rate-limit strategy"),
+					zap.Int("actual", int(config.Strategy)),
+					zap.String("fallback", fallback),
+					zap.String("bucket", config.BucketName),
+					zap.String("method", r.Method),
+					zap.String("path", r.URL.Path),
+				)
 			}
 
 			// Combine bucket name and key for the final limiter key
@@ -448,6 +490,8 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 					zap.Duration("window", config.Window),
 					zap.Int("remaining", remaining),
 					zap.Duration("reset_duration", reset),
+					zap.Int("status_code", http.StatusTooManyRequests),
+					zap.Int64("retry_after_seconds", retryAfterSeconds),
 					zap.String("method", r.Method),
 					zap.String("path", r.URL.Path),
 				)

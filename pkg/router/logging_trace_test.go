@@ -120,8 +120,8 @@ func TestHandleErrorWithTraceID(t *testing.T) {
 	}
 }
 
-// TestHandleErrorWithoutTraceID tests that handleError does not include trace IDs in log entries when TraceIDBufferSize is 0
-func TestHandleErrorWithoutTraceID(t *testing.T) {
+// TestHandleErrorGeneratesTraceID tests that error logs remain correlatable when TraceIDBufferSize is 0.
+func TestHandleErrorGeneratesTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
 	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 0}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
@@ -141,7 +141,7 @@ func TestHandleErrorWithoutTraceID(t *testing.T) {
 	found := false
 	for _, log := range logEntries {
 		for _, field := range log.Context {
-			if field.Key == "trace_id" {
+			if field.Key == "trace_id" && field.String != "" {
 				found = true
 				break
 			}
@@ -150,8 +150,8 @@ func TestHandleErrorWithoutTraceID(t *testing.T) {
 			break
 		}
 	}
-	if found {
-		t.Errorf("Expected trace ID not to be included in log entries")
+	if !found {
+		t.Errorf("Expected a non-empty trace ID to be included in error log entries")
 	}
 }
 
@@ -192,8 +192,8 @@ func TestRecoveryMiddlewareWithTraceID(t *testing.T) {
 	}
 }
 
-// TestRecoveryMiddlewareWithoutTraceID tests that recoveryMiddleware does not include trace IDs in log entries when TraceIDBufferSize is 0
-func TestRecoveryMiddlewareWithoutTraceID(t *testing.T) {
+// TestRecoveryMiddlewareGeneratesTraceID tests that recovered panics remain correlatable when tracing is disabled.
+func TestRecoveryMiddlewareGeneratesTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
 	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 0}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
@@ -215,7 +215,7 @@ func TestRecoveryMiddlewareWithoutTraceID(t *testing.T) {
 	found := false
 	for _, log := range logEntries {
 		for _, field := range log.Context {
-			if field.Key == "trace_id" {
+			if field.Key == "trace_id" && field.String != "" {
 				found = true
 				break
 			}
@@ -224,8 +224,8 @@ func TestRecoveryMiddlewareWithoutTraceID(t *testing.T) {
 			break
 		}
 	}
-	if found {
-		t.Errorf("Expected trace ID not to be included in log entries")
+	if !found {
+		t.Errorf("Expected a non-empty trace ID to be included in recovered panic log entries")
 	}
 }
 
@@ -315,32 +315,32 @@ func TestErrorStatusLogging(t *testing.T) {
 		t.Errorf("Expected 'Request summary statistics' log message at ErrorLevel for 5xx status")
 	}
 
-	// Test client error (4xx) -> WARN level
-	coreWarn, logsWarn := observer.New(zap.WarnLevel) // Observe WarnLevel logs
-	loggerWarn := zap.New(coreWarn)
+	// Test client error (4xx) -> INFO level
+	coreInfo, logsInfo := observer.New(zap.InfoLevel)
+	loggerInfo := zap.New(coreInfo)
 	// Enable tracing so the logging block runs. Use TraceIDBufferSize > 0.
-	rWarn := NewRouter(RouterConfig{Logger: loggerWarn, TraceIDBufferSize: 1}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
-	rWarn.Route(RouteConfigBase{Path: "/client-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) }}) // Use HttpMethod enum
+	rInfo := NewRouter(RouterConfig{Logger: loggerInfo, TraceIDBufferSize: 1}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	rInfo.Route(RouteConfigBase{Path: "/client-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) }}) // Use HttpMethod enum
 	reqWarn, _ := http.NewRequest("GET", "/client-error", nil)
 	rrWarn := httptest.NewRecorder()
-	rWarn.ServeHTTP(rrWarn, reqWarn)
+	rInfo.ServeHTTP(rrWarn, reqWarn)
 	if rrWarn.Code != http.StatusBadRequest {
 		t.Errorf("Expected status code %d, got %d", http.StatusBadRequest, rrWarn.Code)
 	}
 
-	// Check for the unified log message at Warn level
-	logEntriesWarn := logsWarn.FilterMessage("Request summary statistics").AllUntimed()
-	if len(logEntriesWarn) == 0 {
-		t.Fatalf("Expected 'Request summary statistics' log entry at WarnLevel, but none found")
+	// Check for the unified log message at Info level
+	logEntriesInfo := logsInfo.FilterMessage("Request summary statistics").AllUntimed()
+	if len(logEntriesInfo) == 0 {
+		t.Fatalf("Expected 'Request summary statistics' log entry at InfoLevel, but none found")
 	}
-	foundWarn := false
-	for _, log := range logEntriesWarn {
-		if log.Level == zapcore.WarnLevel {
-			foundWarn = true
+	foundInfo := false
+	for _, log := range logEntriesInfo {
+		if log.Level == zapcore.InfoLevel {
+			foundInfo = true
 			break
 		}
 	}
-	if !foundWarn {
-		t.Errorf("Expected 'Request summary statistics' log message at WarnLevel for 4xx status")
+	if !foundInfo {
+		t.Errorf("Expected 'Request summary statistics' log message at InfoLevel for 4xx status")
 	}
 }

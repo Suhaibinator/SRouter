@@ -530,9 +530,10 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 				fields := append(r.baseFields(req),
 					zap.Duration("timeout", timeout),
 					zap.String("client_ip", req.RemoteAddr),
+					zap.Int("status_code", http.StatusRequestTimeout),
+					zap.String("trace_id", r.errorTraceID(req)),
 				)
-				fields = r.addTrace(fields, req)
-				r.logger.Error("Request timed out", fields...)
+				r.logger.Warn("Request timed out", fields...)
 
 				// If the handler already started writing, don't attempt to take over the response.
 				// Wait for the handler to finish to avoid returning while another goroutine is writing.
@@ -687,8 +688,10 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			switch {
 			case mrw.statusCode >= 500:
 				lvl = zapcore.ErrorLevel
-			case mrw.statusCode >= 400 || duration > 500*time.Millisecond:
+			case duration > 500*time.Millisecond:
 				lvl = zapcore.WarnLevel
+			case mrw.statusCode >= 400:
+				lvl = zapcore.InfoLevel
 			case r.config.TraceLoggingUseInfo:
 				lvl = zapcore.InfoLevel
 			default:
@@ -1157,6 +1160,16 @@ func (r *Router[T, U]) addTrace(fields []zap.Field, req *http.Request) []zap.Fie
 	return fields
 }
 
+// errorTraceID returns the request trace ID or creates one for the error log.
+// Error records must always be correlatable, even when request-wide trace ID
+// generation is disabled.
+func (r *Router[T, U]) errorTraceID(req *http.Request) string {
+	if traceID := scontext.GetTraceIDFromRequest[T, U](req); traceID != "" {
+		return traceID
+	}
+	return middleware.GenerateTraceID()
+}
+
 // isMaxBytesError reports whether err was caused by http.MaxBytesReader
 // rejecting a request body, even if a codec has wrapped the error.
 func isMaxBytesError(err error) bool {
@@ -1168,33 +1181,66 @@ func isMaxBytesError(err error) bool {
 // It checks if the error is a specific HTTPError and uses its status code and message if available.
 // It also checks for context deadline exceeded errors.
 func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err error, statusCode int, message string) {
-	fields := append([]zap.Field{zap.Error(err)}, r.baseFields(req)...)
-	fields = r.addTrace(fields, req)
+	logErr := err
+	logMessage := message
+	var attachedFields []zap.Field
+	var levelOverride zapcore.Level
+	var hasLevelOverride bool
 
-	// Check for specific error types
-	if errors.Is(err, context.DeadlineExceeded) {
-		// Handle timeout specifically
-		statusCode = http.StatusRequestTimeout // Or http.StatusGatewayTimeout
-		message = "Request Timeout"
-		// Log specifically as timeout
-		r.logger.Error("Request timed out (detected in handler)", fields...)
-	} else if httpErr, ok := errors.AsType[*HTTPError](err); ok {
-		// Handle custom HTTPError
+	if httpErr, ok := errors.AsType[*HTTPError](err); ok {
 		statusCode = httpErr.StatusCode
 		message = httpErr.Message
-		r.logger.Error(message, fields...) // Log with the custom message
+		logMessage = message
+		attachedFields = httpErr.Fields()
+		levelOverride, hasLevelOverride = httpErr.LogLevel()
+		if cause := httpErr.Cause(); cause != nil {
+			logErr = cause
+		}
 	} else if isMaxBytesError(err) {
-		// Specifically handle MaxBytesReader error
 		statusCode = http.StatusRequestEntityTooLarge
 		message = "Request Entity Too Large"
-		r.logger.Warn(message, fields...) // Log as Warn for client error
-	} else {
-		// Log generic internal server error
-		r.logger.Error(message, fields...)
+		logMessage = message
+	} else if errors.Is(err, context.DeadlineExceeded) {
+		statusCode = http.StatusRequestTimeout
+		message = "Request Timeout"
+		logMessage = "Request timed out (detected in handler)"
 	}
 
-	// Return the error response as JSON
-	traceID := scontext.GetTraceIDFromRequest[T, U](req)
+	invalidStatusCode := 0
+	if statusCode < http.StatusBadRequest || statusCode > 599 {
+		invalidStatusCode = statusCode
+		statusCode = http.StatusInternalServerError
+		message = "Internal Server Error"
+		logMessage = message
+	}
+
+	level := zapcore.ErrorLevel
+	switch {
+	case hasLevelOverride:
+		level = levelOverride
+	case errors.Is(err, context.Canceled):
+		level = zapcore.DebugLevel
+	case errors.Is(err, context.DeadlineExceeded):
+		level = zapcore.WarnLevel
+	case statusCode >= http.StatusBadRequest && statusCode < http.StatusInternalServerError:
+		level = zapcore.InfoLevel
+	}
+
+	traceID := r.errorTraceID(req)
+	fields := make([]zap.Field, 0, 5+len(attachedFields))
+	fields = append(fields, sanitizeHTTPErrorFields(attachedFields)...)
+	if invalidStatusCode != 0 {
+		fields = append(fields, zap.Int("invalid_status_code", invalidStatusCode))
+	}
+	fields = append(fields,
+		zap.Error(logErr),
+		zap.Int("status_code", statusCode),
+		zap.String("method", req.Method),
+		zap.String("path", req.URL.Path),
+		zap.String("trace_id", traceID),
+	)
+	r.logger.Log(level, logMessage, fields...)
+
 	r.writeJSONError(w, req, statusCode, message, traceID)
 }
 
@@ -1243,12 +1289,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 		}
 
 		if err := json.MarshalWrite(mrw.ResponseWriter, errorPayload); err != nil {
-			r.logger.Error("Failed to write JSON error response",
-				zap.Error(err),
-				zap.Int("original_status", statusCode),
-				zap.String("original_message", message),
-				zap.String("trace_id", traceID),
-			)
+			r.logJSONErrorWriteFailure(req, err, statusCode, message, traceID)
 		}
 		return
 	}
@@ -1302,15 +1343,23 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 
 	// Marshal and write the JSON response
 	if err := json.MarshalWrite(w, errorPayload); err != nil {
-		// Log an error if we fail to marshal/write the JSON error response itself
-		// At this point, we can't easily send a different error to the client.
-		r.logger.Error("Failed to write JSON error response",
-			zap.Error(err),
-			zap.Int("original_status", statusCode),
-			zap.String("original_message", message),
-			zap.String("trace_id", traceID), // Log trace ID even if writing failed
-		)
+		r.logJSONErrorWriteFailure(req, err, statusCode, message, traceID)
 	}
+}
+
+func (r *Router[T, U]) logJSONErrorWriteFailure(req *http.Request, err error, statusCode int, message, traceID string) {
+	if traceID == "" {
+		traceID = r.errorTraceID(req)
+	}
+	r.logger.Error("Failed to write JSON error response",
+		zap.Error(err),
+		zap.Int("status_code", statusCode),
+		zap.Int("original_status", statusCode),
+		zap.String("original_message", message),
+		zap.String("method", req.Method),
+		zap.String("path", req.URL.Path),
+		zap.String("trace_id", traceID),
+	)
 }
 
 // HTTPError represents an HTTP error with a status code and message.
@@ -1321,12 +1370,39 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 type HTTPError struct {
 	StatusCode int    // HTTP status code (e.g., 400, 404, 500)
 	Message    string // Error message to be sent in the response body
+	cause      error
+	fields     []zap.Field
+	logLevel   zapcore.Level
+	hasLevel   bool
 }
 
 // Error implements the error interface.
 // It returns a string representation of the HTTP error in the format "status: message".
 func (e *HTTPError) Error() string {
 	return fmt.Sprintf("%d: %s", e.StatusCode, e.Message)
+}
+
+// Unwrap returns the underlying cause, allowing errors.Is and errors.As to
+// inspect errors translated into an HTTP response.
+func (e *HTTPError) Unwrap() error {
+	return e.cause
+}
+
+// Cause returns the diagnostic cause retained by the HTTP error. The cause is
+// logged by the router but is never included in the HTTP response.
+func (e *HTTPError) Cause() error {
+	return e.cause
+}
+
+// Fields returns a copy of the structured diagnostic fields attached to the
+// HTTP error. Mutating the returned slice cannot alter the error.
+func (e *HTTPError) Fields() []zap.Field {
+	return slices.Clone(e.fields)
+}
+
+// LogLevel returns the explicit boundary log level, when one was configured.
+func (e *HTTPError) LogLevel() (zapcore.Level, bool) {
+	return e.logLevel, e.hasLevel
 }
 
 // NewHTTPError creates a new HTTPError with the specified status code and message.
@@ -1336,6 +1412,76 @@ func NewHTTPError(statusCode int, message string) *HTTPError {
 		StatusCode: statusCode,
 		Message:    message,
 	}
+}
+
+// NewHTTPErrorWithCause creates an HTTPError that retains an internal cause
+// for logging and errors.Is/errors.As without exposing it to the client.
+func NewHTTPErrorWithCause(statusCode int, message string, cause error) *HTTPError {
+	return &HTTPError{
+		StatusCode: statusCode,
+		Message:    message,
+		cause:      cause,
+	}
+}
+
+// WithFields returns a copy of the HTTPError with additional structured log
+// fields. Field values are snapshotted by value and later additions with the
+// same key take precedence. Boundary-owned keys are discarded when logging.
+func (e *HTTPError) WithFields(fields ...zap.Field) *HTTPError {
+	if e == nil {
+		return nil
+	}
+	clone := *e
+	clone.fields = make([]zap.Field, 0, len(e.fields)+len(fields))
+	clone.fields = append(clone.fields, e.fields...)
+	clone.fields = append(clone.fields, fields...)
+	return &clone
+}
+
+// WithLogLevel returns a copy of the HTTPError with an explicit boundary log
+// level. This is intended for cases such as invariant violations whose
+// operational severity differs from the default HTTP-status classification.
+func (e *HTTPError) WithLogLevel(level zapcore.Level) *HTTPError {
+	if e == nil {
+		return nil
+	}
+	clone := *e
+	clone.fields = slices.Clone(e.fields)
+	clone.logLevel = level
+	clone.hasLevel = true
+	return &clone
+}
+
+var reservedHTTPErrorFieldKeys = map[string]struct{}{
+	"error":       {},
+	"method":      {},
+	"path":        {},
+	"status_code": {},
+	"trace_id":    {},
+}
+
+// sanitizeHTTPErrorFields removes boundary-owned fields and duplicate keys.
+// Walking from the end makes the outermost (most recently attached) context
+// win without mutating the HTTPError's immutable field snapshot.
+func sanitizeHTTPErrorFields(fields []zap.Field) []zap.Field {
+	if len(fields) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(fields))
+	reversed := make([]zap.Field, 0, len(fields))
+	for i := len(fields) - 1; i >= 0; i-- {
+		field := fields[i]
+		if _, reserved := reservedHTTPErrorFieldKeys[field.Key]; reserved {
+			continue
+		}
+		if _, duplicate := seen[field.Key]; duplicate {
+			continue
+		}
+		seen[field.Key] = struct{}{}
+		reversed = append(reversed, field)
+	}
+	slices.Reverse(reversed)
+	return reversed
 }
 
 // recoveryMiddleware is a middleware that recovers from panics in handlers.
@@ -1350,7 +1496,10 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				fields := append([]zap.Field{zap.Any("panic", rec)}, r.baseFields(req)...)
-				fields = r.addTrace(fields, req)
+				fields = append(fields,
+					zap.Int("status_code", http.StatusInternalServerError),
+					zap.String("trace_id", r.errorTraceID(req)),
+				)
 				r.logger.Error("Panic recovered", fields...)
 
 				if rw.wrote {
@@ -1430,13 +1579,14 @@ func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.A
 			var reason string
 			req, ok, reason = r.authenticateRequest(req, extractToken)
 			if !ok {
+				traceID := r.errorTraceID(req)
 				fields := append(r.baseFields(req),
 					zap.String("remote_addr", req.RemoteAddr),
 					zap.String("error", reason),
+					zap.Int("status_code", http.StatusUnauthorized),
+					zap.String("trace_id", traceID),
 				)
-				fields = r.addTrace(fields, req)
-				r.logger.Warn("Authentication failed", fields...)
-				traceID := scontext.GetTraceIDFromRequest[T, U](req)
+				r.logger.Info("Authentication failed", fields...)
 				r.writeJSONError(w, req, http.StatusUnauthorized, "Unauthorized", traceID)
 				return
 			}
