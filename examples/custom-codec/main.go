@@ -41,7 +41,7 @@ func consultOracle(_ *http.Request, request OracleRequest) (OracleResponse, erro
 
 // sanitizeOracleRequest keeps syntax concerns in the codec and business input
 // concerns here, where they can be reused no matter which request source is used.
-func sanitizeOracleRequest(request OracleRequest) (OracleRequest, error) {
+func sanitizeOracleRequest(_ context.Context, request OracleRequest) (OracleRequest, error) {
 	request.Seeker = oneLine(request.Seeker)
 	request.Question = oneLine(request.Question)
 	request.Vibe = strings.ToLower(oneLine(request.Vibe))

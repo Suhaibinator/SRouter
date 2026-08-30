@@ -59,7 +59,8 @@ createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
      // MaxBodySize: 2 << 20, // 2 MB
      // RateLimit:   &common.RateLimitConfig[any, any]{...},
  },
- Sanitizer: func(req CreateUserReq) (CreateUserReq, error) { // Optional: Sanitize data after decoding
+ Sanitizer: func(ctx context.Context, req CreateUserReq) (CreateUserReq, error) { // Optional: Sanitize data after decoding
+  // ctx contains values and cancellation from the active request middleware chain.
   if req.Name == "invalid" {
    return CreateUserReq{}, router.NewHTTPError(http.StatusBadRequest, "Invalid name provided")
   }
@@ -106,7 +107,7 @@ resolve effective settings automatically during `Build`.
 
 -   **`RouteConfig[T, U]`**: Defines the configuration for a generic route, including path, methods, auth level, codec, handler, **sanitizer**, and overrides.
 -   **`GenericHandler[T, U]`**: The function signature `func(*http.Request, T) (U, error)`. It receives the `http.Request` (for accessing context, headers, etc.) and the *potentially sanitized* decoded request object `T`. It returns the response object `U` and an `error`. If the error is non-nil, SRouter handles sending the appropriate HTTP error response (using `router.HTTPError` for specific status codes).
--   **`Sanitizer func(T) (T, error)`**: An optional function that runs *after* the request data `T` is successfully decoded by the `Codec` but *before* the `GenericHandler` is called. It receives the decoded data (`T`) and can return a modified version of it (`T`). If it returns a non-nil error, the request processing stops, and a `400 Bad Request` (or the error specified if it's an `HTTPError`) is returned. If it returns the modified (or original) data and a nil error, that data is passed to the `GenericHandler`.
+-   **`Sanitizer func(context.Context, T) (T, error)`**: An optional function that runs *after* the request data `T` is successfully decoded by the `Codec` but *before* the `GenericHandler` is called. It receives the active request context and decoded data, and can return a modified version of the data. The context includes values, deadlines, and cancellation established by the request and middleware chain. If the sanitizer returns a non-nil error, request processing stops and a `400 Bad Request` (or the status specified by an `HTTPError`) is returned. Otherwise, its returned data is passed to the `GenericHandler`.
 -   **`DisableTimeout bool`**: Disables the effective (global, route-group, or route override) timeout for this route. Useful for long-lived generic endpoints such as streaming responses that still benefit from typed request/response handling.
 -   **`Codec[T, U]`**: An interface responsible for decoding the request (`T`) and encoding the response (`U`). See [Custom Codecs](./codecs.md).
 -   **`RouteDefinition`**: The sealed heterogeneous route interface implemented directly by `RouteConfigBase` and every `RouteConfig[Req, Resp]`.

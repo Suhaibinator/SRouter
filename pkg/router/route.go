@@ -264,7 +264,7 @@ func (route RouteConfig[Req, Resp]) httpHandler(runtime routeRuntime) http.Handl
 
 		// Apply sanitizer if provided
 		if route.Sanitizer != nil {
-			sanitizedData, err := route.Sanitizer(data)
+			sanitizedData, err := route.Sanitizer(req.Context(), data)
 			if err != nil {
 				runtime.handleError(w, req, err, http.StatusBadRequest, "Sanitization failed")
 				return

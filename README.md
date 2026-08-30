@@ -1198,7 +1198,7 @@ type RouteConfig[T any, U any] struct {
  Middlewares []common.Middleware               // Middlewares applied to this specific route
  SourceType  SourceType                        // How to retrieve request data (defaults to Body)
  SourceKey   string                            // Parameter name for query or path parameters (if SourceType != Body)
- Sanitizer   func(T) (T, error)                // Optional: validate/transform request data after decoding
+ Sanitizer   func(context.Context, T) (T, error) // Optional: validate/transform request data after decoding
  DisableTimeout bool                           // Indicates if the timeout should be disabled for this route (e.g., for streaming or long-lived connections).
 }
 ```

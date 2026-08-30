@@ -110,7 +110,7 @@ type RouteConfig[Req any, Resp any] struct {
 	Middlewares    []common.Middleware
 	SourceType     SourceType
 	SourceKey      string
-	Sanitizer      func(Req) (Req, error)
+	Sanitizer      func(context.Context, Req) (Req, error)
 	DisableTimeout bool
 }
 ```

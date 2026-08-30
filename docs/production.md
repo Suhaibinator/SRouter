@@ -143,8 +143,9 @@ SRouter itself does not perform deep inspection or validation of the data fields
 #### SRouter's Built-in Mechanisms
 
 *   **Body Size Limits:** Request body size is configurable globally, on route groups, or per route, which helps prevent denial-of-service attacks caused by excessively large payloads.
-*   **Generic Route Sanitizer:** A generic `RouteConfig` accepts an optional `Sanitizer` function with the signature `func(T) (T, error)`.
+*   **Generic Route Sanitizer:** A generic `RouteConfig` accepts an optional `Sanitizer` function with the signature `func(context.Context, T) (T, error)`.
     *   This function is executed *before* the main handler and *after* the request body has been read (subject to the effective `MaxBodySize` limit).
+    *   Its context is the active request context, including middleware-provided values, deadlines, and cancellation.
     *   It can be used to perform both **sanitization** (modifying the input to remove malicious parts) and **validation** (checking if the input conforms to expected formats, ranges, or patterns).
     *   If the `Sanitizer` function returns an error, the request is typically rejected by the framework with an appropriate HTTP error code (e.g., `400 Bad Request`), and the main handler is not called.
     *   Refer to the example at `examples/generic/main.go` for a demonstration of how to implement and use a `Sanitizer` function.

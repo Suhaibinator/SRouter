@@ -119,7 +119,7 @@ func TestE2EFullStackAPI(t *testing.T) {
 			Path:    "/users",
 			Methods: []HttpMethod{MethodPost},
 			Codec:   codec.NewJSONCodec[e2eCreateUserRequest, e2eCreateUserResponse](),
-			Sanitizer: func(req e2eCreateUserRequest) (e2eCreateUserRequest, error) {
+			Sanitizer: func(_ context.Context, req e2eCreateUserRequest) (e2eCreateUserRequest, error) {
 				req.Name = strings.TrimSpace(req.Name)
 				return req, nil
 			},
