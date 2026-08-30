@@ -122,10 +122,17 @@ func AuthenticationWithProvider[T comparable, U any](
 			// Check if the request is authenticated
 			userID, ok := provider.Authenticate(r)
 			if !ok {
-				logger.Warn("Authentication failed",
+				traceID := scontext.GetTraceIDFromRequest[T, U](r)
+				if traceID == "" {
+					traceID = GenerateTraceID()
+				}
+				logger.Info("Authentication failed",
+					zap.String("reason", "credentials rejected"),
 					zap.String("method", r.Method),
 					zap.String("path", r.URL.Path),
 					zap.String("remote_addr", r.RemoteAddr),
+					zap.Int("status_code", http.StatusUnauthorized),
+					zap.String("trace_id", traceID),
 				)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
@@ -338,11 +345,17 @@ func AuthenticationWithUserProvider[T comparable, U any](
 			// Authenticate the request
 			user, err := provider.AuthenticateUser(r)
 			if err != nil || user == nil {
-				logger.Warn("Authentication failed",
+				traceID := scontext.GetTraceIDFromRequest[T, U](r)
+				if traceID == "" {
+					traceID = GenerateTraceID()
+				}
+				logger.Info("Authentication failed",
 					zap.Error(err),
 					zap.String("method", r.Method),
 					zap.String("path", r.URL.Path),
 					zap.String("remote_addr", r.RemoteAddr),
+					zap.Int("status_code", http.StatusUnauthorized),
+					zap.String("trace_id", traceID),
 				)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return

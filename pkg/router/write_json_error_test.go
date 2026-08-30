@@ -108,13 +108,19 @@ func TestWriteJSONError_MutexResponseWriter_LogsOnEncodeFailure(t *testing.T) {
 		t.Fatalf("expected log message %q, got %q", "Failed to write JSON error response", entries[0].Message)
 	}
 
-	var foundStatus, foundMessage, foundTrace bool
+	var foundStatus, foundStatusCode, foundMessage, foundMethod, foundPath, foundTrace bool
 	for _, f := range entries[0].Context {
 		switch f.Key {
 		case "original_status":
 			foundStatus = f.Integer == int64(http.StatusInternalServerError)
+		case "status_code":
+			foundStatusCode = f.Integer == int64(http.StatusInternalServerError)
 		case "original_message":
 			foundMessage = f.String == "Internal Server Error"
+		case "method":
+			foundMethod = f.String == http.MethodGet
+		case "path":
+			foundPath = f.String == "/test"
 		case "trace_id":
 			foundTrace = f.String == "trace-123"
 		}
@@ -123,11 +129,41 @@ func TestWriteJSONError_MutexResponseWriter_LogsOnEncodeFailure(t *testing.T) {
 	if !foundStatus {
 		t.Fatalf("expected original_status field to be present")
 	}
+	if !foundStatusCode {
+		t.Fatalf("expected status_code field to be present")
+	}
 	if !foundMessage {
 		t.Fatalf("expected original_message field to be present")
 	}
+	if !foundMethod || !foundPath {
+		t.Fatalf("expected request method and path fields to be present")
+	}
 	if !foundTrace {
 		t.Fatalf("expected trace_id field to be present")
+	}
+}
+
+func TestWriteJSONError_EncodeFailureGeneratesCorrelationTrace(t *testing.T) {
+	core, logs := observer.New(zap.ErrorLevel)
+	r := NewRouter(
+		RouterConfig{Logger: zap.New(core)},
+		mocks.MockAuthFunction,
+		mocks.MockUserIDFromUser,
+	)
+	req := httptest.NewRequest(http.MethodDelete, "http://example.com/widgets/42", nil)
+
+	r.writeJSONError(&errResponseWriter{}, req, http.StatusInternalServerError, "Internal Server Error", "")
+
+	entries := logs.AllUntimed()
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %d, want 1", len(entries))
+	}
+	fields := entries[0].ContextMap()
+	if traceID, ok := fields["trace_id"].(string); !ok || traceID == "" {
+		t.Errorf("trace_id = %#v, want generated non-empty string", fields["trace_id"])
+	}
+	if fields["method"] != http.MethodDelete || fields["path"] != "/widgets/42" {
+		t.Errorf("request context = %#v", fields)
 	}
 }
 

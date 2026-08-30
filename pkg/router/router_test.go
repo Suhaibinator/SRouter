@@ -936,7 +936,7 @@ func TestWriteJSONError_CORSHeaders(t *testing.T) {
 // TestRegisterTypedRouteErrorPaths covers various error scenarios in typed route registration.
 func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	// Use an observer logger to capture logs for specific error messages
-	core, observedLogs := observer.New(zapcore.ErrorLevel) // Capture Error level logs
+	core, observedLogs := observer.New(zapcore.WarnLevel) // Capture terminal failures and degraded timeout outcomes.
 	logger := zap.New(core)
 	// logger := zap.NewNop() // Original Nop logger
 	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
