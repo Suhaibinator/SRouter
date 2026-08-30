@@ -158,14 +158,14 @@ func TestRegisterTypedRouteWithBody(t *testing.T) {
 // --- Sanitizer Tests ---
 
 // Sanitizer that modifies the name
-func nameSanitizer(req RequestType) (RequestType, error) {
+func nameSanitizer(_ context.Context, req RequestType) (RequestType, error) {
 	sanitized := req // Make a copy
 	sanitized.Name = "Sanitized " + sanitized.Name
 	return sanitized, nil
 }
 
 // Sanitizer that returns an error
-func errorSanitizer(req RequestType) (RequestType, error) {
+func errorSanitizer(_ context.Context, req RequestType) (RequestType, error) {
 	return req, errors.New("sanitizer error")
 }
 
@@ -245,6 +245,46 @@ func TestRegisterTypedRouteWithSanitizerError(t *testing.T) {
 	if errMsg, ok := errResp["error"]["message"]; !ok || errMsg != "Sanitization failed" {
 		t.Errorf("Expected error message 'Sanitization failed', got '%s'", errMsg)
 	}
+}
+
+// TestRegisterTypedRouteSanitizerReceivesRequestContext verifies that the
+// sanitizer observes the active context after route middleware has run.
+func TestRegisterTypedRouteSanitizerReceivesRequestContext(t *testing.T) {
+	type sanitizerContextKey struct{}
+
+	const contextValue = "from-route-middleware"
+	key := sanitizerContextKey{}
+	sanitizerCalled := false
+
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r.Route(RouteConfig[RequestType, ResponseType]{
+		Path:       "/test-sanitize-context",
+		Methods:    []HttpMethod{MethodPost},
+		Codec:      codec.NewJSONCodec[RequestType, ResponseType](),
+		Handler:    testGenericHandler[RequestType, ResponseType],
+		SourceType: Body,
+		Middlewares: []common.Middleware{
+			func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+					ctx := context.WithValue(req.Context(), key, contextValue)
+					next.ServeHTTP(w, req.WithContext(ctx))
+				})
+			},
+		},
+		Sanitizer: func(ctx context.Context, req RequestType) (RequestType, error) {
+			sanitizerCalled = true
+			require.Equal(t, contextValue, ctx.Value(key))
+			return req, nil
+		},
+	})
+
+	req := httptest.NewRequest("POST", "/test-sanitize-context", strings.NewReader(`{"id":"ctx","name":"Context"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	require.True(t, sanitizerCalled)
 }
 
 // TestRegisterTypedRouteWithUnsupportedSourceType tests typed route registration with an unsupported source type

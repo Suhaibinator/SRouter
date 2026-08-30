@@ -284,7 +284,7 @@ func ErrorHandler(r *http.Request, req EmptyRequest) (ErrorResponse, error) {
 }
 
 // Example Sanitizer for CreateUserRequest
-func SanitizeCreateUserRequest(req CreateUserRequest) (CreateUserRequest, error) {
+func SanitizeCreateUserRequest(_ context.Context, req CreateUserRequest) (CreateUserRequest, error) {
 
 	// Example: Trim whitespace from name and email
 	req.Name = strings.TrimSpace(req.Name)

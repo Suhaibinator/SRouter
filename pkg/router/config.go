@@ -3,6 +3,7 @@
 package router
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -194,17 +195,17 @@ func (route RouteConfigBase) baseConfig(routeRuntime, string) (RouteConfigBase, 
 //
 // RouteConfig values can be registered directly on Router or RouteGroup.
 type RouteConfig[T any, U any] struct {
-	Path           string                // Route path, relative to its route group when grouped
-	Methods        []HttpMethod          // HTTP methods this route handles (use constants like MethodGet)
-	AuthLevel      *AuthLevel            // Authentication level for this route. If nil, inherits from its route group or defaults to NoAuth
-	Overrides      common.RouteOverrides // Configuration overrides for this specific route
-	Codec          codec.Codec[T, U]     // Codec for marshaling/unmarshaling request and response (required)
-	Handler        GenericHandler[T, U]  // Generic handler function (required)
-	Middlewares    []common.Middleware   // Middlewares applied after global and route-group middlewares
-	SourceType     SourceType            // Where to retrieve request data from (defaults to Body)
-	SourceKey      string                // Parameter name for query/path parameters (required when SourceType is not Body/Empty)
-	Sanitizer      func(T) (T, error)    // Optional function to validate/transform request data after decoding
-	DisableTimeout bool                  // Indicates if the timeout should be disabled for this route (e.g., for WebSockets or long-lived connections).
+	Path           string                              // Route path, relative to its route group when grouped
+	Methods        []HttpMethod                        // HTTP methods this route handles (use constants like MethodGet)
+	AuthLevel      *AuthLevel                          // Authentication level for this route. If nil, inherits from its route group or defaults to NoAuth
+	Overrides      common.RouteOverrides               // Configuration overrides for this specific route
+	Codec          codec.Codec[T, U]                   // Codec for marshaling/unmarshaling request and response (required)
+	Handler        GenericHandler[T, U]                // Generic handler function (required)
+	Middlewares    []common.Middleware                 // Middlewares applied after global and route-group middlewares
+	SourceType     SourceType                          // Where to retrieve request data from (defaults to Body)
+	SourceKey      string                              // Parameter name for query/path parameters (required when SourceType is not Body/Empty)
+	Sanitizer      func(context.Context, T) (T, error) // Optional function to validate/transform request data after decoding
+	DisableTimeout bool                                // Indicates if the timeout should be disabled for this route (e.g., for WebSockets or long-lived connections).
 }
 
 // GenericHandler defines a handler function with generic request and response types.

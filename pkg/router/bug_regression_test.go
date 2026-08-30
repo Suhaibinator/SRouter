@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -77,7 +78,7 @@ func TestGroupRouteAppliesGlobalsOnce(t *testing.T) {
 			return map[string]string{"ok": "true"}, nil
 		},
 		SourceType: Empty,
-		Sanitizer:  func(d map[string]string) (map[string]string, error) { return d, nil },
+		Sanitizer:  func(_ context.Context, d map[string]string) (map[string]string, error) { return d, nil },
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/echo", nil)
@@ -176,7 +177,7 @@ func TestRouteOnRetainedGroupHandle(t *testing.T) {
 			return map[string]string{"ok": "true"}, nil
 		},
 		SourceType: Empty,
-		Sanitizer:  func(d map[string]string) (map[string]string, error) { return d, nil },
+		Sanitizer:  func(_ context.Context, d map[string]string) (map[string]string, error) { return d, nil },
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/late/route", nil)
