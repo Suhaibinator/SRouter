@@ -1,4 +1,3 @@
-// Package codec provides encoding and decoding functionality for different data formats.
 package codec
 
 import (

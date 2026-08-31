@@ -86,7 +86,8 @@ r.Route(router.RouteConfigBase{
 ```
 
 `router.GetParams(req)` returns all parameters. SRouter also stores the compiled
-route template in its request context for metrics and logging.
+route template in its request context for built-in metrics and application
+middleware or logging.
 
 ## Methods and conflicts
 

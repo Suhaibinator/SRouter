@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -11,7 +10,7 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 )
 
@@ -26,7 +25,7 @@ type User struct {
 // Protected resource that requires authentication and uses the user object
 func protectedUserHandler(w http.ResponseWriter, r *http.Request) {
 	// Get the user from the context
-	user, ok := scontext.GetUserFromRequest[*User, User](r) // Use scontext
+	user, ok := scontext.GetUserFromRequest[string, User](r)
 	if !ok || user == nil {
 		http.Error(w, "User not found in context", http.StatusInternalServerError)
 		return
@@ -49,12 +48,7 @@ func publicHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`{"message":"This is a public resource"}`))
 }
 
-func main() {
-	// Create a logger
-	logger, _ := zap.NewProduction()
-	defer func() { _ = logger.Sync() }()
-
-	// Mock user database
+func newUserAuthRouter(logger *zap.Logger) *router.Router[string, User] {
 	users := map[string]User{
 		"user1": {
 			ID:    "1",
@@ -70,91 +64,61 @@ func main() {
 		},
 	}
 
-	// Mock token to user mapping
 	tokens := map[string]string{
 		"token1": "user1",
 		"token2": "user2",
 	}
 
-	// Create a custom authentication function that returns a user
 	customUserAuth := func(r *http.Request) (*User, error) {
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			return nil, errors.New("no authorization header")
+		token, ok := strings.CutPrefix(authHeader, "Bearer ")
+		if !ok || token == "" {
+			return nil, errors.New("expected Authorization: Bearer <token>")
 		}
-
-		// Extract the token
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-
-		// Look up the username for this token
 		username, exists := tokens[token]
 		if !exists {
 			return nil, errors.New("invalid token")
 		}
-
-		// Look up the user
 		user, exists := users[username]
 		if !exists {
 			return nil, errors.New("user not found")
 		}
-
-		// Return a pointer to the user
 		return &user, nil
 	}
 
-	// Create a bearer token authentication function that returns a user
 	bearerTokenUserAuth := func(token string) (*User, error) {
-		// Look up the username for this token
 		username, exists := tokens[token]
 		if !exists {
 			return nil, errors.New("invalid token")
 		}
-
-		// Look up the user
 		user, exists := users[username]
 		if !exists {
 			return nil, errors.New("user not found")
 		}
-
-		// Return a pointer to the user
 		return &user, nil
 	}
 
-	// Create a router configuration
+	basicUserAuth := func(username, password string) (*User, error) {
+		if password != "password" {
+			return nil, errors.New("invalid password")
+		}
+		user, exists := users[username]
+		if !exists {
+			return nil, errors.New("user not found")
+		}
+		return &user, nil
+	}
+
 	routerConfig := router.RouterConfig{
-		ServiceName:       "user-auth-service", // Added ServiceName
+		ServiceName:       "user-auth-service",
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
 	}
 
-	// Define the auth function that takes a context and token and returns a *User and a boolean
-	authFunction := func(ctx context.Context, token string) (*User, bool) {
-		// Look up the username for this token
-		username, exists := tokens[token]
-		if !exists {
-			return nil, false // Return nil pointer for user
-		}
-
-		// Look up the user
-		user, exists := users[username]
-		if !exists {
-			return nil, false // Return nil pointer for user
-		}
-
-		// Return a pointer to the user struct
-		return &user, true
-	}
-
-	// Define the function to get the user ID (*User) from a *User
-	userIdFromUserFunction := func(user *User) *User {
-		// In this example, the user object pointer itself is the ID (T = *User)
-		// If user is nil, we return nil, otherwise return the pointer itself.
-		return user
-	}
-
-	// Create a router with *User as the user ID type (T) and User as the user type (U)
-	r := router.NewRouter[*User, User](routerConfig, authFunction, userIdFromUserFunction)
+	// These routes demonstrate standalone authentication middleware, so they all
+	// use NoAuth at the router's built-in authentication stage.
+	r := router.NewRouter[string, User](routerConfig, nil, nil)
 
 	r.Group("/public").
 		Auth(router.NoAuth).
@@ -164,14 +128,12 @@ func main() {
 			Handler: publicHandler,
 		})
 	r.Group("/boolean-auth").
-		Auth(router.AuthRequired).
-		Use(middleware.AuthenticationBool[*User, User](func(r *http.Request) bool {
-			// Simple boolean authentication
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
+		Auth(router.NoAuth).
+		Use(middleware.AuthenticationBool[string, User](func(r *http.Request) bool {
+			token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+			if !ok || token == "" {
 				return false
 			}
-			token := strings.TrimPrefix(authHeader, "Bearer ")
 			_, exists := tokens[token]
 			return exists
 		}, "authenticated")).
@@ -181,21 +143,37 @@ func main() {
 			Handler: protectedHandler,
 		})
 
-	userAuth := r.Group("/user-auth").Auth(router.AuthRequired)
+	userAuth := r.Group("/user-auth").Auth(router.NoAuth)
 	userAuth.Group("/custom").
-		Use(middleware.AuthenticationWithUser[*User, User](customUserAuth)).
+		Use(middleware.AuthenticationWithUser[string, User](customUserAuth)).
 		Route(router.RouteConfigBase{
 			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: protectedUserHandler,
 		})
 	userAuth.Group("/bearer").
-		Use(middleware.NewBearerTokenWithUserMiddleware[*User, User](bearerTokenUserAuth, logger)).
+		Use(middleware.NewBearerTokenWithUserMiddleware[string, User](bearerTokenUserAuth, logger)).
 		Route(router.RouteConfigBase{
 			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: protectedUserHandler,
 		})
+	userAuth.Group("/basic").
+		Use(middleware.AuthenticationWithUserProvider[string, User](
+			&middleware.BasicUserAuthProvider[User]{GetUserFunc: basicUserAuth},
+			logger,
+		)).
+		Route(router.RouteConfigBase{
+			Methods: []router.HttpMethod{router.MethodGet},
+			Handler: protectedUserHandler,
+		})
+	return r
+}
 
-	// Start the server
+func main() {
+	logger, _ := zap.NewProduction()
+	defer func() { _ = logger.Sync() }()
+
+	r := newUserAuthRouter(logger)
+
 	fmt.Println("User Authentication Example Server listening on :8080")
 	fmt.Println("Available endpoints:")
 	fmt.Println("  - GET /public/resource (no auth required)")

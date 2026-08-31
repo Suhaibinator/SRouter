@@ -1,184 +1,137 @@
 # Metrics
 
-SRouter features a flexible, interface-based metrics system located in the `pkg/metrics` package. This design allows integration with various metrics backends (like Prometheus, OpenTelemetry, StatsD, etc.) by providing implementations for key interfaces, promoting loose coupling and testability.
+SRouter provides backend-neutral metric interfaces in `pkg/metrics` and a Prometheus adapter in `pkg/metrics/prometheus`. The router can either build its default request-metrics middleware from a `metrics.MetricsRegistry` or use a complete custom `metrics.MetricsMiddleware` implementation.
 
-## Enabling and Configuring Metrics
+## Enabling metrics
 
-Metrics collection is enabled by providing a non-nil `MetricsConfig` in your `RouterConfig`.
+A non-nil `MetricsConfig` does not enable metrics by itself. During `router.NewRouter[T, U]`, SRouter selects the first usable option in this order:
+
+1. If `MiddlewareFactory` implements `metrics.MetricsMiddleware[T, U]` for the router's exact user ID and user types, SRouter uses it.
+2. Otherwise, if `Collector` implements `metrics.MetricsRegistry`, SRouter creates the built-in middleware from that registry and the `Enable*` flags.
+3. Otherwise, no metrics middleware is installed.
+
+When both fields are valid, `MiddlewareFactory` takes precedence. SRouter passes `RouterConfig.ServiceName` as the fallback handler name, but it does not call `Configure` on a supplied factory or apply `Collector` and the router-level `Enable*` fields to it. Configure a custom middleware before passing it to the router.
 
 ```go
-import (
-	"net/http"
-	"github.com/Suhaibinator/SRouter/pkg/router"
-	"github.com/Suhaibinator/SRouter/pkg/metrics" // Import metrics package
-	// Assume myMetricsRegistry is your metrics.MetricsRegistry implementation
-	// Assume logger, authFunction, userIdFromUserFunction exist
-)
-
-
-// Example: Configure metrics using MetricsConfig
-routerConfig := router.RouterConfig{
-    Logger:            logger,
-    // ... other global config ...
-    MetricsConfig: &router.MetricsConfig{
-        // Provide your implementations of metrics interfaces.
-        // Provide your implementation of the metrics.MetricsRegistry interface. Required when metrics are enabled.
-        Collector:        myMetricsRegistry, // Must implement metrics.MetricsRegistry
-
-        // MiddlewareFactory is reserved for a custom metrics middleware factory but
-        // is currently NOT consumed by the router. When Collector implements
-        // metrics.MetricsRegistry, SRouter always builds its own middleware via
-        // metrics.NewMetricsMiddleware[T, U](Collector, config).
-
-        // Optional identifiers passed to your MetricsRegistry implementation.
-        // The built-in middleware also uses Namespace as the "service" tag on all metrics.
-        Namespace:        "myapp",
-        Subsystem:        "api",
-
-        // Configure which default metrics the built-in middleware collects.
-        EnableLatency:    true,  // Collect request latency histogram (request_latency_seconds)
-        EnableThroughput: true,  // Collect request body bytes counter (request_throughput_bytes)
-        EnableQPS:        true,  // Collect request counter (requests_total)
-        EnableErrors:     true,  // Collect error counter by status code (request_errors_total)
-    },
-    // ... other global config and middleware
+config := router.RouterConfig{
+	ServiceName: "checkout-api",
+	MetricsConfig: &router.MetricsConfig{
+		Collector:        registry, // implements metrics.MetricsRegistry
+		Namespace:        "checkout",
+		Subsystem:        "http",
+		EnableLatency:    true,
+		EnableThroughput: true,
+		EnableQPS:        true,
+		EnableErrors:     true,
+	},
 }
 
-r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
-
-// --- Application-Level Metrics Endpoint ---
-// Serving a /metrics endpoint (e.g., for Prometheus scraping) is the responsibility
-// of the application using SRouter, not SRouter itself.
-//
-// You would typically:
-// 1. Instantiate your chosen MetricsRegistry implementation.
-// 2. If it provides an HTTP handler (via the Handler() method), retrieve it.
-// 3. Create your main HTTP server (e.g., using http.ListenAndServe).
-// 4. Register the metrics handler on a specific path (e.g., "/metrics")
-//    using your server's mux (e.g., http.DefaultServeMux or a custom one).
-// 5. Register the SRouter instance ('r' in this example) to handle other paths (e.g., "/").
-//
-// Example structure (conceptual):
-//
-// func main() {
-//   // ... (Setup logger, config, myMetricsRegistry implementation)
-//
-//   routerConfig := router.RouterConfig{ /* ... SRouter config ... */ }
-//   srouterInstance := router.NewRouter[string, string](routerConfig, ...)
-//
-//   // Get handler from the MetricsRegistry implementation (if it provides one)
-//   var metricsHandler http.Handler
-//   // Type assert myMetricsRegistry to see if it has a Handler() method
-//   // (This depends on your specific registry implementation)
-//   if registryWithHandler, ok := myMetricsRegistry.(interface{ Handler() http.Handler }); ok {
-// 	  metricsHandler = registryWithHandler.Handler()
-//   }
-//   if metricsHandler == nil {
-//       // Handle case where registry doesn't provide a handler
-//       metricsHandler = http.NotFoundHandler() // Or log an error, etc.
-//   }
-//
-//   // Setup application's main ServeMux
-//   appMux := http.NewServeMux()
-//   appMux.Handle("/metrics", metricsHandler) // Expose metrics
-//   appMux.Handle("/", srouterInstance)      // Handle API requests via SRouter
-//
-//   // Start the application server
-//   log.Println("Starting server...")
-//   log.Fatal(http.ListenAndServe(":8080", appMux))
-// }
-//
-
+r := router.NewRouter[string, User](config, authenticate, userIDFromUser)
 ```
 
-## Core Metrics Interfaces (`pkg/metrics`)
+With the built-in middleware, non-empty `Namespace` and `Subsystem` values become the default tags `service` and `subsystem`, respectively. They do not configure a backend's native namespace or subsystem. For example, the Prometheus adapter's namespace and subsystem are separately supplied to `prometheus.NewPrometheusRegistry` and become metric-name prefixes.
 
-The system is built around dependency injection using these key interfaces defined in `pkg/metrics/metrics.go`:
+## Default request metrics
 
-1.  **`MetricsRegistry`**: The core interface responsible for managing the lifecycle of metrics within the system. It provides a method to `Register` metrics. It also offers builder methods (`NewCounter`, `NewGauge`, `NewHistogram`, `NewSummary`) that return specific *builder* interfaces (e.g., `CounterBuilder`). These builders are used to configure and finally `.Build()` the individual metric instruments (Counters, Gauges, etc.). Your implementation will wrap your chosen metrics library (e.g., `prometheus.NewRegistry`). This is the interface expected by the `MetricsConfig.Collector` field.
-2.  **`MetricsMiddleware[T, U]`**: A generic interface defining the metrics middleware. Its primary method is `Handler(name string, handler http.Handler) http.Handler`, which wraps an existing HTTP handler to collect metrics. Additional methods allow post-creation configuration (`Configure(config MetricsMiddlewareConfig)`), request filtering (`WithFilter(filter MetricsFilter)`), and request sampling (`WithSampler(sampler MetricsSampler)`). The `MetricsConfig.MiddlewareFactory` field is reserved for supplying an implementation of this interface but is currently not consumed by the router. SRouter always creates a `metrics.MetricsMiddlewareImpl[T, U]` internally using the provided `MetricsRegistry` (`Collector`) and the `Enable*` flags from `MetricsConfig`.
-3.  **Metric Types** (`Counter`, `Gauge`, `Histogram`, `Summary`) and **Builders** (`CounterBuilder`, etc.): Interfaces defining the individual metric instruments and how they are constructed. Your `MetricsRegistry` implementation will return builders that create objects satisfying these metric interfaces. The base `Metric` interface provides common methods like `Name()`, `Description()`, `Type()`, and `Tags()`. Builders typically offer fluent methods like `.Name()`, `.Description()`, `.Tag()`, and specific configuration (e.g., `.Buckets()` for HistogramBuilder, `.Objectives()` for SummaryBuilder) before calling `.Build()`.
+When installed through `RouterConfig`, metrics middleware is part of each matched route's global-middleware chain. It runs after built-in authentication and rate limiting and after middleware already present in `RouterConfig.Middlewares`. It therefore collects only requests that reach it and whose inner handler returns normally. It does not observe build or shutdown rejection, CORS responses, unmatched 404/405 responses, earlier authentication/rate-limit/global-middleware short-circuits, or an inner group/route/handler panic that unwinds through it to the router's outer recovery middleware. A filter or sampler can narrow the eligible requests further.
 
-## Middleware Filtering and Sampling
+The built-in middleware requests the following instruments from the registry for those eligible requests. Every instrument also receives the non-empty default tags described above. Here, “global” means aggregated across eligible matched routes, not every request received by `Router.ServeHTTP`.
 
-The `MetricsMiddleware` interface supports filtering and sampling to control which requests generate metrics:
+| Option | Route-specific instrument | Global instrument | Recorded value |
+| --- | --- | --- | --- |
+| `EnableLatency` | `request_latency_seconds`, tag `route` | `all_request_latency_seconds` | Request duration in seconds |
+| `EnableThroughput` | `request_throughput_bytes`, tag `route` | `request_throughput_bytes_total` | Positive request `Content-Length` |
+| `EnableQPS` | `requests_total`, tag `route` | `all_requests_total` | One increment per eligible request |
+| `EnableErrors` | `request_errors_total`, tags `route` and `status_code` | `all_request_errors_total`, tag `status_code` | One increment for an eligible response with status `>= 400` |
 
--   **`MetricsFilter`**: An interface with a `Filter(r *http.Request) bool` method. If implemented and added via `WithFilter`, the middleware will only collect metrics for requests where `Filter` returns `true`.
--   **`MetricsSampler`**: An interface with a `Sample() bool` method. If implemented and added via `WithSampler`, the middleware will only collect metrics for a fraction of requests based on the sampler's logic (e.g., random sampling). The code provides a basic `RandomSampler`.
--   These allow for fine-grained control over metric collection, potentially reducing overhead or focusing on specific request types.
+`status_code` is the numeric decimal string, such as `"404"`, rather than HTTP status text. A route template such as `/users/:id` is used when available; otherwise the name passed to `MetricsMiddleware.Handler` is used.
 
-### MetricsMiddlewareConfig
+The option named `EnableQPS` records cumulative request counters. Calculate a per-second rate in the metrics backend—for example, with a PromQL `rate` expression. It does not emit an instantaneous QPS gauge.
 
-`MetricsMiddlewareConfig` configures how the built-in middleware records metrics. In addition to the `Enable*` flags it defines:
+Likewise, throughput records declared request-body bytes, not bytes per second. It does not count response bytes, chunked request bodies with an unknown `Content-Length`, or requests whose content length is zero or negative.
 
-- `SamplingRate` – a `float64` that sampler implementations can use to decide how often to record metrics.
-- `DefaultTags` – a `metrics.Tags` map automatically added to every metric.
+Metric backends may prefix or expand these names. The Prometheus adapter prepends the native namespace and subsystem supplied to `NewPrometheusRegistry`; histogram and summary exposition also produces their conventional derived series. It does not rename arbitrary counter base names or add a missing `_total` suffix.
 
-Custom middleware may interpret these fields differently. The provided middleware stores them and expects sampling or extra tags to be activated via the `WithSampler` and `WithFilter` helpers.
+Example series before backend-specific name transformation:
 
-## Default Collected Metrics
-
-When enabled via `MetricsConfig` fields (`EnableLatency`, `EnableQPS`, etc.), the default SRouter metrics middleware (`metrics.MetricsMiddlewareImpl`) collects:
-
--   **Latency**: Request duration as a Histogram (`request_latency_seconds`), tagged with `route` only. A global `request_latency_seconds_total` histogram (no tags) tracks latency across all routes.
--   **Throughput**: Request body size as a Counter (`request_throughput_bytes`), tagged with `route` only, recorded only when `Content-Length > 0` (response sizes are not tracked). A global `request_throughput_bytes_total` counter aggregates across all routes.
--   **QPS/Request Count**: Total number of requests as a Counter (`requests_total`), tagged with `route` only. A global `all_requests_total` counter aggregates across all routes.
--   **Errors**: Count of requests with status code `>= 400` as a Counter (`request_errors_total`), tagged with `route` and `status_code` (the HTTP status text, e.g. `Not Found`). A global `all_request_errors_total` counter is tagged with `status_code` only.
-
-### Route Template Tagging and Global Metrics
-
-The metrics system provides both route-specific metrics and global totals across all routes:
-
-#### Route-Specific Metrics
-
-Metrics are tagged with the route template rather than the literal path, providing more meaningful aggregation for routes with path parameters. For example, a route like `/users/:id` will be tagged as `/users/:id` rather than `/users/123`, allowing metrics to be properly aggregated across all users.
-
-This feature is automatically enabled when using SRouter. The metrics middleware extracts the route template from the request context and uses it as a tag value. If the route template is not available (for example, when handling non-SRouter requests), the middleware falls back to using the handler name provided when the middleware was created.
-
-Example metrics with route template tags:
-
-```
-# Latency metrics use route templates for better aggregation
-request_latency_seconds{route="/users/:id"} 0.032
-
-# QPS metrics use route templates as well
-requests_total{route="/users/:id"} 1205
-
-# Error metrics include both route template and status code
-request_errors_total{route="/users/:id",status_code="Not Found"} 12
+```text
+request_latency_seconds{route="/users/:id",service="accounts",subsystem="http"}
+all_request_latency_seconds{service="accounts",subsystem="http"}
+requests_total{route="/users/:id",service="accounts",subsystem="http"}
+all_requests_total{service="accounts",subsystem="http"}
+request_errors_total{route="/users/:id",status_code="404",service="accounts",subsystem="http"}
+all_request_errors_total{status_code="404",service="accounts",subsystem="http"}
 ```
 
-#### Global Metrics
+## Filtering and sampling
 
-In addition to route-specific metrics, the middleware also emits global metrics that aggregate across all routes:
+`metrics.MetricsMiddlewareImpl` supports a request filter and sampler:
 
+- `WithFilter` collects metrics only when `Filter(*http.Request)` returns `true`.
+- `WithSampler` collects metrics only when `Sample()` returns `true`.
+- `Configure` replaces the configuration and resets the sampler from the new `SamplingRate`. Call `WithSampler` after `Configure` when using a custom sampler.
+
+`MetricsMiddlewareConfig.SamplingRate` has these semantics in the built-in middleware:
+
+- A value strictly between `0` and `1` installs a `RandomSampler` automatically.
+- A value less than or equal to `0`, or greater than or equal to `1`, installs no sampler, so all otherwise-eligible requests are collected.
+
+That configuration behavior is intentionally different from constructing `NewRandomSampler` directly: `NewRandomSampler(0)` rejects every request, while `NewRandomSampler(1)` accepts every request.
+
+To use filtering, sampling, or custom default tags with the router, construct the middleware yourself and pass it through `MiddlewareFactory`:
+
+```go
+requestMetrics := metrics.NewMetricsMiddleware[string, User](registry, metrics.MetricsMiddlewareConfig{
+	EnableLatency: true,
+	EnableQPS:     true,
+	SamplingRate:  0.10,
+	DefaultTags: metrics.Tags{
+		"service": "checkout",
+	},
+})
+requestMetrics.WithFilter(healthCheckFilter{})
+
+config := router.RouterConfig{
+	ServiceName: "checkout-api",
+	MetricsConfig: &router.MetricsConfig{
+		MiddlewareFactory: requestMetrics,
+	},
+}
 ```
-# Global latency metrics (across all routes)
-request_latency_seconds_total 0.045
 
-# Global requests counter
-all_requests_total 3250
+The factory's type parameters must match the router. For example, a `MetricsMiddleware[string, User]` is not usable by a `Router[int64, User]`; if no compatible `Collector` is present, metrics remain disabled.
 
-# Global error counter by status code
-all_request_errors_total{status_code="Not Found"} 37
-all_request_errors_total{status_code="Internal Server Error"} 5
+## Core interfaces
 
-# Global throughput 
-request_throughput_bytes_total 1458792
+`pkg/metrics` defines:
+
+- `MetricsRegistry`, which returns builders for counters, gauges, histograms, and summaries. `Build` returns the configured instrument.
+- `MetricsMiddleware[T, U]`, which wraps an `http.Handler` and supports configuration, filtering, and sampling.
+- `Metric`, `Counter`, `Gauge`, `Histogram`, and `Summary`, which form the backend-neutral instrument API.
+- The corresponding builder interfaces, which set names, descriptions, tags, buckets, and summary options.
+
+The built-in middleware caches the instruments it uses by route, status, and metric kind. A cache key's builder executes at most once, including during concurrent first requests. Builders still run from request handling, so registry implementations should keep registration bounded and concurrency-safe.
+
+## Prometheus adapter
+
+The adapter registers instruments when their builder's `Build` method runs. Its `MetricsRegistry.Register` method is therefore a no-op. The extra `Get`, `Unregister`, and `Clear` methods on `PrometheusRegistry` are unsupported: `Get` reports not found, `Unregister` returns `false`, and `Clear` does nothing. Retain instrument or underlying registry references when lifecycle control is needed.
+
+The concrete Prometheus builders expose deprecated `LabelNames` methods, but the backend-neutral metric interfaces have no operation for selecting label values. Consequently, mutation through a vector-backed `PrometheusCounter`, `PrometheusGauge`, `PrometheusHistogram`, or `PrometheusSummary` is unsupported and does nothing. SRouter's default middleware does not use `LabelNames`; it creates ordinary instruments with `Tag` values, which the adapter maps to Prometheus const labels. Use `Tag` for constant dimensions. When values must vary per observation, use the native Prometheus vector types and bind values with `WithLabelValues` instead.
+
+Expose the scrape endpoint in the application; SRouter does not add one automatically:
+
+```go
+promRegistry := prometheus.NewRegistry()
+collector := srouterprom.NewPrometheusRegistry(
+	promRegistry,
+	"myapp",
+	"router",
+	logger,
+)
+
+mux := http.NewServeMux()
+mux.Handle("/metrics", promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{}))
+mux.Handle("/", r)
 ```
 
-These global metrics are useful for high-level monitoring and alerting, while the route-specific metrics provide detailed insight for specific endpoints.
-
-The exact metric names and labels depend on the specific implementation within `metrics.MetricsMiddlewareImpl` and your provided `MetricsRegistry`.
-
-## Implementing Your Own Metrics Backend
-
-To integrate a different metrics system (e.g., OpenTelemetry, StatsD):
-
-1.  Choose your Go metrics library (e.g., `go.opentelemetry.io/otel/metric`, `prometheus/client_golang`, a StatsD client).
-2.  Create a struct that implements the `metrics.MetricsRegistry` interface. Its methods (`NewCounter`, `NewGauge`, etc.) will typically wrap the functions from your chosen library to create and register metrics.
-3.  Instantiate your custom implementation.
-4.  Pass your `MetricsRegistry` instance to `MetricsConfig.Collector`. (The `MiddlewareFactory` field is currently not consumed; SRouter always builds its own middleware from the `Collector`. For fully custom middleware logic, wrap the router with your own `common.Middleware` instead.)
-6.  **Prometheus Adapter**: SRouter provides a ready-to-use Prometheus adapter located in `pkg/metrics/prometheus`. This adapter implements the `metrics.MetricsRegistry` interface using the `prometheus/client_golang` library. You can instantiate `prometheus.NewPrometheusRegistry` and pass it to `MetricsConfig.Collector`. You will still need to expose the Prometheus metrics endpoint (e.g., `/metrics`) in your application, typically using the handler provided by the Prometheus client library registry.
-
-See the `examples/prometheus` and `examples/custom-metrics` directories for potentially more detailed examples. Ensure these examples align with the current interface-based approach described here.
+See `examples/custom-metrics` and `examples/prometheus` for complete application structure.

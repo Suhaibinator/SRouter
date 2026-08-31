@@ -1,4 +1,4 @@
-// Package common provides shared types and utilities used across the SRouter framework.
+// Package common provides middleware and policy types shared by SRouter packages.
 package common
 
 import (
@@ -6,11 +6,8 @@ import (
 	"time"
 )
 
-// Middleware defines the type for HTTP middleware functions.
-// It takes an http.Handler and returns an http.Handler.
+// Middleware wraps an HTTP handler.
 type Middleware func(http.Handler) http.Handler
-
-// --- Rate Limiting Types (Moved from pkg/middleware) ---
 
 // RateLimitStrategy defines how the rate limiter identifies clients.
 type RateLimitStrategy int
@@ -27,23 +24,16 @@ const (
 
 // RateLimiter defines the interface for rate limiting algorithms.
 type RateLimiter interface {
-	// Allow checks if a request is allowed based on the key and rate limit config.
-	// Returns true if the request is allowed, false otherwise.
-	// Also returns the number of remaining requests and the approximate time until the limit resets.
+	// Allow reports whether the key may proceed, the approximate remaining
+	// capacity, and a backend-defined reset duration.
 	Allow(key string, limit int, window time.Duration) (allowed bool, remaining int, reset time.Duration)
 }
 
-// RateLimitConfig defines configuration for rate limiting with generic type parameters.
-// T is the User ID type (comparable).
-// U is the User object type (any).
-// Note: This struct uses generic types T and U, which might require careful handling
-// when used across different packages if the specific types T and U are not known
-// at the point of configuration (e.g., in RouterConfig). Using `any` for T and U
-// in RouterConfig might be necessary, with type assertions or conversions happening
-// within the middleware or route registration logic where the types are known.
+// RateLimitConfig configures a rate-limit policy. T is the router's comparable
+// user-ID type and U is its user-object type.
 type RateLimitConfig[T comparable, U any] struct {
-	// BucketName provides a namespace for the rate limit.
-	// If multiple routes or route groups share the same BucketName, they share the same rate limit counters.
+	// BucketName namespaces the derived client key. Routes share counters only
+	// when the bucket name, derived key, Limit, and Window all match.
 	BucketName string
 
 	// Limit is the maximum number of requests allowed within the Window.
@@ -55,8 +45,8 @@ type RateLimitConfig[T comparable, U any] struct {
 	// Strategy determines how clients are identified for rate limiting.
 	Strategy RateLimitStrategy
 
-	// UserIDFromUser extracts the user ID (type T) from the user object (type U).
-	// Required only when Strategy is StrategyUser and the user object is stored in the context.
+	// UserIDFromUser optionally extracts an ID from a stored user object for
+	// StrategyUser. Without it, the limiter uses the user ID in the context.
 	UserIDFromUser func(user U) T
 
 	// UserIDToString converts the user ID (type T) to a string for use as a map key.
@@ -69,7 +59,7 @@ type RateLimitConfig[T comparable, U any] struct {
 	// Required only when Strategy is StrategyCustom.
 	KeyExtractor func(r *http.Request) (key string, err error)
 
-	// ExceededHandler is an optional http.Handler to call when the rate limit is exceeded.
-	// If nil, a default 429 Too Many Requests response is sent.
+	// ExceededHandler handles a rejected request after rate-limit headers are
+	// set. It owns the response status and body. Nil uses the default 429 response.
 	ExceededHandler http.Handler
 }

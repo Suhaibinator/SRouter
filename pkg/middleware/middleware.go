@@ -1,6 +1,5 @@
-// Package middleware provides a collection of HTTP middleware components for the SRouter framework.
-// These middleware components can be used to add functionality such as logging, recovery from panics,
-// authentication, and more to your HTTP handlers.
+// Package middleware provides recovery, request-body limiting, authentication,
+// trace IDs, rate limiting, and transaction helpers for SRouter HTTP handlers.
 package middleware
 
 import (

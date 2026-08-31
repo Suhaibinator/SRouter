@@ -3,7 +3,10 @@ package metrics
 import (
 	"net/http"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // TestHandlerAppliesDefaultTags verifies that DefaultTags from the middleware
@@ -136,4 +139,78 @@ func TestHandlerReusesCachedMetrics(t *testing.T) {
 	if len(latency.observations) != requests {
 		t.Errorf("expected %d latency observations on one histogram instance, got %d", requests, len(latency.observations))
 	}
+}
+
+func TestMetricCacheBuildsEachInstrumentOnceConcurrently(t *testing.T) {
+	const goroutines = 64
+
+	t.Run("counter", func(t *testing.T) {
+		middleware := NewMetricsMiddleware[string, any](nil, MetricsMiddlewareConfig{})
+		want := &MockCounter{name: "shared"}
+		var builds atomic.Int32
+		start := make(chan struct{})
+		results := make(chan Counter, goroutines)
+		var wg sync.WaitGroup
+		wg.Add(goroutines)
+
+		for range goroutines {
+			go func() {
+				defer wg.Done()
+				<-start
+				results <- middleware.cachedCounter("counter|shared", func() Counter {
+					builds.Add(1)
+					time.Sleep(2 * time.Millisecond)
+					return want
+				})
+			}()
+		}
+
+		close(start)
+		wg.Wait()
+		close(results)
+
+		if got := builds.Load(); got != 1 {
+			t.Fatalf("counter build count = %d, want 1", got)
+		}
+		for got := range results {
+			if got != want {
+				t.Fatalf("cached counter = %p, want %p", got, want)
+			}
+		}
+	})
+
+	t.Run("histogram", func(t *testing.T) {
+		middleware := NewMetricsMiddleware[string, any](nil, MetricsMiddlewareConfig{})
+		want := &MockHistogram{name: "shared"}
+		var builds atomic.Int32
+		start := make(chan struct{})
+		results := make(chan Histogram, goroutines)
+		var wg sync.WaitGroup
+		wg.Add(goroutines)
+
+		for range goroutines {
+			go func() {
+				defer wg.Done()
+				<-start
+				results <- middleware.cachedHistogram("histogram|shared", func() Histogram {
+					builds.Add(1)
+					time.Sleep(2 * time.Millisecond)
+					return want
+				})
+			}()
+		}
+
+		close(start)
+		wg.Wait()
+		close(results)
+
+		if got := builds.Load(); got != 1 {
+			t.Fatalf("histogram build count = %d, want 1", got)
+		}
+		for got := range results {
+			if got != want {
+				t.Fatalf("cached histogram = %p, want %p", got, want)
+			}
+		}
+	})
 }

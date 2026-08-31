@@ -1,5 +1,3 @@
-// Package router provides a flexible and feature-rich HTTP routing framework.
-// It supports middleware, recursive route groups, generic handlers, and various configuration options.
 package router
 
 import (
@@ -9,8 +7,6 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
-
-	// Removed: "github.com/Suhaibinator/SRouter/pkg/middleware"
 	"go.uber.org/zap"
 )
 
@@ -18,12 +14,19 @@ import (
 // It allows customization of which origins, methods, headers, and credentials are allowed
 // for cross-origin requests, and which headers can be exposed to the client-side script.
 type CORSConfig struct {
-	Origins          []string      // Allowed origins (e.g., "http://example.com", "*"). Required.
-	Methods          []string      // Allowed methods (e.g., "GET", "POST"). Defaults to simple methods if empty.
-	Headers          []string      // Allowed headers. Defaults to simple headers if empty.
+	Origins []string // Allowed origins (e.g., "http://example.com", "*"). Empty allows none.
+
+	// Methods contains case-sensitive HTTP method names. Empty defaults to GET,
+	// HEAD, and POST. Method wildcards are not supported.
+	Methods []string
+
+	// Headers contains case-insensitive request-header names. Empty defaults to
+	// Accept, Accept-Language, Content-Language, and Content-Type. "*" accepts
+	// every requested header and echoes the requested names in preflight responses.
+	Headers          []string
 	ExposeHeaders    []string      // Headers the browser is allowed to access.
 	AllowCredentials bool          // Whether to allow credentials (cookies, authorization headers).
-	MaxAge           time.Duration // How long the results of a preflight request can be cached.
+	MaxAge           time.Duration // Preflight cache duration; values below one second are omitted.
 }
 
 // HttpMethod defines the type for HTTP methods.
@@ -52,14 +55,14 @@ const (
 	NoAuth AuthLevel = iota
 
 	// AuthOptional indicates that authentication is optional for the route.
-	// If authentication credentials are provided, they will be validated and the user
-	// will be added to the request context if valid. If no credentials are provided
-	// or they are invalid, the request will still proceed without a user in the context.
+	// Valid credentials add the user ID to the request context; the user object
+	// is also added when RouterConfig.AddUserObjectToCtx is true. Missing or
+	// invalid credentials allow the request to proceed without a new identity.
 	AuthOptional
 
 	// AuthRequired indicates that authentication is required for the route.
 	// If authentication fails, the request will be rejected with a 401 Unauthorized response.
-	// If authentication succeeds, the user will be added to the request context.
+	// Success adds the user ID and, when AddUserObjectToCtx is true, the user object.
 	AuthRequired
 )
 
@@ -88,7 +91,8 @@ const (
 	// The path parameter value is decoded from base62 before being passed to the codec.
 	Base62PathParameter
 
-	// Empty does not decode anything. It acts as a noop for decoding.
+	// Empty skips request decoding and passes the zero value of the request type
+	// to the handler.
 	Empty
 )
 
@@ -96,14 +100,16 @@ const (
 // It allows customization of how metrics are collected and exposed.
 type MetricsConfig struct {
 	// Collector is the metrics collector to use. It must implement
-	// metrics.MetricsRegistry for metrics to be collected. If nil (or it does
-	// not implement metrics.MetricsRegistry), no metrics middleware is installed.
+	// metrics.MetricsRegistry for the router to build its default middleware.
+	// If it is unusable, metrics remain disabled unless MiddlewareFactory supplies
+	// a compatible custom middleware.
 	Collector any // metrics.MetricsRegistry
 
 	// MiddlewareFactory optionally supplies a custom metrics middleware. If it
 	// implements metrics.MetricsMiddleware[T, U] (with the router's type
-	// parameters), it takes precedence over Collector and is used to wrap all
-	// requests. Otherwise the router builds its own middleware from Collector.
+	// parameters), it takes precedence over Collector and is used on every
+	// matched route that reaches the global-middleware stage. Otherwise the
+	// router builds its own middleware from Collector.
 	MiddlewareFactory any // metrics.MetricsMiddleware
 
 	// Namespace for metrics. Applied as the "service" tag on all metrics
@@ -117,10 +123,10 @@ type MetricsConfig struct {
 	// EnableLatency enables latency metrics.
 	EnableLatency bool
 
-	// EnableThroughput enables throughput metrics.
+	// EnableThroughput records positive request Content-Length values.
 	EnableThroughput bool
 
-	// EnableQPS enables queries per second metrics.
+	// EnableQPS enables cumulative request counters; derive a rate in the backend.
 	EnableQPS bool
 
 	// EnableErrors enables error metrics.
@@ -130,18 +136,18 @@ type MetricsConfig struct {
 // RouterConfig defines the global configuration for the router.
 // It includes settings for logging, timeouts, metrics, and middleware.
 type RouterConfig struct {
-	ServiceName         string                            // Name of the service, used for metrics tagging etc.
+	ServiceName         string                            // Fallback handler name passed to configured metrics middleware
 	Logger              *zap.Logger                       // Logger for all router operations
 	GlobalTimeout       time.Duration                     // Default response timeout for all routes
 	GlobalMaxBodySize   int64                             // Default maximum request body size in bytes
-	GlobalRateLimit     *common.RateLimitConfig[any, any] // Use common.RateLimitConfig // Default rate limit for all routes
+	GlobalRateLimit     *common.RateLimitConfig[any, any] // Default rate limit for all routes
 	GlobalAuthToken     *common.AuthTokenConfig           // Default auth token source for built-in auth middleware
 	IPConfig            *IPConfig                         // Configuration for client IP extraction
 	EnableTraceLogging  bool                              // Enable per-request summary logging even when TraceIDBufferSize is 0
-	TraceLoggingUseInfo bool                              // Use Info level for trace logging
+	TraceLoggingUseInfo bool                              // Promote otherwise-successful request summaries from Debug to Info
 	TraceIDBufferSize   int                               // Buffer size for trace ID generator (0 disables trace ID)
 	MetricsConfig       *MetricsConfig                    // Metrics configuration (optional)
-	Middlewares         []common.Middleware               // Global middlewares applied to all routes
+	Middlewares         []common.Middleware               // Global middleware for matched requests that pass built-in auth and rate limiting
 	AddUserObjectToCtx  bool                              // Add user object to context
 	CORSConfig          *CORSConfig                       // CORS configuration (optional, if nil CORS is disabled)
 }
@@ -170,6 +176,11 @@ type RouteDefinition interface {
 // - Route settings override route-group settings
 // - Route-group settings override global settings
 // - Middlewares are additive (not replaced)
+//
+// Path is absolute for a root route and relative to its group. Methods and
+// Handler are required. Build reports invalid paths and methods, negative
+// timeout or body-size values, invalid authentication levels, and nil
+// middleware before the router begins serving.
 type RouteConfigBase struct {
 	Path           string                // Route path, relative to its route group when grouped
 	Methods        []HttpMethod          // HTTP methods this route handles (use constants like MethodGet)
@@ -193,7 +204,9 @@ func (route RouteConfigBase) baseConfig(routeRuntime, string) (RouteConfigBase, 
 // - Route-group settings override global settings
 // - Middlewares are additive (not replaced)
 //
-// RouteConfig values can be registered directly on Router or RouteGroup.
+// RouteConfig values can be registered directly on Router or RouteGroup. Codec,
+// Handler, and Methods are required. Query sources also require SourceKey; path
+// sources use the first path parameter when SourceKey is empty.
 type RouteConfig[T any, U any] struct {
 	Path           string                              // Route path, relative to its route group when grouped
 	Methods        []HttpMethod                        // HTTP methods this route handles (use constants like MethodGet)
@@ -203,7 +216,7 @@ type RouteConfig[T any, U any] struct {
 	Handler        GenericHandler[T, U]                // Generic handler function (required)
 	Middlewares    []common.Middleware                 // Middlewares applied after global and route-group middlewares
 	SourceType     SourceType                          // Where to retrieve request data from (defaults to Body)
-	SourceKey      string                              // Parameter name for query/path parameters (required when SourceType is not Body/Empty)
+	SourceKey      string                              // Query parameter name (required) or path parameter name (optional; defaults to the first path parameter)
 	Sanitizer      func(context.Context, T) (T, error) // Optional function to validate/transform request data after decoding
 	DisableTimeout bool                                // Indicates if the timeout should be disabled for this route (e.g., for WebSockets or long-lived connections).
 }

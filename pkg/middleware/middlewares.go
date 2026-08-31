@@ -1,4 +1,3 @@
-// Package middleware provides a collection of HTTP middleware components for the SRouter framework.
 package middleware
 
 import (
@@ -9,17 +8,14 @@ import (
 // It represents a function that wraps an http.Handler to provide additional functionality.
 type Middleware = common.Middleware
 
-// Public middleware constructors exposed via variables.
-// The actual implementations are kept private within their respective files.
 var (
-	// From middleware.go
-	Recovery    = recovery
+	// Recovery creates middleware that logs recovered panics and calls
+	// http.Error with status 500. If downstream already started the response,
+	// net/http cannot replace the committed status.
+	Recovery = recovery
+
+	// MaxBodySize creates middleware that limits request-body reads to maxSize
+	// bytes with http.MaxBytesReader. Callers should pass a positive size; the
+	// router applies an equivalent limit directly for positive route policies.
 	MaxBodySize = maxBodySize
 )
-
-// Note: Generic middleware constructors (Authentication*, New*Middleware, RateLimit, etc.)
-// remain public in their original files (auth.go, ip.go, ratelimit.go).
-// Supporting types like CORSOptions, AuthProvider, RateLimiter, IPConfig, etc.,
-// and helper functions like Chain, ClientIP, GetTraceID, etc., remain public
-// in their original files. Context-related functions in context.go and DB types
-// in db.go also remain public.

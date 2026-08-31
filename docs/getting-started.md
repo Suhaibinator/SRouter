@@ -14,7 +14,6 @@ SRouter requires Go 1.27 or newer.
 package main
 
 import (
-	"context"
 	"log"
 	"net/http"
 	"time"
@@ -37,16 +36,7 @@ func main() {
 		GlobalMaxBodySize: 1 << 20,
 	}
 
-	authenticate := func(_ context.Context, token string) (*string, bool) {
-		if token != "valid-token" {
-			return nil, false
-		}
-		user := "user-id-from-token"
-		return &user, true
-	}
-	userID := func(user *string) string { return *user }
-
-	r := router.NewRouter[string, string](config, authenticate, userID)
+	r := router.NewRouter[string, string](config, nil, nil)
 	r.Route(router.RouteConfigBase{
 		Path:    "/hello",
 		Methods: []router.HttpMethod{router.MethodGet},
@@ -76,6 +66,9 @@ func main() {
 with `r.Route`; recursive path scopes are created with `r.Group`. Both root and
 group `Route` methods accept standard `RouteConfigBase` values and typed
 `RouteConfig[Req, Resp]` values.
+
+The authentication callbacks may be nil while every effective route auth level
+is `NoAuth`. Supply them before adding `AuthOptional` or `AuthRequired` routes.
 
 Calling `Build` during startup is recommended. It validates the full route tree
 and freezes it before serving; `ServeHTTP` builds automatically if necessary.

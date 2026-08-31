@@ -2,9 +2,47 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
+
+	"github.com/Suhaibinator/SRouter/pkg/router"
+	"go.uber.org/zap"
 )
+
+func TestBodylessRoutesReachTheirHandlers(t *testing.T) {
+	r := router.NewRouter[string, string](
+		router.RouterConfig{Logger: zap.NewNop()},
+		nil,
+		nil,
+	)
+	registerRoutes(r)
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{name: "get user", method: http.MethodGet, path: "/users/1", wantStatus: http.StatusOK},
+		{name: "list users", method: http.MethodGet, path: "/users", wantStatus: http.StatusOK},
+		{name: "delete missing user", method: http.MethodDelete, path: "/users/not-present", wantStatus: http.StatusNotFound},
+		{name: "deliberate handler error", method: http.MethodGet, path: "/error", wantStatus: http.StatusInternalServerError},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.path, nil)
+			r.ServeHTTP(recorder, request)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body = %s", recorder.Code, tt.wantStatus, recorder.Body.String())
+			}
+		})
+	}
+}
 
 func TestUserStoreConcurrentAccess(t *testing.T) {
 	store := newUserStore(map[string]User{

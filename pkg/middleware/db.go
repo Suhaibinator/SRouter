@@ -78,4 +78,4 @@ func (w *GormTransactionWrapper) GetDB() *gorm.DB {
 }
 
 // Ensure GormTransactionWrapper implements scontext.DatabaseTransaction (compile-time check).
-var _ scontext.DatabaseTransaction = (*GormTransactionWrapper)(nil) // Use scontext.DatabaseTransaction
+var _ scontext.DatabaseTransaction = (*GormTransactionWrapper)(nil)

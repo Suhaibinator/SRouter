@@ -1,63 +1,73 @@
 # CORS Configuration
 
-SRouter handles Cross-Origin Resource Sharing (CORS) directly within the router, ensuring correct context propagation and simplifying configuration. Instead of using a separate middleware, CORS is configured via the `CORSConfig` field within the main `RouterConfig`.
-
-## Configuration
-
-To enable and configure CORS, provide a `router.CORSConfig` struct to the `CORSConfig` field when creating your `RouterConfig`.
+Inside the router, SRouter handles Cross-Origin Resource Sharing before route
+matching, built-in authentication, and router-scoped middleware. Middleware
+that wraps the entire router runs earlier and must allow preflights to reach
+SRouter. Enable CORS with `RouterConfig.CORSConfig`:
 
 ```go
-import (
-	"time"
-	"github.com/Suhaibinator/SRouter/pkg/router"
-)
-
-// Example CORS configuration
-corsCfg := &router.CORSConfig{
-    Origins:          []string{"https://trusted.frontend.com", "http://localhost:3000"}, // Allowed origins
-    Methods:          []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions}, // Allowed methods
-    Headers:          []string{"Content-Type", "Authorization", "X-Requested-With"}, // Allowed headers
-    ExposeHeaders:    []string{"Content-Length", "X-Request-ID"}, // Headers browser JS can access
-    AllowCredentials: true,                                       // Allow cookies/auth headers
-    MaxAge:           12 * time.Hour,                             // Cache preflight results for 12 hours
+config := router.RouterConfig{
+	CORSConfig: &router.CORSConfig{
+		Origins:          []string{"https://app.example.com"},
+		Methods:          []string{http.MethodGet, http.MethodPost},
+		Headers:          []string{"Content-Type", "Authorization"},
+		ExposeHeaders:    []string{"X-Request-ID"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	},
 }
-
-// Configure the router
-routerConfig := router.RouterConfig{
-    // ... other config (logger, ServiceName, etc.)
-    CORSConfig: corsCfg, // Assign the CORS configuration
-    // ...
-}
-
-// Replace string, string with your actual UserIDType, UserObjectType
-r := router.NewRouter[string, string](routerConfig, /* auth funcs */)
 ```
 
-If `CORSConfig` is `nil` or not provided, CORS headers will not be added, and preflight requests will not be handled automatically.
+When `CORSConfig` is nil, SRouter adds no CORS headers and does not intercept `OPTIONS` requests.
 
-## CORSConfig Fields
+## Fields and defaults
 
-The `router.CORSConfig` struct (defined in `pkg/router/config.go`) has the following fields:
+- `Origins` lists exact origins. `"*"` allows any origin. An empty list allows none.
+- `Methods` lists allowed preflight methods using case-sensitive HTTP method names. An empty list defaults to `GET`, `HEAD`, and `POST`.
+- `Headers` lists allowed preflight request-header names. Matching is case-insensitive. An empty list defaults to `Accept`, `Accept-Language`, `Content-Language`, and `Content-Type`. Browsers use header values to decide whether a preflight is necessary, but SRouter validates only the names in that preflight. Consequently, allowing `Content-Type` also permits non-safelisted values such as `application/json` after a successful preflight.
+- `ExposeHeaders` lists response headers browser JavaScript may read. SRouter sends it on allowed, non-`OPTIONS` requests.
+- `AllowCredentials` emits `Access-Control-Allow-Credentials: true` only for an explicitly matched origin.
+- `MaxAge` emits `Access-Control-Max-Age` in truncated whole seconds when it is
+  at least one second. Zero, negative, and subsecond values are omitted.
 
--   **`Origins`** (`[]string`): A list of allowed origin domains. You can specify exact domains (e.g., `"https://example.com"`) or use the wildcard `"*"` to allow any origin. **Using `"*"` is generally discouraged for production environments, especially if `AllowCredentials` is true.** This field is required if you want to enable CORS.
--   **`Methods`** (`[]string`): A list of allowed HTTP methods (e.g., `"GET"`, `"POST"`). If empty, it defaults to simple methods (`GET`, `POST`, `HEAD`).
--   **`Headers`** (`[]string`): A list of allowed request headers. If empty, it defaults to simple headers (`Accept`, `Accept-Language`, `Content-Language`, `Content-Type` if its value is `application/x-www-form-urlencoded`, `multipart/form-data`, or `text/plain`). Include headers like `"Authorization"` or custom headers (e.g., `"X-API-Key"`) if your frontend needs to send them. You can also use the wildcard `"*"` to allow any header, which is useful during development or when you need to allow a wide range of headers. When a wildcard is used, SRouter will echo back the exact headers requested by the browser in the preflight request, ensuring maximum compatibility.
--   **`ExposeHeaders`** (`[]string`): A list of response headers that the browser's JavaScript code should be allowed to access. By default, only simple response headers are exposed.
--   **`AllowCredentials`** (`bool`): If `true`, the browser is allowed to send credentials (like cookies or `Authorization` headers) with the cross-origin request. **Important:** If set to `true`, the `Origins` field **cannot** contain the wildcard `"*"`; you must list specific origins. The `Access-Control-Allow-Credentials` header will be set to `true` in responses.
--   **`MaxAge`** (`time.Duration`): Specifies how long the results of a preflight (`OPTIONS`) request can be cached by the browser, reducing the number of preflight requests needed. If zero or negative, the `Access-Control-Max-Age` header is not sent.
+Methods do not support a wildcard. `Headers: []string{"*"}` accepts every requested header and echoes the browser's `Access-Control-Request-Headers` value in the preflight response.
 
-## How it Works
+## Wildcard origins and credentials
 
-When `CORSConfig` is provided:
+The CORS protocol does not allow a credentialed response with `Access-Control-Allow-Origin: *`. If `Origins` contains `"*"`, SRouter always selects the wildcard—even if the same list also contains an exact origin—and never emits `Access-Control-Allow-Credentials`. The router logs a warning when this is combined with `AllowCredentials: true`.
 
-1.  **Incoming Request Check**: For every incoming request, SRouter checks for an `Origin` header.
-2.  **Origin Matching**: It compares the request's `Origin` against the configured `Origins` list.
-3.  **Context Update**: The outcome of the CORS check is stored in the request context using `scontext.WithCORSInfo`. If the `Origin` header is missing or not permitted, empty values are recorded so later middleware and error handlers know not to emit CORS headers. This uses the router's generic types (`T`, `U`).
-4.  **Disallowed Origin Requests**: If the origin is not allowed and the request is not a preflight `OPTIONS`, SRouter simply forwards the request without adding any CORS headers. The browser will block the response because the required CORS headers are missing.
-5.  **Response Header Setting**: Appropriate CORS headers (`Access-Control-Allow-Origin`, `Access-Control-Allow-Credentials`, `Vary: Origin`, `Access-Control-Expose-Headers`) are set on the response *before* the request handler or other middleware are called.
-6.  **Preflight Handling**: If the request method is `OPTIONS` (a preflight request), SRouter checks the requested method (`Access-Control-Request-Method`) and headers (`Access-Control-Request-Headers`) against the configured `Methods` and `Headers`.
-    -   If allowed, it sets the necessary preflight response headers (`Access-Control-Allow-Methods`, `Access-Control-Allow-Headers`, `Access-Control-Max-Age`) and responds with `204 No Content`, terminating the request chain.
-    -   If not allowed, it still responds with `204 No Content` but *without* the `Allow-*` headers, signaling failure to the browser.
-7.  **Error Handling**: The `writeJSONError` function also checks the context for CORS information and sets the appropriate `Access-Control-Allow-Origin` and `Access-Control-Allow-Credentials` headers on error responses, ensuring CORS compliance even when errors occur.
+Use explicit origins for credentialed requests:
 
-This integrated approach ensures that CORS is handled consistently and correctly across all requests and responses, including errors, without needing a separate middleware step.
+```go
+CORSConfig: &router.CORSConfig{
+	Origins:          []string{"https://app.example.com"},
+	Methods:          []string{http.MethodGet, http.MethodPost},
+	Headers:          []string{"Content-Type", "Authorization"},
+	AllowCredentials: true,
+}
+```
+
+## Request behavior
+
+For a request with an `Origin` header, SRouter:
+
+1. Matches the origin against `Origins`.
+2. Stores the selected origin and credential decision in `SRouterContext`.
+3. Sets `Access-Control-Allow-Origin`, credential, exposure, and `Vary` headers as applicable before downstream middleware runs.
+4. For `OPTIONS`, checks `Access-Control-Request-Method` and `Access-Control-Request-Headers`, writes a 204 response, and stops the chain.
+
+An allowed preflight receives `Access-Control-Allow-Methods`, `Access-Control-Allow-Headers`, and positive `Access-Control-Max-Age` values as configured. If its requested method or headers are disallowed, SRouter still returns 204 and can retain the already-decided origin and credentials headers, but omits all three preflight-specific headers. The browser interprets that omission as a failed preflight.
+
+A request from a disallowed origin continues to the application when it is not `OPTIONS`, but receives no CORS allowance headers. The browser prevents the calling page from reading the response. CORS is not authorization: non-browser clients are not constrained by it.
+
+Preflight handling runs before built-in and router-scoped authentication, so
+browsers can preflight protected routes without credentials. Authentication
+middleware wrapped around the entire router runs first; it must pass CORS
+`OPTIONS` requests through, or an external CORS layer must wrap it. The
+subsequent actual request still goes through normal authentication and
+middleware. Framework-generated errors after CORS processing carry the CORS
+decision; earlier build failures and shutdown rejections do not.
+
+## Cache behavior
+
+Specific allowed origins and disallowed origins add `Vary: Origin`, preventing a shared cache from reusing one origin's CORS response for another. A wildcard response does not vary by origin.

@@ -8,33 +8,25 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
-	srouter_metrics "github.com/Suhaibinator/SRouter/pkg/metrics" // Ensure this import is present
+	srouter_metrics "github.com/Suhaibinator/SRouter/pkg/metrics"
 )
 
-// --- SRouter MetricsRegistry Adapter ---
-
-// PrometheusRegistry adapts a Prometheus Registerer/Gatherer to SRouter's MetricsRegistry interface.
+// PrometheusRegistry adapts a Prometheus Registerer to SRouter's MetricsRegistry interface.
 type PrometheusRegistry struct {
-	// Use the Registerer interface for broader compatibility and easier testing.
-	// Note: For Gather() functionality (if needed later), the underlying type
-	// would likely need to also implement prometheus.Gatherer.
 	registry  prometheus.Registerer
 	namespace string
 	subsystem string
-	tags      srouter_metrics.Tags // Prometheus doesn't directly support arbitrary tags in the same way, use const labels
-	logger    *zap.Logger          // Add logger field
+	tags      srouter_metrics.Tags
+	logger    *zap.Logger
 }
 
-// NewPrometheusRegistry creates a new adapter using a prometheus.Registerer and a zap logger.
+// NewPrometheusRegistry creates an adapter for registry. It panics when registry
+// is nil. Namespace and subsystem prefix Prometheus metric names; a nil logger
+// is replaced by a no-op logger.
 func NewPrometheusRegistry(registry prometheus.Registerer, namespace, subsystem string, logger *zap.Logger) *PrometheusRegistry {
 	if registry == nil {
-		// Default to a new standard registry if nil is provided? Or panic?
-		// For now, let's assume a valid registry is required.
-		// Consider adding error handling or defaulting if needed.
-		// If registry is nil, panic is appropriate as it's fundamental.
 		panic("prometheus registry cannot be nil")
 	}
-	// Use provided logger or default to Nop if nil
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -43,18 +35,15 @@ func NewPrometheusRegistry(registry prometheus.Registerer, namespace, subsystem 
 		namespace: namespace,
 		subsystem: subsystem,
 		tags:      make(srouter_metrics.Tags),
-		logger:    logger.Named("prom_registry_adapter"), // Add a name to the logger
+		logger:    logger.Named("prom_registry_adapter"),
 	}
 }
 
-// Helper to convert SRouter tags to Prometheus const labels
 func (s *PrometheusRegistry) constLabels() prometheus.Labels {
 	labels := prometheus.Labels{}
 	maps.Copy(labels, s.tags)
 	return labels
 }
-
-// --- Builder Implementations ---
 
 // PrometheusCounterBuilder adapts Prometheus counter creation.
 type PrometheusCounterBuilder struct {
@@ -63,22 +52,33 @@ type PrometheusCounterBuilder struct {
 	labels   []string
 }
 
+// Name sets the counter name.
 func (b *PrometheusCounterBuilder) Name(name string) srouter_metrics.CounterBuilder {
 	b.opts.Name = name
 	return b
 }
+
+// Description sets the counter help text.
 func (b *PrometheusCounterBuilder) Description(desc string) srouter_metrics.CounterBuilder {
 	b.opts.Help = desc
 	return b
 }
+
+// Tag adds a Prometheus const label to the counter.
 func (b *PrometheusCounterBuilder) Tag(key, value string) srouter_metrics.CounterBuilder {
-	// Tags applied at build time become const labels
 	if b.opts.ConstLabels == nil {
 		b.opts.ConstLabels = make(prometheus.Labels)
 	}
 	b.opts.ConstLabels[key] = value
 	return b
 }
+
+// LabelNames configures variable labels on the Prometheus collector.
+//
+// Deprecated: SRouter's Counter interface cannot select label values, so Inc
+// and Add are no-ops on the resulting vector-backed counter. Use Tag for
+// constant dimensions, or use a native prometheus.CounterVec and
+// WithLabelValues for variable dimensions.
 func (b *PrometheusCounterBuilder) LabelNames(names ...string) srouter_metrics.CounterBuilder {
 	b.labels = names
 	return b
@@ -86,12 +86,11 @@ func (b *PrometheusCounterBuilder) LabelNames(names ...string) srouter_metrics.C
 
 // Build creates and registers the Prometheus counter.
 func (b *PrometheusCounterBuilder) Build() srouter_metrics.Counter {
-	// Merge registry tags (const labels)
 	if b.opts.ConstLabels == nil {
 		b.opts.ConstLabels = make(prometheus.Labels)
 	}
 	for k, v := range b.registry.constLabels() {
-		if _, exists := b.opts.ConstLabels[k]; !exists { // Don't overwrite builder tags
+		if _, exists := b.opts.ConstLabels[k]; !exists {
 			b.opts.ConstLabels[k] = v
 		}
 	}
@@ -100,12 +99,7 @@ func (b *PrometheusCounterBuilder) Build() srouter_metrics.Counter {
 	if len(b.labels) > 0 {
 		counterVec = prometheus.NewCounterVec(b.opts, b.labels)
 		if err := b.registry.registry.Register(counterVec); err != nil {
-			// Handle already registered error gracefully if needed
 			if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
-				// If it's already registered, assume we want to use the existing one.
-				// Note: This might not be the exact same metric if labels/help changed.
-				// Prometheus client doesn't easily allow getting the existing metric by opts.
-				// We'll re-fetch based on the Vec structure.
 				counterVec = are.ExistingCollector.(*prometheus.CounterVec)
 			} else {
 				// SRouter interface expects Build to return the metric directly,
@@ -115,12 +109,10 @@ func (b *PrometheusCounterBuilder) Build() srouter_metrics.Counter {
 					zap.String("metric_name", b.opts.Name), zap.Error(err))
 			}
 		}
-		// Convert prometheus.Labels to srouter_metrics.Tags
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
 		maps.Copy(tags, b.opts.ConstLabels)
 		return &PrometheusCounter{registry: b.registry, metricVec: counterVec, name: b.opts.Name, description: b.opts.Help, tags: tags, labelNames: b.labels}
 	} else {
-		// For non-vector counter
 		promCounter := prometheus.NewCounter(b.opts)
 		if err := b.registry.registry.Register(promCounter); err != nil {
 			if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
@@ -131,7 +123,6 @@ func (b *PrometheusCounterBuilder) Build() srouter_metrics.Counter {
 					zap.String("metric_name", b.opts.Name), zap.Error(err))
 			}
 		}
-		// Convert prometheus.Labels to srouter_metrics.Tags
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
 		maps.Copy(tags, b.opts.ConstLabels)
 		return &PrometheusCounter{registry: b.registry, metric: promCounter, name: b.opts.Name, description: b.opts.Help, tags: tags}
@@ -145,14 +136,19 @@ type PrometheusGaugeBuilder struct {
 	labels   []string
 }
 
+// Name sets the gauge name.
 func (b *PrometheusGaugeBuilder) Name(name string) srouter_metrics.GaugeBuilder {
 	b.opts.Name = name
 	return b
 }
+
+// Description sets the gauge help text.
 func (b *PrometheusGaugeBuilder) Description(desc string) srouter_metrics.GaugeBuilder {
 	b.opts.Help = desc
 	return b
 }
+
+// Tag adds a Prometheus const label to the gauge.
 func (b *PrometheusGaugeBuilder) Tag(key, value string) srouter_metrics.GaugeBuilder {
 	if b.opts.ConstLabels == nil {
 		b.opts.ConstLabels = make(prometheus.Labels)
@@ -160,6 +156,13 @@ func (b *PrometheusGaugeBuilder) Tag(key, value string) srouter_metrics.GaugeBui
 	b.opts.ConstLabels[key] = value
 	return b
 }
+
+// LabelNames configures variable labels on the Prometheus collector.
+//
+// Deprecated: SRouter's Gauge interface cannot select label values, so mutation
+// methods are no-ops on the resulting vector-backed gauge. Use Tag for constant
+// dimensions, or use a native prometheus.GaugeVec and WithLabelValues for
+// variable dimensions.
 func (b *PrometheusGaugeBuilder) LabelNames(names ...string) srouter_metrics.GaugeBuilder {
 	b.labels = names
 	return b
@@ -215,14 +218,19 @@ type PrometheusHistogramBuilder struct {
 	labels   []string
 }
 
+// Name sets the histogram name.
 func (b *PrometheusHistogramBuilder) Name(name string) srouter_metrics.HistogramBuilder {
 	b.opts.Name = name
 	return b
 }
+
+// Description sets the histogram help text.
 func (b *PrometheusHistogramBuilder) Description(desc string) srouter_metrics.HistogramBuilder {
 	b.opts.Help = desc
 	return b
 }
+
+// Tag adds a Prometheus const label to the histogram.
 func (b *PrometheusHistogramBuilder) Tag(key, value string) srouter_metrics.HistogramBuilder {
 	if b.opts.ConstLabels == nil {
 		b.opts.ConstLabels = make(prometheus.Labels)
@@ -230,12 +238,19 @@ func (b *PrometheusHistogramBuilder) Tag(key, value string) srouter_metrics.Hist
 	b.opts.ConstLabels[key] = value
 	return b
 }
+
+// LabelNames configures variable labels on the Prometheus collector.
+//
+// Deprecated: SRouter's Histogram interface cannot select label values, so
+// Observe is a no-op on the resulting vector-backed histogram. Use Tag for
+// constant dimensions, or use a native prometheus.HistogramVec and
+// WithLabelValues for variable dimensions.
 func (b *PrometheusHistogramBuilder) LabelNames(names ...string) srouter_metrics.HistogramBuilder {
 	b.labels = names
 	return b
 }
 
-// Buckets sets the histogram buckets, accepting a slice per the interface.
+// Buckets sets the histogram bucket boundaries.
 func (b *PrometheusHistogramBuilder) Buckets(buckets []float64) srouter_metrics.HistogramBuilder {
 	b.opts.Buckets = buckets
 	return b
@@ -252,7 +267,7 @@ func (b *PrometheusHistogramBuilder) Build() srouter_metrics.Histogram {
 		}
 	}
 	if len(b.opts.Buckets) == 0 {
-		b.opts.Buckets = prometheus.DefBuckets // Default buckets
+		b.opts.Buckets = prometheus.DefBuckets
 	}
 
 	var histoVec *prometheus.HistogramVec
@@ -289,19 +304,24 @@ func (b *PrometheusHistogramBuilder) Build() srouter_metrics.Histogram {
 
 // PrometheusSummaryBuilder adapts Prometheus summary creation.
 type PrometheusSummaryBuilder struct {
-	registry *PrometheusRegistry // Keep registry reference to access logger
+	registry *PrometheusRegistry
 	opts     prometheus.SummaryOpts
 	labels   []string
 }
 
+// Name sets the summary name.
 func (b *PrometheusSummaryBuilder) Name(name string) srouter_metrics.SummaryBuilder {
 	b.opts.Name = name
 	return b
 }
+
+// Description sets the summary help text.
 func (b *PrometheusSummaryBuilder) Description(desc string) srouter_metrics.SummaryBuilder {
 	b.opts.Help = desc
 	return b
 }
+
+// Tag adds a Prometheus const label to the summary.
 func (b *PrometheusSummaryBuilder) Tag(key, value string) srouter_metrics.SummaryBuilder {
 	if b.opts.ConstLabels == nil {
 		b.opts.ConstLabels = make(prometheus.Labels)
@@ -309,35 +329,43 @@ func (b *PrometheusSummaryBuilder) Tag(key, value string) srouter_metrics.Summar
 	b.opts.ConstLabels[key] = value
 	return b
 }
+
+// LabelNames configures variable labels on the Prometheus collector.
+//
+// Deprecated: SRouter's Summary interface cannot select label values, so
+// Observe is a no-op on the resulting vector-backed summary. Use Tag for
+// constant dimensions, or use a native prometheus.SummaryVec and
+// WithLabelValues for variable dimensions.
 func (b *PrometheusSummaryBuilder) LabelNames(names ...string) srouter_metrics.SummaryBuilder {
 	b.labels = names
 	return b
 }
+
+// Objectives sets the summary's quantile objectives.
 func (b *PrometheusSummaryBuilder) Objectives(objectives map[float64]float64) srouter_metrics.SummaryBuilder {
 	b.opts.Objectives = objectives
 	return b
 }
+
+// MaxAge sets the maximum age of observations in the summary.
 func (b *PrometheusSummaryBuilder) MaxAge(age time.Duration) srouter_metrics.SummaryBuilder {
 	b.opts.MaxAge = age
 	return b
 }
 
-// AgeBuckets sets the number of buckets used to calculate quantiles over time. Accepts int per the interface.
+// AgeBuckets sets the number of buckets used to calculate quantiles over time.
 func (b *PrometheusSummaryBuilder) AgeBuckets(buckets int) srouter_metrics.SummaryBuilder {
-	// Prometheus client uses uint32, cast carefully.
 	if buckets < 0 {
-		// Log warning for invalid input and default to 0
 		b.registry.logger.Warn("Invalid negative value provided for AgeBuckets, defaulting to 0",
 			zap.Int("provided_buckets", buckets),
-			zap.String("metric_name", b.opts.Name), // Log metric name for context
+			zap.String("metric_name", b.opts.Name),
 		)
 		b.opts.AgeBuckets = 0
 	} else if buckets > math.MaxUint32 {
-		// Log warning for overflow and default to MaxUint32
 		b.registry.logger.Warn("Value provided for AgeBuckets exceeds MaxUint32, clamping",
 			zap.Int("provided_buckets", buckets),
 			zap.Uint32("clamped_value", math.MaxUint32),
-			zap.String("metric_name", b.opts.Name), // Log metric name for context
+			zap.String("metric_name", b.opts.Name),
 		)
 		b.opts.AgeBuckets = math.MaxUint32
 	} else {
@@ -345,6 +373,8 @@ func (b *PrometheusSummaryBuilder) AgeBuckets(buckets int) srouter_metrics.Summa
 	}
 	return b
 }
+
+// BufCap sets the summary's observation buffer capacity.
 func (b *PrometheusSummaryBuilder) BufCap(cap uint32) srouter_metrics.SummaryBuilder {
 	b.opts.BufCap = cap
 	return b
@@ -360,7 +390,6 @@ func (b *PrometheusSummaryBuilder) Build() srouter_metrics.Summary {
 			b.opts.ConstLabels[k] = v
 		}
 	}
-	// Default objectives if none provided
 	if len(b.opts.Objectives) == 0 {
 		b.opts.Objectives = map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001}
 	}
@@ -397,44 +426,49 @@ func (b *PrometheusSummaryBuilder) Build() srouter_metrics.Summary {
 	}
 }
 
-// --- Metric Implementations ---
-
-// PrometheusCounter adapts prometheus.Counter/CounterVec to srouter_metrics.Counter.
+// PrometheusCounter adapts a Prometheus counter to metrics.Counter. A
+// vector-backed value can describe and expose the collector but cannot be
+// mutated through the backend-neutral interface.
 type PrometheusCounter struct {
-	registry    *PrometheusRegistry // Keep registry reference if needed for WithTags logic
+	registry    *PrometheusRegistry
 	metric      prometheus.Counter
 	metricVec   *prometheus.CounterVec
 	name        string
 	description string
 	tags        srouter_metrics.Tags
-	labelNames  []string // Store label names for validation/consistency if needed
+	labelNames  []string
 }
 
-// Inc increments the counter. Label values are ignored as the SRouter interface expects Inc().
+// Inc increments a scalar counter. It is a no-op for a vector-backed counter
+// because the metrics.Counter interface cannot supply label values.
 func (c *PrometheusCounter) Inc() {
-	if c.metricVec != nil {
-		// Cannot Inc a Vec without labels per the interface. This is an interface mismatch.
-		// Log error or no-op. Choosing no-op for simplicity here.
-	} else if c.metric != nil {
+	if c.metricVec == nil && c.metric != nil {
 		c.metric.Inc()
 	}
 }
 
-// Add increments the counter by a given value. Label values are ignored as the SRouter interface expects Add(float64).
+// Add adds val to a scalar counter. It is a no-op for a vector-backed counter
+// because the metrics.Counter interface cannot supply label values.
 func (c *PrometheusCounter) Add(val float64) {
-	if c.metricVec != nil {
-		// Cannot Add to a Vec without labels per the interface. This is an interface mismatch.
-		// Log error or no-op. Choosing no-op for simplicity here.
-	} else if c.metric != nil {
+	if c.metricVec == nil && c.metric != nil {
 		c.metric.Add(val)
 	}
 }
-func (c *PrometheusCounter) Name() string                     { return c.name }
-func (c *PrometheusCounter) Description() string              { return c.description }
-func (c *PrometheusCounter) Type() srouter_metrics.MetricType { return srouter_metrics.CounterType }
-func (c *PrometheusCounter) Tags() srouter_metrics.Tags       { return c.tags }
 
-// PrometheusGauge adapts prometheus.Gauge/GaugeVec to srouter_metrics.Gauge.
+// Name returns the unqualified metric name supplied to the builder.
+func (c *PrometheusCounter) Name() string { return c.name }
+
+// Description returns the Prometheus help text.
+func (c *PrometheusCounter) Description() string { return c.description }
+
+// Type returns metrics.CounterType.
+func (c *PrometheusCounter) Type() srouter_metrics.MetricType { return srouter_metrics.CounterType }
+
+// Tags returns the const labels captured when the counter was built.
+func (c *PrometheusCounter) Tags() srouter_metrics.Tags { return c.tags }
+
+// PrometheusGauge adapts a Prometheus gauge to metrics.Gauge. A vector-backed
+// value cannot be mutated through the backend-neutral interface.
 type PrometheusGauge struct {
 	registry    *PrometheusRegistry
 	metric      prometheus.Gauge
@@ -445,56 +479,57 @@ type PrometheusGauge struct {
 	labelNames  []string
 }
 
-// Set sets the gauge value. Label values are ignored as the SRouter interface expects Set(float64).
+// Set sets a scalar gauge. It is a no-op for a vector-backed gauge because the
+// metrics.Gauge interface cannot supply label values.
 func (g *PrometheusGauge) Set(val float64) {
-	if g.metricVec != nil {
-		// Cannot Set on a Vec without labels per the interface. Interface mismatch.
-		// No-op for simplicity.
-	} else if g.metric != nil {
+	if g.metricVec == nil && g.metric != nil {
 		g.metric.Set(val)
 	}
 }
 
-// Inc increments the gauge. Label values are ignored as the SRouter interface expects Inc().
+// Inc increments a scalar gauge. It is a no-op for a vector-backed gauge.
 func (g *PrometheusGauge) Inc() {
-	if g.metricVec != nil {
-		// No-op on Vec without labels (interface mismatch)
-	} else if g.metric != nil {
+	if g.metricVec == nil && g.metric != nil {
 		g.metric.Inc()
 	}
 }
 
-// Dec decrements the gauge. Label values are ignored as the SRouter interface expects Dec().
+// Dec decrements a scalar gauge. It is a no-op for a vector-backed gauge.
 func (g *PrometheusGauge) Dec() {
-	if g.metricVec != nil {
-		// No-op on Vec without labels (interface mismatch)
-	} else if g.metric != nil {
+	if g.metricVec == nil && g.metric != nil {
 		g.metric.Dec()
 	}
 }
 
-// Add adds the given value to the gauge. Label values are ignored as the SRouter interface expects Add(float64).
+// Add adds val to a scalar gauge. It is a no-op for a vector-backed gauge.
 func (g *PrometheusGauge) Add(val float64) {
-	if g.metricVec != nil {
-		// No-op on Vec without labels (interface mismatch)
-	} else if g.metric != nil {
+	if g.metricVec == nil && g.metric != nil {
 		g.metric.Add(val)
 	}
 }
 
-// Sub subtracts the given value from the gauge. Label values are ignored as the SRouter interface expects Sub(float64).
+// Sub subtracts val from a scalar gauge. It is a no-op for a vector-backed gauge.
 func (g *PrometheusGauge) Sub(val float64) {
-	if g.metricVec != nil {
-		// No-op on Vec without labels (interface mismatch)
-	} else if g.metric != nil {
+	if g.metricVec == nil && g.metric != nil {
 		g.metric.Sub(val)
 	}
 }
-func (g *PrometheusGauge) Name() string                     { return g.name }
-func (g *PrometheusGauge) Description() string              { return g.description }
-func (g *PrometheusGauge) Type() srouter_metrics.MetricType { return srouter_metrics.GaugeType }
-func (g *PrometheusGauge) Tags() srouter_metrics.Tags       { return g.tags }
 
+// Name returns the unqualified metric name supplied to the builder.
+func (g *PrometheusGauge) Name() string { return g.name }
+
+// Description returns the Prometheus help text.
+func (g *PrometheusGauge) Description() string { return g.description }
+
+// Type returns metrics.GaugeType.
+func (g *PrometheusGauge) Type() srouter_metrics.MetricType { return srouter_metrics.GaugeType }
+
+// Tags returns the adapter's tag metadata. After WithTags, this metadata may
+// differ from the labels on the already-registered collector.
+func (g *PrometheusGauge) Tags() srouter_metrics.Tags { return g.tags }
+
+// WithTags returns a metadata copy with merged tags. It does not relabel the
+// already-registered Prometheus collector and is not a label-selection API.
 func (g *PrometheusGauge) WithTags(tags srouter_metrics.Tags) srouter_metrics.Metric {
 	newTags := make(srouter_metrics.Tags)
 	maps.Copy(newTags, g.tags)
@@ -510,7 +545,8 @@ func (g *PrometheusGauge) WithTags(tags srouter_metrics.Tags) srouter_metrics.Me
 	}
 }
 
-// PrometheusHistogram adapts prometheus.Histogram/HistogramVec to srouter_metrics.Histogram.
+// PrometheusHistogram adapts a Prometheus histogram to metrics.Histogram. A
+// vector-backed value cannot be observed through the backend-neutral interface.
 type PrometheusHistogram struct {
 	registry    *PrometheusRegistry
 	metric      prometheus.Histogram
@@ -519,22 +555,34 @@ type PrometheusHistogram struct {
 	description string
 	tags        srouter_metrics.Tags
 	labelNames  []string
-	buckets     []float64 // Store buckets
+	buckets     []float64
 }
 
-// Observe adds a single observation to the histogram. Label values are ignored as the SRouter interface expects Observe(float64).
+// Observe records val in a scalar histogram. It is a no-op for a vector-backed
+// histogram because the metrics.Histogram interface cannot supply label values.
 func (h *PrometheusHistogram) Observe(val float64) {
-	if h.metricVec != nil {
-		// Cannot Observe on a Vec without labels per the interface. Interface mismatch.
-		// No-op for simplicity.
-	} else if h.metric != nil {
+	if h.metricVec == nil && h.metric != nil {
 		h.metric.Observe(val)
 	}
 }
-func (h *PrometheusHistogram) Name() string                     { return h.name }
-func (h *PrometheusHistogram) Description() string              { return h.description }
-func (h *PrometheusHistogram) Type() srouter_metrics.MetricType { return srouter_metrics.HistogramType }
-func (h *PrometheusHistogram) Tags() srouter_metrics.Tags       { return h.tags }
+
+// Name returns the unqualified metric name supplied to the builder.
+func (h *PrometheusHistogram) Name() string { return h.name }
+
+// Description returns the Prometheus help text.
+func (h *PrometheusHistogram) Description() string { return h.description }
+
+// Type returns metrics.HistogramType.
+func (h *PrometheusHistogram) Type() srouter_metrics.MetricType {
+	return srouter_metrics.HistogramType
+}
+
+// Tags returns the adapter's tag metadata. After WithTags, this metadata may
+// differ from the labels on the already-registered collector.
+func (h *PrometheusHistogram) Tags() srouter_metrics.Tags { return h.tags }
+
+// WithTags returns a metadata copy with merged tags. It does not relabel the
+// already-registered Prometheus collector and is not a label-selection API.
 func (h *PrometheusHistogram) WithTags(tags srouter_metrics.Tags) srouter_metrics.Metric {
 	newTags := make(srouter_metrics.Tags)
 	maps.Copy(newTags, h.tags)
@@ -551,7 +599,8 @@ func (h *PrometheusHistogram) WithTags(tags srouter_metrics.Tags) srouter_metric
 	}
 }
 
-// PrometheusSummary adapts prometheus.Summary/SummaryVec to srouter_metrics.Summary.
+// PrometheusSummary adapts a Prometheus summary to metrics.Summary. A
+// vector-backed value cannot be observed through the backend-neutral interface.
 type PrometheusSummary struct {
 	registry    *PrometheusRegistry
 	metric      prometheus.Summary
@@ -560,23 +609,35 @@ type PrometheusSummary struct {
 	description string
 	tags        srouter_metrics.Tags
 	labelNames  []string
-	objectives  map[float64]float64 // Store objectives
+	objectives  map[float64]float64
 }
 
-// Observe adds a single observation to the summary. Label values are ignored as the SRouter interface expects Observe(float64).
+// Observe records val in a scalar summary. It is a no-op for a vector-backed
+// summary because the metrics.Summary interface cannot supply label values.
 func (s *PrometheusSummary) Observe(val float64) {
-	if s.metricVec != nil {
-		// Cannot Observe on a Vec without labels per the interface. Interface mismatch.
-		// No-op for simplicity.
-	} else if s.metric != nil {
+	if s.metricVec == nil && s.metric != nil {
 		s.metric.Observe(val)
 	}
 }
-func (s *PrometheusSummary) Name() string                     { return s.name }
-func (s *PrometheusSummary) Description() string              { return s.description }
+
+// Name returns the unqualified metric name supplied to the builder.
+func (s *PrometheusSummary) Name() string { return s.name }
+
+// Description returns the Prometheus help text.
+func (s *PrometheusSummary) Description() string { return s.description }
+
+// Type returns metrics.SummaryType.
 func (s *PrometheusSummary) Type() srouter_metrics.MetricType { return srouter_metrics.SummaryType }
-func (s *PrometheusSummary) Tags() srouter_metrics.Tags       { return s.tags }
-func (s *PrometheusSummary) Objectives() map[float64]float64  { return s.objectives } // Implement Objectives method
+
+// Tags returns the adapter's tag metadata. After WithTags, this metadata may
+// differ from the labels on the already-registered collector.
+func (s *PrometheusSummary) Tags() srouter_metrics.Tags { return s.tags }
+
+// Objectives returns the configured quantile objectives.
+func (s *PrometheusSummary) Objectives() map[float64]float64 { return s.objectives }
+
+// WithTags returns a metadata copy with merged tags. It does not relabel the
+// already-registered Prometheus collector and is not a label-selection API.
 func (s *PrometheusSummary) WithTags(tags srouter_metrics.Tags) srouter_metrics.Metric {
 	newTags := make(srouter_metrics.Tags)
 	maps.Copy(newTags, s.tags)
@@ -593,8 +654,7 @@ func (s *PrometheusSummary) WithTags(tags srouter_metrics.Tags) srouter_metrics.
 	}
 }
 
-// --- MetricsRegistry Implementation ---
-
+// NewCounter returns a Prometheus counter builder.
 func (s *PrometheusRegistry) NewCounter() srouter_metrics.CounterBuilder {
 	return &PrometheusCounterBuilder{
 		registry: s,
@@ -606,6 +666,7 @@ func (s *PrometheusRegistry) NewCounter() srouter_metrics.CounterBuilder {
 	}
 }
 
+// NewGauge returns a Prometheus gauge builder.
 func (s *PrometheusRegistry) NewGauge() srouter_metrics.GaugeBuilder {
 	return &PrometheusGaugeBuilder{
 		registry: s,
@@ -616,6 +677,7 @@ func (s *PrometheusRegistry) NewGauge() srouter_metrics.GaugeBuilder {
 	}
 }
 
+// NewHistogram returns a Prometheus histogram builder.
 func (s *PrometheusRegistry) NewHistogram() srouter_metrics.HistogramBuilder {
 	return &PrometheusHistogramBuilder{
 		registry: s,
@@ -626,8 +688,8 @@ func (s *PrometheusRegistry) NewHistogram() srouter_metrics.HistogramBuilder {
 	}
 }
 
+// NewSummary returns a Prometheus summary builder.
 func (s *PrometheusRegistry) NewSummary() srouter_metrics.SummaryBuilder {
-	// Pass the registry (which contains the logger) to the builder
 	return &PrometheusSummaryBuilder{
 		registry: s,
 		opts: prometheus.SummaryOpts{
@@ -637,61 +699,40 @@ func (s *PrometheusRegistry) NewSummary() srouter_metrics.SummaryBuilder {
 	}
 }
 
-// Register is handled implicitly by the Build methods using registry.Register
-func (s *PrometheusRegistry) Register(m srouter_metrics.Metric) error {
-	// In this Prometheus adapter, registration happens during Build().
-	// This method could potentially be used to register pre-built collectors
-	// if the underlying metric implements prometheus.Collector.
-	// For now, it's a no-op as Build() handles registration.
+// Register is a no-op because each Prometheus builder registers its collector
+// during Build.
+func (s *PrometheusRegistry) Register(_ srouter_metrics.Metric) error {
 	return nil
 }
 
-// Get attempts to retrieve a metric by name. Prometheus client doesn't directly
-// support this easily, especially differentiating between metrics with the same
-// name but different labels/tags or types. This implementation returns nil, false.
-// The application should retain references to the metrics it builds.
-func (s *PrometheusRegistry) Get(name string) (srouter_metrics.Metric, bool) {
-	// Prometheus client doesn't provide a reliable Get by name that aligns
-	// perfectly with this interface's expectation (especially considering tags/labels
-	// and potential type conflicts). Returning not found.
+// Get always returns nil, false. The Prometheus client does not expose reliable
+// lookup by name; applications should retain references to built metrics.
+func (s *PrometheusRegistry) Get(_ string) (srouter_metrics.Metric, bool) {
 	return nil, false
 }
 
-// Unregister attempts to unregister a metric by name.
-// NOTE: Prometheus client library makes unregistering by name difficult and potentially unsafe
-// if multiple metrics share the same name (e.g., different labels). This implementation
-// currently cannot reliably unregister by name only. It's effectively a no-op.
-func (s *PrometheusRegistry) Unregister(name string) bool {
-	// Prometheus client requires the actual Collector instance to unregister.
-	// Finding the collector solely by name is not directly supported and error-prone.
-	// Returning false as we cannot guarantee unregistration by name.
-	// A more robust (but complex) solution might involve tracking created metrics internally.
-	// s.logger.Warn("Unregistering Prometheus metric by name is not reliably supported", zap.String("name", name))
+// Unregister always returns false. The Prometheus client requires the original
+// collector rather than a metric name for unregistration.
+func (s *PrometheusRegistry) Unregister(_ string) bool {
 	return false
 }
 
-// Clear attempts to unregister all metrics. Prometheus registry doesn't have a ClearAll.
-// We can iterate and unregister, but it's not atomic.
+// Clear is a no-op. Prometheus Registerer does not expose the collectors needed
+// to unregister everything.
 func (s *PrometheusRegistry) Clear() {
-	// Prometheus registry doesn't have a simple ClearAll.
-	// Unregistering all requires iterating through registered metrics, which isn't
-	// directly exposed. This is generally not a common operation with Prometheus.
-	// Log or handle as appropriate if this functionality is critical.
 }
 
-// WithTags creates a new registry instance scoped with additional tags (const labels).
+// WithTags returns a registry view that applies merged const labels to metrics
+// built through that view. New values replace existing values with the same key.
 func (s *PrometheusRegistry) WithTags(tags srouter_metrics.Tags) srouter_metrics.MetricsRegistry {
 	newTags := make(srouter_metrics.Tags)
-	// Copy existing tags
 	maps.Copy(newTags, s.tags)
-	// Add/overwrite with new tags
 	maps.Copy(newTags, tags)
-	// Ensure the logger is carried over to the new instance
 	return &PrometheusRegistry{
 		registry:  s.registry,
 		namespace: s.namespace,
 		subsystem: s.subsystem,
 		tags:      newTags,
-		logger:    s.logger, // Carry over the logger
+		logger:    s.logger,
 	}
 }

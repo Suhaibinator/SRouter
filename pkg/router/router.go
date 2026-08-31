@@ -10,20 +10,20 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"slices"  // Added for CORS
-	"strconv" // Added for CORS
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic" // Import atomic package
+	"sync/atomic"
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/metrics"
-	"github.com/Suhaibinator/SRouter/pkg/middleware" // Keep for middleware implementations like UberRateLimiter, IDGenerator, CreateTraceMiddleware
-	"github.com/Suhaibinator/SRouter/pkg/scontext"   // Ensure scontext is imported
+	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"github.com/julienschmidt/httprouter"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore" // Added for log level constants
+	"go.uber.org/zap/zapcore"
 )
 
 // Router is the main router struct that implements http.Handler.
@@ -36,7 +36,7 @@ type Router[T comparable, U any] struct {
 	middlewares       []common.Middleware
 	authFunction      func(context.Context, string) (*U, bool)
 	getUserIdFromUser func(*U) T
-	rateLimiter       common.RateLimiter // Use common.RateLimiter
+	rateLimiter       common.RateLimiter
 	wg                sync.WaitGroup
 	shutdown          bool
 	shutdownMu        sync.RWMutex
@@ -52,11 +52,30 @@ type Router[T comparable, U any] struct {
 
 const defaultAuthHeaderName = "Authorization"
 
+var (
+	defaultCORSMethods = [...]string{http.MethodGet, http.MethodHead, http.MethodPost}
+	defaultCORSHeaders = [...]string{"Accept", "Accept-Language", "Content-Language", "Content-Type"}
+)
+
+func effectiveCORSMethods(config *CORSConfig) []string {
+	if len(config.Methods) == 0 {
+		return defaultCORSMethods[:]
+	}
+	return config.Methods
+}
+
+func effectiveCORSHeaders(config *CORSConfig) []string {
+	if len(config.Headers) == 0 {
+		return defaultCORSHeaders[:]
+	}
+	return config.Headers
+}
+
 type authTokenExtractor func(*http.Request) (string, bool, string)
 
-// NewRouter creates a new Router instance with the given configuration.
-// It initializes all components including the underlying httprouter, logging, middleware,
-// metrics, rate limiting, and registers all routes defined in the configuration.
+// NewRouter creates a Router with an empty route tree and initializes the
+// infrastructure enabled by config. Register routes with Router.Route and
+// Router.Group before calling Build or serving the first request.
 //
 // Type parameters:
 //   - T: The user ID type (must be comparable, e.g., string, int, uuid.UUID)
@@ -64,11 +83,11 @@ type authTokenExtractor func(*http.Request) (string, bool, string)
 //
 // Parameters:
 //   - config: Router infrastructure, global middleware, and default route settings
-//   - authFunction: Function to validate tokens and return user objects
-//   - userIdFromuserFunction: Function to extract user ID from user object
+//   - authFunction: function to validate tokens and return user objects
+//   - userIdFromuserFunction: function to extract a user ID from a user object
 //
-// The router automatically sets up trace ID generation, metrics collection, and
-// CORS handling based on the provided configuration.
+// The authentication callbacks may be nil when every route resolves to NoAuth.
+// Build rejects an AuthOptional or AuthRequired route if either callback is nil.
 func NewRouter[T comparable, U any](config RouterConfig, authFunction func(context.Context, string) (*U, bool), userIdFromuserFunction func(*U) T) *Router[T, U] {
 	// Set up the logger
 	logger := config.Logger
@@ -82,7 +101,7 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 		}
 	}
 
-	// Create a rate limiter using Uber's ratelimit library
+	// Create the built-in nonblocking sliding-window rate limiter.
 	rateLimiter := middleware.NewUberRateLimiter()
 
 	// Create the router
@@ -113,17 +132,13 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 				"credentials are never allowed for wildcard origins per the CORS spec. " +
 				"List explicit origins to enable credentials.")
 		}
-		if len(config.CORSConfig.Methods) > 0 {
-			r.corsAllowMethods = strings.Join(config.CORSConfig.Methods, ", ")
-		}
-		if len(config.CORSConfig.Headers) > 0 {
-			r.corsAllowHeaders = strings.Join(config.CORSConfig.Headers, ", ")
-		}
+		r.corsAllowMethods = strings.Join(effectiveCORSMethods(config.CORSConfig), ", ")
+		r.corsAllowHeaders = strings.Join(effectiveCORSHeaders(config.CORSConfig), ", ")
 		if len(config.CORSConfig.ExposeHeaders) > 0 {
 			r.corsExposeHeaders = strings.Join(config.CORSConfig.ExposeHeaders, ", ")
 		}
-		if config.CORSConfig.MaxAge > 0 {
-			r.corsMaxAge = strconv.Itoa(int(config.CORSConfig.MaxAge.Seconds()))
+		if maxAgeSeconds := int(config.CORSConfig.MaxAge.Seconds()); maxAgeSeconds > 0 {
+			r.corsMaxAge = strconv.Itoa(maxAgeSeconds)
 		}
 	}
 
@@ -147,7 +162,7 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 			// Tags applied to every metric emitted by the middleware.
 			defaultTags := metrics.Tags{}
 			if config.MetricsConfig.Namespace != "" {
-				defaultTags["service"] = config.MetricsConfig.Namespace // Assuming Namespace is intended for service tag
+				defaultTags["service"] = config.MetricsConfig.Namespace
 			}
 			if config.MetricsConfig.Subsystem != "" {
 				defaultTags["subsystem"] = config.MetricsConfig.Subsystem
@@ -187,10 +202,11 @@ type resolvedGroup[T comparable, U any] struct {
 	middlewares []common.Middleware
 }
 
-// Build validates and compiles the route-group tree into a fresh dispatcher.
-// It is safe to call repeatedly; the first call freezes the tree and stores its
+// Build validates and compiles the route-group tree. The first call freezes the
+// tree and caches either success or failure; later calls return the cached
 // result. ServeHTTP calls Build automatically, so explicit use is primarily for
-// failing fast during application startup.
+// failing fast during application startup. Mutating routes or groups after the
+// first build attempt panics.
 func (r *Router[T, U]) Build() (err error) {
 	tree := r.routeTree
 	if tree.ready.Load() {
@@ -410,7 +426,7 @@ func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler, routeTemp
 // 8. Body size limit (in the base handler)
 //
 // Middlewares are combined additively, not replaced.
-func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLevel, authTokenConfig common.AuthTokenConfig, timeout time.Duration, maxBodySize int64, rateLimit *common.RateLimitConfig[T, U], middlewares []common.Middleware) http.Handler { // Use common.RateLimitConfig
+func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLevel, authTokenConfig common.AuthTokenConfig, timeout time.Duration, maxBodySize int64, rateLimit *common.RateLimitConfig[T, U], middlewares []common.Middleware) http.Handler {
 	// Create a base handler that only handles shutdown check and body size limit directly
 	// Timeout is now handled by timeoutMiddleware setting the context.
 	h := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -599,9 +615,10 @@ func combineMiddlewares(parent, child []common.Middleware) []common.Middleware {
 	return combined
 }
 
-// ServeHTTP implements the http.Handler interface.
-// It handles HTTP requests by applying CORS, client IP extraction, metrics, tracing,
-// and then delegating to the underlying httprouter.
+// ServeHTTP implements http.Handler. It builds the route tree lazily, tracks the
+// request for graceful shutdown, handles CORS, adds client information, wraps
+// request-summary logging when enabled, and delegates route matching to
+// httprouter. Trace IDs and configured metrics run inside matched route chains.
 func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var buildErr error
 	if r.routeTree.ready.Load() {
@@ -654,6 +671,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		// Initialize the writer with the current request data
 		mrw.baseResponseWriter = baseResponseWriter{ResponseWriter: w}
 		mrw.statusCode = http.StatusOK
+		mrw.wroteHeader = false
 		mrw.startTime = time.Now()
 		mrw.request = req
 		mrw.router = r
@@ -703,6 +721,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 			// Reset fields that might hold references to prevent memory leaks
 			mrw.baseResponseWriter = baseResponseWriter{}
+			mrw.wroteHeader = false
 			mrw.request = nil
 			mrw.router = nil
 
@@ -808,7 +827,7 @@ func (r *Router[T, U]) handleCORS(w http.ResponseWriter, req *http.Request) (*ht
 			methodAllowed := false
 			if reqMethod != "" {
 				// Check against configured list (case-sensitive comparison as per spec)
-				if slices.Contains(corsConfig.Methods, reqMethod) {
+				if slices.Contains(effectiveCORSMethods(corsConfig), reqMethod) {
 					methodAllowed = true
 				}
 			} else {
@@ -824,7 +843,8 @@ func (r *Router[T, U]) handleCORS(w http.ResponseWriter, req *http.Request) (*ht
 			headersAllowed := true // Assume allowed unless specific headers requested and not found
 			if reqHeaders != "" {
 				// Check if wildcard is in the allowed headers list
-				wildcardAllowed := slices.Contains(corsConfig.Headers, "*")
+				effectiveHeaders := effectiveCORSHeaders(corsConfig)
+				wildcardAllowed := slices.Contains(effectiveHeaders, "*")
 
 				// If wildcard is allowed, all headers are allowed
 				if wildcardAllowed {
@@ -839,10 +859,10 @@ func (r *Router[T, U]) handleCORS(w http.ResponseWriter, req *http.Request) (*ht
 						req = req.WithContext(ctx)
 					}
 				} else {
-					// Original header checking logic
+					// Compare requested header names case-insensitively.
 					requestedHeadersList := strings.Split(reqHeaders, ",")
-					allowedHeadersSet := make(map[string]struct{}, len(corsConfig.Headers))
-					for _, h := range corsConfig.Headers {
+					allowedHeadersSet := make(map[string]struct{}, len(effectiveHeaders))
+					for _, h := range effectiveHeaders {
 						allowedHeadersSet[strings.TrimSpace(strings.ToLower(h))] = struct{}{}
 					}
 
@@ -888,8 +908,8 @@ func (r *Router[T, U]) handleCORS(w http.ResponseWriter, req *http.Request) (*ht
 		// Preflight requests don't need to go further down the chain.
 		// Respond with 204 No Content (preferred for preflight) regardless of success/failure of checks above.
 		// The absence of Allow-* headers signals failure to the browser.
-		w.WriteHeader(http.StatusNoContent) // Use 204 No Content
-		return req, true                    // Request handled (preflight)
+		w.WriteHeader(http.StatusNoContent)
+		return req, true // Request handled (preflight)
 	}
 
 	// Not a preflight request, continue processing
@@ -943,27 +963,46 @@ func (bw *baseResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 type metricsResponseWriter[T comparable, U any] struct {
 	baseResponseWriter
 	statusCode   int
+	wroteHeader  bool
 	bytesWritten int64
 	startTime    time.Time
 	request      *http.Request
 	router       *Router[T, U]
 }
 
-// WriteHeader captures the status code and calls the underlying ResponseWriter.WriteHeader.
+// WriteHeader forwards informational responses, then captures and forwards the
+// first final status, matching net/http response semantics.
 func (rw *metricsResponseWriter[T, U]) WriteHeader(statusCode int) {
+	if rw.wroteHeader {
+		return
+	}
+	if statusCode >= 100 && statusCode < 200 && statusCode != http.StatusSwitchingProtocols {
+		rw.baseResponseWriter.WriteHeader(statusCode)
+		return
+	}
+	rw.wroteHeader = true
 	rw.statusCode = statusCode
 	rw.baseResponseWriter.WriteHeader(statusCode)
 }
 
-// Write captures the number of bytes written and calls the underlying ResponseWriter.Write.
+// Write records an implicit 200 status, captures the number of bytes written,
+// and delegates to the underlying writer.
 func (rw *metricsResponseWriter[T, U]) Write(b []byte) (int, error) {
+	if !rw.wroteHeader {
+		rw.wroteHeader = true
+		rw.statusCode = http.StatusOK
+	}
 	n, err := rw.baseResponseWriter.Write(b)
 	rw.bytesWritten += int64(n)
 	return n, err
 }
 
-// Flush calls the underlying ResponseWriter.Flush if it implements http.Flusher.
+// Flush records an implicit 200 status and delegates to the underlying writer.
 func (rw *metricsResponseWriter[T, U]) Flush() {
+	if !rw.wroteHeader {
+		rw.wroteHeader = true
+		rw.statusCode = http.StatusOK
+	}
 	rw.baseResponseWriter.Flush()
 }
 
@@ -1150,7 +1189,8 @@ func (r *Router[T, U]) baseFields(req *http.Request) []zap.Field {
 	}
 }
 
-// addTrace appends the trace_id field when available.
+// addTrace appends the automatic trace_id field when generation is enabled and
+// the request contains one.
 func (r *Router[T, U]) addTrace(fields []zap.Field, req *http.Request) []zap.Field {
 	if r.config.TraceIDBufferSize > 0 {
 		if traceID := scontext.GetTraceIDFromRequest[T, U](req); traceID != "" {
@@ -1362,11 +1402,10 @@ func (r *Router[T, U]) logJSONErrorWriteFailure(req *http.Request, err error, st
 	)
 }
 
-// HTTPError represents an HTTP error with a status code and message.
-// It can be used to return specific HTTP errors from handlers.
-// When returned from a handler, the router will use the status code and message
-// to generate an appropriate HTTP response. This allows handlers to control
-// the exact error response sent to clients.
+// HTTPError represents a client-facing HTTP status and message with optional
+// diagnostic context. The router exposes only StatusCode and Message in the
+// response; an attached cause and structured fields are retained for logs.
+// WithLogLevel can override the router's default severity classification.
 type HTTPError struct {
 	StatusCode int    // HTTP status code (e.g., 400, 404, 500)
 	Message    string // Error message to be sent in the response body
@@ -1405,8 +1444,10 @@ func (e *HTTPError) LogLevel() (zapcore.Level, bool) {
 	return e.logLevel, e.hasLevel
 }
 
-// NewHTTPError creates a new HTTPError with the specified status code and message.
-// It's a convenience function for creating HTTP errors in handlers.
+// NewHTTPError creates an HTTPError with the specified client-facing status and
+// message. Use NewHTTPErrorWithCause to retain a diagnostic cause, and use
+// WithFields or WithLogLevel to attach structured log context or override the
+// router's default log level.
 func NewHTTPError(statusCode int, message string) *HTTPError {
 	return &HTTPError{
 		StatusCode: statusCode,

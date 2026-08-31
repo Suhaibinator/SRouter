@@ -1,6 +1,7 @@
 package router
 
 import (
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -46,16 +47,104 @@ func (f *fakeMetricsMiddlewareFactory) WithSampler(sampler metrics.MetricsSample
 	return f
 }
 
+type recordedCounter struct {
+	name string
+	tags metrics.Tags
+}
+
+type recordingMetricsRegistry struct {
+	mu       sync.Mutex
+	counters []recordedCounter
+}
+
+func (r *recordingMetricsRegistry) Register(metrics.Metric) error { return nil }
+
+func (r *recordingMetricsRegistry) NewCounter() metrics.CounterBuilder {
+	return &recordingCounterBuilder{registry: r, tags: make(metrics.Tags)}
+}
+
+func (r *recordingMetricsRegistry) NewGauge() metrics.GaugeBuilder {
+	return &mocks.MockGaugeBuilder{}
+}
+
+func (r *recordingMetricsRegistry) NewHistogram() metrics.HistogramBuilder {
+	return &mocks.MockHistogramBuilder{}
+}
+
+func (r *recordingMetricsRegistry) NewSummary() metrics.SummaryBuilder {
+	return &mocks.MockSummaryBuilder{}
+}
+
+func (r *recordingMetricsRegistry) counterSnapshots() []recordedCounter {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	result := make([]recordedCounter, len(r.counters))
+	for i, counter := range r.counters {
+		result[i] = recordedCounter{name: counter.name, tags: maps.Clone(counter.tags)}
+	}
+	return result
+}
+
+type recordingCounterBuilder struct {
+	registry    *recordingMetricsRegistry
+	name        string
+	description string
+	tags        metrics.Tags
+}
+
+func (b *recordingCounterBuilder) Name(name string) metrics.CounterBuilder {
+	b.name = name
+	return b
+}
+
+func (b *recordingCounterBuilder) Description(description string) metrics.CounterBuilder {
+	b.description = description
+	return b
+}
+
+func (b *recordingCounterBuilder) Tag(key, value string) metrics.CounterBuilder {
+	b.tags[key] = value
+	return b
+}
+
+func (b *recordingCounterBuilder) Build() metrics.Counter {
+	counter := &recordingCounterMetric{
+		name:        b.name,
+		description: b.description,
+		tags:        maps.Clone(b.tags),
+	}
+	b.registry.mu.Lock()
+	b.registry.counters = append(b.registry.counters, recordedCounter{name: b.name, tags: maps.Clone(b.tags)})
+	b.registry.mu.Unlock()
+	return counter
+}
+
+type recordingCounterMetric struct {
+	name        string
+	description string
+	tags        metrics.Tags
+}
+
+func (c *recordingCounterMetric) Name() string             { return c.name }
+func (c *recordingCounterMetric) Description() string      { return c.description }
+func (c *recordingCounterMetric) Type() metrics.MetricType { return metrics.CounterType }
+func (c *recordingCounterMetric) Tags() metrics.Tags       { return maps.Clone(c.tags) }
+func (c *recordingCounterMetric) Inc()                     {}
+func (c *recordingCounterMetric) Add(_ float64)            {}
+
 // TestMetricsConfigMiddlewareFactory verifies that when MetricsConfig supplies
 // a MiddlewareFactory of the router's generic type, the router wraps handlers
 // with it (passing the configured ServiceName) and requests flow through it.
 func TestMetricsConfigMiddlewareFactory(t *testing.T) {
 	factory := &fakeMetricsMiddlewareFactory{}
+	registry := &recordingMetricsRegistry{}
 
 	r := NewRouter(RouterConfig{
 		ServiceName: "test-service",
 		MetricsConfig: &MetricsConfig{
 			MiddlewareFactory: factory,
+			Collector:         registry,
+			EnableQPS:         true,
 		},
 	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
 
@@ -89,6 +178,69 @@ func TestMetricsConfigMiddlewareFactory(t *testing.T) {
 		if name != "test-service" {
 			t.Errorf("factory Handler called with name %q, want configured ServiceName %q", name, "test-service")
 		}
+	}
+	if counters := registry.counterSnapshots(); len(counters) != 0 {
+		t.Errorf("Collector built %d counters even though MiddlewareFactory should take precedence", len(counters))
+	}
+}
+
+func TestMetricsConfigMismatchedFactoryFallsBackToCollector(t *testing.T) {
+	factory := &fakeMetricsMiddlewareFactory{} // MetricsMiddleware[string, string]
+	registry := &recordingMetricsRegistry{}
+
+	r := NewRouter[int, string](RouterConfig{
+		ServiceName: "fallback-service",
+		MetricsConfig: &MetricsConfig{
+			MiddlewareFactory: factory,
+			Collector:         registry,
+			Namespace:         "accounts",
+			Subsystem:         "http",
+			EnableQPS:         true,
+		},
+	}, nil, nil)
+	r.Route(RouteConfigBase{
+		Path:    "/collector",
+		Methods: []HttpMethod{MethodGet},
+		Handler: func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/collector", nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if rec.Header().Get("X-Metrics-Factory") != "" {
+		t.Fatal("mismatched MiddlewareFactory unexpectedly wrapped the route")
+	}
+
+	factory.mu.Lock()
+	factoryCalls := len(factory.handlerNames)
+	factory.mu.Unlock()
+	if factoryCalls != 0 {
+		t.Fatalf("mismatched MiddlewareFactory Handler calls = %d, want 0", factoryCalls)
+	}
+
+	counters := registry.counterSnapshots()
+	if len(counters) != 2 {
+		t.Fatalf("Collector built %d counters, want route and global request counters", len(counters))
+	}
+	var routeCounter, globalCounter bool
+	for _, counter := range counters {
+		if counter.tags["service"] != "accounts" || counter.tags["subsystem"] != "http" {
+			t.Errorf("counter %q tags = %v, want service=accounts and subsystem=http", counter.name, counter.tags)
+		}
+		switch counter.name {
+		case "requests_total":
+			routeCounter = counter.tags["route"] == "/collector"
+		case "all_requests_total":
+			_, hasRoute := counter.tags["route"]
+			globalCounter = !hasRoute
+		}
+	}
+	if !routeCounter || !globalCounter {
+		t.Errorf("counter mapping = route:%v global:%v; built counters: %v", routeCounter, globalCounter, counters)
 	}
 }
 

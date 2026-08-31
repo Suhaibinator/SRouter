@@ -5,9 +5,10 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Keep scontext import
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 )
 
 // cachedHistogram returns the histogram for the given cache key, building it at
@@ -15,19 +16,24 @@ import (
 // allocate and contend the registry lock on every request.
 func (m *MetricsMiddlewareImpl[T, U]) cachedHistogram(key string, build func() Histogram) Histogram {
 	if v, ok := m.metricCache.Load(key); ok {
-		return v.(Histogram)
+		return v.(func() Histogram)()
 	}
-	actual, _ := m.metricCache.LoadOrStore(key, build())
-	return actual.(Histogram)
+
+	// Store the once-protected builder rather than its result. Concurrent cache
+	// misses may allocate candidate closures, but only the winning closure can
+	// execute build and register the instrument.
+	actual, _ := m.metricCache.LoadOrStore(key, sync.OnceValue(build))
+	return actual.(func() Histogram)()
 }
 
 // cachedCounter returns the counter for the given cache key, building it at most once.
 func (m *MetricsMiddlewareImpl[T, U]) cachedCounter(key string, build func() Counter) Counter {
 	if v, ok := m.metricCache.Load(key); ok {
-		return v.(Counter)
+		return v.(func() Counter)()
 	}
-	actual, _ := m.metricCache.LoadOrStore(key, build())
-	return actual.(Counter)
+
+	actual, _ := m.metricCache.LoadOrStore(key, sync.OnceValue(build))
+	return actual.(func() Counter)()
 }
 
 // taggedHistogram starts a histogram builder with the configured default tags applied.
@@ -52,12 +58,8 @@ func (m *MetricsMiddlewareImpl[T, U]) taggedCounter(name, desc string) CounterBu
 	return b
 }
 
-// Handler wraps an HTTP handler with metrics collection. It captures metrics such as
-// request latency, throughput, QPS, and errors based on the middleware configuration.
-// The metrics are collected using the registry provided to the middleware, are tagged
-// with the configured DefaultTags, and are built once per route and then cached.
-// The 'name' parameter can be used as a fallback identifier if route template information is not available.
-// This is now a method on the generic MetricsMiddlewareImpl[T, U].
+// Handler wraps handler with the configured request metrics. name is used as
+// the route label when the request context does not contain a route template.
 func (m *MetricsMiddlewareImpl[T, U]) Handler(name string, handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if we should collect metrics for this request
@@ -84,7 +86,7 @@ func (m *MetricsMiddlewareImpl[T, U]) Handler(name string, handler http.Handler)
 		// Calculate the duration
 		duration := time.Since(start)
 
-		// Get the route template from the context if available, using the correct generic types T and U
+		// Prefer the route template from the SRouter request context.
 		routeIdentifier := name // Default to the name parameter if no route template is found
 		routeTemplate, hasTemplate := scontext.GetRouteTemplateFromRequest(r)
 		if hasTemplate {
@@ -112,7 +114,7 @@ func (m *MetricsMiddlewareImpl[T, U]) Handler(name string, handler http.Handler)
 		}
 
 		if m.config.EnableThroughput && r.ContentLength > 0 {
-			// Route-specific counter for request throughput
+			// Route-specific counter for declared request-body bytes.
 			throughput := m.cachedCounter("throughput|"+routeIdentifier, func() Counter {
 				return m.taggedCounter("request_throughput_bytes", "Request throughput in bytes").
 					Tag("route", routeIdentifier).
@@ -120,7 +122,7 @@ func (m *MetricsMiddlewareImpl[T, U]) Handler(name string, handler http.Handler)
 			})
 			throughput.Add(float64(r.ContentLength))
 
-			// Also track total throughput across all routes
+			// Also track declared request-body bytes across all routes.
 			totalThroughput := m.cachedCounter("throughput|all", func() Counter {
 				return m.taggedCounter("request_throughput_bytes_total", "Total request throughput in bytes across all routes").
 					Build()
@@ -129,7 +131,7 @@ func (m *MetricsMiddlewareImpl[T, U]) Handler(name string, handler http.Handler)
 		}
 
 		if m.config.EnableQPS {
-			// Route-specific counter for requests
+			// Route-specific request counter. A backend query derives a rate.
 			qps := m.cachedCounter("qps|"+routeIdentifier, func() Counter {
 				return m.taggedCounter("requests_total", "Total number of requests").
 					Tag("route", routeIdentifier).
@@ -169,22 +171,57 @@ func (m *MetricsMiddlewareImpl[T, U]) Handler(name string, handler http.Handler)
 	})
 }
 
-// Removed the standalone getRouteTemplateFromRequest function as it's now handled directly within Handler using generics.
-
 // responseWriter is a wrapper around http.ResponseWriter that captures the HTTP status code.
 // It intercepts calls to WriteHeader to record the status code for metrics collection.
 // If WriteHeader is not called explicitly, it defaults to 200 (OK).
 type responseWriter struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode  int
+	wroteHeader bool
 }
 
-// WriteHeader captures the HTTP status code and forwards it to the underlying ResponseWriter.
-// The captured status code is used for metrics collection, particularly for error rate tracking.
-// This method ensures the status code is recorded even if the handler sets it explicitly.
+// WriteHeader forwards informational responses, then captures and forwards the
+// first final status. Later calls do not change the value reported to metrics.
 func (rw *responseWriter) WriteHeader(statusCode int) {
+	if rw.wroteHeader {
+		return
+	}
+	if statusCode >= 100 && statusCode < 200 && statusCode != http.StatusSwitchingProtocols {
+		rw.ResponseWriter.WriteHeader(statusCode)
+		return
+	}
 	rw.statusCode = statusCode
+	rw.wroteHeader = true
 	rw.ResponseWriter.WriteHeader(statusCode)
+}
+
+// Write records an implicit 200 response before delegating to the underlying
+// writer. This prevents a later, superfluous WriteHeader call from changing the
+// status reported to metrics.
+func (rw *responseWriter) Write(p []byte) (int, error) {
+	if !rw.wroteHeader {
+		rw.statusCode = http.StatusOK
+		rw.wroteHeader = true
+	}
+	return rw.ResponseWriter.Write(p)
+}
+
+// Unwrap returns the underlying ResponseWriter so http.ResponseController can
+// discover optional capabilities through the metrics wrapper.
+func (rw *responseWriter) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
+}
+
+// Flush delegates to the underlying ResponseWriter when it supports
+// http.Flusher. Flushing commits an implicit 200 response.
+func (rw *responseWriter) Flush() {
+	if !rw.wroteHeader {
+		rw.statusCode = http.StatusOK
+		rw.wroteHeader = true
+	}
+	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 // Hijack delegates to the underlying ResponseWriter when it supports http.Hijacker.

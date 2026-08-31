@@ -1,4 +1,3 @@
-// Package middleware provides a collection of HTTP middleware components for the SRouter framework.
 package middleware
 
 import (
@@ -9,12 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/common"   // Import common for shared types
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Use scontext for context functions
+	"github.com/Suhaibinator/SRouter/pkg/common"
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 )
-
-// Note: RateLimitStrategy, RateLimiter, RateLimitConfig moved to pkg/common/types.go
 
 // limiterSweepInterval is the minimum time between sweeps of stale limiter
 // entries. Sweeps are triggered by entry creation — the only operation that
@@ -23,23 +20,20 @@ import (
 // most once per interval. Each sweep runs in its own short-lived goroutine.
 const limiterSweepInterval = time.Minute
 
-// UberRateLimiter implements the common.RateLimiter interface using a
-// non-blocking sliding-window counter. Over-limit requests are denied
-// immediately (never queued or slept on), and the configured limit/window
-// semantics are honored exactly — e.g. "2 per minute" allows 2 requests per
-// minute, not 1 per second.
+// UberRateLimiter implements common.RateLimiter with a nonblocking
+// sliding-window approximation that weights the previous fixed window.
+// Over-limit requests are denied immediately rather than queued or delayed,
+// and Limit applies to the configured Window rather than a derived per-second
+// rate.
 //
-// Memory is bounded by eviction: entries idle for at least two of their own
-// windows hold no usable history (the next request would reset their counters
-// anyway), so they are deleted by an amortized sweep and lazily recreated on
-// next use. Eviction therefore never changes a rate-limit decision. Sweeps
-// are scheduled only when a new entry is created, so live entries are
-// roughly those active within the last 2×window + limiterSweepInterval;
-// stale entries beyond that linger only until the next new key arrives.
+// An amortized sweep reclaims entries whose retained history can no longer
+// affect a decision. Sweeps are scheduled only when a new entry is created, so
+// stale entries linger until another new key arrives and unbounded key churn
+// can still cause temporary memory growth.
 //
 // The name is retained for backwards compatibility with earlier versions that
 // were backed by Uber's ratelimit library. The implementation maintains one
-// window counter per unique key.
+// limiter entry, containing current and previous counters, per composite key.
 type UberRateLimiter struct {
 	limiters sync.Map // map[string]*slidingWindowLimiter
 
@@ -61,9 +55,8 @@ func (u *UberRateLimiter) timeNow() time.Time {
 	return time.Now()
 }
 
-// NewUberRateLimiter creates a new UberRateLimiter instance.
-// It maintains separate rate limit counters for different keys
-// (e.g., different IPs or users).
+// NewUberRateLimiter creates the built-in sliding-window limiter. The name is
+// retained for source compatibility; the implementation has no Uber dependency.
 func NewUberRateLimiter() *UberRateLimiter {
 	return &UberRateLimiter{}
 }
@@ -186,16 +179,14 @@ func (u *UberRateLimiter) maybeSweep(now time.Time) {
 }
 
 // sweep deletes entries that can no longer influence any rate-limit decision.
-// An entry is stale once it has been idle for at least two of its own windows:
-// at that point the next request would zero both window counters anyway, so
-// deleting the entry (and lazily recreating it on next use) is unobservable.
+// An entry is stale once its retained window start is at least two windows old;
+// at that point the next request would zero both counters, so deleting the
+// entry (and lazily recreating it on next use) is unobservable.
 //
-// The staleness check and the evicted flag are written under the same lock
-// acquisition that tryAllow counts under, so no request can record a count
-// between the decision to evict and the eviction itself: any request that
-// counted before the check rolled windowStart forward (making the entry
-// non-stale), and any request arriving after sees the evicted flag and
-// re-fetches a fresh entry.
+// The staleness check and evicted flag use the same lock as tryAllow. A request
+// counted before the check is reflected in the retained window state; when
+// that state is still stale, none of its counts can affect the next decision.
+// A request arriving after the check sees evicted and re-fetches a fresh entry.
 func (u *UberRateLimiter) sweep(now time.Time) {
 	u.limiters.Range(func(key, value any) bool {
 		l := value.(*slidingWindowLimiter)
@@ -215,8 +206,8 @@ func (u *UberRateLimiter) sweep(now time.Time) {
 // Ensure UberRateLimiter implements the common.RateLimiter interface.
 var _ common.RateLimiter = (*UberRateLimiter)(nil)
 
-// Allow checks if a request is allowed based on the key and rate limit configuration.
-// It implements the common.RateLimiter interface using a sliding-window counter.
+// Allow checks whether a request is allowed for the supplied key and policy.
+// It implements common.RateLimiter using a weighted two-window counter.
 // The check never blocks: over-limit requests are denied immediately.
 //
 // Parameters:
@@ -227,7 +218,8 @@ var _ common.RateLimiter = (*UberRateLimiter)(nil)
 // Returns:
 //   - allowed: true if the request is allowed, false if rate limit exceeded
 //   - remaining: Estimated number of remaining requests in the current window
-//   - reset: Duration until the next request will be allowed (0 if allowed now)
+//   - reset: For a denied request, the conservative duration until the current
+//     fixed window rolls over; zero for an allowed request
 func (u *UberRateLimiter) Allow(key string, limit int, window time.Duration) (bool, int, time.Duration) {
 	if limit <= 0 {
 		// A non-positive limit allows nothing.
@@ -282,7 +274,7 @@ func convertUserIDToString[T comparable](userID T) string {
 // If config.UserIDToString is nil, a default conversion (convertUserIDToString) is used,
 // so StrategyUser works out of the box for common ID types.
 // Returns an empty string if no user information is found.
-func extractUserKey[T comparable, U any](r *http.Request, config *common.RateLimitConfig[T, U]) string { // Use common.RateLimitConfig
+func extractUserKey[T comparable, U any](r *http.Request, config *common.RateLimitConfig[T, U]) string {
 	userIDToString := config.UserIDToString
 	if userIDToString == nil {
 		userIDToString = convertUserIDToString[T]
@@ -291,21 +283,19 @@ func extractUserKey[T comparable, U any](r *http.Request, config *common.RateLim
 	// Try getting the full user object first. Extracting an ID from it
 	// requires the UserIDFromUser function; without it, fall through to the
 	// user ID from the context.
-	user, userOk := scontext.GetUserFromRequest[T, U](r) // Use scontext
+	user, userOk := scontext.GetUserFromRequest[T, U](r)
 	if userOk && user != nil && config.UserIDFromUser != nil {
 		userID := config.UserIDFromUser(*user)
 		return userIDToString(userID)
 	}
 
-	// Fallback: Try getting the user ID directly from context
-	userID, idOk := scontext.GetUserIDFromRequest[T, U](r) // Use scontext
+	// Otherwise use the user ID directly from the context.
+	userID, idOk := scontext.GetUserIDFromRequest[T, U](r)
 	if idOk {
-		// Use the conversion function
 		return userIDToString(userID)
 	}
 
-	// No user information found in context
-	return "" // Return empty key, let the caller decide how to handle (e.g., fallback to IP)
+	return ""
 }
 
 // RateLimit creates a middleware that enforces rate limits based on the provided configuration.
@@ -313,10 +303,8 @@ func extractUserKey[T comparable, U any](r *http.Request, config *common.RateLim
 // U is the User object type (any).
 //
 // IMPORTANT: When using common.StrategyIP, ensure that router.ClientIPMiddleware is applied *before* this middleware in the chain.
-func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limiter common.RateLimiter, logger *zap.Logger) common.Middleware { // Use common types and common.Middleware
-	// Input validation
+func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limiter common.RateLimiter, logger *zap.Logger) common.Middleware {
 	if config == nil {
-		// Return a no-op middleware if config is nil
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				next.ServeHTTP(w, r)
@@ -324,10 +312,10 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 		}
 	}
 	if limiter == nil {
-		panic("RateLimit middleware requires a non-nil RateLimiter") // Or return an error-logging middleware
+		panic("RateLimit middleware requires a non-nil RateLimiter")
 	}
 	if logger == nil {
-		logger = zap.NewNop() // Use a no-op logger if none provided
+		logger = zap.NewNop()
 	}
 
 	return func(next http.Handler) http.Handler {
@@ -337,10 +325,10 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 			var strategyUsed string // For logging
 
 			switch config.Strategy {
-			case common.StrategyIP: // Use common.StrategyIP
+			case common.StrategyIP:
 				strategyUsed = "IP"
 				// Get IP from context (must be set by router.ClientIPMiddleware)
-				ip, ipFound := scontext.GetClientIP[T, U](r.Context()) // Use scontext
+				ip, ipFound := scontext.GetClientIP[T, U](r.Context())
 				if !ipFound || ip == "" {
 					key = r.RemoteAddr
 					logger.Error("Client IP not found in context for StrategyIP rate limiting. Ensure router.ClientIPMiddleware is applied first.",
@@ -359,15 +347,15 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 					key = ip
 				}
 
-			case common.StrategyUser: // Use common.StrategyUser
+			case common.StrategyUser:
 				strategyUsed = "User"
 				key = extractUserKey(r, config)
 				// If no user key found, fall back to IP strategy as a safety measure
 				if key == "" {
 					strategyUsed = "User (fallback to IP)"
-					ip, ipFound := scontext.GetClientIP[T, U](r.Context()) // Use scontext
+					ip, ipFound := scontext.GetClientIP[T, U](r.Context())
 					if !ipFound || ip == "" {
-						key = r.RemoteAddr // Unsafe fallback
+						key = r.RemoteAddr
 						logger.Warn("User key not found, falling back to RemoteAddr for rate limiting.",
 							zap.String("operation", "rate_limit"),
 							zap.String("reason", "user key missing"),
@@ -391,7 +379,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 					}
 				}
 
-			case common.StrategyCustom: // Use common.StrategyCustom
+			case common.StrategyCustom:
 				strategyUsed = "Custom"
 				if config.KeyExtractor == nil {
 					logger.Error("KeyExtractor function is required for StrategyCustom rate limiting.",
@@ -418,7 +406,6 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 					return
 				}
-				// If custom extractor returns empty key, maybe fallback? Or treat as error?
 				if key == "" {
 					logger.Error("Custom KeyExtractor returned an empty key.",
 						zap.String("invariant", "rate_limit_custom_key_nonempty"),
@@ -438,9 +425,9 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 			default:
 				strategyUsed = "Unknown (defaulting to IP)"
 				fallback := "client_ip"
-				ip, ipFound := scontext.GetClientIP[T, U](r.Context()) // Use scontext
+				ip, ipFound := scontext.GetClientIP[T, U](r.Context())
 				if !ipFound || ip == "" {
-					key = r.RemoteAddr // Unsafe fallback
+					key = r.RemoteAddr
 					fallback = "remote_addr"
 				} else {
 					key = ip
@@ -458,13 +445,11 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 				)
 			}
 
-			// Combine bucket name and key for the final limiter key
 			bucketKey := config.BucketName + ":" + key
 
-			// Check rate limit
 			allowed, remaining, reset := limiter.Allow(bucketKey, config.Limit, config.Window)
 
-			// Set rate limit headers regardless of outcome
+			// Every limiter decision exposes the current policy and outcome.
 			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(config.Limit))
 			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
 			// Reset is duration until reset, convert to Unix timestamp
@@ -472,11 +457,10 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetTimestamp, 10))
 
 			if allowed {
-				// Call the next handler if allowed
 				next.ServeHTTP(w, r)
 			} else {
-				// Rate limit exceeded
-				// Set Retry-After header (seconds)
+				// Retry-After is expressed in whole seconds, with a one-second
+				// minimum for positive subsecond reset durations.
 				retryAfterSeconds := max(int64(reset.Seconds()),
 					// Minimum 1 second
 					1)
@@ -496,7 +480,6 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 					zap.String("path", r.URL.Path),
 				)
 
-				// Use custom handler or default 429 response
 				if config.ExceededHandler != nil {
 					config.ExceededHandler.ServeHTTP(w, r)
 				} else {
