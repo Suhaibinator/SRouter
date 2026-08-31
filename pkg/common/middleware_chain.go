@@ -1,4 +1,3 @@
-// Package common provides common utilities and interfaces for the SRouter framework.
 package common
 
 import (

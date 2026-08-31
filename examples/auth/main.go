@@ -24,60 +24,41 @@ func publicHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`{"message":"This is a public resource"}`))
 }
 
-func main() {
-	// Create a logger
-	logger, _ := zap.NewProduction()
-	defer func() { _ = logger.Sync() }()
-
-	// Define valid tokens for bearer token auth
+func newAuthRouter(logger *zap.Logger) *router.Router[int64, int64] {
 	bearerTokens := map[string]int64{
 		"token1": 34,
 		"token2": 35,
 	}
-
-	// Define valid API keys
 	apiKeys := map[string]int64{
 		"key1": 24,
 		"key2": 25,
 	}
 
-	// Create authentication middlewares
-	// Note: All authentication middleware provided by SRouter automatically allows
-	// OPTIONS requests to pass through without authentication checks, facilitating
-	// CORS preflight requests.
-	bearerTokenMiddleware := middleware.NewBearerTokenMiddleware[int64, any](bearerTokens, logger)
-	apiKeyMiddleware := middleware.NewAPIKeyMiddleware[int64, any](apiKeys, "X-API-Key", "api_key", logger)
+	bearerTokenMiddleware := middleware.NewBearerTokenMiddleware[int64, int64](bearerTokens, logger)
+	apiKeyMiddleware := middleware.NewAPIKeyMiddleware[int64, int64](apiKeys, "X-API-Key", "api_key", logger)
 
-	// Create a router configuration
-	routerConfig := router.RouterConfig{
-		ServiceName:       "auth-example-service", // Added ServiceName
+	config := router.RouterConfig{
+		ServiceName:       "auth-example-service",
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
 	}
 
-	// Define the auth function that takes a context and token and returns a *string and a boolean
-	authFunction := func(ctx context.Context, token string) (*string, bool) {
-		// Check if the token is valid
+	authFunction := func(_ context.Context, token string) (*int64, bool) {
 		userID, ok := bearerTokens[token]
-		if ok {
-			userStr := fmt.Sprintf("%d", userID)
-			return &userStr, true // Return pointer to user ID string
+		if !ok {
+			return nil, false
 		}
-		return nil, false // Return nil pointer for user
+		return &userID, true
 	}
-
-	// Define the function to get the user ID from a *string
-	userIdFromUserFunction := func(user *string) string {
-		// In this example, we're using the string itself as the ID
+	userIDFromUser := func(user *int64) int64 {
 		if user == nil {
-			return "" // Handle nil pointer case
+			return 0
 		}
-		return *user // Dereference pointer
+		return *user
 	}
 
-	// Create a router with string as both the user ID and user type
-	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter(config, authFunction, userIDFromUser)
 
 	r.Group("/public").Route(router.RouteConfigBase{
 		Path:    "/resource",
@@ -105,23 +86,26 @@ func main() {
 			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: protectedHandler,
 		})
+	return r
+}
 
-	// Start the server
+func main() {
+	logger, _ := zap.NewProduction()
+	defer func() { _ = logger.Sync() }()
+
+	r := newAuthRouter(logger)
+
 	fmt.Println("Authentication Example Server listening on :8080")
 	fmt.Println("Available endpoints:")
 	fmt.Println("  - GET /public/resource (no auth required)")
-	fmt.Println("  - GET /basic-auth/resource (basic auth required)")
 	fmt.Println("  - GET /bearer-auth/resource (bearer token required)")
 	fmt.Println("  - GET /api-key-auth/resource (API key required)")
-	fmt.Println("  - GET /custom-auth/resource (custom auth required)")
-	fmt.Println("  - GET /require-auth/resource (default auth required)")
+	fmt.Println("  - GET /require-auth/resource (built-in required authentication)")
 	fmt.Println("\nExample curl commands:")
 	fmt.Println("  curl http://localhost:8080/public/resource")
-	fmt.Println("  curl -u user1:password1 http://localhost:8080/basic-auth/resource")
 	fmt.Println("  curl -H \"Authorization: Bearer token1\" http://localhost:8080/bearer-auth/resource")
 	fmt.Println("  curl -H \"X-API-Key: key1\" http://localhost:8080/api-key-auth/resource")
 	fmt.Println("  curl \"http://localhost:8080/api-key-auth/resource?api_key=key1\"")
-	fmt.Println("  curl -H \"X-Custom-Auth: secret\" http://localhost:8080/custom-auth/resource")
 	fmt.Println("  curl -H \"Authorization: Bearer token1\" http://localhost:8080/require-auth/resource")
 	log.Fatal(http.ListenAndServe(":8080", r))
 }

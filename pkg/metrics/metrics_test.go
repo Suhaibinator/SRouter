@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -37,6 +38,29 @@ func TestRandomSampler(t *testing.T) {
 	}
 	if samples == 0 || samples == 100 {
 		t.Errorf("Sampler did not appear random, got %d positive samples", samples)
+	}
+}
+
+func TestSamplerFromConfigBoundaries(t *testing.T) {
+	tests := []struct {
+		name        string
+		rate        float64
+		wantSampler bool
+	}{
+		{name: "negative means unconfigured", rate: -0.1},
+		{name: "zero means unconfigured", rate: 0},
+		{name: "fraction installs sampler", rate: 0.5, wantSampler: true},
+		{name: "one means collect all", rate: 1},
+		{name: "above one means collect all", rate: 1.1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := samplerFromConfig(MetricsMiddlewareConfig{SamplingRate: tt.rate})
+			if (got != nil) != tt.wantSampler {
+				t.Fatalf("samplerFromConfig(rate=%v) returned %T; wantSampler=%v", tt.rate, got, tt.wantSampler)
+			}
+		})
 	}
 }
 
@@ -1194,6 +1218,84 @@ func TestResponseWriter(t *testing.T) {
 	}
 	if string(mockRw.writtenData) != "Test data" {
 		t.Errorf("Expected underlying data %q, got %q", "Test data", string(mockRw.writtenData))
+	}
+}
+
+func TestResponseWriterCapturesFirstStatus(t *testing.T) {
+	t.Run("explicit status", func(t *testing.T) {
+		underlying := httptest.NewRecorder()
+		rw := &responseWriter{ResponseWriter: underlying, statusCode: http.StatusOK}
+
+		rw.WriteHeader(http.StatusAccepted)
+		rw.WriteHeader(http.StatusInternalServerError)
+
+		if rw.statusCode != http.StatusAccepted {
+			t.Errorf("captured status = %d, want %d", rw.statusCode, http.StatusAccepted)
+		}
+		if underlying.Code != http.StatusAccepted {
+			t.Errorf("underlying status = %d, want %d", underlying.Code, http.StatusAccepted)
+		}
+	})
+
+	t.Run("implicit status", func(t *testing.T) {
+		underlying := httptest.NewRecorder()
+		rw := &responseWriter{ResponseWriter: underlying, statusCode: http.StatusOK}
+
+		if _, err := rw.Write([]byte("ok")); err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+		rw.WriteHeader(http.StatusInternalServerError)
+
+		if rw.statusCode != http.StatusOK {
+			t.Errorf("captured status = %d, want %d", rw.statusCode, http.StatusOK)
+		}
+		if underlying.Code != http.StatusOK {
+			t.Errorf("underlying status = %d, want %d", underlying.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("informational then final status", func(t *testing.T) {
+		underlying := httptest.NewRecorder()
+		rw := &responseWriter{ResponseWriter: underlying, statusCode: http.StatusOK}
+
+		rw.WriteHeader(http.StatusEarlyHints)
+		rw.WriteHeader(http.StatusCreated)
+
+		if rw.statusCode != http.StatusCreated {
+			t.Errorf("captured status = %d, want %d", rw.statusCode, http.StatusCreated)
+		}
+	})
+
+	t.Run("switching protocols is final", func(t *testing.T) {
+		underlying := httptest.NewRecorder()
+		rw := &responseWriter{ResponseWriter: underlying, statusCode: http.StatusOK}
+
+		rw.WriteHeader(http.StatusSwitchingProtocols)
+		rw.WriteHeader(http.StatusOK)
+
+		if rw.statusCode != http.StatusSwitchingProtocols {
+			t.Errorf("captured status = %d, want %d", rw.statusCode, http.StatusSwitchingProtocols)
+		}
+	})
+}
+
+func TestResponseWriterPreservesStreamingCapabilities(t *testing.T) {
+	underlying := httptest.NewRecorder()
+	rw := &responseWriter{ResponseWriter: underlying, statusCode: http.StatusOK}
+
+	if got := rw.Unwrap(); got != underlying {
+		t.Fatalf("Unwrap() = %T, want underlying %T", got, underlying)
+	}
+	if _, ok := any(rw).(http.Flusher); !ok {
+		t.Fatal("metrics response writer does not implement http.Flusher")
+	}
+
+	rw.Flush()
+	if !underlying.Flushed {
+		t.Fatal("Flush() did not delegate to the underlying writer")
+	}
+	if !rw.wroteHeader || rw.statusCode != http.StatusOK {
+		t.Errorf("Flush() captured response state = (wrote=%v, status=%d), want (true, 200)", rw.wroteHeader, rw.statusCode)
 	}
 }
 

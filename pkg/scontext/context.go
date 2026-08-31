@@ -602,25 +602,28 @@ func GetHandlerErrorFromRequest[T comparable, U any](r *http.Request) (error, bo
 	return GetHandlerError[T, U](r.Context())
 }
 
-// SRouter Context Copying Functions
+// SRouter context copying functions
 //
 // The scontext package provides two functions for copying SRouterContext between contexts,
 // each with different behavior for handling destination contexts:
 //
-// 1. CopySRouterContext: Standard deep copy operation
+// 1. CopySRouterContext: Attach a copied wrapper to the destination
 //    - Copies source SRouterContext to destination
 //    - Automatically creates SRouterContext in destination if needed
 //    - Returns destination unchanged if source has no SRouterContext
 //
-// 2. CopySRouterContextOverlay: Conditional copy operation
+// 2. CopySRouterContextOverlay: Conditionally replace an existing wrapper
 //    - Only copies if destination already has an SRouterContext
 //    - No-op if destination lacks SRouterContext (preserves original destination)
 //    - Use when you want to update existing context without creating new structures
 //
-// Both functions perform deep copies to ensure independence between source and destination.
+// Both functions allocate an independent wrapper and clone Flags and PathParams.
+// Pointer- and interface-valued fields continue to refer to the same underlying objects.
 
-// cloneSRouterContext creates a deep copy of an existing SRouterContext.
-// This is an internal helper function used by the various copy functions.
+// cloneSRouterContext creates a new wrapper containing a snapshot of src.
+// Flags and PathParams are cloned because they are mutable collections. Values
+// such as User, Transaction, and HandlerError are assigned normally, so any
+// objects referenced by those fields remain shared with src.
 // T is the User ID type (comparable), U is the User object type (any).
 func cloneSRouterContext[T comparable, U any](src *SRouterContext[T, U]) *SRouterContext[T, U] {
 	src.mu.RLock()
@@ -668,15 +671,13 @@ func cloneSRouterContext[T comparable, U any](src *SRouterContext[T, U]) *SRoute
 	return dst
 }
 
-// CopySRouterContext creates a deep copy of the SRouterContext from the source context
-// and adds it to the destination context. This is useful when you need to transfer
-// all SRouter context values to a new context while preserving the destination's
-// underlying context chain (cancellation, deadlines, etc.).
+// CopySRouterContext copies the SRouterContext wrapper from src and attaches the
+// copy to dst. The returned context retains dst's cancellation and deadline chain.
 //
-// If no SRouterContext exists in the source, the destination context is returned unchanged.
-// If the source contains an SRouterContext, all values (including flags) are deep copied
-// to ensure the destination has its own independent copy. The destination context will
-// automatically have an SRouterContext added if none exists.
+// If src has no SRouterContext, dst is returned unchanged. The new wrapper has
+// independent Flags and PathParams collections. Reference-bearing fields such
+// as User, Transaction, and HandlerError still refer to the same underlying
+// objects; this is not a recursive deep copy.
 //
 // T is the User ID type (comparable), U is the User object type (any).
 func CopySRouterContext[T comparable, U any](dst, src context.Context) context.Context {
@@ -689,17 +690,13 @@ func CopySRouterContext[T comparable, U any](dst, src context.Context) context.C
 	return WithSRouterContext(dst, dstRC)
 }
 
-// CopySRouterContextOverlay creates a deep copy of the SRouterContext from the source context
-// and overlays it onto the destination context only if the destination already has an
-// SRouterContext. If the destination does not have an SRouterContext, this function
-// performs no operation and returns the destination unchanged.
+// CopySRouterContextOverlay copies the SRouterContext wrapper from src and
+// replaces the destination wrapper only when dst already has one.
 //
-// If no SRouterContext exists in the source, the destination context is returned unchanged.
-// If both source and destination contain SRouterContexts, the source values (including flags)
-// are deep copied and completely replace the destination's SRouterContext.
-//
-// This function is useful when you want to update existing SRouter context values
-// but avoid creating new context structures where none existed before.
+// If either context lacks an SRouterContext, dst is returned unchanged. This
+// function replaces rather than merges destination values. The new wrapper has
+// independent Flags and PathParams collections, but reference-bearing fields
+// still refer to the same underlying objects as src.
 //
 // T is the User ID type (comparable), U is the User object type (any).
 func CopySRouterContextOverlay[T comparable, U any](dst, src context.Context) context.Context {

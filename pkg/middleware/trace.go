@@ -1,4 +1,3 @@
-// Package middleware provides a collection of HTTP middleware components for the SRouter framework.
 package middleware
 
 import (
@@ -8,13 +7,10 @@ import (
 	"uuid"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 )
 
-// IDGenerator provides efficient generation of trace IDs by precomputing them.
-// It maintains a buffer of pre-generated UUIDs in a channel, with a background
-// goroutine continuously replenishing the buffer. This approach significantly
-// reduces the latency of ID generation in the request path.
+// IDGenerator precomputes UUIDv7 trace IDs in a replenished buffer.
 type IDGenerator struct {
 	idChan   chan string
 	size     int
@@ -23,10 +19,9 @@ type IDGenerator struct {
 	stopOnce sync.Once
 }
 
-// NewIDGenerator creates a new IDGenerator with the specified buffer size.
-// The buffer size determines how many pre-generated IDs are kept ready.
-// A larger buffer size provides more resilience against traffic spikes
-// but uses more memory. The background generator starts immediately.
+// NewIDGenerator creates an ID generator and starts its background filler.
+// bufferSize is the number of IDs retained for request-path use and must not be
+// negative.
 func NewIDGenerator(bufferSize int) *IDGenerator {
 	g := &IDGenerator{
 		idChan: make(chan string, bufferSize),
@@ -106,8 +101,6 @@ func (g *IDGenerator) GetIDNonBlocking() string {
 	}
 }
 
-// Note: WithTraceID, GetTraceIDFromContext, GetTraceID, AddTraceIDToRequest were moved to pkg/scontext/context.go
-
 // maxTraceIDLength bounds inbound X-Trace-ID values; generated IDs are 32 hex
 // characters, and common formats (UUID, W3C trace IDs) fit comfortably below this.
 const maxTraceIDLength = 64
@@ -134,13 +127,11 @@ func isValidTraceID(id string) bool {
 	return true
 }
 
-// CreateTraceMiddleware creates a trace middleware with the provided ID generator.
-// This is the core implementation used by both traceMiddleware and traceMiddlewareWithConfig.
-// It checks for an existing trace ID in the request headers before generating a new one,
-// which allows for trace ID propagation across service calls. Client-supplied
-// trace IDs are validated (bounded length, [A-Za-z0-9_-] only) before being
-// accepted; invalid values are replaced with a generated ID.
-// It's now generic to accept the UserID (T) and User (U) types from the router.
+// CreateTraceMiddleware creates middleware that reuses a valid inbound
+// X-Trace-ID or generates a new ID, stores it in the SRouter context, and sets
+// the response X-Trace-ID header. Inbound IDs are limited to 64 ASCII letters,
+// digits, hyphens, or underscores; invalid values are replaced. generator must
+// be non-nil.
 func CreateTraceMiddleware[T comparable, U any](generator *IDGenerator) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -163,7 +154,7 @@ func CreateTraceMiddleware[T comparable, U any](generator *IDGenerator) common.M
 			_, hadSRouterCtx := scontext.GetSRouterContext[T, U](r.Context())
 
 			// Add the trace ID to the request context using the correct generic types
-			ctx := scontext.WithTraceID[T, U](r.Context(), traceID) // Use scontext with router's T and U
+			ctx := scontext.WithTraceID[T, U](r.Context(), traceID)
 
 			// Add trace ID to the headers for logging or tracing
 			w.Header().Set("X-Trace-ID", traceID)

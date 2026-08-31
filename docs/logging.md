@@ -1,255 +1,134 @@
 # Logging
 
-SRouter emphasizes structured, intelligent logging, primarily using the [zap](https://github.com/uber-go/zap) library. A `*zap.Logger` instance is highly recommended in the `RouterConfig`. If not provided, SRouter will attempt to create a default production logger (or a no-op logger if creation fails). All internal logging performed by the router utilizes this logger instance.
-
-## Structured Logging
-
-Using a structured logger like zap allows for:
-
--   **Machine-Readable Logs**: Logs are typically output in formats like JSON, making them easy to parse, index, and query by log aggregation systems (e.g., ELK stack, Splunk, Datadog).
--   **Contextual Information**: Key-value pairs (fields) can be added to log entries, providing rich context (e.g., `trace_id`, `user_id`, `http_method`, `status_code`).
--   **Performance**: Zap is designed for high performance and low allocation overhead compared to standard library logging or reflection-based approaches.
-
-## Log Levels
-
-SRouter's internal components use appropriate log levels:
-
--   **`Error`**: Used for significant server-side problems, unrecoverable errors, panics caught by recovery middleware, failures during critical operations (like server shutdown). Status codes 500+ often trigger Error logs.
--   **`Warn`**: Used for client-side errors (status codes 400-499), potentially problematic situations (e.g., rate limit exceeded, configuration issues), or notable but non-critical events (e.g., slow request warnings if implemented).
--   **`Info`**: Used sparingly for high-level operational information (e.g., server starting, shutting down gracefully). Avoid spamming Info logs in the request path.
--   **`Debug`**: Used for detailed diagnostic information useful during development or troubleshooting. This includes detailed request/response metrics (status, duration, bytes, IP, trace ID - logged internally when trace logging is enabled via `TraceIDBufferSize > 0`), context values, trace information, and fine-grained steps within components. The main request trace log can also be set to Debug via `TraceLoggingUseInfo: false`.
-
-This tiered approach helps manage log verbosity. In production, you typically configure your logger to output `Info` level and above, while `Debug` logs are suppressed unless needed for debugging.
-
-## Configuring the Logger
-
-You provide the `*zap.Logger` instance in `RouterConfig`. You can configure this logger according to your environment's needs.
+SRouter writes structured logs with `go.uber.org/zap`. Set `RouterConfig.Logger` to control encoding, destinations, and enabled levels. When it is nil, `NewRouter` creates a production logger and falls back to a no-op logger only if creation fails. The router names its child logger `SRouter`.
 
 ```go
-import "go.uber.org/zap"
-import "go.uber.org/zap/zapcore" // Import for zapcore
-import "log" // Import standard log package
-
-// Production Logger Example: JSON format, Info level and above
 logger, err := zap.NewProduction()
 if err != nil {
-    log.Fatalf("can't initialize zap logger: %v", err)
+	return err
 }
-defer logger.Sync() // Flushes buffer, if any
+defer logger.Sync()
 
-// Development Logger Example: Human-readable console format, Debug level and above
-devLogger, err := zap.NewDevelopment()
-if err != nil {
-    log.Fatalf("can't initialize zap logger: %v", err)
-}
-defer devLogger.Sync()
-
-// Custom Logger Example: Info level, add caller info
-config := zap.NewProductionConfig()
-config.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
-config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder // Example time format
-customLogger, err := config.Build(zap.AddCaller()) // Add caller info (file:line)
-if err != nil {
-    log.Fatalf("can't initialize zap logger: %v", err)
-}
-defer customLogger.Sync()
-
-
-// Pass the chosen logger to SRouter
-routerConfig := router.RouterConfig{
-    Logger: logger, // Use the production logger instance
-    // ... other config
-}
+r := router.NewRouter[string, User](router.RouterConfig{
+	Logger: logger,
+}, authenticate, userIDFromUser)
 ```
 
-Refer to the [zap documentation](https://pkg.go.dev/go.uber.org/zap) for detailed configuration options.
+## Request summary logging
 
-## Trace ID Integration
+For requests that reach normal route dispatch, SRouter emits one `"Request summary statistics"` record after the request when either of these settings is enabled. Early responses such as build failures, shutdown rejection, and CORS requests handled before dispatch do not pass through this summary wrapper.
 
-When trace IDs are enabled via `TraceIDBufferSize`, SRouter automatically attaches a `trace_id` field to its logs. Include this ID in your own log entries for full request tracing.
+- `TraceIDBufferSize > 0`, which enables automatic trace IDs on matched routes and request summaries.
+- `EnableTraceLogging`, which enables request summaries independently of trace IDs.
 
-### What is Trace ID Logging?
+The summary contains `method`, `path`, `status`, `duration`, `bytes`, `ip`, and `user_agent`. For a matched route, it also contains `trace_id` when automatic trace generation is enabled. An unmatched 404 or 405 still receives a summary, but it never enters the per-route trace middleware and therefore has no automatically generated `trace_id`.
 
-SRouter provides built-in support for trace ID logging, which is crucial for correlating log entries across different parts of your application (and potentially across microservices) for a single incoming request.
+Its level is chosen in this priority order:
 
-When enabled, SRouter automatically assigns a unique trace ID (a UUID) to each incoming request. This trace ID is then:
+1. `Error` for status codes `>= 500`.
+2. `Warn` when duration is greater than 500 ms.
+3. `Info` for status codes from 400 through 499.
+4. `Info` for other responses when `TraceLoggingUseInfo` is true.
+5. `Debug` otherwise.
 
-1.  Added to the request's context.
-2.  Included in all log messages generated by SRouter's internal logging when trace ID generation is enabled (`TraceIDBufferSize > 0`).
-3.  Made accessible to your handlers and middleware.
+Thus `TraceLoggingUseInfo` changes only otherwise-successful summaries. A slow 4xx request is `Warn`, while a fast 4xx request is `Info`.
 
-### Enabling Trace ID Logging
-
-Trace ID generation and injection into the context is enabled by setting `TraceIDBufferSize` in `RouterConfig` to a value greater than 0. This internally creates an ID generator and adds the necessary trace middleware.
+To emit summaries without generating trace IDs:
 
 ```go
-routerConfig := router.RouterConfig{
-    Logger:            logger, // Assume logger exists
-    TraceIDBufferSize: 1000,   // Enable trace ID generation with a buffer size
-    // Other configuration...
+config := router.RouterConfig{
+	Logger:              logger,
+	EnableTraceLogging:  true,
+	TraceLoggingUseInfo: false, // successful summaries are Debug
+	TraceIDBufferSize:   0,
 }
-r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction) // Assume auth funcs exist
 ```
 
-Setting `TraceIDBufferSize` to 0 disables automatic trace ID generation and middleware addition.
+## Error log levels
 
-Alternatively, you can manage the trace middleware explicitly:
+Errors handled at the router boundary use these defaults:
 
-1.  Set `TraceIDBufferSize: 0` in `RouterConfig`.
-2.  Create an `*middleware.IDGenerator` instance using `middleware.NewIDGenerator(bufferSize)`.
-3.  Create the middleware using `middleware.CreateTraceMiddleware[UserIDType, UserObjectType](idGen)`.
-4.  Add the created middleware to `RouterConfig.Middlewares` (usually as the first one).
+- `Debug` for `context.Canceled`.
+- `Warn` for `context.DeadlineExceeded`.
+- `Info` for other 4xx responses.
+- `Error` for 5xx responses and other unexpected errors.
+
+An `HTTPError.WithLogLevel` setting takes precedence over those defaults. Route timeouts also produce a separate `"Request timed out"` warning. When the timeout middleware can still write its 408 response, an enabled request summary independently classifies that 408 by the rules above. If the handler already started a response, the timeout is logged but the summary retains the response's existing status.
+
+Panic recovery logs `"Panic recovered"` at `Error`. If the handler already started the response, SRouter logs the panic but does not append a second error body.
+
+See [Custom Error Handling](./error-handling.md) for causes, structured fields, and level overrides.
+
+## Trace ID integration
+
+Set `TraceIDBufferSize` above zero to create a buffered ID generator and install trace middleware on every route:
 
 ```go
-import "github.com/Suhaibinator/SRouter/pkg/middleware"
-import "github.com/Suhaibinator/SRouter/pkg/common"
-
-idGenerator := middleware.NewIDGenerator(1000) // Create generator
-traceMiddleware := middleware.CreateTraceMiddleware[UserIDType, UserObjectType](idGenerator) // Create middleware
-
-routerConfig := router.RouterConfig{
-    Logger:            logger, // Assume logger exists
-    TraceIDBufferSize: 0,      // Disable automatic handling
-    Middlewares: []common.Middleware{
-        traceMiddleware, // Add trace middleware explicitly
-        // Other middleware...
-        // Note: Internal logging automatically includes the trace ID when TraceIDBufferSize > 0
-    },
-    // Other configuration...
+config := router.RouterConfig{
+	Logger:            logger,
+	TraceIDBufferSize: 1000,
 }
-r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction) // Assume auth funcs exist
 ```
 
-### Accessing the Trace ID
+For each request that matches a configured route, the middleware:
 
-Once enabled (either automatically via `TraceIDBufferSize` or explicitly via middleware), you can retrieve the trace ID within your handlers or other middleware using helper functions from the `pkg/scontext` package.
+1. Reuses a valid inbound `X-Trace-ID`, if present. Accepted values are 1–64 ASCII alphanumeric, hyphen, or underscore characters.
+2. Otherwise generates a 32-character hexadecimal UUIDv7 trace ID.
+3. Stores the ID in the SRouter request context.
+4. Sets the response `X-Trace-ID` header.
 
-#### `scontext.GetTraceIDFromRequest`
+In automatic mode, the same context ID is used by request summaries and router error logs for matched routes. JSON error responses include it as `error.trace_id`.
 
-This function retrieves the trace ID from the `http.Request` object's context. It requires the router's `UserIDType` and `UserObjectType` as type parameters.
+Retrieve and propagate it with the `pkg/scontext` helpers:
 
 ```go
-import (
-	"fmt"
-	"net/http"
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Use scontext package
-	// "go.uber.org/zap" // Uncomment if using zap logger example
-)
+func callDownstream(r *http.Request) (*http.Response, error) {
+	traceID := scontext.GetTraceIDFromRequest[string, User](r)
 
-
-func myHandler(w http.ResponseWriter, r *http.Request) {
-    // Get the trace ID associated with this request
-    // Replace string, any with your router's actual UserIDType, UserObjectType
-    traceID := scontext.GetTraceIDFromRequest[string, any](r)
-
-    // Use the trace ID, e.g., in custom logging or downstream requests
-    fmt.Printf("[trace_id=%s] Handling request for %s\n", traceID, r.URL.Path)
-
-    // You can also add it to your own structured logs
-    // logger.Info("Processing request", zap.String("trace_id", traceID), ...)
-
-    // ... rest of handler logic ...
-    w.Write([]byte("Handled with trace ID: " + traceID))
+	req, err := http.NewRequestWithContext(
+		r.Context(),
+		http.MethodGet,
+		"http://downstream.internal/data",
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if traceID != "" {
+		req.Header.Set("X-Trace-ID", traceID)
+	}
+	return http.DefaultClient.Do(req)
 }
 ```
 
-#### `scontext.GetTraceIDFromContext`
+`scontext.GetTraceIDFromContext[T, U]` provides the same value when only a `context.Context` is available.
 
-If you only have access to the `context.Context` (e.g., in a function called by your handler), you can use this function. It also requires the router's `UserIDType` and `UserObjectType` as type parameters.
+Even with automatic trace IDs disabled, request-boundary error records produced during route handling contain a `trace_id`: SRouter reuses an ID already in the request context or creates a log-only ID. A newly generated log-only ID is not injected into the request, response header, or JSON body. Setup and build logs emitted before route dispatch have no request trace ID.
+
+## Generator lifecycle
+
+An automatic generator starts a background goroutine. `Router.Shutdown` stops it, so applications that enable `TraceIDBufferSize` should call `Shutdown` as part of server shutdown even when the surrounding `http.Server` is managed separately.
+
+If you install trace middleware manually, you own the generator and must stop it:
 
 ```go
-import (
-	"context"
-	"fmt"
-	"log"
-	"net/http"
+idGenerator := middleware.NewIDGenerator(1000)
+defer idGenerator.Stop()
 
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Use scontext package
-)
+traceMiddleware := middleware.CreateTraceMiddleware[string, User](idGenerator)
+r := router.NewRouter[string, User](router.RouterConfig{
+	Logger:             logger,
+	EnableTraceLogging: true,
+}, authenticate, userIDFromUser)
 
-func processData(ctx context.Context, data string) {
-    // Get the trace ID from the context passed down from the handler
-    // Replace string, any with your router's actual UserIDType, UserObjectType
-    traceID := scontext.GetTraceIDFromContext[string, any](ctx)
-
-    // Use the trace ID in logs or further processing
-    log.Printf("[trace_id=%s] Processing data: %s\n", traceID, data)
-
-    // ... processing logic ...
-}
-
-// In your handler:
-func myHandlerWithContext(w http.ResponseWriter, r *http.Request) {
-    // Replace string, any with your router's actual UserIDType, UserObjectType
-    traceID := scontext.GetTraceIDFromRequest[string, any](r) // Get it from request
-    fmt.Printf("[trace_id=%s] Handler started\n", traceID)
-
-    // Pass the request's context (which contains the trace ID) to downstream functions
-    processData(r.Context(), "some data")
-
-    w.Write([]byte("Processed data with trace ID: " + traceID))
-}
-
+handler := traceMiddleware(r)
 ```
 
-### Propagating the Trace ID
+Wrapping the router places the trace ID in the context and response header before built-in authentication, rate limiting, CORS, and route dispatch, so router error logs can reuse it. Adding trace middleware through `RouterConfig.Middlewares` runs it later, after built-in authentication and rate limiting; failures in those earlier stages will not see its ID.
 
-To maintain a consistent trace across multiple services, you should propagate the trace ID when making requests to downstream services. This is typically done by adding the trace ID as an HTTP header (e.g., `X-Trace-ID`).
+Request summaries include `trace_id` when automatic tracing is enabled with
+`TraceIDBufferSize > 0`. The manual wrapper above still supplies an ID to
+handlers and router error logs, but with a zero buffer setting the request
+summary omits it. Serve `handler` rather than `r` in that example.
 
-```go
-import (
-	"net/http"
-
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Use scontext package
-)
-
-func callDownstreamService(r *http.Request) (*http.Response, error) {
-    // Get the trace ID from the incoming request
-    // Replace string, any with your router's actual UserIDType, UserObjectType
-    traceID := scontext.GetTraceIDFromRequest[string, any](r)
-
-    // Create a new request to the downstream service
-    downstreamReq, err := http.NewRequestWithContext(r.Context(), "GET", "http://downstream-service/api/data", nil)
-    if err != nil {
-        return nil, err
-    }
-
-    // Add the trace ID to the outgoing request's headers
-    if traceID != "" {
-        downstreamReq.Header.Set("X-Trace-ID", traceID) // Common header name
-    }
-
-    // Make the request
-    client := &http.Client{} // Use a shared client in real applications
-    resp, err := client.Do(downstreamReq)
-
-    // Handle response and error
-    // ...
-
-    return resp, err
-}
-```
-
-The downstream service should then be configured to look for this header, extract the trace ID, and use it for its own logging and further propagation.
-
-See the `examples/trace-logging` directory for a runnable example.
-
-## Request Summary Logging
-
-When `TraceIDBufferSize` is set to a value greater than zero, SRouter emits a single log entry at the end of every request. The message is `"Request summary statistics"` and includes fields:
-
-- `method` and `path`
-- HTTP `status`
-- request `duration`
-- number of `bytes` written
-- client `ip` and `user_agent`
-- `trace_id` when trace IDs are enabled
-
-The log level is selected automatically:
-
-- `Error` for status codes `>= 500`
-- `Warn` for status codes `>= 400` or requests taking longer than 500&nbsp;ms
-- `Info` for successful requests when `TraceLoggingUseInfo` is `true`
-- `Debug` otherwise
-
-Setting `TraceIDBufferSize` to `0` disables this automatic summary log.
+See `examples/trace-logging` for a runnable example.

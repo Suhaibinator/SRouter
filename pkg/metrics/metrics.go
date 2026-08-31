@@ -1,8 +1,5 @@
-// Package metrics provides an interface-based metrics system for SRouter.
-// It defines interfaces for metrics collection and exposition, allowing users to provide
-// their own implementations while the framework uses the methods exposed by these interfaces
-// to aggregate metrics. This approach maintains separation of concerns, where the framework
-// defines the interfaces and the users provide the implementations.
+// Package metrics defines backend-neutral metric instruments, builders, registries,
+// and HTTP request middleware for SRouter.
 package metrics
 
 import (
@@ -166,7 +163,8 @@ type SummaryBuilder interface {
 	Build() Summary
 }
 
-// MetricsRegistry is a registry for metrics.
+// MetricsRegistry creates and registers metric instruments. A backend may register
+// an instrument during Build, so the exact Register semantics are backend-specific.
 type MetricsRegistry interface {
 	// Register a metric with the registry.
 	Register(metric Metric) error
@@ -184,7 +182,7 @@ type MetricsRegistry interface {
 	NewSummary() SummaryBuilder
 }
 
-// MetricsMiddleware is a generic middleware for collecting metrics.
+// MetricsMiddleware wraps HTTP handlers with request metric collection.
 // T is the UserID type (comparable), U is the User object type (any).
 type MetricsMiddleware[T comparable, U any] interface {
 	// Wrap an HTTP handler with metrics collection.
@@ -200,23 +198,25 @@ type MetricsMiddleware[T comparable, U any] interface {
 	WithSampler(sampler MetricsSampler) MetricsMiddleware[T, U]
 }
 
-// MetricsMiddlewareConfig is the configuration for metrics middleware.
-// This config itself doesn't need to be generic, as the T and U types
-// are relevant to the middleware instance, not the configuration values.
+// MetricsMiddlewareConfig configures the built-in request metrics middleware.
 type MetricsMiddlewareConfig struct {
 	// EnableLatency enables latency metrics.
 	EnableLatency bool
 
-	// EnableThroughput enables throughput metrics.
+	// EnableThroughput records positive request Content-Length values. It does
+	// not measure response bytes or calculate a bytes-per-second rate.
 	EnableThroughput bool
 
-	// EnableQPS enables queries per second metrics.
+	// EnableQPS enables cumulative request counters. Derive a per-second rate
+	// in the metrics backend.
 	EnableQPS bool
 
 	// EnableErrors enables error metrics.
 	EnableErrors bool
 
-	// SamplingRate is the rate at which to sample requests.
+	// SamplingRate installs a RandomSampler only when strictly between 0 and 1.
+	// Values outside that interval mean no configured sampler, so all requests
+	// that pass the filter are collected.
 	SamplingRate float64
 
 	// DefaultTags are tags to add to all metrics.
@@ -235,13 +235,14 @@ type MetricsSampler interface {
 	Sample() bool
 }
 
-// RandomSampler is a sampler that randomly samples requests.
+// RandomSampler independently samples requests at a configured probability.
 type RandomSampler struct {
 	rate float64
 	rng  *rand.Rand
 }
 
-// NewRandomSampler creates a new random sampler.
+// NewRandomSampler creates a sampler with the given probability. Rates at or
+// below 0 reject every sample; rates at or above 1 accept every sample.
 func NewRandomSampler(rate float64) *RandomSampler {
 	return &RandomSampler{
 		rate: rate,
@@ -249,9 +250,9 @@ func NewRandomSampler(rate float64) *RandomSampler {
 	}
 }
 
-// NewRandomSamplerWithRand returns a RandomSampler that uses the provided `rand.Rand`
-// for deterministic sampling. The `rate` parameter specifies the sampling rate,
-// where 0 means no sampling and 1 means always sample.
+// NewRandomSamplerWithRand returns a RandomSampler that uses r for deterministic
+// sampling. The caller must provide a non-nil rand.Rand. Rates at or below 0
+// reject every sample; rates at or above 1 accept every sample.
 func NewRandomSamplerWithRand(rate float64, r *rand.Rand) *RandomSampler {
 	return &RandomSampler{
 		rate: rate,
@@ -259,7 +260,7 @@ func NewRandomSamplerWithRand(rate float64, r *rand.Rand) *RandomSampler {
 	}
 }
 
-// Sample returns true if the request should be sampled.
+// Sample reports whether the next request should be included.
 func (s *RandomSampler) Sample() bool {
 	switch {
 	case s.rate <= 0:
@@ -271,14 +272,13 @@ func (s *RandomSampler) Sample() bool {
 	}
 }
 
-// MetricsMiddlewareImpl is a concrete generic implementation of the MetricsMiddleware interface.
-// T is the UserID type (comparable), U is the User object type (any).
+// MetricsMiddlewareImpl is the built-in MetricsMiddleware implementation.
 type MetricsMiddlewareImpl[T comparable, U any] struct {
 	registry    MetricsRegistry
 	config      MetricsMiddlewareConfig
 	filter      MetricsFilter
 	sampler     MetricsSampler
-	metricCache sync.Map // cache key (string) -> built Counter/Histogram, one per route
+	metricCache sync.Map // cache key (string) -> once-protected Counter/Histogram builder
 }
 
 // samplerFromConfig returns a sampler implementing the configured SamplingRate,
@@ -291,10 +291,9 @@ func samplerFromConfig(config MetricsMiddlewareConfig) MetricsSampler {
 	return nil
 }
 
-// NewMetricsMiddleware creates a new generic MetricsMiddlewareImpl.
-// If config.SamplingRate is in (0, 1), a RandomSampler is installed automatically;
-// it can be replaced via WithSampler.
-// T is the UserID type (comparable), U is the User object type (any).
+// NewMetricsMiddleware creates a request metrics middleware backed by registry.
+// A SamplingRate strictly between 0 and 1 installs a RandomSampler; WithSampler
+// can replace it.
 func NewMetricsMiddleware[T comparable, U any](registry MetricsRegistry, config MetricsMiddlewareConfig) *MetricsMiddlewareImpl[T, U] {
 	return &MetricsMiddlewareImpl[T, U]{
 		registry: registry,
@@ -303,25 +302,26 @@ func NewMetricsMiddleware[T comparable, U any](registry MetricsRegistry, config 
 	}
 }
 
-// Configure configures the middleware. A sampler is derived from the new
-// config's SamplingRate (replace it with WithSampler if custom behavior is needed).
+// Configure replaces the middleware configuration and derives a new sampler
+// from SamplingRate. Call it before serving requests: already-built cached
+// instruments retain their original names and tags. Call WithSampler after
+// Configure when custom sampling behavior is needed.
 func (m *MetricsMiddlewareImpl[T, U]) Configure(config MetricsMiddlewareConfig) MetricsMiddleware[T, U] {
 	m.config = config
 	m.sampler = samplerFromConfig(config)
 	return m
 }
 
-// WithFilter adds a filter to the middleware.
+// WithFilter sets the request filter. A nil filter collects every request that
+// passes sampling.
 func (m *MetricsMiddlewareImpl[T, U]) WithFilter(filter MetricsFilter) MetricsMiddleware[T, U] {
 	m.filter = filter
 	return m
 }
 
-// WithSampler adds a sampler to the middleware.
+// WithSampler sets the request sampler. A nil sampler collects every request
+// that passes filtering.
 func (m *MetricsMiddlewareImpl[T, U]) WithSampler(sampler MetricsSampler) MetricsMiddleware[T, U] {
 	m.sampler = sampler
 	return m
 }
-
-// Handler method needs to be moved to handler_method.go as it's part of the implementation.
-// We will update it there to use the generic types T and U.

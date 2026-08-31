@@ -1,93 +1,87 @@
 # IP Configuration
 
-SRouter provides a flexible way to extract the client's real IP address, which is crucial for logging, rate limiting, and security, especially when your application runs behind a reverse proxy or load balancer.
+SRouter records a client IP in `SRouterContext` for logging and rate limiting. Configure its source with `RouterConfig.IPConfig`.
 
-## Configuration
+## Safe default
 
-IP extraction is configured via the `IPConfig` field within the main `RouterConfig`. This field takes a pointer to a `router.IPConfig` struct (defined in `pkg/router/ip.go`).
-
-```go
-import "github.com/Suhaibinator/SRouter/pkg/router" // IPConfig is in the router package
-
-// Configure IP extraction to trust and use the X-Forwarded-For header
-routerConfig := router.RouterConfig{
-    // ... other config (logger, etc.)
-    IPConfig: &router.IPConfig{
-        Source:     router.IPSourceXForwardedFor, // Specify the source header
-        TrustProxy: true,                         // Trust the header value
-    },
-    // ...
-}
-
-r := router.NewRouter[string, string](routerConfig, /* auth funcs */)
-```
-
-If `IPConfig` is `nil` or not provided, SRouter **does not** inspect any proxy headers. It simply uses `r.RemoteAddr` (equivalent to `Source: router.IPSourceRemoteAddr`) and therefore does not trust proxy-provided IPs. To enable header-based extraction, supply an `IPConfig` like:
+When `RouterConfig.IPConfig` is `nil`, the router ignores proxy headers and uses `http.Request.RemoteAddr`, with a valid host port removed:
 
 ```go
-routerConfig := router.RouterConfig{
-    // ...
-    IPConfig: &router.IPConfig{
-        Source:     router.IPSourceRemoteAddr,
-        TrustProxy: false, // Explicitly disable trusting headers
-    },
-    // ...
+config := router.RouterConfig{
+	IPConfig: nil, // use the immediate peer address
 }
 ```
 
-## IP Source Types
+This is appropriate when the service is internet-facing or when the immediate peer address is the value you need.
 
-The `Source` field in `router.IPConfig` determines where SRouter attempts to find the client IP. It uses constants of type `router.IPSourceType` defined in `pkg/router/ip.go`:
+## Trusted proxy configuration
 
-1.  **`router.IPSourceRemoteAddr`**: Uses the `r.RemoteAddr` field directly. This is the IP address of the immediate peer connecting to your server (which might be the proxy itself).
-2.  **`router.IPSourceXForwardedFor`**: Uses the `X-Forwarded-For` header. This header can contain a comma-separated list of IPs (`client, proxy1, proxy2`). SRouter extracts the *first* IP in the list as the original client IP when `TrustProxy` is true.
-3.  **`router.IPSourceXRealIP`**: Uses the `X-Real-IP` header. This header is often set by proxies like Nginx to contain only the original client IP.
-4.  **`router.IPSourceCustomHeader`**: Uses a custom header name specified in the `CustomHeader` field of `IPConfig`.
+Use a header source only when every request reaches the application through infrastructure that overwrites or sanitizes that header:
 
 ```go
-// Example: Using a custom header
-routerConfig := router.RouterConfig{
-    // ...
-    IPConfig: &router.IPConfig{
-        Source:       router.IPSourceCustomHeader,
-        CustomHeader: "CF-Connecting-IP", // Example: Cloudflare header
-        TrustProxy:   true,
-    },
-    // ...
+config := router.RouterConfig{
+	IPConfig: &router.IPConfig{
+		Source:     router.IPSourceXForwardedFor,
+		TrustProxy: true,
+	},
 }
 ```
 
-## Trust Proxy Setting (`TrustProxy`)
+The available sources are:
 
-The `TrustProxy` boolean field is critical for security:
+- `IPSourceRemoteAddr`: the immediate peer in `RemoteAddr`.
+- `IPSourceXForwardedFor`: the **rightmost non-empty** entry in `X-Forwarded-For`.
+- `IPSourceXRealIP`: the complete `X-Real-IP` value.
+- `IPSourceCustomHeader`: the complete value of `CustomHeader`.
 
--   **`TrustProxy: true`**: SRouter will attempt to extract the IP from the header specified by `Source`. If the header is missing or invalid, it falls back to `r.RemoteAddr`. **Only use this if you are certain your proxy correctly sets and sanitizes the relevant header.** Otherwise, a client could spoof their IP address by sending a fake header.
--   **`TrustProxy: false`**: SRouter will *ignore* the specified `Source` header (even if set to `IPSourceXForwardedFor`, etc.) and *always* use `r.RemoteAddr`. This is the safer option if you are unsure about your proxy setup or don't run behind a trusted proxy.
+For example, given:
 
-## Accessing the Client IP
+```text
+X-Forwarded-For: client-supplied, client-seen-by-edge, edge-seen-by-app-proxy
+```
 
-Once configured, the extracted client IP is stored in the request context. You can retrieve it using the `scontext.GetClientIPFromRequest` helper function:
+SRouter selects `edge-seen-by-app-proxy`, the rightmost value appended by the
+proxy nearest the application. That value describes the nearest proxy's
+observed upstream peer; it is not the nearest proxy's own address. SRouter
+deliberately does not select the commonly described leftmost "original client"
+value, because a client can prepend arbitrary entries. If your topology has
+multiple trusted proxy hops and you need a different address, normalize the
+header at the last proxy before it reaches SRouter.
+
+If `IPConfig` is non-nil but `Source` is empty or unknown, SRouter treats it as `IPSourceXForwardedFor`. Prefer setting `Source` explicitly.
+
+## `TrustProxy` behavior
+
+- With `TrustProxy: false`, SRouter ignores a configured header source and uses `RemoteAddr`.
+- With `TrustProxy: true`, SRouter uses the configured header. It falls back to `RemoteAddr` only when the selected header is empty.
+
+SRouter does not reject a malformed, non-empty proxy-header value. It removes a port when the value is a valid host-port pair; otherwise it preserves the value. Header validation and sanitization must therefore happen at the trusted proxy boundary.
+
+`router.DefaultIPConfig()` and the standalone `router.ClientIPMiddleware(nil)` are different from a nil `RouterConfig.IPConfig`: they default to trusted `X-Forwarded-For`. Use that convenience default only behind a trusted proxy.
+
+## Custom header
 
 ```go
-import (
-	"fmt"
-	"net/http"
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Use scontext package
-)
-
-func myHandler(w http.ResponseWriter, r *http.Request) {
-    // Get the client IP extracted based on IPConfig settings
-    // Replace string, string with your router's actual UserIDType, UserObjectType
-    clientIP, ok := scontext.GetClientIPFromRequest[string, string](r)
-
-    if ok {
-        fmt.Fprintf(w, "Your IP address is: %s", clientIP)
-        // Use clientIP for logging, rate limiting checks, etc.
-    } else {
-        // IP could not be determined (should generally not happen if RemoteAddr is available)
-        http.Error(w, "Could not determine client IP", http.StatusInternalServerError)
-    }
+config := router.RouterConfig{
+	IPConfig: &router.IPConfig{
+		Source:       router.IPSourceCustomHeader,
+		CustomHeader: "CF-Connecting-IP",
+		TrustProxy:   true,
+	},
 }
 ```
 
-See the `examples/middleware` directory for runnable examples involving middleware and potentially IP configuration.
+Make sure requests cannot bypass the proxy and reach the application with a client-controlled value for the custom header.
+
+## Reading the client IP
+
+Use the context helper in a handler or middleware:
+
+```go
+clientIP, ok := scontext.GetClientIPFromRequest[string, User](req)
+if !ok {
+	// No SRouter client information has been attached to this request.
+}
+```
+
+The type arguments must match the router's user ID and user object types.

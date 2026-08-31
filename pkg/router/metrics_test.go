@@ -204,6 +204,9 @@ func TestMetricsResponseWriterFlush(t *testing.T) {
 	if !rr.Flushed { // Check the Flushed field on the mock
 		t.Errorf("Expected Flush to be called on the underlying response writer")
 	}
+	if !mrw.wroteHeader || mrw.statusCode != http.StatusOK {
+		t.Errorf("Flush captured status = %d, wroteHeader = %v; want 200, true", mrw.statusCode, mrw.wroteHeader)
+	}
 }
 
 // TestTracing tests that tracing information is collected correctly
@@ -302,4 +305,74 @@ func TestMetricsResponseWriter(t *testing.T) {
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("Expected response code to be %d, got %d", http.StatusNotFound, rr.Code)
 	}
+}
+
+func TestMetricsResponseWriterKeepsFirstStatus(t *testing.T) {
+	t.Run("explicit header", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		writer := &metricsResponseWriter[string, string]{
+			ResponseWriter: recorder,
+			statusCode:     http.StatusOK,
+		}
+
+		writer.WriteHeader(http.StatusCreated)
+		writer.WriteHeader(http.StatusInternalServerError)
+
+		if writer.statusCode != http.StatusCreated {
+			t.Fatalf("captured status = %d, want %d", writer.statusCode, http.StatusCreated)
+		}
+		if recorder.Code != http.StatusCreated {
+			t.Fatalf("response status = %d, want %d", recorder.Code, http.StatusCreated)
+		}
+	})
+
+	t.Run("implicit header", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		writer := &metricsResponseWriter[string, string]{
+			ResponseWriter: recorder,
+			statusCode:     http.StatusOK,
+		}
+
+		if _, err := writer.Write([]byte("ok")); err != nil {
+			t.Fatal(err)
+		}
+		writer.WriteHeader(http.StatusInternalServerError)
+
+		if writer.statusCode != http.StatusOK {
+			t.Fatalf("captured status = %d, want %d", writer.statusCode, http.StatusOK)
+		}
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("response status = %d, want %d", recorder.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("informational then final header", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		writer := &metricsResponseWriter[string, string]{
+			ResponseWriter: recorder,
+			statusCode:     http.StatusOK,
+		}
+
+		writer.WriteHeader(http.StatusEarlyHints)
+		writer.WriteHeader(http.StatusCreated)
+
+		if writer.statusCode != http.StatusCreated {
+			t.Fatalf("captured status = %d, want %d", writer.statusCode, http.StatusCreated)
+		}
+	})
+
+	t.Run("switching protocols is final", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		writer := &metricsResponseWriter[string, string]{
+			ResponseWriter: recorder,
+			statusCode:     http.StatusOK,
+		}
+
+		writer.WriteHeader(http.StatusSwitchingProtocols)
+		writer.WriteHeader(http.StatusOK)
+
+		if writer.statusCode != http.StatusSwitchingProtocols {
+			t.Fatalf("captured status = %d, want %d", writer.statusCode, http.StatusSwitchingProtocols)
+		}
+	})
 }

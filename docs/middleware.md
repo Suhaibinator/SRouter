@@ -1,225 +1,136 @@
-# Custom Middleware
+# Middleware
 
-Middleware provides a powerful way to inject logic into the request/response cycle, handling concerns like logging, authentication, rate limiting, compression, CORS, and more, separate from your core request handlers.
-
-SRouter uses the standard Go `http.Handler` interface for middleware, often defined using the `common.Middleware` type alias for clarity.
+SRouter middleware uses the usual Go shape:
 
 ```go
-// Defined in pkg/common/types.go
-package common
-
-import "net/http"
-
-// Middleware is a function that takes an http.Handler and returns an http.Handler.
 type Middleware func(http.Handler) http.Handler
 ```
 
-A middleware function wraps an existing `http.Handler` (the `next` handler in the chain) and returns a new `http.Handler` that performs some action before or after calling the `next` handler.
+The first middleware in a slice is the outermost wrapper: it sees the request
+first and resumes after all later middleware and the handler have returned.
 
-## Creating Custom Middleware
-
-Here's an example of a simple custom middleware that adds a custom header to the response:
+## Writing middleware
 
 ```go
-package mymiddleware
-
-import (
-	"net/http"
-	"github.com/Suhaibinator/SRouter/pkg/common" // Assuming common types are here
-)
-
-// AddHeaderMiddleware adds a static header to every response.
-func AddHeaderMiddleware(key, value string) common.Middleware {
-	// Return the actual middleware function
+func AddHeader(key, value string) common.Middleware {
 	return func(next http.Handler) http.Handler {
-		// Return the handler that performs the action
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Action before calling the next handler (optional)
-			// fmt.Println("Adding header...")
-
-			// Add the header to the response writer
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set(key, value)
-
-			// Call the next handler in the chain
-			next.ServeHTTP(w, r)
-
-			// Action after calling the next handler (optional)
-			// fmt.Println("Header added.")
+			next.ServeHTTP(w, req)
 		})
 	}
 }
 ```
 
-Another example: A middleware that logs the User ID if present in the context.
+To pass values downstream, derive a request context:
 
 ```go
-package mymiddleware
-
-import (
-	"fmt"
-	"net/http"
-	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Use scontext for context helpers
-	"go.uber.org/zap"                              // Example logger
-)
-
-// LogUserIDMiddleware logs the user ID if authentication was successful.
-// Requires an authentication middleware to run first.
-// This example shows accessing UserID, but other context values (TraceID, ClientIP, Transaction, Flags)
-// can be accessed similarly using their respective GetXFromRequest functions.
-func LogUserIDMiddleware(logger *zap.Logger) common.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Attempt to get User ID from context
-			// Replace string, any with your router's actual UserIDType, UserObjectType
-			userID, ok := scontext.GetUserIDFromRequest[string, any](r)
-			// txInterface, txOK := scontext.GetTransactionFromRequest[string, any](r) // Example: Access transaction
-
-			if ok {
-				// Log if user ID was found
-				logger.Debug("Authenticated user ID found in context", zap.String("userID", userID))
-				fmt.Printf("[Debug] Authenticated User ID: %s for path %s\n", userID, r.URL.Path)
-			} else {
-				logger.Debug("No authenticated user ID found in context")
-				fmt.Printf("[Debug] No User ID for path %s\n", r.URL.Path)
-			}
-
-			// Call the next handler regardless
-			next.ServeHTTP(w, r)
-		})
-	}
+func WithRequestFlag(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		ctx := scontext.WithFlag[string, User](req.Context(), "audited", true)
+		next.ServeHTTP(w, req.WithContext(ctx))
+	})
 }
 ```
 
-Here's an example of middleware that uses handler errors to make decisions (e.g., transaction rollback):
+Use the same `T` and `U` type arguments as the router when calling `scontext`
+helpers. See [Context management](context-management.md) for the available
+values and concurrency rules.
+
+## Applying middleware
+
+Middleware can be attached at four scopes:
 
 ```go
-package mymiddleware
+r := router.NewRouter[string, User](router.RouterConfig{
+	Middlewares: []common.Middleware{globalAudit},
+}, authenticate, userIDFromUser)
 
-import (
-	"net/http"
-	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/scontext"
-	"go.uber.org/zap"
-)
+r.Use(rootHeaders)
 
-// TransactionMiddleware demonstrates using handler errors for transaction management.
-// This middleware starts a transaction before the handler and commits/rollbacks
-// based on whether the handler returned an error.
-func TransactionMiddleware(db *YourDBType, logger *zap.Logger) common.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Start transaction
-			tx := db.Begin()
-			if tx.Error != nil {
-				logger.Error("Failed to start transaction", zap.Error(tx.Error))
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				return
-			}
-
-			// Add transaction to context
-			txWrapper := NewTransactionWrapper(tx) // Your wrapper implementation
-			ctx := scontext.WithTransaction[string, any](r.Context(), txWrapper)
-			r = r.WithContext(ctx)
-
-			// Execute the handler
-			next.ServeHTTP(w, r)
-
-			// Check if handler returned an error
-			// Note: This only works with generic routes that store errors in context
-			if handlerErr, ok := scontext.GetHandlerErrorFromRequest[string, any](r); ok && handlerErr != nil {
-				logger.Warn("Handler error detected, rolling back transaction", 
-					zap.Error(handlerErr))
-				tx.Rollback()
-			} else {
-				// No error or non-generic route, commit transaction
-				if err := tx.Commit().Error; err != nil {
-					logger.Error("Failed to commit transaction", zap.Error(err))
-					// Note: Response has already been written by handler
-				}
-			}
-		})
-	}
-}
-```
-
-## Applying Middleware
-
-Middleware can be applied at three levels:
-
-1.  **Global**: Added to `RouterConfig.Middlewares`. Applied to *all* routes handled by the router.
-2.  **Route group**: Added with `group.Use`. Applied to that group and descendants after global middleware, from outer groups to inner groups.
-3.  **Route-specific**: Added to `RouteConfigBase.Middlewares` or `RouteConfig.Middlewares`. Applied after global and group middleware.
-
-```go
-// Example applying middleware at different levels
-routerConfig := router.RouterConfig{
-    // ... logger, etc.
-    Middlewares: []common.Middleware{
-        // middleware.CreateTraceMiddleware[T, U](idGen), // Global: Added automatically if TraceIDBufferSize > 0
-        // middleware.Recovery, // Global: Applied internally by SRouter
-        mymiddleware.AddHeaderMiddleware("X-Global", "true"), // Global: Custom middleware
-        // Note: Request logging is handled internally if EnableTraceLogging is true
-    },
-}
-
-r := router.NewRouter[string, User](routerConfig, authenticate, userID)
-r.Group("/api").Group("/v1").Use(
-    MyCustomAuthMiddleware(),
-    mymiddleware.AddHeaderMiddleware("X-API-Version", "v1"),
-).Route(router.RouteConfigBase{
-    Path:    "/users",
-    Methods: []router.HttpMethod{router.MethodGet},
-    Middlewares: []common.Middleware{
-        mymiddleware.LogUserIDMiddleware(logger),
-    },
-    Handler:   GetUsersHandler,
-    AuthLevel: new(router.AuthRequired),
+api := r.Group("/api").Use(apiHeaders)
+api.Route(router.RouteConfigBase{
+	Path:        "/users",
+	Methods:     []router.HttpMethod{router.MethodGet},
+	Middlewares: []common.Middleware{routeAudit},
+	Handler:     listUsers,
 })
-
-// Note: CORS preflight requests (OPTIONS with Origin header and CORS-specific headers)
-// are handled at the CORS layer before reaching authentication middleware.
-// Other OPTIONS requests are subject to normal authentication requirements.
 ```
 
-## Middleware Execution Order
+`RouterConfig.Middlewares` applies to matched routes. `Router.Use` applies to
+root routes and every descendant. Group middleware is inherited from outer to
+inner groups, and route middleware is the most local. Middleware is additive;
+setting route policy does not replace an inherited middleware slice.
 
-SRouter applies middleware by wrapping the final handler in `wrapHandler`. The effective order, from outermost (runs first) to innermost (runs last before the handler), is:
+## Execution order
 
-1.  **Recovery Middleware** (Applied internally; outermost so it can catch panics from everything below)
-2.  **Trace ID Middleware** (Applied internally if `RouterConfig.TraceIDBufferSize > 0`)
-3.  **Authentication Middleware** (Applied internally if `AuthLevel` is `AuthRequired` or `AuthOptional`)
-4.  **Rate Limiting Middleware** (Applied internally if a rate limit config applies)
-5.  **Global middleware** (`RouterConfig.Middlewares`, including configured metrics)
-6.  **Route-group middleware** (`Router.Use` root middleware, then outermost group to innermost group)
-7.  **Route middleware** (`RouteConfigBase.Middlewares` or `RouteConfig.Middlewares`)
-8.  **Timeout middleware** (if the effective timeout is positive)
-9.  **Body limit and actual handler**
+For a matched route, the effective order from outermost to innermost is:
 
-The route tree is flattened during `Build`, so group middleware adds ordinary precomposed wrappers and no request-time tree traversal.
+1. panic recovery;
+2. automatic trace-ID injection, when enabled;
+3. built-in authentication, for optional or required routes;
+4. configured rate limiting;
+5. `RouterConfig.Middlewares`, followed by configured metrics;
+6. `Router.Use`, then outer-to-inner group middleware;
+7. route middleware;
+8. timeout handling, when enabled;
+9. request-body limiting and the handler.
 
-Middleware within the *same slice* (e.g., `RouterConfig.Middlewares`) are applied in the order they appear in the slice; the first one in the slice becomes the outermost wrapper.
+CORS processing, client-IP extraction, route matching, shutdown rejection, and
+request-summary logging live in `Router.ServeHTTP` outside this per-route
+chain. A CORS preflight may finish before route middleware runs. Unmatched 404
+and 405 responses do not enter the per-route chain.
 
-## Middleware Reference
+Any middleware that returns without calling `next` short-circuits everything
+inside it. In particular, built-in authentication and rate-limit rejections do
+not reach global, metrics, group, or route middleware.
 
-SRouter provides several built-in middleware functions and applies others internally. Refer to the source code or specific examples for exact signatures and usage.
+Custom authentication placed in a global or group middleware runs after the
+configured rate limiter. A configured user-based limit therefore needs the
+built-in authentication stage to establish the user identity first. An outer
+handler around the router is the appropriate place when an application needs a
+different top-level order.
 
-**Exported from `pkg/middleware`:**
+## Observing typed-handler errors
 
--   **`Recovery`**: Recovers from panics. Applied internally by SRouter, usually no need to add manually.
--   **`MaxBodySize(limit int64)`**: Limits request body size. Applied internally based on config, usually no need to add manually.
--   **`CreateTraceMiddleware[T, U](idGen *IDGenerator)`**: Creates the trace ID middleware. Added automatically if `RouterConfig.TraceIDBufferSize > 0`. See [Trace ID Integration](./logging.md#trace-id-integration).
--   **`RateLimit(config *common.RateLimitConfig[T, U], limiter common.RateLimiter, logger *zap.Logger)`**: Applies rate limiting. Applied internally based on config, usually no need to add manually. See [Rate Limiting](./rate-limiting.md).
--   **`NewGormTransactionWrapper`**: Wrapper for GORM transactions (used with `scontext`). See [Context Management](./context-management.md).
+When a typed handler completes through the normal chain, SRouter stores its
+non-nil error in the pointer-backed context before outer middleware resumes:
 
-**Internal / Not Exported for Direct Use:**
+```go
+func ObserveResult(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		next.ServeHTTP(w, req)
 
--   **Timeout**: Applied internally, closest to the handler, based on `RouterConfig.GlobalTimeout`, `group.Timeout`, and `RouteConfig.Timeout`. There is no standalone `Timeout` middleware to add; configure the timeout on the router, group, or route instead. See [Timeout Configuration](./configuration.md).
--   **Request Logging**: Handled internally by `Router.ServeHTTP` if `RouterConfig.EnableTraceLogging` is true. There is no separate `Logging` middleware to add. See [Logging](./logging.md).
--   **Authentication**: Applied internally based on `AuthLevel` config. See [Authentication](./authentication.md) for details on authentication providers and configuration.
--   **IP Extraction**: Handled internally by `Router.ServeHTTP` based on `RouterConfig.IPConfig`. See [IP Configuration](./ip-configuration.md).
--   **CORS**: Handled internally by `Router.ServeHTTP` based on `RouterConfig.CORSConfig`. See [CORS Configuration](./cors-configuration.md).
+		if err, ok := scontext.GetHandlerErrorFromRequest[string, User](req); ok {
+			log.Printf("typed handler failed: %v", err)
+		}
+	})
+}
+```
 
-Always check the specific package documentation or source code for the most up-to-date list and usage details of built-in middleware.
+This signal covers errors returned by a typed handler. It does not turn status
+codes from standard handlers, decoding failures, short circuits, or panics into
+handler errors. A timed-out handler that ignores cancellation can continue
+after the timeout stage returns, so its eventual error may not exist when outer
+middleware first resumes. If middleware must make transactional decisions for
+all outcomes, it should also capture the response status, account for timeouts,
+and handle panics deliberately.
 
-See the `examples/middleware` directory for runnable examples.
+## Built-in helpers
+
+The `pkg/middleware` package exports:
+
+- `Chain` for composing middleware;
+- `Recovery` and `MaxBodySize` for direct use outside the router;
+- trace-ID generation and propagation helpers;
+- authentication providers and middleware;
+- `RateLimit` and the built-in rate limiter; and
+- `NewGormTransactionWrapper` for the transaction context interface.
+
+The router installs its own recovery, authentication, trace, rate-limit,
+timeout, and body-limit stages from configuration. Do not install duplicates
+unless the extra layer is intentional. CORS, IP extraction, and request-summary
+logging are router behavior rather than exported middleware.
+
+See [Authentication](authentication.md), [Rate limiting](rate-limiting.md),
+[Logging](logging.md), and [`examples/middleware`](../examples/middleware).

@@ -1,25 +1,108 @@
-# Context Management
+# Context management
 
-SRouter employs a structured approach to manage values added to the `http.Request` context by its middleware and internal components. Instead of nesting multiple `context.WithValue` calls, it uses a single wrapper struct, `scontext.SRouterContext`, stored under a specific key.
+SRouter stores its request-scoped values in one `scontext.SRouterContext[T, U]`
+attached to the standard `context.Context`. `T` is the router's user ID type and
+`U` is its user object type. Middleware and handlers must use the same type
+arguments that were passed to `router.NewRouter[T, U]`.
 
-## The `SRouterContext` Wrapper
+Use the helpers in `pkg/scontext` instead of reading or writing
+`SRouterContext` fields directly. The wrapper is shared by pointer across the
+middleware chain, and a handler that has timed out may briefly continue in a
+goroutine while the router reads request state. The helpers synchronize access
+with the wrapper's internal lock.
 
-This generic struct, defined in `pkg/scontext/context.go`, consolidates common context values:
+## Stored values
+
+| Value | Write helper | Read helper |
+| --- | --- | --- |
+| User ID | `WithUserID` | `GetUserID`, `GetUserIDFromRequest` |
+| User object (`*U`) | `WithUser` | `GetUser`, `GetUserFromRequest` |
+| Client IP | `WithClientIP`, `WithClientInfo` | `GetClientIP`, `GetClientIPFromRequest` |
+| User agent | `WithUserAgent`, `WithClientInfo` | `GetUserAgent`, `GetUserAgentFromRequest` |
+| Trace ID | `WithTraceID` | `GetTraceIDFromContext`, `GetTraceIDFromRequest` |
+| Database transaction | `WithTransaction` | `GetTransaction`, `GetTransactionFromRequest` |
+| Route template and path parameters | `WithRouteInfo`, `SetRouteInfo` | `GetRouteTemplateFromRequest`, `GetPathParamsFromRequest` |
+| Allowed CORS origin and credentials | `WithCORSInfo` | `GetCORSInfo`, `GetCORSInfoFromRequest` |
+| Requested CORS headers | `WithCORSRequestedHeaders` | `GetCORSRequestedHeaders`, `GetCORSRequestedHeadersFromRequest` |
+| Generic-handler error | `WithHandlerError` | `GetHandlerError`, `GetHandlerErrorFromRequest` |
+| Application boolean flag | `WithFlag` | `GetFlag`, `GetFlagFromRequest` |
+
+Most getters return `(value, ok)` so an unset value can be distinguished from
+its zero value. The trace-ID getters instead return an empty string when no
+trace ID is set. `WithTraceID` preserves an existing ID rather than overwriting
+one propagated by an upstream service.
+
+The router populates client information and, after a route match, its route
+template and path parameters. When CORS is configured, CORS information is
+stored even when the request has no `Origin` or the origin is denied; an empty
+stored origin represents that outcome. When a typed handler completes through
+the normal chain, its returned error is recorded before the remaining
+middleware unwinds. A handler that continues after the timeout stage returns
+may record its error later.
+
+Values returned by the helpers can themselves be references. In particular,
+the user is a `*U`, the transaction is an interface, and path parameters are a
+slice. Treat those referenced values as shared unless your application makes
+its own copy.
+
+## Writing values in middleware
+
+Each `With*` helper returns the context to propagate. This matters when the
+request did not already contain an SRouter context and the helper had to create
+one.
 
 ```go
-package scontext // Defined in pkg/scontext
+func TagAdmin[UserID comparable, User any](
+	isAdmin func(*http.Request) bool,
+) common.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := scontext.WithFlag[UserID, User](
+				r.Context(), "is_admin", isAdmin(r),
+			)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+```
 
-import (
-	"context"
-	"net/http"
-	"github.com/julienschmidt/httprouter" // Needed for the PathParams field type
-	"gorm.io/gorm"                         // Needed for DatabaseTransaction interface definition
-)
+Middleware that needs to inspect state after the handler should retain the
+derived request rather than reading the original request's context:
 
-// sRouterContextKey is a private type for the context key to avoid collisions
-type sRouterContextKey struct{}
+```go
+ctx := scontext.WithFlag[string, User](r.Context(), "audited", true)
+nextRequest := r.WithContext(ctx)
+next.ServeHTTP(w, nextRequest)
 
-// DatabaseTransaction defines an interface for essential transaction control methods.
+handlerErr, failed := scontext.GetHandlerErrorFromRequest[string, User](nextRequest)
+_ = handlerErr
+_ = failed
+```
+
+## Reading values in a handler
+
+```go
+func accountHandler(w http.ResponseWriter, r *http.Request) {
+	userID, authenticated := scontext.GetUserIDFromRequest[string, User](r)
+	if !authenticated {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	user, hasUser := scontext.GetUserFromRequest[string, User](r)
+	clientIP, _ := scontext.GetClientIPFromRequest[string, User](r)
+	routeTemplate, _ := scontext.GetRouteTemplateFromRequest(r)
+
+	_, _, _ = userID, user, hasUser
+	_, _ = clientIP, routeTemplate
+}
+```
+
+## Database transactions
+
+Transactions stored in the context implement `scontext.DatabaseTransaction`:
+
+```go
 type DatabaseTransaction interface {
 	Commit() error
 	Rollback() error
@@ -27,257 +110,40 @@ type DatabaseTransaction interface {
 	RollbackTo(name string) error
 	GetDB() *gorm.DB
 }
-
-
-// SRouterContext holds values added to the request context by SRouter components.
-// T is the UserID type (comparable), U is the User object type (any).
-type SRouterContext[T comparable, U any] struct {
-        // UserID holds the authenticated user's ID.
-        UserID T
-        // User holds a pointer to the authenticated user object.
-        User *U // Pointer to avoid copying potentially large structs
-
-        // TraceID holds the unique identifier for the request trace.
-        TraceID string
-
-        // ClientIP holds the determined client IP address.
-        ClientIP string
-
-        // UserAgent holds the user agent string from the request.
-        UserAgent string
-
-        // Transaction holds an active database transaction object.
-        // It uses the DatabaseTransaction interface for abstraction.
-        Transaction DatabaseTransaction
-
-        // Route information
-        RouteTemplate string
-        PathParams    httprouter.Params
-
-        // CORS information determined by middleware
-        AllowedOrigin      string
-        CredentialsAllowed bool
-        RequestedHeaders   string // Stores the requested headers from CORS preflight requests
-
-        // HandlerError stores any error returned by the route handler
-        HandlerError error
-
-        // --- Internal tracking flags ---
-
-        // UserIDSet indicates if the UserID field has been explicitly set.
-        UserIDSet bool
-        // UserSet indicates if the User field has been explicitly set.
-        UserSet bool
-        // ClientIPSet indicates if the ClientIP field has been explicitly set.
-        ClientIPSet bool
-        // UserAgentSet indicates if the UserAgent field has been explicitly set.
-        UserAgentSet bool
-        // TraceIDSet indicates if the TraceID field has been explicitly set.
-        TraceIDSet bool
-        // TransactionSet indicates if the Transaction field has been explicitly set.
-        TransactionSet bool
-        // RouteTemplateSet indicates if the RouteTemplate/PathParams have been set.
-        RouteTemplateSet bool
-        // AllowedOriginSet indicates if AllowedOrigin has been set.
-        AllowedOriginSet bool
-        // CredentialsAllowedSet indicates if CredentialsAllowed has been set.
-        CredentialsAllowedSet bool
-        // RequestedHeadersSet indicates if RequestedHeaders has been set.
-        RequestedHeadersSet bool
-        // HandlerErrorSet indicates if HandlerError has been set.
-        HandlerErrorSet bool
-
-        // Flags allow storing arbitrary boolean flags.
-        Flags map[string]bool
-}
-
-// Helper functions like NewSRouterContext, GetSRouterContext, WithSRouterContext,
-// EnsureSRouterContext are also defined in pkg/scontext.
 ```
 
-The router automatically populates route metadata (template and path parameters)
-using `scontext.WithRouteInfo` whenever a request matches a registered route.
-Similarly, CORS processing stores the allowed origin, credential flag and any
-requested headers via `scontext.WithCORSInfo` and
-`scontext.WithCORSRequestedHeaders`. These values can be retrieved by handlers
-with the corresponding `Get*FromRequest` helper functions.
-
-The type parameters `T` (UserID type) and `U` (User object type) must match the types used when creating the `router.NewRouter[T, U]` instance.
-
-**Using Transactions:**
-
-*   The `DatabaseTransaction` interface is defined in `pkg/scontext`.
-*   Because GORM's transaction methods (like `Commit`) return `*gorm.DB` for chaining, they don't directly match the `DatabaseTransaction` interface which expects methods like `Commit() error`.
-*   Therefore, a wrapper `GormTransactionWrapper` is provided in the `pkg/middleware` package. You must wrap your GORM transaction (`*gorm.DB`) using `middleware.NewGormTransactionWrapper` before adding it to the context with `scontext.WithTransaction`.
-*   When retrieving the transaction using `scontext.GetTransactionFromRequest` (or `scontext.GetTransaction`), you get the `scontext.DatabaseTransaction` interface. You can call `Commit`/`Rollback` on this interface. To perform GORM operations (like `Find`, `Create`), call `GetDB()` on the interface to get the underlying `*gorm.DB`.
-
-## Benefits
-
-This approach offers several advantages over traditional `context.WithValue` nesting:
-
-1.  **Reduced Nesting**: Avoids deeply nested contexts, potentially improving lookup performance slightly and simplifying context propagation.
-2.  **Type Safety**: Generics ensure that user IDs and user objects are handled with their correct types, eliminating the need for type assertions when retrieving them.
-3.  **Organization**: Groups related context values logically within a single structure.
-4.  **Extensibility**: New standard values can be added to `SRouterContext` without introducing new context keys. The `Flags` map provides a way for custom middleware to add simple values without modifying the core struct.
-
-## Adding Values to Context (Middleware Authors)
-
-Middleware should use the provided helper functions from the `pkg/scontext` package (like `scontext.WithUserID`, `scontext.WithUser`, `scontext.WithClientIP`, `scontext.WithUserAgent`, `scontext.WithTraceID`, `scontext.WithFlag`, `scontext.WithTransaction`, `scontext.WithRouteInfo`, `scontext.WithCORSInfo`, `scontext.WithCORSRequestedHeaders`, and `scontext.WithHandlerError`) to add values. These functions handle creating or updating the `SRouterContext` wrapper within the `context.Context`.
-
-**Note on Trace IDs**: The `scontext.WithTraceID` function preserves existing trace IDs and will not overwrite them. This is useful for distributed tracing scenarios where an upstream service has already set a trace ID that should be propagated through the system.
+GORM's `*gorm.DB` does not implement this interface directly because its
+transaction methods return `*gorm.DB`. Wrap it with
+`middleware.NewGormTransactionWrapper` before storing it:
 
 ```go
-// Example within a middleware:
-func MyMiddleware() common.Middleware {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            ctx := r.Context()
-            // Add a custom boolean flag
-            isAdminRequest := checkAdminPermissions(r) // Your logic here
-            ctx = scontext.WithFlag[string, MyUserType](ctx, "is_admin", isAdminRequest) // Use router's T, U types
-
-            // Add user ID after successful authentication
-            // ctx = scontext.WithUserID[string, MyUserType](ctx, "user-123")
-
-            // Example: Start and add a DB transaction
-            var db *gorm.DB // Assume db is initialized elsewhere
-            tx := db.Begin()
-            if tx.Error != nil {
-                // Handle transaction start error
-                // Log error, maybe return HTTP 500
-                // next.ServeHTTP(w, r.WithContext(ctx)) // Or maybe don't proceed
-                return
-            }
-
-            // Wrap the GORM transaction (Wrapper is in pkg/middleware)
-            txWrapper := middleware.NewGormTransactionWrapper(tx)
-
-            // Add the wrapper (which implements scontext.DatabaseTransaction) to the context
-            ctx = scontext.WithTransaction[string, MyUserType](ctx, txWrapper)
-
-            // It's crucial to have another middleware later in the chain
-            // (or deferred logic in this one) to Commit or Rollback the transaction
-            // based on the handler's outcome.
-
-            next.ServeHTTP(w, r.WithContext(ctx))
-
-            // Example cleanup logic (could be in a separate middleware):
-            // finalTx, ok := scontext.GetTransaction[string, MyUserType](r.Context()) // Use r.Context() after handler
-            // if ok { // Check if transaction exists
-            //     // Determine if handler succeeded or failed (e.g., check response status, error flags)
-            //     if handlerFailed {
-            //         finalTx.Rollback()
-            //     } else {
-            //         finalTx.Commit()
-            //     }
-            // }
-        })
-    }
+tx := db.Begin()
+if tx.Error != nil {
+	return tx.Error
 }
-```
 
-## Accessing Context Values (Handler/Middleware Consumers)
-
-Use the corresponding getter functions from the `pkg/scontext` package to retrieve values safely. These functions handle extracting the `SRouterContext` and returning the desired field along with a boolean indicating if it was found/set.
-
-```go
-import (
-	"fmt"
-	"net/http"
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Use scontext package
-	// "github.com/Suhaibinator/SRouter/pkg/middleware" // Only needed if using GormTransactionWrapper directly
+ctx := scontext.WithTransaction[string, User](
+	r.Context(),
+	middleware.NewGormTransactionWrapper(tx),
 )
-
-// Assume MyUserType and MyModel are defined elsewhere
-type MyUserType struct { Email string }
-type MyModel struct { /* ... */ }
-var someID = "some-model-id" // Example ID
-
-func myHandler(w http.ResponseWriter, r *http.Request) {
-    // Replace string, MyUserType with your router's actual UserIDType, UserObjectType
-
-    // Get User ID
-    userID, ok := scontext.GetUserIDFromRequest[string, MyUserType](r)
-    if ok {
-        fmt.Printf("User ID: %s\n", userID)
-    }
-
-    // Get User Object (returns *MyUserType)
-    user, ok := scontext.GetUserFromRequest[string, MyUserType](r)
-    if ok && user != nil {
-         fmt.Printf("User Email: %s\n", user.Email) // Assuming MyUserType has Email
-    }
-
-    // Get Client IP
-    clientIP, ok := scontext.GetClientIPFromRequest[string, MyUserType](r)
-    if ok {
-        fmt.Printf("Client IP: %s\n", clientIP)
-    }
-
-    // Get User Agent
-    userAgent, ok := scontext.GetUserAgentFromRequest[string, MyUserType](r)
-    if ok {
-        fmt.Printf("User Agent: %s\n", userAgent)
-    }
-
-    // Get Trace ID
-    traceID := scontext.GetTraceIDFromRequest[string, MyUserType](r)
-    fmt.Printf("Trace ID: %s\n", traceID)
-
-    // Get route metadata
-    route, ok := scontext.GetRouteTemplateFromRequest(r)
-    if ok {
-        fmt.Printf("Route Template: %s\n", route)
-    }
-    params, ok := scontext.GetPathParamsFromRequest(r)
-    if ok {
-        fmt.Printf("Path Params: %v\n", params)
-    }
-
-    // Get CORS information (if set)
-    allowOrigin, allowCreds, ok := scontext.GetCORSInfoFromRequest[string, MyUserType](r)
-    if ok {
-        fmt.Printf("CORS Origin: %s (Credentials: %t)\n", allowOrigin, allowCreds)
-    }
-
-    // Get a custom boolean flag
-    isAdmin, ok := scontext.GetFlagFromRequest[string, MyUserType](r, "is_admin")
-    if ok {
-        fmt.Printf("Is Admin Request: %t\n", isAdmin)
-    }
-
-    // Get Handler Error (typically used by middleware after handler execution)
-    handlerErr, ok := scontext.GetHandlerErrorFromRequest[string, MyUserType](r)
-    if ok && handlerErr != nil {
-        fmt.Printf("Handler returned error: %v\n", handlerErr)
-        // Middleware might use this to decide whether to rollback a transaction
-    }
-
-    // Get Database Transaction Interface
-    txInterface, ok := scontext.GetTransactionFromRequest[string, MyUserType](r)
-    if ok {
-        // Option 1: Control the transaction via the interface
-        // err := txInterface.Commit() // Usually done in middleware after handler
-
-        // Option 2: Get the underlying *gorm.DB for GORM operations
-        gormTx := txInterface.GetDB()
-        if gormTx != nil {
-            // Perform GORM operations using gormTx
-            var result MyModel
-            if err := gormTx.Where("id = ?", someID).First(&result).Error; err != nil {
-                // Handle GORM error within the transaction
-                // The transaction might be rolled back later by middleware
-            } else {
-                fmt.Printf("Found model: %+v\n", result)
-            }
-        }
-    } else {
-        fmt.Println("No database transaction found in context.")
-    }
-
-
-    // ... handler logic ...
-}
+next.ServeHTTP(w, r.WithContext(ctx))
 ```
 
-Always use these helper functions from `pkg/scontext` to interact with SRouter-managed context values for safety and maintainability. Remember that the user object (`scontext.GetUserFromRequest`) is returned as a pointer (`*U`). For transactions, add the `middleware.GormTransactionWrapper` using `scontext.WithTransaction`, and retrieve the `scontext.DatabaseTransaction` interface using `scontext.GetTransactionFromRequest`. Use `GetDB()` on the retrieved interface to perform GORM-specific operations.
+Use `Commit`, `Rollback`, `SavePoint`, and `RollbackTo` through the interface.
+Call `GetDB()` when handler code needs the underlying GORM transaction.
+
+## Copying SRouter context values
+
+`CopySRouterContext[T, U](dst, src)` attaches a new wrapper containing the
+source values to `dst`. It preserves `dst`'s cancellation and deadline chain.
+If `src` has no SRouter context, it returns `dst` unchanged.
+
+`CopySRouterContextOverlay[T, U](dst, src)` performs the same replacement only
+when both contexts already contain an SRouter context. It is a no-op when either
+wrapper is absent. It replaces the destination values; it does not merge them.
+
+Both functions create an independent wrapper and copy the mutable `Flags` map
+and `PathParams` slice. Other fields are assigned normally. Consequently,
+reference-bearing values—including `User`, `Transaction`, `HandlerError`, and
+any pointer-bearing user ID—still refer to the same underlying objects. These
+functions are therefore not recursive deep-copy operations.

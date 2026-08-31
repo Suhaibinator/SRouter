@@ -1,207 +1,189 @@
 # Authentication
 
-SRouter provides a flexible authentication system integrated with its routing configuration. Setting the `AuthLevel` on a route activates **built-in authentication middleware** that relies on functions provided during router initialization. You can also implement **custom authentication middleware** for more complex or alternative authentication schemes.
+SRouter offers route-aware built-in token authentication and also supports ordinary HTTP authentication middleware.
 
-## Authentication Levels and Built-in Middleware
+## Authentication levels
 
-SRouter defines three authentication levels using `router.AuthLevel`. A route sets its level through the `AuthLevel` pointer field. If nil, it inherits from its innermost route group and ultimately defaults to `NoAuth`.
-
-Setting `AuthLevel` to `AuthOptional` or `AuthRequired` activates **built-in middleware** within the router. This middleware performs the following based on the level:
-
-1.  **`router.NoAuth`**: No authentication is required or attempted by the built-in middleware. The request proceeds directly to the next middleware or handler. This is the default if `AuthLevel` is not set.
-2.  **`router.AuthOptional`**: The built-in authentication middleware is activated. It attempts to validate credentials using the `authFunction` provided to `NewRouter`. The token is extracted from the configured auth token source (see "Auth Token Source" below); the default is the `Authorization` header.
-    *   If authentication succeeds, the middleware populates the user ID (using the `userIdFromUserFunction` from `NewRouter`) and optionally the user object into the request context using `scontext.WithUserID` and `scontext.WithUser`. Storing the user object requires `RouterConfig.AddUserObjectToCtx` to be `true`. The request then proceeds to the next middleware or handler.
-    *   If authentication fails (or no token is provided from the configured source), the request *still proceeds* to the next middleware or handler, but without user information in the context. The handler must check for the presence of user information using `scontext.GetUserIDFromRequest` or `scontext.GetUserFromRequest`.
-3.  **`router.AuthRequired`**: The built-in authentication middleware is activated and authentication is mandatory. It attempts validation as described for `AuthOptional`.
-    *   If authentication succeeds, the middleware populates the context (as above) and proceeds to the next middleware or handler.
-    *   If authentication fails, the built-in middleware **rejects** the request by sending an HTTP `401 Unauthorized` response and stops the middleware chain. The handler is not called.
+Set an `AuthLevel` on a route or inherit one from `Router.Auth` or `RouteGroup.Auth`:
 
 ```go
-import (
-	"github.com/Suhaibinator/SRouter/pkg/router"
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // For context functions
-)
+r.Auth(router.NoAuth)
 
-// Example route configurations:
-routePublic := router.RouteConfigBase{
-    Path: "/public/info",
-    // AuthLevel: nil, // Defaults to NoAuth
-    // Or explicitly:
-    AuthLevel: new(router.NoAuth),
-    // ... handler, methods
-}
+r.Group("/account").Auth(router.AuthRequired).Route(router.RouteConfigBase{
+	Path:    "/profile",
+	Methods: []router.HttpMethod{router.MethodGet},
+	Handler: profileHandler,
+})
 
-routeOptional := router.RouteConfigBase{
-    Path: "/user/profile", // Maybe shows generic profile if not logged in, specific if logged in
-    AuthLevel: new(router.AuthOptional),
-    // ... handler, methods
-}
-
-routeProtected := router.RouteConfig[UpdateSettingsReq, UpdateSettingsResp]{
-    Path: "/user/settings",
-    AuthLevel: new(router.AuthRequired), // Must be logged in
-    // ... handler, methods, codec
-}
-```
-*(Note: `new()` is a simple helper function to get a pointer to an `AuthLevel` value, as the config fields expect pointers)*
-
-## Authentication Functions (`NewRouter`)
-
-The core of the built-in authentication mechanism relies on two functions you **must** provide when creating the router instance with `NewRouter`:
-
-1.  **`authFunction func(ctx context.Context, token string) (*UserObjectType, bool)`**:
-    *   This function is called by the built-in middleware when `AuthLevel` is `AuthOptional` or `AuthRequired`.
-    *   It receives the request context and the token string extracted from the configured auth token source (header or cookie).
-    *   It should validate the token (e.g., check a database, validate a JWT signature).
-    *   It must return the corresponding `UserObjectType` (your application's user struct/type) and `true` if the token is valid, or a zero-value `UserObjectType` and `false` if invalid.
-
-2.  **`userIdFromUserFunction func(user *UserObjectType) UserIDType`**:
-    *   This function is called *after* `authFunction` returns `true`.
-    *   It receives the `UserObjectType` returned by `authFunction`.
-    *   It must return the corresponding `UserIDType` (your application's user ID type, e.g., `string`, `int`) for that user. This ID is then stored in the request context.
-
-```go
-// Example dummy functions for NewRouter
-func myAuthValidator(ctx context.Context, token string) (*MyUserType, bool) {
-    // TODO: Implement actual token validation (e.g., JWT check, DB lookup)
-    if token == "valid-token-for-user-123" {
-        return &MyUserType{ID: "123", Email: "user@example.com"}, true
-    }
-    return nil, false
-}
-
-func myGetIDFromUser(user *MyUserType) string {
-    if user == nil {
-        return ""
-    }
-    return user.ID
-}
-
-// ... later, when creating the router:
-r := router.NewRouter[string, MyUserType](routerConfig, myAuthValidator, myGetIDFromUser)
-```
-
-**If you do not intend to use the built-in `AuthLevel` mechanism** (e.g., you rely solely on custom authentication middleware), you must still provide non-nil functions to `NewRouter`. These can be simple dummy functions that always return `false` or zero values.
-
-## Auth Token Source
-
-By default, the built-in middleware reads the token from the `Authorization` header and trims a `Bearer ` prefix if present. Set an application-wide source with `RouterConfig.GlobalAuthToken`, override a subtree with `group.AuthToken`, or override one route with `common.RouteOverrides.AuthToken`:
-
-```go
-routerConfig := router.RouterConfig{
-    GlobalAuthToken: &common.AuthTokenConfig{
-        Source:     common.AuthTokenSourceCookie,
-        CookieName: "auth_token",
-    },
-}
-
-r := router.NewRouter[string, User](routerConfig, authenticate, userID)
-r.Group("/api").AuthToken(&common.AuthTokenConfig{
-    Source:     common.AuthTokenSourceCookie,
-    CookieName: "api_token",
+r.Route(router.RouteConfigBase{
+	Path:      "/welcome",
+	Methods:   []router.HttpMethod{router.MethodGet},
+	AuthLevel: new(router.AuthOptional),
+	Handler:   welcomeHandler,
 })
 ```
 
-```go
-Overrides: common.RouteOverrides{
-    AuthToken: &common.AuthTokenConfig{
-        Source:     common.AuthTokenSourceCookie,
-        CookieName: "auth_token",
-    },
-},
-```
+- `NoAuth` does not run built-in authentication. This is the default.
+- `AuthOptional` attempts authentication. The handler still runs without user context when the token is missing or invalid.
+- `AuthRequired` requires successful authentication; otherwise SRouter returns a JSON 401 response and does not call later middleware or the handler.
 
-Notes:
-- Only the configured source is honored (no fallback to other sources).
-- Auth token source precedence is route override, innermost group, outer groups, global config, then the built-in `Authorization` header default.
-- `group.AuthToken(nil)` resets that subtree to the built-in header source.
-- If `Source` is `AuthTokenSourceHeader` and `HeaderName` is empty, it defaults to `Authorization`.
-- If `Source` is `AuthTokenSourceCookie` and `CookieName` is empty, the built-in middleware logs a warning at registration time.
-- If an `AuthRequired` route falls all the way back to the built-in default because no route, group, or global source is configured, SRouter logs a build-time warning.
+A route-level value wins over its innermost group, and inner groups win over outer groups and the router root.
 
-## Custom Authentication Middleware
+## Router authentication functions
 
-While the `AuthLevel` setting provides convenient token authentication via the built-in mechanism, you can implement **custom authentication middleware** for other schemes (Cookies, API Keys, Basic Auth, etc.) or more complex logic.
-
-Your custom middleware is responsible for:
-
-1.  Extracting credentials from the request (e.g., cookies, different header formats).
-2.  Validating these credentials.
-3.  Populating the context on success using `scontext.WithUserID[UserIDType, UserObjectType](ctx, userID)` and optionally `scontext.WithUser[UserIDType, UserObjectType](ctx, userObject)`. **Crucially, use the `scontext` package functions** so that `scontext.GetUserIDFromRequest` works consistently.
-4.  Calling `next.ServeHTTP(w, r.WithContext(populatedCtx))` on success.
-5.  Handling failures appropriately:
-    *   For logic equivalent to `AuthRequired`, write an error response (e.g., `http.Error(w, "Unauthorized", http.StatusUnauthorized)`) and **do not** call `next.ServeHTTP`.
-    *   For logic equivalent to `AuthOptional`, simply call `next.ServeHTTP(w, r)` without populating the context.
-
-**Important Note on OPTIONS Requests:** CORS preflight requests (OPTIONS with Origin header and CORS-specific headers) are handled at the CORS layer before reaching authentication middleware. Regular OPTIONS requests are subject to normal authentication requirements. Your custom authentication middleware should handle OPTIONS requests consistently with your security requirements.
-
-**Applying Custom Middleware:** Add custom authentication middleware globally in `RouterConfig.Middlewares` or to a subtree with `group.Use`. If using custom middleware, set `AuthLevel` to `NoAuth` where the built-in middleware should not also run.
+Built-in authentication uses the callbacks passed to `NewRouter`:
 
 ```go
-// Example: Applying a custom API Key validation middleware globally
-// Assume MyApiKeyMiddleware validates an X-API-Key header and calls scontext.WithUserID/User on success
-routerConfig := router.RouterConfig{
-    // ... logger, etc.
-    Middlewares: []common.Middleware{
-        // Trace middleware is added automatically if TraceIDBufferSize > 0
-        MyApiKeyMiddleware(apiKeyValidationService), // Your custom auth middleware
-        // middleware.RateLimiterMiddleware(/*...*/), // Rate limiter might depend on user ID set by MyApiKeyMiddleware
-        // Logging occurs automatically when EnableTraceLogging is true
-    },
-    // ...
+func authenticate(ctx context.Context, token string) (*User, bool) {
+	user, err := users.FindByToken(ctx, token)
+	if err != nil {
+		return nil, false
+	}
+	return user, true
 }
 
-// Define dummy functions since NewRouter requires them, even if unused by MyApiKeyMiddleware
-dummyAuthFunc := func(ctx context.Context, token string) (*MyUserType, bool) { return nil, false }
-dummyGetIDFunc := func(user *MyUserType) string { return "" }
+func userID(user *User) string {
+	return user.ID
+}
 
-// UserIDType and UserObjectType for NewRouter must match what MyApiKeyMiddleware puts in context
-r := router.NewRouter[string, MyUserType](routerConfig, dummyAuthFunc, dummyGetIDFunc)
-
-// Routes using this custom middleware might set AuthLevel: new(router.NoAuth)
-// if MyApiKeyMiddleware handles all required/optional logic itself.
+r := router.NewRouter[string, User](config, authenticate, userID)
 ```
 
+On success, `authenticate` must return a usable `*User` and `true`. SRouter passes that pointer to `userID`, stores the resulting ID in `SRouterContext`, and stores the user pointer as well when `RouterConfig.AddUserObjectToCtx` is true.
 
-## Accessing User Information
-
-In your handlers, you can access the authenticated user's information (set by either the built-in or custom authentication middleware) using helper functions from the `pkg/scontext` package:
+The callbacks are required only if at least one compiled route resolves to `AuthOptional` or `AuthRequired`. `Build` fails with a descriptive error when such a route exists and either callback is nil. A router containing only `NoAuth` routes can use:
 
 ```go
-import (
-	"fmt"
-	"net/http"
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Use scontext for accessing user info
-)
+r := router.NewRouter[string, User](config, nil, nil)
+```
 
-// Assume MyUserType has fields like ID (string) and Email (string)
-type MyUserType struct {
-	ID    string
-	Email string
+Calling `Build` during startup is recommended so callback and route configuration errors are reported before serving traffic. Otherwise the first request triggers the build.
+
+## Token source
+
+The default source is the `Authorization` header. SRouter removes an exact, case-sensitive `Bearer ` prefix when present and passes the remaining value to `authenticate`; a value without that prefix is passed unchanged.
+
+Configure a header or cookie globally, on a group, or on one route:
+
+```go
+config.GlobalAuthToken = &common.AuthTokenConfig{
+	Source:     common.AuthTokenSourceCookie,
+	CookieName: "session",
 }
 
-func GetUserSettingsHandler(w http.ResponseWriter, r *http.Request) {
-    // Replace string, MyUserType with your router's actual UserIDType, UserObjectType
-    userID, userOK := scontext.GetUserIDFromRequest[string, MyUserType](r)
-    userObject, userObjOK := scontext.GetUserFromRequest[string, MyUserType](r) // Returns *MyUserType
+api := r.Group("/api").AuthToken(&common.AuthTokenConfig{
+	Source:     common.AuthTokenSourceHeader,
+	HeaderName: "X-API-Token",
+})
 
-    // For routes using AuthRequired (built-in or custom equivalent),
-    // userOK should always be true if the handler is reached.
-    // For routes using AuthOptional (built-in or custom equivalent),
-    // you MUST check userOK.
-    if !userOK {
-         // Handle case where user is not authenticated (possible for AuthOptional)
-         http.Error(w, "Authentication required or failed", http.StatusUnauthorized)
-         return
-    }
+api.Route(router.RouteConfigBase{
+	Path:    "/admin",
+	Methods: []router.HttpMethod{router.MethodGet},
+	Overrides: common.RouteOverrides{
+		AuthToken: &common.AuthTokenConfig{
+			Source:     common.AuthTokenSourceCookie,
+			CookieName: "admin_session",
+		},
+	},
+	Handler: adminHandler,
+})
+```
 
-    fmt.Fprintf(w, "Settings for User ID: %s\n", userID)
-    if userObjOK && userObject != nil {
-        fmt.Fprintf(w, "User Email: %s\n", userObject.Email)
-    }
+Precedence is route, innermost group, outer groups, global configuration, then the built-in `Authorization` default. `group.AuthToken(nil)` deliberately resets that subtree to the built-in header source instead of inheriting its parent.
 
-    // ... fetch and return settings for userID ...
+The resolved source is the only source checked for a request. SRouter does not
+fall back from a missing configured cookie to a header, or from a missing
+configured header to a cookie. Missing or invalid credentials therefore leave
+an `AuthOptional` request unauthenticated and cause an `AuthRequired` request
+to return 401.
+
+For a header source, an empty `HeaderName` becomes `Authorization`. A cookie
+source with an empty `CookieName` cannot extract a token and logs a build-time
+warning. An `AuthRequired` route that falls back to the completely implicit
+`Authorization` default also logs a build-time warning so the source is visible
+during deployment.
+
+## Reading authenticated users
+
+Use the typed context helpers:
+
+```go
+userID, authenticated := scontext.GetUserIDFromRequest[string, User](req)
+user, userStored := scontext.GetUserFromRequest[string, User](req)
+```
+
+`userID` is available after successful built-in authentication. For built-in
+authentication, `user` is stored only when `AddUserObjectToCtx` is enabled.
+Custom middleware may store a user explicitly with `scontext.WithUser`. Always
+check the booleans on `AuthOptional` routes.
+
+## Custom authentication middleware
+
+Custom middleware must populate the same typed context when it authenticates a request:
+
+```go
+func apiKeyAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		user, ok := validateAPIKey(req.Header.Get("X-API-Key"))
+		if !ok {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		ctx := scontext.WithUserID[string, User](req.Context(), user.ID)
+		ctx = scontext.WithUser[string](ctx, user)
+		next.ServeHTTP(w, req.WithContext(ctx))
+	})
 }
 ```
 
-See the `examples/auth`, `examples/auth-levels`, and `examples/user-auth` directories for runnable examples.
+Middleware added through `RouterConfig.Middlewares`, `group.Use`, or route middleware runs after built-in authentication and rate limiting. Set the route's built-in level to `NoAuth` when the custom middleware owns the authentication decision.
+
+### Custom authentication and rate limiting
+
+Because the built-in rate limiter runs before router, group, and route custom middleware, a `StrategyUser` limit cannot see a user ID created by custom authentication at those scopes. It falls back to client IP instead.
+
+Choose one of these arrangements when user-based limiting must use custom authentication:
+
+- Wrap the whole router with authentication before assigning it to `http.Server.Handler`:
+
+  ```go
+  r := router.NewRouter[string, User](config, nil, nil)
+  srv := &http.Server{Handler: corsAwareAPIKeyAuth(r)}
+  ```
+
+- Use built-in authentication so the user ID is populated before the built-in limiter.
+- Use `StrategyCustom` with a key extractor that derives the required stable identity directly from the request.
+- Implement authentication and rate limiting together in an external middleware chain where you control their order.
+
+An external authentication wrapper runs before SRouter's CORS handling. When
+`CORSConfig` is definitely enabled, a wrapper can pass only recognizable
+preflights through to the router:
+
+```go
+func corsAwareAPIKeyAuth(next http.Handler) http.Handler {
+	secured := apiKeyAuth(next)
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		isPreflight := req.Method == http.MethodOptions &&
+			req.Header.Get("Origin") != "" &&
+			req.Header.Get("Access-Control-Request-Method") != ""
+		if isPreflight {
+			next.ServeHTTP(w, req) // configured SRouter CORS will terminate it
+			return
+		}
+		secured.ServeHTTP(w, req)
+	})
+}
+```
+
+Do not use this bypass when CORS is disabled or when the downstream handler
+does not guarantee preflight interception. An alternative is an external CORS
+layer placed outside authentication.
+
+CORS preflight requests are handled before either built-in or router-scoped
+custom authentication. Other `OPTIONS` requests are delegated to `httprouter`.
+They enter the normal route middleware chain only when `OPTIONS` is explicitly
+registered for the route; otherwise `httprouter` may generate its automatic
+`OPTIONS`/`Allow` response or return 404.
+
+The `pkg/middleware` package also contains reusable bearer-token, API-key, basic-user, and user-provider middleware building blocks. See [Custom Middleware](./middleware.md) for the complete middleware order.

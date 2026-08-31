@@ -28,13 +28,19 @@ type RouterConfig struct {
   inherited by route groups and routes.
 - Zero `GlobalTimeout` and `GlobalMaxBodySize` disable those policies. Negative
   values are rejected by `Build`.
-- `Middlewares` run for every matched route before group and route middleware.
+- `Middlewares` run before group and route middleware for matched requests that
+  pass the built-in authentication and rate-limit stages.
 - A nil logger is replaced with a production logger, falling back to a no-op
   logger if creation fails.
 - A nil `CORSConfig` disables CORS handling.
 
 Routes do not live inside `RouterConfig`. Add them after `NewRouter` with
 `Router.Route` and `Router.Group`.
+
+The authentication callbacks passed to `NewRouter` may be nil when every route
+resolves to `NoAuth`. If any route resolves to `AuthOptional` or `AuthRequired`,
+`Build` requires both the token-validation callback and the user-ID extraction
+callback.
 
 The router itself is the root group. Its fluent `Use`, `Timeout`,
 `MaxBodySize`, `RateLimit`, `AuthToken`, and `Auth` methods override global
@@ -162,7 +168,9 @@ const (
 )
 ```
 
-`SourceKey` names the relevant query or path parameter for non-body sources.
+`SourceKey` is required for query-parameter sources. For path-parameter sources
+it selects a named path parameter; when it is empty, SRouter uses the first
+matched path parameter. `Body` and `Empty` ignore it.
 
 ## Build lifecycle
 
@@ -172,7 +180,13 @@ if err := r.Build(); err != nil {
 }
 ```
 
-Build validates and compiles a fresh dispatcher, then freezes the route tree.
-`ServeHTTP` builds lazily if necessary. Mutation after freezing panics. Build
-errors include invalid paths or policies, missing handlers/methods, nil
-middleware, duplicate routes, and underlying path conflicts.
+The first `Build` call validates and compiles a dispatcher, freezes the route
+tree, and caches either success or failure. Later calls return that cached
+result. `ServeHTTP` calls `Build` lazily if necessary. Register all routes and
+groups before either event; mutation after the first build attempt panics.
+
+Build errors include invalid paths, negative timeout/body-size values, missing
+handlers or methods, nil middleware, missing authentication callbacks for
+authenticated routes, duplicate routes, and underlying path conflicts. Rate
+limit values such as `Limit`, `Window`, and a custom key extractor are not
+validated by `Build`; validate them while constructing application config.

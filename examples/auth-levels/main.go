@@ -7,9 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/middleware" // Keep for AuthenticationWithUser
 	"github.com/Suhaibinator/SRouter/pkg/router"
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 )
 
@@ -32,7 +31,7 @@ func optionalAuthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Try to get the user from the context
-	user, ok := scontext.GetUserFromRequest[*User, User](r) // Use scontext
+	user, ok := scontext.GetUserFromRequest[string, User](r)
 	if ok && user != nil {
 		// User is authenticated
 		_, _ = fmt.Fprintf(w, `{"message":"Hello, %s! This route has optional authentication", "authenticated":true}`, user.Name)
@@ -47,7 +46,7 @@ func requiredAuthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Get the user from the context
-	user, ok := scontext.GetUserFromRequest[*User, User](r) // Use scontext
+	user, ok := scontext.GetUserFromRequest[string, User](r)
 	if !ok || user == nil {
 		// This should not happen since the middleware should have rejected the request
 		http.Error(w, "User not found in context", http.StatusInternalServerError)
@@ -59,12 +58,7 @@ func requiredAuthHandler(w http.ResponseWriter, r *http.Request) {
 		user.Name, user.ID, user.Email)
 }
 
-func main() {
-	// Create a logger
-	logger, _ := zap.NewProduction()
-	defer func() { _ = logger.Sync() }()
-
-	// Mock user database
+func newAuthLevelsRouter(logger *zap.Logger) *router.Router[string, User] {
 	users := map[string]User{
 		"user1": {
 			ID:    "1",
@@ -80,73 +74,38 @@ func main() {
 		},
 	}
 
-	// Mock token to user mapping
 	tokens := map[string]string{
 		"token1": "user1",
 		"token2": "user2",
 	}
 
-	// Create a custom authentication function that returns a user
-	customUserAuth := func(r *http.Request) (*User, error) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			return nil, fmt.Errorf("no authorization header")
-		}
-
-		// Extract the token
-		token := authHeader[len("Bearer "):]
-
-		// Look up the username for this token
-		username, exists := tokens[token]
-		if !exists {
-			return nil, fmt.Errorf("invalid token")
-		}
-
-		// Look up the user
-		user, exists := users[username]
-		if !exists {
-			return nil, fmt.Errorf("user not found")
-		}
-
-		// Return a pointer to the user
-		return &user, nil
-	}
-
-	// Create a router configuration
 	routerConfig := router.RouterConfig{
-		ServiceName:       "auth-levels-service", // Added ServiceName
-		Logger:            logger,
-		GlobalTimeout:     2 * time.Second,
-		GlobalMaxBodySize: 1 << 20, // 1 MB
+		ServiceName:        "auth-levels-service",
+		Logger:             logger,
+		GlobalTimeout:      2 * time.Second,
+		GlobalMaxBodySize:  1 << 20, // 1 MB
+		AddUserObjectToCtx: true,
 	}
 
-	// Define the auth function that takes a context and token and returns a *User and a boolean
-	authFunction := func(ctx context.Context, token string) (*User, bool) {
-		// Look up the username for this token
+	authFunction := func(_ context.Context, token string) (*User, bool) {
 		username, exists := tokens[token]
 		if !exists {
-			return nil, false // Return nil pointer for user
+			return nil, false
 		}
-
-		// Look up the user
 		user, exists := users[username]
 		if !exists {
-			return nil, false // Return nil pointer for user
+			return nil, false
 		}
-
-		// Return a pointer to the user struct
 		return &user, true
 	}
-
-	// Define the function to get the user ID (*User) from a *User
-	userIdFromUserFunction := func(user *User) *User {
-		// In this example, the user object pointer itself is the ID (T = *User)
-		// If user is nil, we return nil, otherwise return the pointer itself.
-		return user
+	userIDFromUser := func(user *User) string {
+		if user == nil {
+			return ""
+		}
+		return user.ID
 	}
 
-	// Create a router with *User as the user ID type (T) and User as the user type (U)
-	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter(routerConfig, authFunction, userIDFromUser)
 
 	authLevels := r.Group("/auth-levels")
 	authLevels.Group("/no-auth").
@@ -157,20 +116,25 @@ func main() {
 		})
 	authLevels.Group("/optional-auth").
 		Auth(router.AuthOptional).
-		Use(middleware.AuthenticationWithUser[*User](customUserAuth)).
 		Route(router.RouteConfigBase{
 			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: optionalAuthHandler,
 		})
 	authLevels.Group("/required-auth").
 		Auth(router.AuthRequired).
-		Use(middleware.AuthenticationWithUser[*User](customUserAuth)).
 		Route(router.RouteConfigBase{
 			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: requiredAuthHandler,
 		})
+	return r
+}
 
-	// Start the server
+func main() {
+	logger, _ := zap.NewProduction()
+	defer func() { _ = logger.Sync() }()
+
+	r := newAuthLevelsRouter(logger)
+
 	fmt.Println("Authentication Levels Example Server listening on :8080")
 	fmt.Println("Available endpoints:")
 	fmt.Println("  - GET /auth-levels/no-auth (no authentication required)")

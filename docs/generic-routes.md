@@ -1,228 +1,148 @@
-# Generic Routes
+# Typed routes
 
-SRouter leverages Go 1.27+ generics to provide type-safe handling of request and response data. This eliminates the need for manual type assertions and reduces boilerplate code.
+`router.RouteConfig[Req, Resp]` adds decoding, optional validation, a typed
+handler, and response encoding around an HTTP route. Standard and typed routes
+can be registered together on a `Router` or `RouteGroup`.
 
-## Defining Generic Routes
-
-Generic routes are defined using the `RouteConfig[T, U]` struct, where `T` is the request type and `U` is the response type. They require a `Codec` for marshaling/unmarshaling and a `GenericHandler`.
+## Basic example
 
 ```go
-// Define request and response types
-type CreateUserReq struct {
- Name  string `json:"name"`
- Email string `json:"email"`
+type CreateUserRequest struct {
+	Name string `json:"name"`
 }
 
-type CreateUserResp struct {
- ID    string `json:"id"`
- Name  string `json:"name"`
- Email string `json:"email"`
+type UserResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
-// Define a generic handler function
- // It takes the http.Request and the decoded request object (type T)
- // It returns the response object (type U) and an error
- func CreateUserHandler(r *http.Request, req CreateUserReq) (CreateUserResp, error) {
-  // Access request context if needed, e.g., for UserID, Transaction, etc.
-  // userID, ok := scontext.GetUserIDFromRequest[string, string](r) // Use scontext, replace types as needed
-  // txInterface, txOK := scontext.GetTransactionFromRequest[string, string](r) // Use scontext
-  // if txOK { gormTx := txInterface.GetDB() /* use gormTx */ }
-
-  fmt.Printf("Received request to create user: Name=%s, Email=%s\n", req.Name, req.Email)
-
-  // In a real application, you would interact with a database or service
- // If an error occurs (e.g., validation, database error), return it:
- // if req.Name == "" {
- //  return CreateUserResp{}, router.NewHTTPError(http.StatusBadRequest, "Name cannot be empty")
- // }
-
- // Simulate successful creation
- createdUser := CreateUserResp{
-  ID:    "user-" + uuid.New().String(), // Example ID
-  Name:  req.Name,
-  Email: req.Email,
- }
-
- return createdUser, nil // Return the response object and nil error on success
+createUser := router.RouteConfig[CreateUserRequest, UserResponse]{
+	Path:    "/users",
+	Methods: []router.HttpMethod{router.MethodPost},
+	Codec:   codec.NewJSONCodec[CreateUserRequest, UserResponse](),
+	Sanitizer: func(_ context.Context, req CreateUserRequest) (CreateUserRequest, error) {
+		req.Name = strings.TrimSpace(req.Name)
+		if req.Name == "" {
+			return CreateUserRequest{}, router.NewHTTPError(
+				http.StatusBadRequest,
+				"name is required",
+			)
+		}
+		return req, nil
+	},
+	Handler: func(_ *http.Request, req CreateUserRequest) (UserResponse, error) {
+		return UserResponse{ID: "user-123", Name: req.Name}, nil
+	},
 }
 
-// Define the route configuration
-createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{
- Path:      "/users",
- Methods:   []router.HttpMethod{router.MethodPost},
- AuthLevel: new(router.AuthRequired), // Example: Requires authentication
- Codec:     codec.NewJSONCodec[CreateUserReq, CreateUserResp](), // Specify the codec
- Handler:   CreateUserHandler, // Assign the generic handler
- // Optional overrides for timeout, body size, or rate limit
- Overrides: common.RouteOverrides{
-     // Timeout:     3 * time.Second,
-     // MaxBodySize: 2 << 20, // 2 MB
-     // RateLimit:   &common.RateLimitConfig[any, any]{...},
- },
- Sanitizer: func(ctx context.Context, req CreateUserReq) (CreateUserReq, error) { // Optional: Sanitize data after decoding
-  // ctx contains values and cancellation from the active request middleware chain.
-  if req.Name == "invalid" {
-   return CreateUserReq{}, router.NewHTTPError(http.StatusBadRequest, "Invalid name provided")
-  }
-  // Example: Trim spaces
-  req.Name = strings.TrimSpace(req.Name)
-  return req, nil // Return the modified request (or original if no changes) and nil error
- },
-}
+r.Route(createUser)
 ```
 
-## Registering Generic Routes
+`Codec`, `Handler`, and at least one method are required. `Build` reports a
+missing codec or handler before serving. A missing `Sanitizer` is allowed but
+produces a warning.
 
-Every `RouteConfig[Req, Resp]` implements `RouteDefinition`, so typed and
-standard routes can be registered together on either a `Router` or a recursive
-`RouteGroup`.
+The handler signature is:
 
 ```go
-// Define the route configuration (as shown previously)
-createUserRoute := router.RouteConfig[CreateUserReq, CreateUserResp]{ /* ... */ }
+func(*http.Request, Req) (Resp, error)
+```
 
-r := router.NewRouter[string, User](routerConfig, authFunc, userIDFunc)
-apiV1 := r.Group("/api").Group("/v1").
-    Timeout(5 * time.Second).
-    MaxBodySize(4 << 20)
+Use the request to read authentication, trace, transaction, path-parameter, or
+other context values. SRouter encodes a successful response with the configured
+codec.
 
-// RouteConfigBase and any RouteConfig[Req, Resp] can be mixed in one call.
-apiV1.Route(
-    createUserRoute,
-    router.RouteConfigBase{ /* ... */ },
+## Request sources
+
+`SourceType` selects how `Req` is populated:
+
+| Source | Input | `SourceKey` |
+| --- | --- | --- |
+| `Body` | `Codec.Decode(req)` | Ignored |
+| `Empty` | No decoding; the zero value of `Req` | Ignored |
+| `Base64QueryParameter` | Base64 decode, then `Codec.DecodeBytes` | Required query key |
+| `Base62QueryParameter` | Base62 decode, then `Codec.DecodeBytes` | Required query key |
+| `Base64PathParameter` | Base64 decode, then `Codec.DecodeBytes` | Optional path key |
+| `Base62PathParameter` | Base62 decode, then `Codec.DecodeBytes` | Optional path key |
+
+`Body` is the zero value. Omitting `SourceType` on a bodyless GET or DELETE
+therefore still asks the codec to decode the body; an empty JSON body returns a
+400 before the handler runs. Use `Empty` when there is no typed input:
+
+```go
+r.Route(router.RouteConfig[struct{}, HealthResponse]{
+	Path:       "/health",
+	Methods:    []router.HttpMethod{router.MethodGet},
+	Codec:      codec.NewJSONCodec[struct{}, HealthResponse](),
+	SourceType: router.Empty,
+	Handler: func(_ *http.Request, _ struct{}) (HealthResponse, error) {
+		return HealthResponse{Status: "ok"}, nil
+	},
+})
+```
+
+Query sources require a nonempty `SourceKey`; `Build` rejects the route without
+one. For a path source, an empty `SourceKey` selects the first path parameter.
+Using an explicit name is clearer:
+
+```go
+r.Route(router.RouteConfig[LookupRequest, LookupResponse]{
+	Path:       "/lookup/:payload",
+	Methods:    []router.HttpMethod{router.MethodGet},
+	Codec:      codec.NewJSONCodec[LookupRequest, LookupResponse](),
+	SourceType: router.Base64PathParameter,
+	SourceKey:  "payload",
+	Handler:    lookup,
+})
+```
+
+Base64 uses standard padded RFC 4648 encoding. SRouter's Base62 alphabet is
+`0-9A-Za-z`; use `codec.EncodeBase62` to create compatible values. See
+[`examples/source-types`](../examples/source-types) for all source variants.
+
+## Sanitization and errors
+
+When configured, `Sanitizer` runs after decoding and before the handler. It
+receives the active request context and may validate or transform `Req`.
+
+Error behavior is:
+
+- decode failures return 400, except an exceeded body limit returns 413;
+- sanitizer failures return 400 by default;
+- handler failures return 500 by default;
+- `router.HTTPError` overrides the default status and public message; and
+- response-encoding failures are handled as server errors.
+
+When the handler completes through the normal chain, its error is stored in the
+SRouter context before outer middleware resumes. This lets transaction or
+observability middleware inspect the result with
+`scontext.GetHandlerErrorFromRequest`. A timed-out handler that ignores context
+cancellation can continue after the timeout stage returns and record a later
+error; outer middleware cannot assume the value is already present in that
+case.
+
+## Registration and policy
+
+Typed routes implement `RouteDefinition`, so they can be mixed with standard
+routes:
+
+```go
+api := r.Group("/api").Timeout(5 * time.Second)
+api.Route(
+	createUser,
+	router.RouteConfigBase{
+		Path:    "/health",
+		Methods: []router.HttpMethod{router.MethodGet},
+		Handler: health,
+	},
 )
-
-// Optional startup validation. ServeHTTP builds automatically if needed.
-if err := r.Build(); err != nil {
-    log.Fatal(err)
-}
 ```
 
-For root registration, call `r.Route(routeConfig)`. For grouped registration,
-retain the group handle and call `group.Route(routeConfig)`. The typed config
-retains its `Req` and `Resp` pipeline behind the route interface, and both methods
-resolve effective settings automatically during `Build`.
+The route inherits authentication, rate limiting, timeout, body-size, and
+middleware policy just like `RouteConfigBase`. Its `Overrides` take precedence
+over group and global policy. Middleware remains additive.
 
-## Key Components
-
--   **`RouteConfig[T, U]`**: Defines the configuration for a generic route, including path, methods, auth level, codec, handler, **sanitizer**, and overrides.
--   **`GenericHandler[T, U]`**: The function signature `func(*http.Request, T) (U, error)`. It receives the `http.Request` (for accessing context, headers, etc.) and the *potentially sanitized* decoded request object `T`. It returns the response object `U` and an `error`. If the error is non-nil, SRouter handles sending the appropriate HTTP error response (using `router.HTTPError` for specific status codes).
--   **`Sanitizer func(context.Context, T) (T, error)`**: An optional function that runs *after* the request data `T` is successfully decoded by the `Codec` but *before* the `GenericHandler` is called. It receives the active request context and decoded data, and can return a modified version of the data. The context includes values, deadlines, and cancellation established by the request and middleware chain. If the sanitizer returns a non-nil error, request processing stops and a `400 Bad Request` (or the status specified by an `HTTPError`) is returned. Otherwise, its returned data is passed to the `GenericHandler`.
--   **`DisableTimeout bool`**: Disables the effective (global, route-group, or route override) timeout for this route. Useful for long-lived generic endpoints such as streaming responses that still benefit from typed request/response handling.
--   **`Codec[T, U]`**: An interface responsible for decoding the request (`T`) and encoding the response (`U`). See [Custom Codecs](./codecs.md).
--   **`RouteDefinition`**: The sealed heterogeneous route interface implemented directly by `RouteConfigBase` and every `RouteConfig[Req, Resp]`.
--   **`Router.Route`**: Adds standard or typed generic routes to the root group.
--   **`RouteGroup.Route`**: Adds the same route definitions beneath a recursive group prefix.
-
-## Source Types
-
-SRouter's generic routes offer flexibility in how the request data (`T` in `RouteConfig[T, U]`) is retrieved and decoded. By default, it reads from the request body, but you can configure it to read from query or path parameters, especially useful for GET requests or when request bodies are restricted.
-
-This is controlled by the `SourceType` and `SourceKey` fields in the `RouteConfig[T, U]` struct.
-
-### Available Source Types
-
-SRouter defines constants for the available source types in the `router` package:
-
-1.  **`router.Body`** (Default):
-    *   Retrieves data directly from the `http.Request.Body`.
-    *   `SourceKey` is ignored.
-    *   The configured `Codec`'s `Decode` method is used.
-    *   Example: Standard POST/PUT requests with JSON/Proto payloads.
-
-    ```go
-    router.RouteConfig[MyRequest, MyResponse]{
-        // ... Path, Methods, Handler ...
-        Codec: codec.NewJSONCodec[MyRequest, MyResponse](),
-        // SourceType defaults to Body if omitted
-    }
-    ```
-
-2.  **`router.Base64QueryParameter`**:
-    *   Retrieves data from a **Base64-encoded** string in a query parameter.
-    *   `SourceKey` specifies the name of the query parameter (e.g., `data` for `?data=...`).
-    *   The value is Base64-decoded, and the resulting bytes are passed to the `Codec`'s `DecodeBytes` method.
-    *   Example: Sending complex data via GET requests where the data is encoded to fit in the URL.
-
-    ```go
-    router.RouteConfig[MyRequest, MyResponse]{
-        Path:       "/data/from/query",
-        Methods:    []router.HttpMethod{router.MethodGet},
-        Handler:    MyHandler,
-        Codec:      codec.NewJSONCodec[MyRequest, MyResponse](), // Codec still needed for DecodeBytes
-        SourceType: router.Base64QueryParameter,
-        SourceKey:  "payload", // Expects URL like /data/from/query?payload=BASE64STRING
-    }
-    ```
-
-3.  **`router.Base62QueryParameter`**:
-    *   Similar to `Base64QueryParameter`, but uses **Base62 encoding**. Base62 is URL-safe without padding characters, potentially producing shorter strings than Base64.
-    *   Retrieves data from a Base62-encoded string in a query parameter specified by `SourceKey`.
-    *   The value is Base62-decoded, and the bytes are passed to the `Codec`'s `DecodeBytes` method.
-
-    ```go
-    router.RouteConfig[MyRequest, MyResponse]{
-        // ... Path, Methods, Handler, Codec ...
-        SourceType: router.Base62QueryParameter,
-        SourceKey:  "q", // Expects URL like /path?q=BASE62STRING
-    }
-    ```
-
-4.  **`router.Base64PathParameter`**:
-    *   Retrieves data from a **Base64-encoded** string in a named path parameter.
-    *   The route's `Path` must include a corresponding named parameter (e.g., `/:data`).
-    *   `SourceKey` specifies the name of the path parameter (e.g., `data`).
-    *   If `SourceKey` is empty, the first path parameter in the request URL is used.
-    *   The parameter value is Base64-decoded, and the bytes are passed to the `Codec`'s `DecodeBytes` method.
-
-    ```go
-    router.RouteConfig[MyRequest, MyResponse]{
-        Path:       "/data/from/path/:payload", // Define path parameter
-        Methods:    []router.HttpMethod{router.MethodGet},
-        Handler:    MyHandler,
-        Codec:      codec.NewJSONCodec[MyRequest, MyResponse](),
-        SourceType: router.Base64PathParameter,
-        SourceKey:  "payload", // Matches the :payload name in the Path
-    }
-    ```
-
-5.  **`router.Base62PathParameter`**:
-    *   Similar to `Base64PathParameter`, but uses **Base62 encoding**.
-    *   Retrieves data from a Base62-encoded string in a named path parameter specified by `SourceKey`.
-    *   If `SourceKey` is empty, the first path parameter in the request URL is used.
-    *   The parameter value is Base62-decoded, and the bytes are passed to the `Codec`'s `DecodeBytes` method.
-
-    ```go
-    router.RouteConfig[MyRequest, MyResponse]{
-        Path:       "/data/b62/:p", // Define path parameter
-        Methods:    []router.HttpMethod{router.MethodGet},
-        Handler:    MyHandler,
-        Codec:      codec.NewJSONCodec[MyRequest, MyResponse](),
-        SourceType: router.Base62PathParameter,
-        SourceKey:  "p", // Matches the :p name in the Path
-    }
-    ```
-
-6.  **`router.Empty`**:
-    *   No request decoding is performed. The handler receives the zero value of the request type.
-    *   Useful for endpoints that do not accept input but still use generic handlers.
-
-### Codec Requirement
-
-Even when using query or path parameter source types, a `Codec` is still required in the `RouteConfig`. This is because the router needs the codec's `DecodeBytes` method to unmarshal the decoded byte slice (`[]byte`) into the target request type `T`.
-
-```go
-// Codec interface likely includes:
-type Codec[T any, U any] interface {
-    // ... Decode(r *http.Request) (T, error) ...
-    DecodeBytes(data []byte) (T, error) // Used by non-Body source types
-    // ... Encode(w http.ResponseWriter, resp U) error ...
-    // ... NewRequest() T ...
-}
-```
-
-Ensure your chosen codec implements `DecodeBytes` correctly for the data format you expect (e.g., JSON, Proto).
-
-See the `examples/source-types` directory for a runnable example demonstrating different source types.
-
-Using generic routes significantly improves type safety and developer experience when dealing with structured request and response data.
+Set `DisableTimeout` for a long-lived typed endpoint that must bypass its
+effective timeout. Route registration freezes after `Build` or the first
+request. See [Routing](routing.md), [Route groups](route-groups.md), and
+[Codecs](codecs.md) for the surrounding APIs.

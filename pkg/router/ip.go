@@ -72,7 +72,7 @@ func ClientIPMiddleware[T comparable, U any](config *IPConfig) func(http.Handler
 			_, hadSRouterCtx := scontext.GetSRouterContext[T, U](r.Context())
 
 			// Add the client IP to the SRouterContext
-			ctx := scontext.WithClientIP[T, U](r.Context(), clientIP) // Use scontext
+			ctx := scontext.WithClientIP[T, U](r.Context(), clientIP)
 
 			// Call the next handler with the updated context
 			if !hadSRouterCtx {

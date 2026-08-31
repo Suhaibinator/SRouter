@@ -1,4 +1,3 @@
-// Package middleware provides a collection of HTTP middleware components for the SRouter framework.
 package middleware
 
 import (
@@ -7,15 +6,14 @@ import (
 	"strings"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
-	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 )
 
 // AuthProvider defines an interface for authentication providers.
 // Different authentication mechanisms can implement this interface
 // to be used with the AuthenticationWithProvider middleware.
-// The framework includes several implementations: BasicAuthProvider,
-// BearerTokenProvider, and APIKeyProvider.
+// The framework includes BearerTokenProvider and APIKeyProvider implementations.
 // The type parameter T represents the user ID type, which can be any comparable type.
 type AuthProvider[T comparable] interface {
 	// Authenticate authenticates a request and returns the user ID if authentication is successful.
@@ -139,7 +137,7 @@ func AuthenticationWithProvider[T comparable, U any](
 			}
 
 			// Store the user ID in the SRouterContext
-			ctx := scontext.WithUserID[T, U](r.Context(), userID) // Use scontext
+			ctx := scontext.WithUserID[T, U](r.Context(), userID)
 
 			// Call next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -151,10 +149,10 @@ func AuthenticationWithProvider[T comparable, U any](
 // T is the User ID type (comparable), U is the User object type (any).
 // It allows for custom authentication logic to be provided as a simple function.
 //
-// Note: All methods, including OPTIONS, require authentication. CORS preflight
-// requests are handled by the router's CORS support before middleware runs, so
-// they never reach this middleware. (Earlier versions skipped authentication
-// for OPTIONS, which left registered OPTIONS routes unauthenticated.)
+// All methods, including OPTIONS, require authentication when this middleware
+// is invoked. When it is installed on a route in an SRouter with CORS enabled,
+// the router handles OPTIONS requests carrying an Origin header before route
+// middleware runs.
 func Authentication[T comparable, U any](
 	authFunc func(*http.Request) (T, bool),
 ) common.Middleware {
@@ -168,7 +166,7 @@ func Authentication[T comparable, U any](
 			}
 
 			// Store the user ID in the SRouterContext
-			ctx := scontext.WithUserID[T, U](r.Context(), userID) // Use scontext
+			ctx := scontext.WithUserID[T, U](r.Context(), userID)
 
 			// Call next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -181,10 +179,10 @@ func Authentication[T comparable, U any](
 // It adds a boolean flag to the SRouterContext if authentication is successful.
 // T is the User ID type (comparable), U is the User object type (any).
 //
-// Note: All methods, including OPTIONS, require authentication. CORS preflight
-// requests are handled by the router's CORS support before middleware runs, so
-// they never reach this middleware. (Earlier versions skipped authentication
-// for OPTIONS, which left registered OPTIONS routes unauthenticated.)
+// All methods, including OPTIONS, require authentication when this middleware
+// is invoked. When it is installed on a route in an SRouter with CORS enabled,
+// the router handles OPTIONS requests carrying an Origin header before route
+// middleware runs.
 func AuthenticationBool[T comparable, U any](
 	authFunc func(*http.Request) bool,
 	flagName string, // Flag name parameter
@@ -198,7 +196,7 @@ func AuthenticationBool[T comparable, U any](
 			}
 
 			// Store the flag in the SRouterContext
-			ctx := scontext.WithFlag[T, U](r.Context(), flagName, true) // Use scontext
+			ctx := scontext.WithFlag[T, U](r.Context(), flagName, true)
 
 			// Call next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -218,7 +216,6 @@ func NewBearerTokenMiddleware[T comparable, U any](
 	return AuthenticationWithProvider[T, U](provider, logger)
 }
 
-// NewBearerTokenValidatorMiddleware creates a middleware that uses Bearer Token Authentication
 // NewBearerTokenValidatorMiddleware creates a middleware that uses Bearer Token Authentication
 // with a custom validator function.
 // T is the User ID type (comparable), U is the User object type (any).
@@ -362,7 +359,7 @@ func AuthenticationWithUserProvider[T comparable, U any](
 			}
 
 			// Store the user object in the SRouterContext
-			ctx := scontext.WithUser[T](r.Context(), user) // Use scontext
+			ctx := scontext.WithUser[T](r.Context(), user)
 
 			// Call next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -386,7 +383,7 @@ func AuthenticationWithUser[T comparable, U any](
 			}
 
 			// Store the user object in the SRouterContext
-			ctx := scontext.WithUser[T](r.Context(), user) // Use scontext
+			ctx := scontext.WithUser[T](r.Context(), user)
 
 			// Call next handler with the updated context
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -394,7 +391,6 @@ func AuthenticationWithUser[T comparable, U any](
 	}
 }
 
-// NewBearerTokenWithUserMiddleware creates a middleware that uses Bearer Token Authentication
 // NewBearerTokenWithUserMiddleware creates a middleware that uses Bearer Token Authentication
 // and returns a user object, adding it to the SRouterContext.
 // T is the User ID type (comparable), U is the User object type (any).
@@ -408,7 +404,6 @@ func NewBearerTokenWithUserMiddleware[T comparable, U any](
 	return AuthenticationWithUserProvider[T](provider, logger)
 }
 
-// NewAPIKeyWithUserMiddleware creates a middleware that uses API Key Authentication
 // NewAPIKeyWithUserMiddleware creates a middleware that uses API Key Authentication
 // and returns a user object, adding it to the SRouterContext.
 // T is the User ID type (comparable), U is the User object type (any).

@@ -35,7 +35,7 @@ jobs:
       shell: bash
       run: |
         go test -v -race \
-          -coverpkg="github.com/Suhaibinator/SRouter/pkg/codec,github.com/Suhaibinator/SRouter/pkg/common,github.com/Suhaibinator/SRouter/pkg/metrics,github.com/Suhaibinator/SRouter/pkg/metrics/prometheus,github.com/Suhaibinator/SRouter/pkg/middleware,github.com/Suhaibinator/SRouter/pkg/router" \
+          -coverpkg="github.com/Suhaibinator/SRouter/pkg/codec,github.com/Suhaibinator/SRouter/pkg/common,github.com/Suhaibinator/SRouter/pkg/metrics,github.com/Suhaibinator/SRouter/pkg/metrics/prometheus,github.com/Suhaibinator/SRouter/pkg/middleware,github.com/Suhaibinator/SRouter/pkg/router,github.com/Suhaibinator/SRouter/pkg/scontext" \
           -coverprofile=coverage.txt \
           -covermode=atomic \
           ./pkg/...
@@ -115,7 +115,7 @@ jobs:
       run: go test -bench=. -benchmem ./pkg/router -run=^$ -v
 
   examples:
-    name: Build Examples
+    name: Build Examples and Check Docs
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -127,8 +127,8 @@ jobs:
         go-version: '1.27.0'
         cache: true
 
-    - name: Build simple example
-      run: go build -v ./examples/simple
+    - name: Build all examples
+      run: go build -v ./examples/...
 
-    - name: Build prometheus example
-      run: go build -v ./examples/prometheus
+    - name: Check local documentation links
+      run: go test ./internal/doccheck

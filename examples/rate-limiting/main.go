@@ -8,13 +8,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Suhaibinator/SRouter/pkg/common" // Added import
+	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/router"
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 )
-
-// Define a custom context key type for user information
-type userContextKey struct{}
 
 // Define a user type
 type User struct {
@@ -82,9 +80,8 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func userProfileHandler(w http.ResponseWriter, r *http.Request) {
-	// Get the user from the context
-	user, ok := r.Context().Value(userContextKey{}).(User)
-	if !ok {
+	user, ok := scontext.GetUserFromRequest[string, User](r)
+	if !ok || user == nil {
 		http.Error(w, "User not found in context", http.StatusInternalServerError)
 		return
 	}
@@ -108,44 +105,6 @@ func publicEndpointHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Custom authentication middleware
-func authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Get the token from the Authorization header
-		token := r.Header.Get("Authorization")
-		if token == "" {
-			http.Error(w, "Authorization header required", http.StatusUnauthorized)
-			return
-		}
-
-		// Remove the "Bearer " prefix if present
-		if len(token) > 7 && token[:7] == "Bearer " {
-			token = token[7:]
-		}
-
-		// Validate the token
-		userID, ok := tokens[token]
-		if !ok {
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
-			return
-		}
-
-		// Get the user from the database
-		user, ok := users[userID]
-		if !ok {
-			http.Error(w, "User not found", http.StatusInternalServerError)
-			return
-		}
-
-		// Add the user to the context
-		ctx := r.Context()
-		ctx = context.WithValue(ctx, userContextKey{}, user)
-
-		// Call the next handler with the updated context
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
 // Custom rate limit exceeded handler
 func rateLimitExceededHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
@@ -156,69 +115,52 @@ func rateLimitExceededHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func main() {
-	// Create a logger
-	logger, _ := zap.NewProduction()
-	defer func() { _ = logger.Sync() }()
-
-	// Note: The router creates its own rate limiter internally
-
-	// Create a router configuration with global rate limiting
+func newRateLimitingRouter(logger *zap.Logger) *router.Router[string, User] {
 	routerConfig := router.RouterConfig{
-		ServiceName:       "rate-limit-service", // Added ServiceName
-		Logger:            logger,
-		GlobalMaxBodySize: 1 << 20, // 1 MiB; bound the login JSON body before decoding
-		// Global rate limit (applies to all routes)
-		GlobalRateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
+		ServiceName:        "rate-limit-service",
+		Logger:             logger,
+		GlobalMaxBodySize:  1 << 20, // 1 MiB; bound the login JSON body before decoding
+		AddUserObjectToCtx: true,
+		GlobalRateLimit: &common.RateLimitConfig[any, any]{
 			BucketName: "global",
 			Limit:      100,
 			Window:     time.Minute,
-			Strategy:   common.StrategyIP, // Use common.StrategyIP
+			Strategy:   common.StrategyIP,
 		},
-		// Configure IP extraction to use X-Forwarded-For header
-		IPConfig: &router.IPConfig{ // Use router.IPConfig
-			Source:     router.IPSourceXForwardedFor, // Use router.IPSourceXForwardedFor
+		IPConfig: &router.IPConfig{
+			Source:     router.IPSourceXForwardedFor,
 			TrustProxy: true,
 		},
 	}
 
-	// Define the auth function that takes a context and token and returns a *User and a boolean
-	authFunction := func(ctx context.Context, token string) (*User, bool) {
-		// Validate the token
+	authFunction := func(_ context.Context, token string) (*User, bool) {
 		userID, ok := tokens[token]
 		if !ok {
-			return nil, false // Return nil pointer for user
+			return nil, false
 		}
-
-		// Get the user from the database
 		user, ok := users[userID]
 		if !ok {
-			return nil, false // Return nil pointer for user
+			return nil, false
 		}
-
-		// Return pointer to the user struct
 		return &user, true
 	}
-
-	// Define the function to get the user ID (string) from a *User
-	userIdFromUserFunction := func(user *User) string {
-		// In this example, we're using the User's ID field as the ID (T = string)
+	userIDFromUser := func(user *User) string {
 		if user == nil {
-			return "" // Handle nil pointer case
+			return ""
 		}
-		return user.ID // Return the ID field (string)
+		return user.ID
 	}
 
-	// Create a router with string as the user ID type (T) and User as the user type (U)
-	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter(routerConfig, authFunction, userIDFromUser)
 
-	// Strict rate limit for auth endpoints (shared bucket).
+	// Login requests have no authenticated identity yet, so this bucket is keyed
+	// by client IP.
 	r.Group("/auth").
 		RateLimit(&common.RateLimitConfig[string, User]{
 			BucketName:      "auth-endpoints",
 			Limit:           5,
 			Window:          time.Minute,
-			Strategy:        common.StrategyUser,
+			Strategy:        common.StrategyIP,
 			ExceededHandler: http.HandlerFunc(rateLimitExceededHandler),
 		}).
 		Route(router.RouteConfigBase{
@@ -227,22 +169,22 @@ func main() {
 			Handler: loginHandler,
 		})
 
-	api := r.Group("/api")
-	// User-based rate limiting.
-	api.Group("/profile").
+	// Built-in authentication executes before configured rate limiting, so the
+	// profile bucket is keyed by the authenticated user ID.
+	r.Group("/api/profile").
+		Auth(router.AuthRequired).
 		RateLimit(&common.RateLimitConfig[string, User]{
 			BucketName: "user-profile",
 			Limit:      10,
 			Window:     time.Minute,
 			Strategy:   common.StrategyUser,
 		}).
-		Use(authMiddleware).
 		Route(router.RouteConfigBase{
 			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: userProfileHandler,
 		})
-	// IP-based rate limiting.
-	api.Group("/public").
+
+	r.Group("/api/public").
 		RateLimit(&common.RateLimitConfig[string, User]{
 			BucketName: "public-endpoints",
 			Limit:      20,
@@ -253,8 +195,23 @@ func main() {
 			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: publicEndpointHandler,
 		})
+	return r
+}
 
-	// Start the server
-	fmt.Println("Server listening on :8080")
+func main() {
+	logger, _ := zap.NewProduction()
+	defer func() { _ = logger.Sync() }()
+
+	r := newRateLimitingRouter(logger)
+
+	fmt.Println("Rate Limiting Example Server listening on :8080")
+	fmt.Println("Available endpoints:")
+	fmt.Println("  - POST /auth/login (IP-based rate limit)")
+	fmt.Println("  - GET /api/profile (built-in auth, user-based rate limit)")
+	fmt.Println("  - GET /api/public (IP-based rate limit)")
+	fmt.Println("\nExample curl commands:")
+	fmt.Println(`  curl -X POST -H "Content-Type: application/json" -d '{"username":"user1","password":"password1"}' http://localhost:8080/auth/login`)
+	fmt.Println(`  curl -H "Authorization: Bearer token1" http://localhost:8080/api/profile`)
+	fmt.Println("  curl http://localhost:8080/api/public")
 	log.Fatal(http.ListenAndServe(":8080", r))
 }

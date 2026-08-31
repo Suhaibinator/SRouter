@@ -83,10 +83,14 @@ if err := r.Build(); err != nil {
 ```
 
 `ServeHTTP` calls `Build` automatically when it has not already run. The first
-build freezes the route tree. Calling `Route`, `Group`, `Use`, or a group policy
-method afterward panics because the underlying dispatcher does not support
-concurrent mutation.
+build attempt freezes the route tree even when validation fails, and later
+`Build` calls return the cached result. Calling `Route`, `Group`, `Use`, or a
+group policy method afterward panics because the underlying dispatcher does not
+support concurrent mutation. Create a new router after correcting a failed
+build.
 
-Build validates paths, methods, handlers, middleware, policy values, duplicate
-routes, and `httprouter` path conflicts. Groups compile away after startup;
-steady-state dispatch uses the single underlying router with no group traversal.
+Build validates paths, methods, handlers, middleware, negative timeout and body
+limits, authentication levels and callbacks, duplicate routes, and `httprouter`
+path conflicts. It does not validate rate-limit values or a custom key
+extractor. Groups compile away after startup; steady-state dispatch uses the
+single underlying router with no group traversal.

@@ -1,4 +1,3 @@
-// Package codec provides encoding and decoding functionality for different data formats.
 package codec
 
 import (
@@ -51,14 +50,13 @@ func (c *ProtoCodec[T, U]) NewRequest() T {
 // or doesn't match the expected message type.
 func (c *ProtoCodec[T, U]) Decode(r *http.Request) (T, error) {
 	msg := c.NewRequest()
+	defer func() { _ = r.Body.Close() }()
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		var zero T
 		return zero, err
 	}
-	defer func() { _ = r.Body.Close() }()
-
 	if err := protoUnmarshal(body, msg); err != nil {
 		var zero T
 		return zero, err

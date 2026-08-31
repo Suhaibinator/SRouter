@@ -106,12 +106,13 @@ You can implement support for other formats (e.g., XML, MessagePack, YAML) by cr
 package customcodec
 
 import (
-        "encoding/xml"
-        "fmt"
-        "io"
-        "net/http"
-        "github.com/Suhaibinator/SRouter/pkg/codec"  // For Codec interface
-        "github.com/Suhaibinator/SRouter/pkg/router" // For NewHTTPError
+	"encoding/xml"
+	"fmt"
+	"io"
+	"net/http"
+
+	"github.com/Suhaibinator/SRouter/pkg/codec"
+	"github.com/Suhaibinator/SRouter/pkg/router"
 )
 
 // Define your request and response types if not already defined
@@ -128,6 +129,9 @@ type MyXMLResponse struct {
 // XMLCodec implements the codec.Codec interface for XML
 type XMLCodec[T any, U any] struct{}
 
+var _ codec.Codec[MyXMLRequest, MyXMLResponse] =
+	(*XMLCodec[MyXMLRequest, MyXMLResponse])(nil)
+
 // NewXMLCodec creates a new XMLCodec instance.
 // Note: Unlike ProtoCodec, we don't need a factory here if T is a struct type,
 // as 'var data T' works. If T were an interface, a factory might be needed.
@@ -143,53 +147,51 @@ func (c *XMLCodec[T, U]) NewRequest() T {
 
 // Decode reads from the request body and unmarshals XML.
 func (c *XMLCodec[T, U]) Decode(r *http.Request) (T, error) {
-	var data T // Create a zero value of type T
+	var data T
+	defer func() { _ = r.Body.Close() }()
 
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		// Preserve *http.MaxBytesError so SRouter can return HTTP 413.
 		return data, fmt.Errorf("read XML request body: %w", err)
 	}
-	defer r.Body.Close()
 
 	if err := xml.Unmarshal(bodyBytes, &data); err != nil {
-		return data, router.NewHTTPError(http.StatusBadRequest, "Failed to unmarshal XML request: "+err.Error())
+		return data, router.NewHTTPErrorWithCause(
+			http.StatusBadRequest,
+			"invalid XML request",
+			err,
+		)
 	}
 	return data, nil
 }
 
 // DecodeBytes unmarshals XML from a byte slice.
 func (c *XMLCodec[T, U]) DecodeBytes(dataBytes []byte) (T, error) {
-	var data T // Create a zero value of type T
+	var data T
 	if err := xml.Unmarshal(dataBytes, &data); err != nil {
-		// Consider what error type is appropriate here - depends if the source was client input
-		return data, router.NewHTTPError(http.StatusBadRequest, "Failed to unmarshal XML from bytes: "+err.Error())
+		return data, router.NewHTTPErrorWithCause(
+			http.StatusBadRequest,
+			"invalid XML request",
+			err,
+		)
 	}
 	return data, nil
 }
 
 // Encode marshals the response to XML and writes it to the response writer.
 func (c *XMLCodec[T, U]) Encode(w http.ResponseWriter, resp U) error {
-	xmlBytes, err := xml.MarshalIndent(resp, "", "  ") // Use MarshalIndent for readability
+	xmlBytes, err := xml.MarshalIndent(resp, "", "  ")
 	if err != nil {
-		// Log the internal error
-		// logger.Error("Failed to marshal XML response", zap.Error(err))
-		// Return an internal server error to the client
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		// Return the original error so SRouter knows encoding failed
-		return err
+		return fmt.Errorf("marshal XML response: %w", err)
 	}
 
-	// Set Content-Type header
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-	w.WriteHeader(http.StatusOK) // Or appropriate status code if needed
 	_, err = w.Write(xmlBytes)
 	if err != nil {
-		// Log error during write
-		// logger.Error("Failed to write XML response", zap.Error(err))
-		return err // Return error
+		return fmt.Errorf("write XML response: %w", err)
 	}
-	return nil // Success
+	return nil
 }
 
 // --- Usage ---
@@ -210,7 +212,11 @@ override as shown above. A request timeout does not replace this byte limit. If 
 codec can be called outside SRouter, add an equivalent limit inside that codec or
 use a streaming decoder.
 
-Remember to handle errors appropriately within your codec methods, potentially returning `router.HTTPError` for client-side issues (like bad input formatting) or standard errors for server-side issues (which SRouter will likely turn into a 500 response).
+Return `router.HTTPError` for safe client-facing decode failures and wrap the
+underlying cause with `NewHTTPErrorWithCause` when it is useful for logs. Return
+ordinary errors for encoding or other server failures. Do not write an error
+response and then return an error: the router handles a returned error, and doing
+both can produce duplicate writes.
 
 ## Codec Reference
 

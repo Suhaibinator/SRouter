@@ -1,177 +1,155 @@
 # Rate Limiting
 
-SRouter provides rate limiting at the global, route-group, or individual route level. Internally it uses [Uber's `ratelimit` library](https://github.com/uber-go/ratelimit), which implements an efficient leaky bucket algorithm.
-
-## Configuration
-
-Rate limiting is configured with `common.RateLimitConfig`. Set it globally with `RouterConfig.GlobalRateLimit`, on a group with `group.RateLimit`, or per route with `Overrides.RateLimit`. The most specific setting wins.
+SRouter can apply a rate limit globally, to a route group, or to one route. The most specific configured value wins.
 
 ```go
-import (
-	"net/http"
-	"time"
-	"github.com/Suhaibinator/SRouter/pkg/common" // Use common package for config
-	"github.com/Suhaibinator/SRouter/pkg/router"
-)
-
-// Example: Global Rate Limit (applied to all routes unless overridden)
-routerConfig := router.RouterConfig{
-    // ... other config
-    GlobalRateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-        BucketName: "global_ip_limit", // Unique name for the bucket
-        Limit:      100,               // Allow 100 requests...
-        Window:     time.Minute,       // ...per minute
-        Strategy:   common.StrategyIP, // Use common constants
-    },
+config := router.RouterConfig{
+	GlobalRateLimit: &common.RateLimitConfig[any, any]{
+		BucketName: "public-api",
+		Limit:      100,
+		Window:     time.Minute,
+		Strategy:   common.StrategyIP,
+	},
 }
 
-// Example: Route-group override
-r := router.NewRouter[string, User](routerConfig, authenticate, userID)
-sensitive := r.Group("/api").Group("/v1").Group("/sensitive").RateLimit(
-    &common.RateLimitConfig[string, User]{
-        BucketName: "sensitive_api_user_limit",
-        Limit:      20,
-        Window:     time.Hour,
-        Strategy:   common.StrategyUser,
-    },
-)
+r := router.NewRouter[string, User](config, authenticate, userID)
 
-// Example: Route-Specific Limit
-route := router.RouteConfig[MyReq, MyResp]{ // Use specific types for route config
-    Path:    "/heavy-operation",
-    Methods: []router.HttpMethod{router.MethodPost},
-    Overrides: common.RouteOverrides{
-        RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-            BucketName: "heavy_op_ip_limit",
-            Limit:      5,
-            Window:     time.Minute,
-            Strategy:   common.StrategyIP, // Use common constants
-        },
-    },
-    // ... other route config
-}
+r.Group("/account").
+	Auth(router.AuthRequired).
+	RateLimit(&common.RateLimitConfig[string, User]{
+	BucketName: "account",
+	Limit:      20,
+	Window:     time.Minute,
+	Strategy:   common.StrategyUser,
+})
 
-// Group rate limits use the Router's UserID and User types. Global and
-// route-override fields retain [any, any] because RouterConfig and
-// RouteOverrides are non-generic.
+r.Route(router.RouteConfigBase{
+	Path:    "/login",
+	Methods: []router.HttpMethod{router.MethodPost},
+	Overrides: common.RouteOverrides{
+		RateLimit: &common.RateLimitConfig[any, any]{
+			BucketName: "login",
+			Limit:      5,
+			Window:     time.Minute,
+			Strategy:   common.StrategyIP,
+		},
+	},
+	Handler: loginHandler,
+})
 ```
 
-Key `RateLimitConfig` fields:
+`RouterConfig` and `RouteOverrides` are non-generic, so their configurations use `[any, any]`. A route group's configuration uses the router's concrete user ID and user types.
 
--   `BucketName`: A unique string identifying the rate limit bucket. Requests sharing the same bucket name also share the same rate limit counter.
--   `Limit`: The maximum number of requests allowed within the specified `Window`.
--   `Window`: The duration over which the `Limit` is enforced.
--   `Strategy`: Determines how the rate limit is applied (see below).
--   `UserIDFromUser`: (Only for `StrategyUser`) Function that extracts the user ID from the user object stored in context.
--   `UserIDToString`: (Only for `StrategyUser`) Converts the user ID to a string for use as a key.
--   `KeyExtractor`: (Used only with `StrategyCustom`) A function to extract a custom key for rate limiting.
--   `ExceededHandler`: (Optional) An `http.Handler` to customize the response when the rate limit is exceeded (defaults to a standard 429 Too Many Requests response).
+## Algorithm and scope
 
-## Rate Limiting Strategies
+Despite its compatibility name, `middleware.UberRateLimiter` no longer uses Uber's `ratelimit` package. It is an in-process, nonblocking sliding-window counter:
 
-SRouter defines several strategies using constants of type `common.RateLimitStrategy` (defined in `pkg/common/types.go`):
+- The current and previous windows are retained per key; the previous count is weighted by its overlap with the sliding window.
+- Requests beyond the limit are rejected immediately. They are never delayed or queued.
+- State is local to one process and is not persisted or shared between replicas.
+- Entries whose retained current/previous-window history can no longer affect a decision are eligible for eviction. An amortized sweep runs at most once per minute when a new key is created; stale entries can remain until another new key triggers a sweep.
 
-1.  **`common.StrategyIP`**: Limits requests based on the client's IP address. The IP address is extracted internally based on the router's [IP Configuration](./ip-configuration.md) and stored in the context. This is the most common strategy for anonymous or global rate limiting.
+This is suitable for per-instance protection. Use a gateway or shared backend when a limit must apply across replicas or survive restarts.
 
-    ```go
-    RateLimit: &common.RateLimitConfig[any, any]{
-        BucketName: "ip_limit",
-        Limit:      100,
-        Window:     time.Minute,
-        Strategy:   common.StrategyIP,
-    }
-    ```
+Always configure a positive `Limit` and `Window`. A non-positive limit denies every request; the underlying limiter treats a non-positive window as one second.
 
-2.  **`common.StrategyUser`**: Limits requests based on the authenticated user ID stored in the request context (via `scontext.GetUserIDFromRequest`). This requires an [Authentication](./authentication.md) mechanism (built-in or custom middleware) to run *before* the rate limiter to populate the user ID.
+## Configuration fields
 
-    ```go
-    RateLimit: &common.RateLimitConfig[any, any]{
-        BucketName: "user_limit",
-        Limit:      50,
-        Window:     time.Hour,
-        Strategy:   common.StrategyUser, // Requires User ID in context
-    }
-    ```
+- `BucketName` namespaces the extracted client key. Use a stable, non-empty name.
+- `Limit` is the maximum estimated request count in the sliding window.
+- `Window` is the window duration.
+- `Strategy` chooses how the client key is derived.
+- `UserIDFromUser` optionally extracts an ID from a user object for `StrategyUser`.
+- `UserIDToString` optionally controls how a user ID becomes a key.
+- `KeyExtractor` is required for `StrategyCustom`.
+- `ExceededHandler` takes over the denied response after rate-limit headers are set; it must write the desired status and body.
 
-3.  **`common.StrategyCustom`**: Limits requests based on a custom key extracted from the request using the `KeyExtractor` function provided in the `RateLimitConfig`. This allows for flexible strategies, like limiting based on API keys, specific headers, or combinations of factors.
+The limiter's internal key includes `BucketName`, the derived client key, `Limit`, and `Window`. Routes therefore share counters only when those values match. Reusing only a bucket name with a different limit or window creates separate counters.
 
-    ```go
-    RateLimit: &common.RateLimitConfig[any, any]{
-        BucketName: "api_key_limit",
-        Limit:      200,
-        Window:     time.Hour,
-        Strategy:   common.StrategyCustom,
-        KeyExtractor: func(r *http.Request) (string, error) {
-            // Example: Extract API key from header or query param
-            apiKey := r.Header.Get("X-API-Key")
-            if apiKey == "" {
-                apiKey = r.URL.Query().Get("api_key")
-            }
-            if apiKey == "" {
-                // Fall back to IP if no key found? Or return error?
-                // Returning an error might block the request.
-                // Returning a common key (like IP) groups unkeyed requests.
-                ip, _ := scontext.GetClientIPFromRequest[string, string](r) // Use scontext, adjust types
-                return "ip:" + ip, nil // Prefix to avoid collision with actual keys
-            }
-            return "key:" + apiKey, nil // Prefix to avoid collision
-        },
-    }
-    ```
+## Strategies
 
-## Shared Rate Limit Buckets
+### IP
 
-You can enforce a shared rate limit across multiple endpoints by assigning the *same* `BucketName` in their respective `RateLimitConfig`.
+`StrategyIP` uses the client IP placed in context by the router. Its security depends on [IP configuration](./ip-configuration.md): do not trust proxy headers unless a trusted proxy sanitizes them.
 
 ```go
-// Login endpoint shares a bucket with register endpoint
-loginRoute := router.RouteConfigBase{
-    Path:    "/login",
-    Methods: []router.HttpMethod{router.MethodPost},
-    Overrides: common.RouteOverrides{
-        RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-            BucketName: "auth_ip_limit", // Shared bucket name
-            Limit:      5,
-            Window:     time.Minute,
-            Strategy:   common.StrategyIP, // Use common constants
-        },
-    },
-    // ...
-}
-
-registerRoute := router.RouteConfigBase{
-    Path:    "/register",
-    Methods: []router.HttpMethod{router.MethodPost},
-    Overrides: common.RouteOverrides{
-        RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-            BucketName: "auth_ip_limit", // Same bucket name
-            Limit:      5,               // Limit applies to combined requests
-            Window:     time.Minute,
-            Strategy:   common.StrategyIP, // Use common constants
-        },
-    },
-    // ...
+RateLimit: &common.RateLimitConfig[any, any]{
+	BucketName: "anonymous",
+	Limit:      100,
+	Window:     time.Minute,
+	Strategy:   common.StrategyIP,
 }
 ```
 
-## Custom Rate Limit Responses
+### User
 
-Provide an `ExceededHandler` in `common.RateLimitConfig` to send a custom response when a limit is hit.
+`StrategyUser` first uses the stored user object when both it and `UserIDFromUser` are available. Otherwise it uses the user ID stored in context. `UserIDToString` is optional: the default handles `string`, `int`, `int64`, `fmt.Stringer`, and finally `fmt.Sprint`.
+
+If no user key is available, the limiter does **not** reject the request as unauthenticated. It falls back to the context client IP, then to `RemoteAddr`. Use `AuthRequired` as well when the endpoint must be authenticated.
+
+Built-in `AuthOptional` and `AuthRequired` authentication runs before the built-in rate limiter, so it can populate the user ID. Router, group, and route custom middleware run **after** the built-in rate limiter. A custom authentication middleware installed at those scopes therefore cannot populate a user key for an inherited `StrategyUser` limit. See [Custom authentication and rate limiting](./authentication.md#custom-authentication-and-rate-limiting) for supported arrangements.
+
+### Custom
+
+`StrategyCustom` calls `KeyExtractor` for each request:
 
 ```go
-RateLimit: &common.RateLimitConfig[any, any]{ // Use common.RateLimitConfig
-    BucketName: "custom_response_limit",
-    Limit:      10,
-    Window:     time.Minute,
-    Strategy:   common.StrategyIP, // Use common constants
-    ExceededHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Note: The default handler already sets X-RateLimit-* headers and a standard Retry-After header.
-        // You might want to set additional headers or customize the body.
-        w.Header().Set("Content-Type", "application/json")
-        w.WriteHeader(http.StatusTooManyRequests) // 429
-        w.Write([]byte(`{"error": "Slow down!", "message": "You have exceeded the rate limit. Please wait a minute."}`))
-    }),
+RateLimit: &common.RateLimitConfig[any, any]{
+	BucketName: "api-key",
+	Limit:      200,
+	Window:     time.Hour,
+	Strategy:   common.StrategyCustom,
+	KeyExtractor: func(req *http.Request) (string, error) {
+		key := req.Header.Get("X-API-Key")
+		if key == "" {
+			return "", errors.New("missing API key")
+		}
+		return key, nil
+	},
 }
 ```
 
-See the `examples/rate-limiting` directory for a runnable example.
+A nil extractor, extractor error, or empty returned key produces a `500 Internal Server Error`. Do not include raw secrets in the key if rate-limit warning logs must not contain them.
+
+## Shared buckets
+
+Give multiple routes the same effective configuration to share a counter for each derived client key:
+
+```go
+shared := &common.RateLimitConfig[any, any]{
+	BucketName: "authentication",
+	Limit:      5,
+	Window:     time.Minute,
+	Strategy:   common.StrategyIP,
+}
+
+login.Overrides.RateLimit = shared
+register.Overrides.RateLimit = shared
+```
+
+The five-request limit then applies to the combined login and registration traffic from each extracted IP.
+
+## Responses and headers
+
+Every request that reaches a rate-limit decision receives:
+
+- `X-RateLimit-Limit`
+- `X-RateLimit-Remaining`
+- `X-RateLimit-Reset`
+
+`X-RateLimit-Reset` is a Unix timestamp. For an allowed request it represents
+the current time; for a denied request it conservatively identifies the end of
+the limiter's current fixed window. Denied responses also receive
+`Retry-After`, rounded down to seconds with a minimum of one second. The default
+response uses status 429. `ExceededHandler`, when present, runs after these
+headers have been set and is responsible for writing its own status and body:
+
+```go
+ExceededHandler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_, _ = w.Write([]byte(`{"error":"rate limit exceeded"}`))
+}),
+```
+
+See `examples/rate-limiting` for a runnable configuration.

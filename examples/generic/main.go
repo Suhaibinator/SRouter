@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http" // Ensure net/http is imported
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,10 +36,8 @@ type CreateUserResponse struct {
 	Email string `json:"email"`
 }
 
-// GetUserRequest is the request body for getting a user
-type GetUserRequest struct {
-	ID string `json:"id"` // This might not be used if ID comes from path
-}
+// GetUserRequest is empty because the user ID comes from the route path.
+type GetUserRequest struct{}
 
 // GetUserResponse is the response body for getting a user
 type GetUserResponse struct {
@@ -62,10 +60,8 @@ type UpdateUserResponse struct {
 	Email string `json:"email"`
 }
 
-// DeleteUserRequest is the request body for deleting a user
-type DeleteUserRequest struct {
-	// ID comes from path param
-}
+// DeleteUserRequest is empty because the user ID comes from the route path.
+type DeleteUserRequest struct{}
 
 // DeleteUserResponse is the response body for deleting a user
 type DeleteUserResponse struct {
@@ -73,11 +69,8 @@ type DeleteUserResponse struct {
 	Message string `json:"message"`
 }
 
-// ListUsersRequest is the request body for listing users
-type ListUsersRequest struct {
-	Limit  int `json:"limit"`  // Assuming these come from query params or a default
-	Offset int `json:"offset"` // Assuming these come from query params or a default
-}
+// ListUsersRequest is empty because this endpoint accepts no input.
+type ListUsersRequest struct{}
 
 // ListUsersResponse is the response body for listing users
 type ListUsersResponse struct {
@@ -241,32 +234,11 @@ func DeleteUserHandler(r *http.Request, req DeleteUserRequest) (DeleteUserRespon
 }
 
 // ListUsersHandler handles listing users
-func ListUsersHandler(r *http.Request, req ListUsersRequest) (ListUsersResponse, error) {
-	// Default limit and offset (In a real app, parse from query params: r.URL.Query())
-	limit := req.Limit
-	if limit <= 0 {
-		limit = 10
-	}
-	offset := max(req.Offset, 0)
-
-	// Get all users
+func ListUsersHandler(_ *http.Request, _ ListUsersRequest) (ListUsersResponse, error) {
 	userList := users.list()
-
-	// Apply pagination
-	total := len(userList)
-	if offset >= total {
-		return ListUsersResponse{
-			Users: []User{},
-			Total: total,
-		}, nil
-	}
-
-	end := min(offset+limit, total)
-
-	// Return the response
 	return ListUsersResponse{
-		Users: userList[offset:end],
-		Total: total,
+		Users: userList,
+		Total: len(userList),
 	}, nil
 }
 
@@ -302,6 +274,55 @@ func SanitizeCreateUserRequest(_ context.Context, req CreateUserRequest) (Create
 	return req, nil // Return the modified request and nil error
 }
 
+func registerRoutes(r *router.Router[string, string]) {
+	r.Route(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
+		Path:      "/users",
+		Methods:   []router.HttpMethod{router.MethodPost},
+		Codec:     codec.NewJSONCodec[CreateUserRequest, CreateUserResponse](),
+		Handler:   CreateUserHandler,
+		Sanitizer: SanitizeCreateUserRequest,
+	})
+
+	r.Route(router.RouteConfig[GetUserRequest, GetUserResponse]{
+		Path:       "/users/:id",
+		Methods:    []router.HttpMethod{router.MethodGet},
+		Codec:      codec.NewJSONCodec[GetUserRequest, GetUserResponse](),
+		Handler:    GetUserHandler,
+		SourceType: router.Empty,
+	})
+
+	r.Route(router.RouteConfig[UpdateUserRequest, UpdateUserResponse]{
+		Path:    "/users/:id",
+		Methods: []router.HttpMethod{router.MethodPut},
+		Codec:   codec.NewJSONCodec[UpdateUserRequest, UpdateUserResponse](),
+		Handler: UpdateUserHandler,
+	})
+
+	r.Route(router.RouteConfig[DeleteUserRequest, DeleteUserResponse]{
+		Path:       "/users/:id",
+		Methods:    []router.HttpMethod{router.MethodDelete},
+		Codec:      codec.NewJSONCodec[DeleteUserRequest, DeleteUserResponse](),
+		Handler:    DeleteUserHandler,
+		SourceType: router.Empty,
+	})
+
+	r.Route(router.RouteConfig[ListUsersRequest, ListUsersResponse]{
+		Path:       "/users",
+		Methods:    []router.HttpMethod{router.MethodGet},
+		Codec:      codec.NewJSONCodec[ListUsersRequest, ListUsersResponse](),
+		Handler:    ListUsersHandler,
+		SourceType: router.Empty,
+	})
+
+	r.Route(router.RouteConfig[EmptyRequest, ErrorResponse]{
+		Path:       "/error",
+		Methods:    []router.HttpMethod{router.MethodGet},
+		Codec:      codec.NewJSONCodec[EmptyRequest, ErrorResponse](),
+		Handler:    ErrorHandler,
+		SourceType: router.Empty,
+	})
+}
+
 func main() {
 	// Create a logger
 	logger, err := zap.NewProduction()
@@ -318,7 +339,7 @@ func main() {
 
 	// Create a router configuration
 	routerConfig := router.RouterConfig{
-		ServiceName:       "generic-service", // Added ServiceName
+		ServiceName:       "generic-service",
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
@@ -346,49 +367,7 @@ func main() {
 	// Create a router with string as both the user ID and user type
 	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
 
-	// Register generic routes
-	r.Route(router.RouteConfig[CreateUserRequest, CreateUserResponse]{
-		Path:      "/users",
-		Methods:   []router.HttpMethod{router.MethodPost}, // Use string literal or http.MethodPost constant
-		Codec:     codec.NewJSONCodec[CreateUserRequest, CreateUserResponse](),
-		Handler:   CreateUserHandler,
-		Sanitizer: SanitizeCreateUserRequest, // Add the sanitizer function here
-	})
-
-	r.Route(router.RouteConfig[GetUserRequest, GetUserResponse]{
-		Path:    "/users/:id",
-		Methods: []router.HttpMethod{router.MethodGet},                 // Use string literal or http.MethodGet constant
-		Codec:   codec.NewJSONCodec[GetUserRequest, GetUserResponse](), // Codec might not be used if ID is only from path
-		Handler: GetUserHandler,
-	})
-
-	r.Route(router.RouteConfig[UpdateUserRequest, UpdateUserResponse]{
-		Path:    "/users/:id",
-		Methods: []router.HttpMethod{router.MethodPut}, // Use string literal or http.MethodPut constant
-		Codec:   codec.NewJSONCodec[UpdateUserRequest, UpdateUserResponse](),
-		Handler: UpdateUserHandler,
-	})
-
-	r.Route(router.RouteConfig[DeleteUserRequest, DeleteUserResponse]{
-		Path:    "/users/:id",
-		Methods: []router.HttpMethod{router.MethodDelete},                    // Use string literal or http.MethodDelete constant
-		Codec:   codec.NewJSONCodec[DeleteUserRequest, DeleteUserResponse](), // Codec might not be used
-		Handler: DeleteUserHandler,
-	})
-
-	r.Route(router.RouteConfig[ListUsersRequest, ListUsersResponse]{
-		Path:    "/users",
-		Methods: []router.HttpMethod{router.MethodGet},                     // Use string literal or http.MethodGet constant
-		Codec:   codec.NewJSONCodec[ListUsersRequest, ListUsersResponse](), // Codec might not be used if params are from query
-		Handler: ListUsersHandler,
-	})
-
-	r.Route(router.RouteConfig[EmptyRequest, ErrorResponse]{
-		Path:    "/error",
-		Methods: []router.HttpMethod{router.MethodGet}, // Use string literal or http.MethodGet constant
-		Codec:   codec.NewJSONCodec[EmptyRequest, ErrorResponse](),
-		Handler: ErrorHandler,
-	})
+	registerRoutes(r)
 
 	// Start the server
 	fmt.Println("Generic Routes Example Server listening on :8080")
