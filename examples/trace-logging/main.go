@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Keep scontext
 	"go.uber.org/zap"
@@ -67,9 +68,9 @@ func main() {
 
 			// Log with trace ID
 			logger.Info("Processing request",
-				zap.String("trace_id", traceID),
-				zap.String("build_id", buildID),
-				zap.String("config_id", configID),
+				zap.String(logkeys.TraceID, traceID),
+				zap.String(logkeys.BuildID, buildID),
+				zap.String(logkeys.ConfigID, configID),
 				zap.String("handler", "hello"),
 			)
 
@@ -78,9 +79,9 @@ func main() {
 
 			// Log again with the same trace ID
 			logger.Info("Request processed successfully",
-				zap.String("trace_id", traceID),
-				zap.String("build_id", buildID),
-				zap.String("config_id", configID),
+				zap.String(logkeys.TraceID, traceID),
+				zap.String(logkeys.BuildID, buildID),
+				zap.String(logkeys.ConfigID, configID),
 				zap.String("handler", "hello"),
 			)
 
@@ -100,7 +101,7 @@ func main() {
 
 			// Log with trace ID
 			logger.Info("Received request, calling downstream service",
-				zap.String("trace_id", traceID),
+				zap.String(logkeys.TraceID, traceID),
 				zap.String("handler", "downstream"),
 			)
 
@@ -109,8 +110,8 @@ func main() {
 			req, err := http.NewRequest("GET", "http://localhost:8082/hello", nil)
 			if err != nil {
 				logger.Error("Failed to create request",
-					zap.String("trace_id", traceID),
-					zap.Error(err),
+					zap.String(logkeys.TraceID, traceID),
+					zap.NamedError(logkeys.Error, err),
 				)
 				http.Error(w, "Failed to create request", http.StatusInternalServerError)
 				return
@@ -124,8 +125,8 @@ func main() {
 			resp, err := client.Do(req)
 			if err != nil {
 				logger.Error("Failed to call downstream service",
-					zap.String("trace_id", traceID),
-					zap.Error(err),
+					zap.String(logkeys.TraceID, traceID),
+					zap.NamedError(logkeys.Error, err),
 				)
 				http.Error(w, "Failed to call downstream service", http.StatusInternalServerError)
 				return
@@ -134,8 +135,8 @@ func main() {
 
 			// Log success
 			logger.Info("Downstream service call successful",
-				zap.String("trace_id", traceID),
-				zap.Int("status", resp.StatusCode),
+				zap.String(logkeys.TraceID, traceID),
+				zap.Int(logkeys.Status, resp.StatusCode),
 			)
 
 			// Return a response

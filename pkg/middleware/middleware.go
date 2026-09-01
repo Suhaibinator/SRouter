@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 	"slices"
 
+	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"go.uber.org/zap"
 )
 
@@ -39,10 +40,10 @@ func recovery(logger *zap.Logger) Middleware {
 				if rec := recover(); rec != nil {
 					// Log the panic
 					logger.Error("Panic recovered",
-						zap.Any("panic", rec),
-						zap.String("stack", string(debug.Stack())),
-						zap.String("method", r.Method),
-						zap.String("path", r.URL.Path),
+						zap.Any(logkeys.Panic, rec),
+						zap.String(logkeys.Stack, string(debug.Stack())),
+						zap.String(logkeys.Method, r.Method),
+						zap.String(logkeys.Path, r.URL.Path),
 					)
 
 					// Return a 500 Internal Server Error

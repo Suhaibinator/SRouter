@@ -9,6 +9,7 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
+	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
@@ -79,9 +80,9 @@ func ErrorLoggingMiddleware(logger *zap.Logger) common.Middleware {
 
 				// Log with structured fields
 				logger.Error("Handler error occurred",
-					zap.Error(err),
-					zap.String("path", path),
-					zap.String("method", method),
+					zap.NamedError(logkeys.Error, err),
+					zap.String(logkeys.Path, path),
+					zap.String(logkeys.Method, method),
 				)
 			}
 		})

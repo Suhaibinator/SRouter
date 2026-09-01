@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
+	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/Suhaibinator/SRouter/pkg/metrics"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
@@ -554,10 +555,10 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 			case <-ctx.Done():
 				// Timeout occurred. Log it.
 				fields := append(r.baseFields(req),
-					zap.Duration("timeout", timeout),
-					zap.String("client_ip", req.RemoteAddr),
-					zap.Int("status_code", http.StatusRequestTimeout),
-					zap.String("trace_id", r.errorTraceID(req)),
+					zap.Duration(logkeys.Timeout, timeout),
+					zap.String(logkeys.ClientIP, req.RemoteAddr),
+					zap.Int(logkeys.StatusCode, http.StatusRequestTimeout),
+					zap.String(logkeys.TraceID, r.errorTraceID(req)),
 				)
 				r.logger.Warn("Request timed out", fields...)
 
@@ -639,7 +640,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		buildErr = r.Build()
 	}
 	if buildErr != nil {
-		fields := append(r.baseFields(req), zap.Error(buildErr))
+		fields := append(r.baseFields(req), zap.NamedError(logkeys.Error, buildErr))
 		r.logger.Error("Failed to build route tree", fields...)
 		http.Error(w, "Router configuration error", http.StatusInternalServerError)
 		return
@@ -704,13 +705,13 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			// front so this per-request path allocates the slice exactly once.
 			fields := make([]zap.Field, 0, 10)
 			fields = append(fields,
-				zap.String("method", req.Method),
-				zap.String("path", req.URL.Path),
-				zap.Int("status", mrw.statusCode),
-				zap.Duration("duration", duration),
-				zap.Int64("bytes", mrw.bytesWritten),
-				zap.String("ip", ip),
-				zap.String("user_agent", ua),
+				zap.String(logkeys.Method, req.Method),
+				zap.String(logkeys.Path, req.URL.Path),
+				zap.Int(logkeys.Status, mrw.statusCode),
+				zap.Duration(logkeys.Duration, duration),
+				zap.Int64(logkeys.Bytes, mrw.bytesWritten),
+				zap.String(logkeys.IP, ip),
+				zap.String(logkeys.UserAgent, ua),
 			)
 			fields = r.addRuntimeIdentityFields(fields, req)
 			fields = r.addTrace(fields, req)
@@ -1125,10 +1126,10 @@ func (r *Router[T, U]) warnOnBuiltinAuthTokenFallback(path string, methods []Htt
 	}
 
 	r.logger.Warn("Auth-required route using built-in default auth token source",
-		zap.String("path", path),
-		zap.Strings("methods", routeMethodStrings(methods)),
-		zap.String("auth_token_source", "header"),
-		zap.String("header_name", defaultAuthHeaderName),
+		zap.String(logkeys.Path, path),
+		zap.Strings(logkeys.Methods, routeMethodStrings(methods)),
+		zap.String(logkeys.AuthTokenSource, "header"),
+		zap.String(logkeys.HeaderName, defaultAuthHeaderName),
 	)
 }
 
@@ -1222,8 +1223,8 @@ func (r *Router[T, U]) convertRateLimit(config *common.RateLimitConfig[any, any]
 // baseFields returns common log fields for the request.
 func (r *Router[T, U]) baseFields(req *http.Request) []zap.Field {
 	fields := []zap.Field{
-		zap.String("method", req.Method),
-		zap.String("path", req.URL.Path),
+		zap.String(logkeys.Method, req.Method),
+		zap.String(logkeys.Path, req.URL.Path),
 	}
 	return r.addRuntimeIdentityFields(fields, req)
 }
@@ -1232,10 +1233,10 @@ func (r *Router[T, U]) baseFields(req *http.Request) []zap.Field {
 // identities installed for this request, when present.
 func (r *Router[T, U]) addRuntimeIdentityFields(fields []zap.Field, req *http.Request) []zap.Field {
 	if buildID, ok := scontext.GetBuildIDFromRequest[T, U](req); ok {
-		fields = append(fields, zap.String("build_id", buildID))
+		fields = append(fields, zap.String(logkeys.BuildID, buildID))
 	}
 	if configID, ok := scontext.GetConfigIDFromRequest[T, U](req); ok {
-		fields = append(fields, zap.String("config_id", configID))
+		fields = append(fields, zap.String(logkeys.ConfigID, configID))
 	}
 	return fields
 }
@@ -1245,7 +1246,7 @@ func (r *Router[T, U]) addRuntimeIdentityFields(fields []zap.Field, req *http.Re
 func (r *Router[T, U]) addTrace(fields []zap.Field, req *http.Request) []zap.Field {
 	if r.config.TraceIDBufferSize > 0 {
 		if traceID := scontext.GetTraceIDFromRequest[T, U](req); traceID != "" {
-			fields = append(fields, zap.String("trace_id", traceID))
+			fields = append(fields, zap.String(logkeys.TraceID, traceID))
 		}
 	}
 	return fields
@@ -1321,14 +1322,14 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 	fields := make([]zap.Field, 0, 7+len(attachedFields))
 	fields = append(fields, sanitizeHTTPErrorFields(attachedFields)...)
 	if invalidStatusCode != 0 {
-		fields = append(fields, zap.Int("invalid_status_code", invalidStatusCode))
+		fields = append(fields, zap.Int(logkeys.InvalidStatusCode, invalidStatusCode))
 	}
 	fields = append(fields,
-		zap.Error(logErr),
-		zap.Int("status_code", statusCode),
+		zap.NamedError(logkeys.Error, logErr),
+		zap.Int(logkeys.StatusCode, statusCode),
 	)
 	fields = append(fields, r.baseFields(req)...)
-	fields = append(fields, zap.String("trace_id", traceID))
+	fields = append(fields, zap.String(logkeys.TraceID, traceID))
 	r.logger.Log(level, logMessage, fields...)
 
 	r.writeJSONError(w, req, statusCode, message, traceID)
@@ -1442,13 +1443,13 @@ func (r *Router[T, U]) logJSONErrorWriteFailure(req *http.Request, err error, st
 		traceID = r.errorTraceID(req)
 	}
 	fields := []zap.Field{
-		zap.Error(err),
-		zap.Int("status_code", statusCode),
-		zap.Int("original_status", statusCode),
-		zap.String("original_message", message),
+		zap.NamedError(logkeys.Error, err),
+		zap.Int(logkeys.StatusCode, statusCode),
+		zap.Int(logkeys.OriginalStatus, statusCode),
+		zap.String(logkeys.OriginalMessage, message),
 	}
 	fields = append(fields, r.baseFields(req)...)
-	fields = append(fields, zap.String("trace_id", traceID))
+	fields = append(fields, zap.String(logkeys.TraceID, traceID))
 	r.logger.Error("Failed to write JSON error response", fields...)
 }
 
@@ -1544,13 +1545,13 @@ func (e *HTTPError) WithLogLevel(level zapcore.Level) *HTTPError {
 }
 
 var reservedHTTPErrorFieldKeys = map[string]struct{}{
-	"build_id":    {},
-	"config_id":   {},
-	"error":       {},
-	"method":      {},
-	"path":        {},
-	"status_code": {},
-	"trace_id":    {},
+	logkeys.BuildID:    {},
+	logkeys.ConfigID:   {},
+	logkeys.Error:      {},
+	logkeys.Method:     {},
+	logkeys.Path:       {},
+	logkeys.StatusCode: {},
+	logkeys.TraceID:    {},
 }
 
 // sanitizeHTTPErrorFields removes boundary-owned fields and duplicate keys.
@@ -1588,10 +1589,10 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 		rw := &recoveryResponseWriter{ResponseWriter: w}
 		defer func() {
 			if rec := recover(); rec != nil {
-				fields := append([]zap.Field{zap.Any("panic", rec)}, r.baseFields(req)...)
+				fields := append([]zap.Field{zap.Any(logkeys.Panic, rec)}, r.baseFields(req)...)
 				fields = append(fields,
-					zap.Int("status_code", http.StatusInternalServerError),
-					zap.String("trace_id", r.errorTraceID(req)),
+					zap.Int(logkeys.StatusCode, http.StatusInternalServerError),
+					zap.String(logkeys.TraceID, r.errorTraceID(req)),
 				)
 				r.logger.Error("Panic recovered", fields...)
 
@@ -1674,10 +1675,10 @@ func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.A
 			if !ok {
 				traceID := r.errorTraceID(req)
 				fields := append(r.baseFields(req),
-					zap.String("remote_addr", req.RemoteAddr),
-					zap.String("error", reason),
-					zap.Int("status_code", http.StatusUnauthorized),
-					zap.String("trace_id", traceID),
+					zap.String(logkeys.RemoteAddr, req.RemoteAddr),
+					zap.String(logkeys.Error, reason),
+					zap.Int(logkeys.StatusCode, http.StatusUnauthorized),
+					zap.String(logkeys.TraceID, traceID),
 				)
 				r.logger.Info("Authentication failed", fields...)
 				r.writeJSONError(w, req, http.StatusUnauthorized, "Unauthorized", traceID)
