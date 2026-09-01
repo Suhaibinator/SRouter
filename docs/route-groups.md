@@ -5,7 +5,10 @@ SRouter has one runtime `Router` and one underlying `httprouter` dispatcher.
 not independent HTTP handlers.
 
 ```go
-r := router.NewRouter[string, User](config, authenticate, userID)
+r := router.NewRouter(config, router.RouterDependencies[string, User]{
+	Authenticate: authenticate,
+	UserID:       userID,
+})
 
 api := r.Group("/api").
 	Timeout(3 * time.Second).

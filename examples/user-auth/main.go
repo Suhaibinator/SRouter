@@ -118,7 +118,7 @@ func newUserAuthRouter(logger *zap.Logger) *router.Router[string, User] {
 
 	// These routes demonstrate standalone authentication middleware, so they all
 	// use NoAuth at the router's built-in authentication stage.
-	r := router.NewRouter[string, User](routerConfig, nil, nil)
+	r := router.NewRouter[string, User](routerConfig, router.RouterDependencies[string, User]{})
 
 	r.Group("/public").
 		Auth(router.NoAuth).

@@ -151,7 +151,10 @@ func newRateLimitingRouter(logger *zap.Logger) *router.Router[string, User] {
 		return user.ID
 	}
 
-	r := router.NewRouter(routerConfig, authFunction, userIDFromUser)
+	r := router.NewRouter(routerConfig, router.RouterDependencies[string, User]{
+		Authenticate: authFunction,
+		UserID:       userIDFromUser,
+	})
 
 	// Login requests have no authenticated identity yet, so this bucket is keyed
 	// by client IP.

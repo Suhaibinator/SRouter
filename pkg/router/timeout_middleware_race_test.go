@@ -18,7 +18,7 @@ func TestTimeoutMiddleware_WhenHandlerWritesBetweenHeaderCheckAndTimeoutStore_Ta
 	oldProcs := runtime.GOMAXPROCS(2)
 	defer runtime.GOMAXPROCS(oldProcs)
 
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	timeout := 50 * time.Microsecond
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -71,7 +71,7 @@ func TestTimeoutMiddleware_WhenHandlerPanicsInCASFailurePath_RethrowsToRecovery(
 	oldProcs := runtime.GOMAXPROCS(2)
 	defer runtime.GOMAXPROCS(oldProcs)
 
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	timeout := 50 * time.Microsecond
 
 	deadline := time.Now().Add(5 * time.Second)

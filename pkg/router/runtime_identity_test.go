@@ -37,15 +37,16 @@ func TestRuntimeIdentityProvidersSampleOncePerRequest(t *testing.T) {
 	r := NewRouter[string, struct{}](RouterConfig{
 		Logger:             zap.New(core),
 		EnableTraceLogging: true,
-		BuildIDProvider: func() string {
+	}, RouterDependencies[string, struct{}]{
+		BuildID: func() string {
 			buildCalls++
 			return buildID
 		},
-		ConfigIDProvider: func() string {
+		ConfigID: func() string {
 			configCalls++
 			return configID
 		},
-	}, nil, nil)
+	})
 	r.Route(RouteConfigBase{
 		Path:    "/identities",
 		Methods: []HttpMethod{MethodGet},
@@ -78,10 +79,10 @@ func TestRuntimeIdentityProvidersSampleOncePerRequest(t *testing.T) {
 }
 
 func TestRuntimeIdentityProvidersReplaceOnlyNonEmptyValues(t *testing.T) {
-	r := NewRouter[string, struct{}](RouterConfig{
-		BuildIDProvider:  func() string { return "local-build" },
-		ConfigIDProvider: func() string { return "" },
-	}, nil, nil)
+	r := NewRouter(RouterConfig{}, RouterDependencies[string, struct{}]{
+		BuildID:  func() string { return "local-build" },
+		ConfigID: func() string { return "" },
+	})
 	r.Route(RouteConfigBase{
 		Path:    "/identities",
 		Methods: []HttpMethod{MethodGet},
@@ -106,13 +107,12 @@ func TestRuntimeIdentityProvidersReplaceOnlyNonEmptyValues(t *testing.T) {
 
 func TestRuntimeIdentityProvidersLeaveAbsentValuesUnset(t *testing.T) {
 	buildCalls := 0
-	r := NewRouter[string, struct{}](RouterConfig{
-		BuildIDProvider: func() string {
+	r := NewRouter(RouterConfig{}, RouterDependencies[string, struct{}]{
+		BuildID: func() string {
 			buildCalls++
 			return ""
 		},
-		ConfigIDProvider: nil,
-	}, nil, nil)
+	})
 	r.Route(RouteConfigBase{
 		Path:    "/identities",
 		Methods: []HttpMethod{MethodGet},
@@ -137,13 +137,16 @@ func TestRuntimeIdentitiesEnrichAuthenticationAndErrorLogs(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
 	auth := AuthRequired
 	r := NewRouter[string, struct{}](RouterConfig{
-		Logger:           zap.New(core),
-		BuildIDProvider:  func() string { return "build-auth" },
-		ConfigIDProvider: func() string { return "config-auth" },
-	}, func(context.Context, string) (*struct{}, bool) {
-		return nil, false
-	}, func(*struct{}) string {
-		return "user"
+		Logger: zap.New(core),
+	}, RouterDependencies[string, struct{}]{
+		Authenticate: func(context.Context, string) (*struct{}, bool) {
+			return nil, false
+		},
+		UserID: func(*struct{}) string {
+			return "user"
+		},
+		BuildID:  func() string { return "build-auth" },
+		ConfigID: func() string { return "config-auth" },
 	})
 	r.Route(RouteConfigBase{
 		Path:      "/protected",

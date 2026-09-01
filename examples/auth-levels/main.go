@@ -105,7 +105,10 @@ func newAuthLevelsRouter(logger *zap.Logger) *router.Router[string, User] {
 		return user.ID
 	}
 
-	r := router.NewRouter(routerConfig, authFunction, userIDFromUser)
+	r := router.NewRouter(routerConfig, router.RouterDependencies[string, User]{
+		Authenticate: authFunction,
+		UserID:       userIDFromUser,
+	})
 
 	authLevels := r.Group("/auth-levels")
 	authLevels.Group("/no-auth").

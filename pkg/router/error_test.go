@@ -38,7 +38,7 @@ func TestErrorHandling(t *testing.T) {
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger: logger,
-	}, authFunction, userIdFromUserFunction)
+	}, RouterDependencies[string, string]{Authenticate: authFunction, UserID: userIdFromUserFunction})
 
 	// Register a route that returns an error
 	r.Route(RouteConfigBase{
@@ -155,7 +155,7 @@ func TestHandleError(t *testing.T) {
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger: logger,
-	}, authFunction, userIdFromUserFunction)
+	}, RouterDependencies[string, string]{Authenticate: authFunction, UserID: userIdFromUserFunction})
 
 	// Create a test request
 	req, err := http.NewRequest("GET", "/test", nil)

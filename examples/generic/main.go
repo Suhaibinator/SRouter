@@ -365,7 +365,7 @@ func main() {
 	}
 
 	// Create a router with string as both the user ID and user type
-	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter(routerConfig, router.RouterDependencies[string, string]{Authenticate: authFunction, UserID: userIdFromUserFunction})
 
 	registerRoutes(r)
 

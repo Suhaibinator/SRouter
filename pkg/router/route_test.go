@@ -63,8 +63,8 @@ func basicHandler(req *http.Request, data testRequest) (testResponse, error) {
 
 // Test case for scenario 1: Failed to decode query parameter data
 func TestRegisterTypedRoute_QueryParamDecodeError(t *testing.T) {
-	r := router.NewRouter[string, string](router.RouterConfig{}, nil, nil) // Use value receiver
-	mockCodec := &mockErrorCodec{}                                         // Codec that forces DecodeBytes error
+	r := router.NewRouter[string, string](router.RouterConfig{}, router.RouterDependencies[string, string]{}) // Use value receiver
+	mockCodec := &mockErrorCodec{}                                                                            // Codec that forces DecodeBytes error
 
 	routeConfig := router.RouteConfig[testRequest, testResponse]{
 		// RouteConfigBase fields are embedded
@@ -93,7 +93,7 @@ func TestRegisterTypedRoute_QueryParamDecodeError(t *testing.T) {
 
 // Test case for scenario 2: Missing required path parameter
 func TestRegisterTypedRoute_MissingPathParam(t *testing.T) {
-	r := router.NewRouter[string, string](router.RouterConfig{}, nil, nil) // Use value receiver
+	r := router.NewRouter[string, string](router.RouterConfig{}, router.RouterDependencies[string, string]{}) // Use value receiver
 	// Use a standard codec, the error is missing param, not decoding
 	jsonCodec := codec.NewJSONCodec[testRequest, testResponse]()
 
@@ -128,8 +128,8 @@ func TestRegisterTypedRoute_MissingPathParam(t *testing.T) {
 
 // Test case for scenario 3: Failed to decode path parameter data
 func TestRegisterTypedRoute_PathParamDecodeError(t *testing.T) {
-	r := router.NewRouter[string, string](router.RouterConfig{}, nil, nil) // Use value receiver
-	mockCodec := &mockErrorCodec{}                                         // Codec that forces DecodeBytes error
+	r := router.NewRouter[string, string](router.RouterConfig{}, router.RouterDependencies[string, string]{}) // Use value receiver
+	mockCodec := &mockErrorCodec{}                                                                            // Codec that forces DecodeBytes error
 
 	routeConfig := router.RouteConfig[testRequest, testResponse]{
 		// RouteConfigBase fields are embedded

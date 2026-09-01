@@ -70,7 +70,7 @@ func TestWebSocketRoute(t *testing.T) {
 		GlobalTimeout: 100 * time.Millisecond,
 	}
 
-	r := router.NewRouter[string, string](config, nil, nil)
+	r := router.NewRouter[string, string](config, router.RouterDependencies[string, string]{})
 
 	// Register a "WebSocket" route that sleeps longer than the global timeout
 	// Since DisableTimeout is true, it should NOT timeout.
@@ -137,7 +137,7 @@ func TestWebSocketRoutePreservesHijackerWithTracingEnabled(t *testing.T) {
 		TraceIDBufferSize: 1,
 	}
 
-	r := router.NewRouter[string, string](config, nil, nil)
+	r := router.NewRouter[string, string](config, router.RouterDependencies[string, string]{})
 
 	var sawHijacker bool
 	var hijackErr error
@@ -188,7 +188,7 @@ func TestWebSocketRouteHijackNotSupportedIsWrapped(t *testing.T) {
 		TraceIDBufferSize: 1,
 	}
 
-	r := router.NewRouter[string, string](config, nil, nil)
+	r := router.NewRouter[string, string](config, router.RouterDependencies[string, string]{})
 
 	var hijackErr error
 
@@ -231,7 +231,7 @@ func TestWebSocketRouteResponseControllerCanReachOptionalInterfaces(t *testing.T
 		TraceIDBufferSize: 1, // ensures the router wraps the ResponseWriter
 	}
 
-	r := router.NewRouter[string, string](config, nil, nil)
+	r := router.NewRouter[string, string](config, router.RouterDependencies[string, string]{})
 
 	var controllerErr error
 	var sawDeadlines bool
@@ -298,7 +298,7 @@ func TestRouteGroupWebSocketRoute(t *testing.T) {
 		GlobalTimeout: 100 * time.Millisecond,
 	}
 
-	r := router.NewRouter[string, string](config, nil, nil)
+	r := router.NewRouter[string, string](config, router.RouterDependencies[string, string]{})
 	r.Group("/sub").Timeout(50*time.Millisecond).Route(
 		router.RouteConfigBase{
 			Path:           "/ws",

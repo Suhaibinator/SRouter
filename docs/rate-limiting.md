@@ -12,7 +12,10 @@ config := router.RouterConfig{
 	},
 }
 
-r := router.NewRouter[string, User](config, authenticate, userID)
+r := router.NewRouter(config, router.RouterDependencies[string, User]{
+	Authenticate: authenticate,
+	UserID:       userID,
+})
 
 r.Group("/account").
 	Auth(router.AuthRequired).

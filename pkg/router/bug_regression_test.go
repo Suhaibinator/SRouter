@@ -31,7 +31,8 @@ func countingMiddleware(counter *atomic.Int64) common.Middleware {
 func TestStrategyUserRateLimitViaOverrides(t *testing.T) {
 	r := NewRouter(RouterConfig{
 		Logger: zap.NewNop(),
-	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+
 	r.Group("/api").Route(
 		RouteConfigBase{
 			Path:    "/limited",
@@ -68,7 +69,7 @@ func TestGroupRouteAppliesGlobalsOnce(t *testing.T) {
 	r := NewRouter(RouterConfig{
 		Logger:      zap.NewNop(),
 		Middlewares: []common.Middleware{countingMiddleware(&globalCount)},
-	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Group("/api").Route(RouteConfig[map[string]string, map[string]string]{
 		Path:    "/echo",
@@ -100,7 +101,8 @@ func TestNestedRouteGroupInheritsParentMiddlewares(t *testing.T) {
 
 	r := NewRouter(RouterConfig{
 		Logger: zap.NewNop(),
-	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+
 	api := r.Group("/api").Use(countingMiddleware(&parentCount))
 	api.Group("/v1").Use(countingMiddleware(&childCount)).Route(
 		RouteConfigBase{
@@ -132,7 +134,8 @@ func TestNestedRouteGroupInheritsParentMiddlewares(t *testing.T) {
 func TestNestedRouteGroupInheritsParentAuthLevel(t *testing.T) {
 	r := NewRouter(RouterConfig{
 		Logger: zap.NewNop(),
-	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+
 	api := r.Group("/api").Auth(AuthRequired)
 	api.Group("/v1").Route(
 		RouteConfigBase{
@@ -166,7 +169,7 @@ func TestNestedRouteGroupInheritsParentAuthLevel(t *testing.T) {
 // Regression test for BUGS.md #15: a retained group handle can receive routes
 // until the route tree is built.
 func TestRouteOnRetainedGroupHandle(t *testing.T) {
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	late := r.Group("/late")
 	late.Route(RouteConfig[map[string]string, map[string]string]{

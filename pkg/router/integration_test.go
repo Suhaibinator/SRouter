@@ -24,19 +24,16 @@ func TestRouteGroupIntegration(t *testing.T) {
 	r := NewRouter(RouterConfig{
 		Logger:            logger,
 		GlobalTimeout:     1 * time.Second,
-		GlobalMaxBodySize: 1024, // 1 KB
-	},
-		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (*string, bool) {
-			return nil, false // Return nil pointer for user
-		},
-		// Mock user ID function that returns the string itself
-		func(user *string) string {
-			if user == nil {
-				return "" // Handle nil pointer case
-			}
-			return *user // Dereference pointer
-		})
+		GlobalMaxBodySize: 1024,
+	}, RouterDependencies[string, string]{Authenticate: func(ctx context.Context, token string) (*string, bool) {
+		return nil, false
+	}, UserID: func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}})
+
 	r.Group("/api/v1").Timeout(2 * time.Second).MaxBodySize(2048).Route(RouteConfigBase{
 		Path:    "/users",
 		Methods: []HttpMethod{MethodGet},
@@ -95,18 +92,15 @@ func TestPathParameters(t *testing.T) {
 	// Create a router with a route that has path parameters and string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger: logger,
-	},
-		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (*string, bool) {
-			return nil, false // Return nil pointer for user
-		},
-		// Mock user ID function that returns the string itself
-		func(user *string) string {
-			if user == nil {
-				return "" // Handle nil pointer case
-			}
-			return *user // Dereference pointer
-		})
+	}, RouterDependencies[string, string]{Authenticate: func(ctx context.Context, token string) (*string, bool) {
+		return nil, false
+	}, UserID: func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}})
+
 	r.Group("/api").Route(
 		RouteConfigBase{
 			Path:    "/users/:id",
@@ -171,14 +165,13 @@ func TestTimeoutOverrides(t *testing.T) {
 	r := NewRouter(RouterConfig{
 		Logger:        logger,
 		GlobalTimeout: 100 * time.Millisecond,
-	},
-		func(ctx context.Context, token string) (*string, bool) { return nil, false },
-		func(user *string) string {
-			if user == nil {
-				return ""
-			}
-			return *user
-		})
+	}, RouterDependencies[string, string]{Authenticate: func(ctx context.Context, token string) (*string, bool) { return nil, false }, UserID: func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}})
+
 	r.Group("/api/v1").Timeout(50*time.Millisecond).Route(
 		RouteConfigBase{
 			Path:    "/fast",
@@ -247,15 +240,14 @@ func TestMaxBodySizeOverrides(t *testing.T) {
 	// Create a router with max body size overrides and string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger:            logger,
-		GlobalMaxBodySize: 10, // 10 bytes
-	},
-		func(ctx context.Context, token string) (*string, bool) { return nil, false },
-		func(user *string) string {
-			if user == nil {
-				return ""
-			}
-			return *user
-		})
+		GlobalMaxBodySize: 10,
+	}, RouterDependencies[string, string]{Authenticate: func(ctx context.Context, token string) (*string, bool) { return nil, false }, UserID: func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}})
+
 	r.Group("/api/v1").MaxBodySize(20).Route(
 		RouteConfigBase{
 			Path:    "/small",
@@ -335,18 +327,14 @@ func TestGenericRouteIntegration(t *testing.T) {
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger: logger,
-	},
-		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (*string, bool) {
-			return nil, false // Return nil pointer for user
-		},
-		// Mock user ID function that returns the string itself
-		func(user *string) string {
-			if user == nil {
-				return "" // Handle nil pointer case
-			}
-			return *user // Dereference pointer
-		})
+	}, RouterDependencies[string, string]{Authenticate: func(ctx context.Context, token string) (*string, bool) {
+		return nil, false
+	}, UserID: func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}})
 
 	// Register a generic route
 	r.Route(RouteConfig[TestRequest, TestResponse]{
@@ -399,20 +387,19 @@ func TestMiddlewareIntegration(t *testing.T) {
 	// Create a router with middleware and string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger: logger,
-		CORSConfig: &CORSConfig{ // Configure CORS directly in the router config
+		CORSConfig: &CORSConfig{
 			Origins: []string{"*"},
 			Methods: []string{"GET", "POST"},
 			Headers: []string{"Content-Type"},
 			MaxAge:  time.Hour,
 		},
-	},
-		func(ctx context.Context, token string) (*string, bool) { return nil, false },
-		func(user *string) string {
-			if user == nil {
-				return ""
-			}
-			return *user
-		})
+	}, RouterDependencies[string, string]{Authenticate: func(ctx context.Context, token string) (*string, bool) { return nil, false }, UserID: func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}})
+
 	r.Group("/api").Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("X-API-Version", "1.0")
@@ -475,18 +462,14 @@ func TestGracefulShutdown(t *testing.T) {
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger: logger,
-	},
-		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (*string, bool) {
-			return nil, false // Return nil pointer for user
-		},
-		// Mock user ID function that returns the string itself
-		func(user *string) string {
-			if user == nil {
-				return "" // Handle nil pointer case
-			}
-			return *user // Dereference pointer
-		})
+	}, RouterDependencies[string, string]{Authenticate: func(ctx context.Context, token string) (*string, bool) {
+		return nil, false
+	}, UserID: func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}})
 
 	// Register a route that sleeps
 	r.Route(RouteConfigBase{
@@ -561,18 +544,14 @@ func TestEdgeCases(t *testing.T) {
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger: logger,
-	},
-		// Mock auth function that always returns invalid
-		func(ctx context.Context, token string) (*string, bool) {
-			return nil, false // Return nil pointer for user
-		},
-		// Mock user ID function that returns the string itself
-		func(user *string) string {
-			if user == nil {
-				return "" // Handle nil pointer case
-			}
-			return *user // Dereference pointer
-		})
+	}, RouterDependencies[string, string]{Authenticate: func(ctx context.Context, token string) (*string, bool) {
+		return nil, false
+	}, UserID: func(user *string) string {
+		if user == nil {
+			return ""
+		}
+		return *user
+	}})
 
 	// Register a route with a root path
 	r.Route(RouteConfigBase{

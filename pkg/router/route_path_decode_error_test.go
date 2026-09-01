@@ -14,7 +14,7 @@ import (
 
 func TestRegisterTypedRoute_Base62PathParameter_DecodeBytesError(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:data",

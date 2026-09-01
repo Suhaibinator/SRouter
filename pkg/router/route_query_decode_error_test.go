@@ -39,7 +39,7 @@ func encodeBase62(b []byte) string {
 
 func TestRegisterTypedRoute_Base64QueryParameter_DecodeBytesError(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
@@ -67,7 +67,7 @@ func TestRegisterTypedRoute_Base64QueryParameter_DecodeBytesError(t *testing.T) 
 
 func TestRegisterTypedRoute_Base62QueryParameter_DecodeBytesError(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",

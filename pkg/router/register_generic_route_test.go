@@ -124,7 +124,7 @@ func SourceTestHandler(r *http.Request, req SourceTestRequest) (SourceTestRespon
 // (from register_generic_route_test.go)
 func TestRegisterTypedRouteWithBody(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
@@ -172,7 +172,7 @@ func errorSanitizer(_ context.Context, req RequestType) (RequestType, error) {
 // TestRegisterTypedRouteWithSanitizerSuccess tests successful sanitization
 func TestRegisterTypedRouteWithSanitizerSuccess(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test-sanitize-success",
@@ -214,7 +214,7 @@ func TestRegisterTypedRouteWithSanitizerSuccess(t *testing.T) {
 // TestRegisterTypedRouteWithSanitizerError tests sanitizer returning an error
 func TestRegisterTypedRouteWithSanitizerError(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test-sanitize-error",
@@ -256,7 +256,7 @@ func TestRegisterTypedRouteSanitizerReceivesRequestContext(t *testing.T) {
 	key := sanitizerContextKey{}
 	sanitizerCalled := false
 
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test-sanitize-context",
 		Methods:    []HttpMethod{MethodPost},
@@ -291,7 +291,7 @@ func TestRegisterTypedRouteSanitizerReceivesRequestContext(t *testing.T) {
 // (from register_generic_route_test.go)
 func TestRegisterTypedRouteWithUnsupportedSourceType(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
@@ -317,7 +317,7 @@ func TestRegisterTypedRouteWithAuthRequired(t *testing.T) {
 	logger := zap.NewNop()
 	// Auth function always returns true
 	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user123"; return &user, true }
-	r := NewRouter(RouterConfig{Logger: logger}, authFunc, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: authFunc, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
@@ -355,7 +355,7 @@ func TestRegisterTypedRouteWithAuthOptional(t *testing.T) {
 	logger := zap.NewNop()
 	// Auth function always returns true
 	authFunc := func(ctx context.Context, token string) (*string, bool) { user := "user123"; return &user, true }
-	r := NewRouter(RouterConfig{Logger: logger}, authFunc, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: authFunc, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
@@ -409,7 +409,7 @@ func TestRegisterTypedRouteWithAuthOptional(t *testing.T) {
 // (from register_generic_route_base62_test.go)
 func TestRegisterTypedRouteWithBase62QueryParameter(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
@@ -444,7 +444,7 @@ func TestRegisterTypedRouteWithBase62QueryParameter(t *testing.T) {
 // (from register_generic_route_base62_test.go)
 func TestRegisterTypedRouteWithBase62PathParameter(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:data",
@@ -479,7 +479,7 @@ func TestRegisterTypedRouteWithBase62PathParameter(t *testing.T) {
 // (from register_generic_route_base62_test.go)
 func TestRegisterTypedRouteWithBase62QueryParameterMissing(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
@@ -504,7 +504,7 @@ func TestRegisterTypedRouteWithBase62QueryParameterMissing(t *testing.T) {
 // (from register_generic_route_base62_test.go)
 func TestRegisterTypedRouteWithBase62QueryParameterInvalid(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test",
@@ -529,7 +529,7 @@ func TestRegisterTypedRouteWithBase62QueryParameterInvalid(t *testing.T) {
 // (from register_generic_route_base62_test.go)
 func TestRegisterTypedRouteWithBase62PathParameterMissing(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:somevalue",
@@ -554,7 +554,7 @@ func TestRegisterTypedRouteWithBase62PathParameterMissing(t *testing.T) {
 // (from register_generic_route_base62_test.go)
 func TestRegisterTypedRouteWithBase62PathParameterInvalid(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, ResponseType]{
 		Path:       "/test/:data",
@@ -579,7 +579,7 @@ func TestRegisterTypedRouteWithBase62PathParameterInvalid(t *testing.T) {
 // (from register_generic_route_error_test.go - adapted)
 func TestRegisterTypedRouteWithEncodeError(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfig[RequestType, UnmarshalableResponse]{
 		Path:    "/greet-encode-error",
@@ -607,7 +607,7 @@ func TestRegisterTypedRouteWithEncodeError(t *testing.T) {
 // (from register_generic_route_middleware_test.go)
 func TestRegisterTypedRouteWithMiddleware(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	middleware := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -653,7 +653,7 @@ func TestRegisterTypedRouteWithMiddleware(t *testing.T) {
 // (from register_generic_route_middleware_test.go)
 func TestRegisterTypedRouteWithTimeout(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	timeout := 1 * time.Millisecond
 	ctxErrCh := make(chan error, 1)
@@ -697,7 +697,7 @@ func TestRegisterTypedRouteWithTimeout(t *testing.T) {
 // (from register_generic_route_middleware_test.go)
 func TestRegisterTypedRouteWithMaxBodySize(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	// Calculate size of a JSON body to ensure our test is accurate
 	smallBody := RequestType{ID: "1", Name: "A"}
@@ -776,7 +776,7 @@ func TestRegisterTypedRouteWithBase64Parameters(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+			r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 			r.Route(RouteConfig[RequestType, ResponseType]{
 				Path:       tc.path,

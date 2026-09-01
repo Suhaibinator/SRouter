@@ -8,8 +8,6 @@ recursive route tree built with `Router` and `RouteGroup` methods.
 ```go
 type RouterConfig struct {
 	ServiceName         string
-	BuildIDProvider     func() string
-	ConfigIDProvider    func() string
 	Logger              *zap.Logger
 	GlobalTimeout       time.Duration
 	GlobalMaxBodySize   int64
@@ -26,12 +24,6 @@ type RouterConfig struct {
 }
 ```
 
-`BuildIDProvider` and `ConfigIDProvider` are optional. SRouter invokes each
-configured provider once per request and stores a non-empty result in the shared
-SRouter context. Returned strings are opaque, log-safe identifiers: SRouter does
-not parse, normalize, cache, or propagate them through headers. Providers must
-be concurrency-safe, fast, and non-panicking.
-
 - Global timeout, body-size, rate-limit, and auth-token settings are defaults
   inherited by route groups and routes.
 - Zero `GlobalTimeout` and `GlobalMaxBodySize` disable those policies. Negative
@@ -45,10 +37,39 @@ be concurrency-safe, fast, and non-panicking.
 Routes do not live inside `RouterConfig`. Add them after `NewRouter` with
 `Router.Route` and `Router.Group`.
 
-The authentication callbacks passed to `NewRouter` may be nil when every route
-resolves to `NoAuth`. If any route resolves to `AuthOptional` or `AuthRequired`,
-`Build` requires both the token-validation callback and the user-ID extraction
-callback.
+## `RouterDependencies[T, U]`
+
+Application behavior is grouped separately from static router configuration:
+
+```go
+type RouterDependencies[T comparable, U any] struct {
+	Authenticate func(context.Context, string) (*U, bool)
+	UserID       func(*U) T
+	BuildID      func() string
+	ConfigID     func() string
+}
+
+r := router.NewRouter(config, router.RouterDependencies[string, User]{
+	Authenticate: authenticate,
+	UserID:       userIDFromUser,
+	BuildID:      currentBuildID,
+	ConfigID:     currentConfigID,
+})
+```
+
+`Authenticate` and `UserID` may be nil when every route resolves to `NoAuth`.
+If any route resolves to `AuthOptional` or `AuthRequired`, `Build` requires both.
+
+`BuildID` and `ConfigID` are optional. SRouter invokes each non-nil resolver once
+per request and stores a non-empty result in the shared SRouter context. Returned
+strings are opaque, log-safe identifiers: SRouter does not parse, normalize,
+cache, or propagate them through headers. Resolvers must be concurrency-safe,
+fast, and non-panicking.
+
+This replaces the older three-argument constructor. Migrate
+`NewRouter(config, authenticate, userIDFromUser)` by wrapping the callbacks in a
+single `RouterDependencies` value as shown above. For a `NoAuth` router, pass an
+empty typed value such as `RouterDependencies[string, User]{}`.
 
 The router itself is the root group. Its fluent `Use`, `Timeout`,
 `MaxBodySize`, `RateLimit`, `AuthToken`, and `Auth` methods override global

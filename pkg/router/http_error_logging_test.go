@@ -19,7 +19,7 @@ import (
 
 func observedErrorRouter() (*Router[string, string], *observer.ObservedLogs) {
 	core, logs := observer.New(zap.DebugLevel)
-	r := NewRouter(RouterConfig{Logger: zap.New(core)}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.New(core)}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	return r, logs
 }
 

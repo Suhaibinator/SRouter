@@ -9,11 +9,14 @@ if err != nil {
 }
 defer logger.Sync()
 
-r := router.NewRouter[string, User](router.RouterConfig{
-	Logger:           logger,
-	BuildIDProvider:  func() string { return buildID },
-	ConfigIDProvider: func() string { return configID },
-}, authenticate, userIDFromUser)
+r := router.NewRouter(router.RouterConfig{
+	Logger: logger,
+}, router.RouterDependencies[string, User]{
+	Authenticate: authenticate,
+	UserID:       userIDFromUser,
+	BuildID:      func() string { return buildID },
+	ConfigID:     func() string { return configID },
+})
 ```
 
 ## Request summary logging
@@ -128,10 +131,13 @@ idGenerator := middleware.NewIDGenerator(1000)
 defer idGenerator.Stop()
 
 traceMiddleware := middleware.CreateTraceMiddleware[string, User](idGenerator)
-r := router.NewRouter[string, User](router.RouterConfig{
+r := router.NewRouter(router.RouterConfig{
 	Logger:             logger,
 	EnableTraceLogging: true,
-}, authenticate, userIDFromUser)
+}, router.RouterDependencies[string, User]{
+	Authenticate: authenticate,
+	UserID:       userIDFromUser,
+})
 
 handler := traceMiddleware(r)
 ```

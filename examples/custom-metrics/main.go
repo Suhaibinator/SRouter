@@ -160,7 +160,7 @@ func newApplication(requestMetrics *requestMetrics) (http.Handler, error) {
 		MetricsConfig: &router.MetricsConfig{
 			MiddlewareFactory: requestMetrics,
 		},
-	}, nil, nil)
+	}, router.RouterDependencies[string, struct{}]{})
 
 	r.Route(
 		router.RouteConfigBase{

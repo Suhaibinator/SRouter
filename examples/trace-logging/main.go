@@ -23,8 +23,6 @@ func main() {
 	// Create a router configuration with trace middleware
 	routerConfig := router.RouterConfig{
 		ServiceName:       "trace-logging-service", // Added ServiceName
-		BuildIDProvider:   func() string { return "trace-example-build" },
-		ConfigIDProvider:  func() string { return "trace-example-config" },
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
@@ -50,7 +48,12 @@ func main() {
 	}
 
 	// Create a router
-	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter(routerConfig, router.RouterDependencies[string, string]{
+		Authenticate: authFunction,
+		UserID:       userIdFromUserFunction,
+		BuildID:      func() string { return "trace-example-build" },
+		ConfigID:     func() string { return "trace-example-config" },
+	})
 
 	// Register a route that logs with trace ID
 	r.Route(router.RouteConfigBase{

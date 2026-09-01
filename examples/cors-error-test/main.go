@@ -60,7 +60,7 @@ func main() {
 	}
 
 	// Create the router
-	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter(routerConfig, router.RouterDependencies[string, string]{Authenticate: authFunction, UserID: userIdFromUserFunction})
 	r.Group("/api").Route(
 		// Route that will return an error
 		router.RouteConfig[TestRequest, *TestResponse]{

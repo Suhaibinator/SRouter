@@ -34,8 +34,8 @@ its zero value. The trace-ID getters instead return an empty string when no
 trace ID is set. `WithTraceID` preserves an existing ID rather than overwriting
 one propagated by an upstream service.
 
-Applications may configure `RouterConfig.BuildIDProvider` and
-`RouterConfig.ConfigIDProvider` to install opaque, log-safe runtime identities.
+Applications may configure `RouterDependencies.BuildID` and
+`RouterDependencies.ConfigID` to install opaque, log-safe runtime identities.
 SRouter samples each non-nil provider once at the beginning of every request,
 before CORS, routing, and middleware. Empty results remain unset; a non-empty
 local result replaces an inherited identity. Providers must be concurrency-safe,

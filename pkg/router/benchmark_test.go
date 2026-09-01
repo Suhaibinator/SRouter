@@ -80,7 +80,7 @@ func simpleLoggingMiddleware(logger *zap.Logger) common.Middleware { // Qualify 
 // BenchmarkSimpleRoute measures the baseline overhead for a simple GET request.
 func BenchmarkSimpleRoute(b *testing.B) {
 	logger := zaptest.NewLogger(b)
-	r := NewRouter(RouterConfig{Logger: logger}, nopAuthFunc, userIDFromString)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: nopAuthFunc, UserID: userIDFromString})
 	r.Route(RouteConfigBase{
 		Path:    "/hello",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
@@ -102,7 +102,7 @@ func BenchmarkSimpleRoute(b *testing.B) {
 // BenchmarkRouteWithParams measures the overhead of path parameter extraction.
 func BenchmarkRouteWithParams(b *testing.B) {
 	logger := zaptest.NewLogger(b)
-	r := NewRouter(RouterConfig{Logger: logger}, nopAuthFunc, userIDFromString)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: nopAuthFunc, UserID: userIDFromString})
 	r.Route(RouteConfigBase{
 		Path:    "/users/:id/posts/:postId", // Using existing path with two params
 		Methods: []HttpMethod{MethodGet},    // Use HttpMethod enum
@@ -131,10 +131,10 @@ func BenchmarkMiddlewareStack(b *testing.B) {
 	logger := zaptest.NewLogger(b)
 	r := NewRouter(RouterConfig{
 		Logger: logger,
-		Middlewares: []common.Middleware{ // Qualify Middleware
+		Middlewares: []common.Middleware{
 			simpleLoggingMiddleware(logger),
 		},
-	}, nopAuthFunc, userIDFromString)
+	}, RouterDependencies[string, string]{Authenticate: nopAuthFunc, UserID: userIDFromString})
 
 	// Define route-specific middleware stack
 	routeMiddleware := []common.Middleware{ // Qualify Middleware
@@ -185,7 +185,7 @@ type GenericResponseData struct {
 // BenchmarkGenericRouteBody measures overhead of generic route with JSON body decoding.
 func BenchmarkGenericRouteBody(b *testing.B) {
 	logger := zaptest.NewLogger(b)
-	r := NewRouter(RouterConfig{Logger: logger}, nopAuthFunc, userIDFromString)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: nopAuthFunc, UserID: userIDFromString})
 	jsonCodec := codec.NewJSONCodec[GenericRequestData, GenericResponseData]() // Add type arguments
 
 	// Remove err assignment, use RouteConfig, add missing args, use correct SourceType
@@ -229,7 +229,7 @@ type GenericPathParamData struct {
 // BenchmarkGenericRoutePathParam measures overhead of generic route with Base64 path param decoding.
 func BenchmarkGenericRoutePathParam(b *testing.B) {
 	logger := zaptest.NewLogger(b)
-	r := NewRouter(RouterConfig{Logger: logger}, nopAuthFunc, userIDFromString)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: nopAuthFunc, UserID: userIDFromString})
 	// Assuming a simple codec that can decode struct fields based on tags (like schema or a custom one)
 	// For this benchmark, we'll simulate the decoding within the handler for simplicity,
 	// but ideally, the codec handles this based on SourceType.
@@ -306,8 +306,8 @@ func BenchmarkRouterWithTimeout(b *testing.B) {
 	logger := zaptest.NewLogger(b)
 	r := NewRouter(RouterConfig{
 		Logger:        logger,
-		GlobalTimeout: 100 * time.Millisecond, // Shorter timeout for benchmark relevance
-	}, nopAuthFunc, userIDFromString)
+		GlobalTimeout: 100 * time.Millisecond,
+	}, RouterDependencies[string, string]{Authenticate: nopAuthFunc, UserID: userIDFromString})
 
 	r.Route(RouteConfigBase{
 		Path:    "/timeout",
@@ -335,7 +335,9 @@ func BenchmarkMemoryUsage(b *testing.B) {
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger: logger,
-	}, nopAuthFunc, userIDFromString) // Use nop funcs
+	}, RouterDependencies[string, string]{Authenticate: nopAuthFunc, UserID: userIDFromString})
+
+	// Use nop funcs
 
 	// Register many routes
 	routeCount := 1000
@@ -395,7 +397,8 @@ func BenchmarkInstrumentedAuthRoute(b *testing.B) {
 		Logger:            zap.NewNop(),
 		TraceIDBufferSize: 1000,
 		IPConfig:          DefaultIPConfig(),
-	}, nopAuthFunc, userIDFromString)
+	}, RouterDependencies[string, string]{Authenticate: nopAuthFunc, UserID: userIDFromString})
+
 	r.Route(RouteConfigBase{
 		Path:      "/secure",
 		Methods:   []HttpMethod{MethodGet},
@@ -436,7 +439,7 @@ func benchmarkMiddleware(next http.Handler) http.Handler {
 }
 
 func newRouteTreeBenchmarkRouter(routeCount, depth int, withMiddleware bool) *Router[string, string] {
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, nopAuthFunc, userIDFromString)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: nopAuthFunc, UserID: userIDFromString})
 	if depth == 0 {
 		for i := range routeCount {
 			r.Route(RouteConfigBase{
@@ -559,7 +562,7 @@ func BenchmarkBuiltRouteTreeCheck(b *testing.B) {
 }
 
 func newServeRouteTreeBenchmarkRouter(depth int, withMiddleware, withPolicy bool) (*Router[string, string], string) {
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, nopAuthFunc, userIDFromString)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: nopAuthFunc, UserID: userIDFromString})
 	path := ""
 	if depth == 0 {
 		// Keep the dispatcher path identical to the nested case so this benchmark
@@ -667,7 +670,7 @@ func BenchmarkCompiledRouteGroupDispatch(b *testing.B) {
 func BenchmarkCompiledRouteParamAccess(b *testing.B) {
 	for _, lookups := range []int{0, 1, 2} {
 		b.Run(fmt.Sprintf("lookups_%d", lookups), func(b *testing.B) {
-			r := NewRouter(RouterConfig{Logger: zap.NewNop()}, nopAuthFunc, userIDFromString)
+			r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: nopAuthFunc, UserID: userIDFromString})
 			parameterNames := [...]string{"id", "postID"}
 			r.Route(RouteConfigBase{
 				Path:    "/users/:id/posts/:postID",

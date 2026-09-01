@@ -42,9 +42,12 @@ values and concurrency rules.
 Middleware can be attached at four scopes:
 
 ```go
-r := router.NewRouter[string, User](router.RouterConfig{
+r := router.NewRouter(router.RouterConfig{
 	Middlewares: []common.Middleware{globalAudit},
-}, authenticate, userIDFromUser)
+}, router.RouterDependencies[string, User]{
+	Authenticate: authenticate,
+	UserID:       userIDFromUser,
+})
 
 r.Use(rootHeaders)
 

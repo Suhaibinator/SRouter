@@ -94,17 +94,19 @@ func main() {
 	defer func() { _ = logger.Sync() }()
 
 	// Create router with basic configuration
-	r := router.NewRouter[string, any](
+	r := router.NewRouter(
 		router.RouterConfig{
 			Logger:            logger,
 			GlobalMaxBodySize: 1 << 20, // 1 MiB; bound JSON decoding before middleware runs
 		},
-		// Simple auth functions for demo
-		func(ctx context.Context, userID string) (*any, bool) {
-			return nil, false
-		},
-		func(user *any) string {
-			return ""
+		router.RouterDependencies[string, any]{
+			// Simple auth functions for demo
+			Authenticate: func(ctx context.Context, userID string) (*any, bool) {
+				return nil, false
+			},
+			UserID: func(user *any) string {
+				return ""
+			},
 		},
 	)
 

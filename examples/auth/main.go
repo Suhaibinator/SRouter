@@ -58,7 +58,10 @@ func newAuthRouter(logger *zap.Logger) *router.Router[int64, int64] {
 		return *user
 	}
 
-	r := router.NewRouter(config, authFunction, userIDFromUser)
+	r := router.NewRouter(config, router.RouterDependencies[int64, int64]{
+		Authenticate: authFunction,
+		UserID:       userIDFromUser,
+	})
 
 	r.Group("/public").Route(router.RouteConfigBase{
 		Path:    "/resource",

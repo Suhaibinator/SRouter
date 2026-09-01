@@ -37,7 +37,7 @@ func TestWriteJSONError_MutexResponseWriter_SetsCORSHeaders(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+			r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 			req := httptest.NewRequest(http.MethodGet, "http://example.com/test", nil)
 			req = req.WithContext(scontext.WithCORSInfo[string, string](req.Context(), tc.allowedOrigin, tc.credentialsAllowed))
@@ -91,7 +91,7 @@ func (w *errResponseWriter) Write([]byte) (int, error) {
 func TestWriteJSONError_MutexResponseWriter_LogsOnEncodeFailure(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/test", nil)
 
@@ -146,10 +146,8 @@ func TestWriteJSONError_MutexResponseWriter_LogsOnEncodeFailure(t *testing.T) {
 func TestWriteJSONError_EncodeFailureGeneratesCorrelationTrace(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	r := NewRouter(
-		RouterConfig{Logger: zap.New(core)},
-		mocks.MockAuthFunction,
-		mocks.MockUserIDFromUser,
-	)
+		RouterConfig{Logger: zap.New(core)}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+
 	req := httptest.NewRequest(http.MethodDelete, "http://example.com/widgets/42", nil)
 
 	r.writeJSONError(&errResponseWriter{}, req, http.StatusInternalServerError, "Internal Server Error", "")
@@ -168,7 +166,7 @@ func TestWriteJSONError_EncodeFailureGeneratesCorrelationTrace(t *testing.T) {
 }
 
 func TestWriteJSONError_MutexResponseWriter_NoOpWhenHeaderAlreadyWritten(t *testing.T) {
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/test", nil)
 	rr := httptest.NewRecorder()

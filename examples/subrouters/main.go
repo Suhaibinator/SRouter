@@ -164,7 +164,7 @@ func main() {
 	}
 
 	// Create a router with string as both the user ID and user type
-	r := router.NewRouter[string, string](routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter[string, string](routerConfig, router.RouterDependencies[string, string]{Authenticate: authFunction, UserID: userIdFromUserFunction})
 
 	apiV1 := r.Group("/api/v1").Timeout(2 * time.Second).Use(VersionMiddleware("1.0"))
 	apiV1.Route(

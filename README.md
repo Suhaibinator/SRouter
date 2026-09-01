@@ -36,7 +36,7 @@ import (
 func main() {
 	r := router.NewRouter[string, string](router.RouterConfig{
 		ServiceName: "hello-service",
-	}, nil, nil)
+	}, router.RouterDependencies[string, string]{})
 
 	r.Route(router.RouteConfigBase{
 		Path:    "/hello",
@@ -58,8 +58,8 @@ func main() {
 curl http://localhost:8080/hello
 ```
 
-The authentication callbacks may be nil when every route uses `NoAuth`, as in
-this example. A nil logger is replaced by a production logger, with a no-op
+Authentication dependencies may be omitted when every route uses `NoAuth`, as
+in this example. A nil logger is replaced by a production logger, with a no-op
 fallback if logger creation fails.
 
 ## Core model

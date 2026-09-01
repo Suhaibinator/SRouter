@@ -11,7 +11,7 @@ import (
 )
 
 func TestRouterRootConfigurationMethodsAreFluent(t *testing.T) {
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	middlewareCalled := false
 
 	require.Same(t, r, r.Timeout(0))

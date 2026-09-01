@@ -214,18 +214,14 @@ func TestCORSBasic(t *testing.T) {
 			r := NewRouter(RouterConfig{
 				Logger:     logger,
 				CORSConfig: tc.corsConfig,
-			},
-				// Mock auth function that always returns invalid
-				func(ctx context.Context, token string) (*string, bool) {
-					return nil, false
-				},
-				// Mock user ID function
-				func(user *string) string {
-					if user == nil {
-						return ""
-					}
-					return *user
-				})
+			}, RouterDependencies[string, string]{Authenticate: func(ctx context.Context, token string) (*string, bool) {
+				return nil, false
+			}, UserID: func(user *string) string {
+				if user == nil {
+					return ""
+				}
+				return *user
+			}})
 
 			// Register a test route
 			r.Route(RouteConfigBase{
@@ -582,18 +578,14 @@ func TestCORSPreflight(t *testing.T) {
 			r := NewRouter(RouterConfig{
 				Logger:     logger,
 				CORSConfig: tc.corsConfig,
-			},
-				// Mock auth function that always returns invalid
-				func(ctx context.Context, token string) (*string, bool) {
-					return nil, false
-				},
-				// Mock user ID function
-				func(user *string) string {
-					if user == nil {
-						return ""
-					}
-					return *user
-				})
+			}, RouterDependencies[string, string]{Authenticate: func(ctx context.Context, token string) (*string, bool) {
+				return nil, false
+			}, UserID: func(user *string) string {
+				if user == nil {
+					return ""
+				}
+				return *user
+			}})
 
 			// Register a test route
 			r.Route(RouteConfigBase{
@@ -763,18 +755,14 @@ func TestCORSErrorResponses(t *testing.T) {
 			r := NewRouter(RouterConfig{
 				Logger:     logger,
 				CORSConfig: tc.corsConfig,
-			},
-				// Mock auth function that always returns invalid
-				func(ctx context.Context, token string) (*string, bool) {
-					return nil, false
-				},
-				// Mock user ID function
-				func(user *string) string {
-					if user == nil {
-						return ""
-					}
-					return *user
-				})
+			}, RouterDependencies[string, string]{Authenticate: func(ctx context.Context, token string) (*string, bool) {
+				return nil, false
+			}, UserID: func(user *string) string {
+				if user == nil {
+					return ""
+				}
+				return *user
+			}})
 
 			// Register a test route
 			r.Route(RouteConfigBase{
@@ -882,18 +870,14 @@ func TestCORSWithGenericRoutes(t *testing.T) {
 			r := NewRouter(RouterConfig{
 				Logger:     logger,
 				CORSConfig: tc.corsConfig,
-			},
-				// Mock auth function that always returns invalid
-				func(ctx context.Context, token string) (*string, bool) {
-					return nil, false
-				},
-				// Mock user ID function
-				func(user *string) string {
-					if user == nil {
-						return ""
-					}
-					return *user
-				})
+			}, RouterDependencies[string, string]{Authenticate: func(ctx context.Context, token string) (*string, bool) {
+				return nil, false
+			}, UserID: func(user *string) string {
+				if user == nil {
+					return ""
+				}
+				return *user
+			}})
 
 			// Register a generic route using the package-level types
 			r.Route(RouteConfig[genericCORSTestRequest, genericCORSTestResponse]{
