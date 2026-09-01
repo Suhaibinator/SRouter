@@ -80,7 +80,8 @@ func TestE2EFullStackAPI(t *testing.T) {
 				})
 			},
 		},
-	}, authFunc, userIDFunc)
+	}, RouterDependencies[string, e2eUser]{Authenticate: authFunc, UserID: userIDFunc})
+
 	api := r.Group("/api").Group("/v1").Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("X-API-Version", "v1")
@@ -279,7 +280,7 @@ func TestE2ERateLimiting(t *testing.T) {
 	const limit = 3
 	r := NewRouter(RouterConfig{
 		Logger: zap.NewNop(),
-	}, authFunc, userIDFunc)
+	}, RouterDependencies[string, e2eUser]{Authenticate: authFunc, UserID: userIDFunc})
 
 	r.Route(RouteConfigBase{
 		Path:    "/limited",
@@ -355,7 +356,7 @@ func TestE2ECORS(t *testing.T) {
 			AllowCredentials: true,
 			MaxAge:           time.Hour,
 		},
-	}, authFunc, userIDFunc)
+	}, RouterDependencies[string, e2eUser]{Authenticate: authFunc, UserID: userIDFunc})
 
 	r.Route(RouteConfigBase{
 		Path:    "/resource",
@@ -616,7 +617,7 @@ func TestE2ETimeoutAndPanicRecovery(t *testing.T) {
 	r := NewRouter(RouterConfig{
 		Logger:        zap.NewNop(),
 		GlobalTimeout: 100 * time.Millisecond,
-	}, authFunc, userIDFunc)
+	}, RouterDependencies[string, e2eUser]{Authenticate: authFunc, UserID: userIDFunc})
 
 	r.Route(RouteConfigBase{
 		Path:    "/slow",
@@ -698,7 +699,7 @@ func TestE2EConcurrentRequests(t *testing.T) {
 		Logger:            zap.NewNop(),
 		GlobalTimeout:     5 * time.Second,
 		TraceIDBufferSize: 100,
-	}, authFunc, userIDFunc)
+	}, RouterDependencies[string, e2eUser]{Authenticate: authFunc, UserID: userIDFunc})
 
 	r.Route(RouteConfig[e2eCreateUserRequest, e2eCreateUserResponse]{
 		Path:    "/echo",
@@ -779,7 +780,7 @@ func TestE2EGracefulShutdown(t *testing.T) {
 	r := NewRouter(RouterConfig{
 		Logger:        zap.NewNop(),
 		GlobalTimeout: 2 * time.Second,
-	}, authFunc, userIDFunc)
+	}, RouterDependencies[string, e2eUser]{Authenticate: authFunc, UserID: userIDFunc})
 
 	started := make(chan struct{})
 	r.Route(RouteConfigBase{

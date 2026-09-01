@@ -11,7 +11,7 @@ import (
 )
 
 func TestBuildRejectsTypedRouteWithInvalidPath(t *testing.T) {
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Route(RouteConfig[struct{}, struct{}]{
 		Path:    "relative",
 		Methods: []HttpMethod{MethodGet},

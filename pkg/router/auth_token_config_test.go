@@ -52,7 +52,7 @@ func TestBuildAuthTokenExtractor(t *testing.T) {
 
 func TestWarnOnInvalidAuthTokenConfigLogs(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel)
-	r := NewRouter(RouterConfig{Logger: zap.New(core)}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.New(core)}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.authRequiredMiddlewareWithConfig(common.AuthTokenConfig{Source: common.AuthTokenSourceCookie})
 	entries := logs.FilterMessage("Auth token cookie name not configured").All()
 	if len(entries) != 1 {
@@ -62,7 +62,7 @@ func TestWarnOnInvalidAuthTokenConfigLogs(t *testing.T) {
 
 func TestInitialAuthTokenConfig(t *testing.T) {
 	global := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "global"}
-	r := NewRouter(RouterConfig{Logger: zap.NewNop(), GlobalAuthToken: &global}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop(), GlobalAuthToken: &global}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	got := r.initialAuthTokenConfig()
 	if got.origin != authTokenOriginGlobal || got.config.CookieName != "global" {
@@ -72,7 +72,7 @@ func TestInitialAuthTokenConfig(t *testing.T) {
 
 func TestGlobalAuthTokenUsedAcrossRootAndNestedGroups(t *testing.T) {
 	global := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "auth_token"}
-	r := NewRouter(RouterConfig{Logger: zap.NewNop(), GlobalAuthToken: &global}, tokenAuthFunction, tokenUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop(), GlobalAuthToken: &global}, RouterDependencies[string, string]{Authenticate: tokenAuthFunction, UserID: tokenUserIDFromUser})
 
 	r.Route(
 		RouteConfigBase{Path: "/direct", Methods: []HttpMethod{MethodGet}, AuthLevel: new(AuthRequired), Handler: okHandler},
@@ -115,7 +115,7 @@ func TestAuthTokenPrecedenceAcrossGroups(t *testing.T) {
 	parent := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "parent"}
 	child := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "child"}
 	route := common.AuthTokenConfig{Source: common.AuthTokenSourceHeader, HeaderName: "X-Route-Token"}
-	r := NewRouter(RouterConfig{Logger: zap.NewNop(), GlobalAuthToken: &global}, tokenAuthFunction, tokenUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop(), GlobalAuthToken: &global}, RouterDependencies[string, string]{Authenticate: tokenAuthFunction, UserID: tokenUserIDFromUser})
 
 	r.Route(RouteConfigBase{Path: "/global", Methods: []HttpMethod{MethodGet}, AuthLevel: new(AuthRequired), Handler: okHandler})
 	api := r.Group("/api").AuthToken(&parent).Auth(AuthRequired)
@@ -155,7 +155,7 @@ func TestAuthTokenPrecedenceAcrossGroups(t *testing.T) {
 func TestGroupAuthTokenNilResetsInheritedSource(t *testing.T) {
 	global := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "global"}
 	parent := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "parent"}
-	r := NewRouter(RouterConfig{Logger: zap.NewNop(), GlobalAuthToken: &global}, tokenAuthFunction, tokenUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop(), GlobalAuthToken: &global}, RouterDependencies[string, string]{Authenticate: tokenAuthFunction, UserID: tokenUserIDFromUser})
 	api := r.Group("/api").AuthToken(&parent)
 	api.Group("/reset").AuthToken(nil).Auth(AuthRequired).Route(RouteConfigBase{
 		Path: "/protected", Methods: []HttpMethod{MethodGet}, Handler: okHandler,
@@ -180,7 +180,7 @@ func TestGroupAuthTokenNilResetsInheritedSource(t *testing.T) {
 
 func TestAuthRequiredBuiltInFallbackWarningAtBuild(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel)
-	r := NewRouter(RouterConfig{Logger: zap.New(core)}, tokenAuthFunction, tokenUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.New(core)}, RouterDependencies[string, string]{Authenticate: tokenAuthFunction, UserID: tokenUserIDFromUser})
 	r.Group("/api").Auth(AuthRequired).Route(RouteConfigBase{
 		Path: "/protected", Methods: []HttpMethod{MethodGet}, Handler: okHandler,
 	})
@@ -200,7 +200,7 @@ func TestAuthRequiredBuiltInFallbackWarningAtBuild(t *testing.T) {
 func TestConfiguredAuthTokenDoesNotWarnAtBuild(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel)
 	auth := common.AuthTokenConfig{Source: common.AuthTokenSourceCookie, CookieName: "token"}
-	r := NewRouter(RouterConfig{Logger: zap.New(core)}, tokenAuthFunction, tokenUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.New(core)}, RouterDependencies[string, string]{Authenticate: tokenAuthFunction, UserID: tokenUserIDFromUser})
 	r.Group("/api").Auth(AuthRequired).AuthToken(&auth).Route(RouteConfigBase{
 		Path: "/protected", Methods: []HttpMethod{MethodGet}, Handler: okHandler,
 	})

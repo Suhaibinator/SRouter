@@ -115,11 +115,11 @@ func main() {
 
 	// Create a router with string as both the user ID and user type
 	r := router.NewRouter(router.RouterConfig{
-		ServiceName:       "nested-subrouters-service", // Added ServiceName
+		ServiceName:       "nested-subrouters-service",
 		Logger:            logger,
 		GlobalTimeout:     5 * time.Second,
-		GlobalMaxBodySize: 1 << 20, // 1 MiB; applies to every nested body route
-	}, authFunction, userIdFromUserFunction)
+		GlobalMaxBodySize: 1 << 20,
+	}, router.RouterDependencies[string, string]{Authenticate: authFunction, UserID: userIdFromUserFunction})
 
 	// Create JSON codecs for our generic routes
 	greetingCodec := codec.NewJSONCodec[GreetingRequest, GreetingResponse]()

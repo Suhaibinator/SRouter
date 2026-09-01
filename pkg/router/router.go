@@ -26,16 +26,28 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// RouterDependencies contains application behavior used by a Router. BuildID
+// and ConfigID must be concurrency-safe, fast, and non-panicking.
+type RouterDependencies[T comparable, U any] struct {
+	// Authenticate validates a token and returns its user object.
+	Authenticate func(context.Context, string) (*U, bool)
+	// UserID extracts the stable user identity from an authenticated user.
+	UserID func(*U) T
+	// BuildID returns the current opaque application build identity.
+	BuildID func() string
+	// ConfigID returns the current opaque application configuration identity.
+	ConfigID func() string
+}
+
 // Router is the main router struct that implements http.Handler.
 // It provides routing, middleware support, graceful shutdown, and other features.
 type Router[T comparable, U any] struct {
 	config            RouterConfig
+	dependencies      RouterDependencies[T, U]
 	router            *httprouter.Router
 	routeTree         *routeTree[T, U]
 	logger            *zap.Logger
 	middlewares       []common.Middleware
-	authFunction      func(context.Context, string) (*U, bool)
-	getUserIdFromUser func(*U) T
 	rateLimiter       common.RateLimiter
 	wg                sync.WaitGroup
 	shutdown          bool
@@ -83,12 +95,11 @@ type authTokenExtractor func(*http.Request) (string, bool, string)
 //
 // Parameters:
 //   - config: Router infrastructure, global middleware, and default route settings
-//   - authFunction: function to validate tokens and return user objects
-//   - userIdFromuserFunction: function to extract a user ID from a user object
+//   - dependencies: application-provided authentication and runtime identity resolvers
 //
-// The authentication callbacks may be nil when every route resolves to NoAuth.
-// Build rejects an AuthOptional or AuthRequired route if either callback is nil.
-func NewRouter[T comparable, U any](config RouterConfig, authFunction func(context.Context, string) (*U, bool), userIdFromuserFunction func(*U) T) *Router[T, U] {
+// Authenticate and UserID may be nil when every route resolves to NoAuth. Build
+// rejects an AuthOptional or AuthRequired route if either dependency is nil.
+func NewRouter[T comparable, U any](config RouterConfig, dependencies RouterDependencies[T, U]) *Router[T, U] {
 	// Set up the logger
 	logger := config.Logger
 	if logger == nil {
@@ -106,13 +117,12 @@ func NewRouter[T comparable, U any](config RouterConfig, authFunction func(conte
 
 	// Create the router
 	r := &Router[T, U]{
-		config:            config,
-		routeTree:         newRouteTree[T, U](),
-		logger:            logger.Named("SRouter"),
-		authFunction:      authFunction,
-		getUserIdFromUser: userIdFromuserFunction,
-		middlewares:       config.Middlewares,
-		rateLimiter:       rateLimiter,
+		config:       config,
+		dependencies: dependencies,
+		routeTree:    newRouteTree[T, U](),
+		logger:       logger.Named("SRouter"),
+		middlewares:  config.Middlewares,
+		rateLimiter:  rateLimiter,
 		// CORS headers initialized below
 		metricsWriterPool: sync.Pool{
 			New: func() any {
@@ -365,10 +375,10 @@ func (r *Router[T, U]) registerCompiledRoute(candidate *httprouter.Router, route
 		authLevel = group.authLevel
 	}
 	if authLevel != nil && *authLevel != NoAuth {
-		if r.authFunction == nil {
+		if r.dependencies.Authenticate == nil {
 			return fmt.Errorf("route %q enables authentication without an authentication function", fullPath)
 		}
-		if r.getUserIdFromUser == nil {
+		if r.dependencies.UserID == nil {
 			return fmt.Errorf("route %q enables authentication without a user ID function", fullPath)
 		}
 	}
@@ -620,6 +630,8 @@ func combineMiddlewares(parent, child []common.Middleware) []common.Middleware {
 // request-summary logging when enabled, and delegates route matching to
 // httprouter. Trace IDs and configured metrics run inside matched route chains.
 func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	req = r.withRuntimeIdentities(req)
+
 	var buildErr error
 	if r.routeTree.ready.Load() {
 		buildErr = r.routeTree.buildErr
@@ -627,7 +639,8 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		buildErr = r.Build()
 	}
 	if buildErr != nil {
-		r.logger.Error("Failed to build route tree", zap.Error(buildErr))
+		fields := append(r.baseFields(req), zap.Error(buildErr))
+		r.logger.Error("Failed to build route tree", fields...)
 		http.Error(w, "Router configuration error", http.StatusInternalServerError)
 		return
 	}
@@ -689,7 +702,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			// 2) Build unified fields - the UNION of all previously separate log
 			// fields. Sized for all fields (including the optional trace ID) up
 			// front so this per-request path allocates the slice exactly once.
-			fields := make([]zap.Field, 0, 8)
+			fields := make([]zap.Field, 0, 10)
 			fields = append(fields,
 				zap.String("method", req.Method),
 				zap.String("path", req.URL.Path),
@@ -699,6 +712,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				zap.String("ip", ip),
 				zap.String("user_agent", ua),
 			)
+			fields = r.addRuntimeIdentityFields(fields, req)
 			fields = r.addTrace(fields, req)
 
 			// 3) Decide the log level based on status code, duration, and trace config
@@ -733,6 +747,30 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// Serve the request via the underlying router
 	r.router.ServeHTTP(rw, req)
+}
+
+// withRuntimeIdentities samples each configured provider once for this request
+// and stores non-empty opaque identities in the shared SRouter context. Local
+// provider values replace identities inherited on the incoming context.
+func (r *Router[T, U]) withRuntimeIdentities(req *http.Request) *http.Request {
+	ctx := req.Context()
+	changed := false
+	if provider := r.dependencies.BuildID; provider != nil {
+		if buildID := provider(); buildID != "" {
+			ctx = scontext.WithBuildID[T, U](ctx, buildID)
+			changed = true
+		}
+	}
+	if provider := r.dependencies.ConfigID; provider != nil {
+		if configID := provider(); configID != "" {
+			ctx = scontext.WithConfigID[T, U](ctx, configID)
+			changed = true
+		}
+	}
+	if !changed {
+		return req
+	}
+	return req.WithContext(ctx)
 }
 
 // handleCORS applies CORS logic based on the router's configuration.
@@ -1183,10 +1221,23 @@ func (r *Router[T, U]) convertRateLimit(config *common.RateLimitConfig[any, any]
 
 // baseFields returns common log fields for the request.
 func (r *Router[T, U]) baseFields(req *http.Request) []zap.Field {
-	return []zap.Field{
+	fields := []zap.Field{
 		zap.String("method", req.Method),
 		zap.String("path", req.URL.Path),
 	}
+	return r.addRuntimeIdentityFields(fields, req)
+}
+
+// addRuntimeIdentityFields appends the opaque build and configuration
+// identities installed for this request, when present.
+func (r *Router[T, U]) addRuntimeIdentityFields(fields []zap.Field, req *http.Request) []zap.Field {
+	if buildID, ok := scontext.GetBuildIDFromRequest[T, U](req); ok {
+		fields = append(fields, zap.String("build_id", buildID))
+	}
+	if configID, ok := scontext.GetConfigIDFromRequest[T, U](req); ok {
+		fields = append(fields, zap.String("config_id", configID))
+	}
+	return fields
 }
 
 // addTrace appends the automatic trace_id field when generation is enabled and
@@ -1267,7 +1318,7 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 	}
 
 	traceID := r.errorTraceID(req)
-	fields := make([]zap.Field, 0, 5+len(attachedFields))
+	fields := make([]zap.Field, 0, 7+len(attachedFields))
 	fields = append(fields, sanitizeHTTPErrorFields(attachedFields)...)
 	if invalidStatusCode != 0 {
 		fields = append(fields, zap.Int("invalid_status_code", invalidStatusCode))
@@ -1275,10 +1326,9 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 	fields = append(fields,
 		zap.Error(logErr),
 		zap.Int("status_code", statusCode),
-		zap.String("method", req.Method),
-		zap.String("path", req.URL.Path),
-		zap.String("trace_id", traceID),
 	)
+	fields = append(fields, r.baseFields(req)...)
+	fields = append(fields, zap.String("trace_id", traceID))
 	r.logger.Log(level, logMessage, fields...)
 
 	r.writeJSONError(w, req, statusCode, message, traceID)
@@ -1391,15 +1441,15 @@ func (r *Router[T, U]) logJSONErrorWriteFailure(req *http.Request, err error, st
 	if traceID == "" {
 		traceID = r.errorTraceID(req)
 	}
-	r.logger.Error("Failed to write JSON error response",
+	fields := []zap.Field{
 		zap.Error(err),
 		zap.Int("status_code", statusCode),
 		zap.Int("original_status", statusCode),
 		zap.String("original_message", message),
-		zap.String("method", req.Method),
-		zap.String("path", req.URL.Path),
-		zap.String("trace_id", traceID),
-	)
+	}
+	fields = append(fields, r.baseFields(req)...)
+	fields = append(fields, zap.String("trace_id", traceID))
+	r.logger.Error("Failed to write JSON error response", fields...)
 }
 
 // HTTPError represents a client-facing HTTP status and message with optional
@@ -1494,6 +1544,8 @@ func (e *HTTPError) WithLogLevel(level zapcore.Level) *HTTPError {
 }
 
 var reservedHTTPErrorFieldKeys = map[string]struct{}{
+	"build_id":    {},
+	"config_id":   {},
 	"error":       {},
 	"method":      {},
 	"path":        {},
@@ -1590,8 +1642,8 @@ func (r *Router[T, U]) authenticateRequest(req *http.Request, extractToken authT
 		return req, false, reason
 	}
 
-	if user, valid := r.authFunction(req.Context(), token); valid {
-		id := r.getUserIdFromUser(user)
+	if user, valid := r.dependencies.Authenticate(req.Context(), token); valid {
+		id := r.dependencies.UserID(user)
 		// When an SRouterContext already exists (always the case for requests
 		// routed through ServeHTTP, which installs it before dispatch), the
 		// With* helpers mutate it in place and return the same context. Any

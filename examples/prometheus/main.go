@@ -30,7 +30,7 @@ func newApplication() (http.Handler, error) {
 			EnableQPS:     true,
 			EnableErrors:  true,
 		},
-	}, nil, nil)
+	}, router.RouterDependencies[string, struct{}]{})
 
 	r.Route(
 		router.RouteConfigBase{

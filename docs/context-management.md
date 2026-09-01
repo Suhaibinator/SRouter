@@ -20,6 +20,8 @@ with the wrapper's internal lock.
 | Client IP | `WithClientIP`, `WithClientInfo` | `GetClientIP`, `GetClientIPFromRequest` |
 | User agent | `WithUserAgent`, `WithClientInfo` | `GetUserAgent`, `GetUserAgentFromRequest` |
 | Trace ID | `WithTraceID` | `GetTraceIDFromContext`, `GetTraceIDFromRequest` |
+| Build identity | `WithBuildID` | `GetBuildID`, `GetBuildIDFromRequest` |
+| Configuration identity | `WithConfigID` | `GetConfigID`, `GetConfigIDFromRequest` |
 | Database transaction | `WithTransaction` | `GetTransaction`, `GetTransactionFromRequest` |
 | Route template and path parameters | `WithRouteInfo`, `SetRouteInfo` | `GetRouteTemplateFromRequest`, `GetPathParamsFromRequest` |
 | Allowed CORS origin and credentials | `WithCORSInfo` | `GetCORSInfo`, `GetCORSInfoFromRequest` |
@@ -31,6 +33,17 @@ Most getters return `(value, ok)` so an unset value can be distinguished from
 its zero value. The trace-ID getters instead return an empty string when no
 trace ID is set. `WithTraceID` preserves an existing ID rather than overwriting
 one propagated by an upstream service.
+
+Applications may configure `RouterDependencies.BuildID` and
+`RouterDependencies.ConfigID` to install opaque, log-safe runtime identities.
+SRouter samples each non-nil provider once at the beginning of every request,
+before CORS, routing, and middleware. Empty results remain unset; a non-empty
+local result replaces an inherited identity. Providers must be concurrency-safe,
+fast, and non-panicking.
+
+These identities are not propagated through request or response headers.
+Non-HTTP work, such as background workers, can install already-sampled values
+with `WithBuildID` and `WithConfigID`.
 
 The router populates client information and, after a route match, its route
 template and path parameters. When CORS is configured, CORS information is

@@ -30,11 +30,7 @@ func TestMetricsConfig(t *testing.T) {
 			EnableQPS:        true,
 			EnableErrors:     true,
 		},
-	},
-		// Mock auth function that always returns invalid
-		mocks.MockAuthFunction,
-		// Mock user ID function that returns the string itself
-		mocks.MockUserIDFromUser)
+	}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	// Register a route
 	r.Route(RouteConfigBase{
@@ -81,8 +77,8 @@ func TestMetrics(t *testing.T) {
 		Logger:              logger,
 		EnableTraceLogging:  true,
 		TraceLoggingUseInfo: true,
-		TraceIDBufferSize:   1000, // Enable trace ID with buffer size of 1000
-	}, authFunction, userIdFromUserFunction)
+		TraceIDBufferSize:   1000,
+	}, RouterDependencies[string, string]{Authenticate: authFunction, UserID: userIdFromUserFunction})
 
 	// Register a route
 	r.Route(RouteConfigBase{
@@ -218,10 +214,12 @@ func TestTracing(t *testing.T) {
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger:              logger,
-		TraceIDBufferSize:   1000, // Enable trace ID with buffer size of 1000
+		TraceIDBufferSize:   1000,
 		EnableTraceLogging:  true,
 		TraceLoggingUseInfo: true,
-	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser) // Use mock functions
+	}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+
+	// Use mock functions
 
 	// Register a route
 	r.Route(RouteConfigBase{

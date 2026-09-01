@@ -87,7 +87,7 @@ func newOracleRouter() *router.Router[string, string] {
 		Logger:            zap.NewNop(),
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 8 << 10,
-	}, authenticate, userID)
+	}, router.RouterDependencies[string, string]{Authenticate: authenticate, UserID: userID})
 
 	runeCodec := NewRuneScrollCodec()
 	for _, route := range []router.RouteConfig[OracleRequest, OracleResponse]{

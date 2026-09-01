@@ -37,7 +37,7 @@ type TestData struct {
 // TestRouteMatching tests that routes are matched correctly
 func TestRouteMatching(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Group("/api").Route(RouteConfigBase{Path: "/users/:id", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) {
 		id := GetParam(req, "id")
 		_, err := w.Write([]byte("User ID: " + id))
@@ -68,7 +68,7 @@ func TestRouteMatching(t *testing.T) {
 // TestRouteGroupOverrides tests that route group overrides work correctly
 func TestRouteGroupOverrides(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 1 * time.Second}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, GlobalTimeout: 1 * time.Second}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Group("/api").Timeout(2*time.Second).Route(
 		RouteConfigBase{Path: "/slow", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(1500 * time.Millisecond)
@@ -110,7 +110,7 @@ func TestRouteGroupOverrides(t *testing.T) {
 // TestBodySizeLimits tests that body size limits are enforced
 func TestBodySizeLimits(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger, GlobalMaxBodySize: 10}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, GlobalMaxBodySize: 10}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Group("/api").MaxBodySize(20).Route(
 		RouteConfigBase{Path: "/small", Methods: []HttpMethod{MethodPost}, Overrides: common.RouteOverrides{MaxBodySize: 5}, Handler: func(w http.ResponseWriter, r *http.Request) {
 			_, err := io.ReadAll(r.Body)
@@ -202,7 +202,7 @@ func TestJSONCodec(t *testing.T) {
 		Greeting string `json:"greeting"`
 	}
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Route(RouteConfig[RouterTestRequest, RouterTestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[RouterTestRequest, RouterTestResponse](), Handler: func(r *http.Request, req RouterTestRequest) (RouterTestResponse, error) {
 		return RouterTestResponse{Greeting: "Hello, " + req.Name + "!"}, nil
 	}})
@@ -266,7 +266,7 @@ func TestMiddlewareChaining(t *testing.T) {
 	}
 
 	// Create the router
-	r := NewRouter(routerConfig, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(routerConfig, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Group("/api").Use(addHeaderMiddleware("RouteGroup", "true")).Route(testRoute)
 
 	// Create a test server
@@ -296,7 +296,7 @@ func TestMiddlewareChaining(t *testing.T) {
 // TestShutdown tests that the router can be gracefully shut down
 func TestShutdown(t *testing.T) {
 	logger, _ := zap.NewProduction()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Route(RouteConfigBase{Path: "/slow", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(500 * time.Millisecond)
 		_, err := w.Write([]byte("OK"))
@@ -344,7 +344,7 @@ func TestShutdown(t *testing.T) {
 // TestRouteCoverage exercises root route registration.
 func TestRouteCoverage(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Route(RouteConfigBase{Path: "/direct", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 		_, err := w.Write([]byte("Direct route"))
 		if err != nil {
@@ -374,7 +374,7 @@ func TestRouteCoverage(t *testing.T) {
 // TestGetParams tests the GetParams and GetParam functions
 func TestGetParamsCoverage(t *testing.T) { // Renamed to avoid conflict
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Route(RouteConfigBase{Path: "/users/:id/posts/:postId", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) {
 		params := GetParams(r)
 		if len(params) != 2 {
@@ -451,7 +451,7 @@ func TestUserAuthCoverage(t *testing.T) { // Renamed to avoid conflict
 // TestSimpleError tests returning errors from handlers
 func TestSimpleErrorCoverage(t *testing.T) { // Renamed to avoid conflict
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Route(RouteConfigBase{Path: "/error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) { http.Error(w, "Bad request", http.StatusBadRequest) }})
 	r.Route(RouteConfigBase{Path: "/regular-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -488,7 +488,7 @@ func TestSimpleErrorCoverage(t *testing.T) { // Renamed to avoid conflict
 
 // TestNewRouterWithNilLogger tests creating a router with a nil logger
 func TestNewRouterWithNilLogger(t *testing.T) {
-	r := NewRouter(RouterConfig{Logger: nil}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: nil}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	if r == nil {
 		t.Errorf("Expected router to be created with nil logger")
 		return
@@ -509,7 +509,7 @@ func TestRegisterTypedRouteCoverage(t *testing.T) { // Renamed to avoid conflict
 		Greeting string `json:"greeting"`
 		Age      int    `json:"age"`
 	}
-	r := NewRouter(RouterConfig{}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Route(RouteConfig[TestRequest, TestResponse]{Path: "/greet", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
 		return TestResponse{Greeting: "Hello, " + data.Name, Age: data.Age}, nil
 	}})
@@ -525,7 +525,7 @@ func TestRegisterTypedRouteCoverage(t *testing.T) { // Renamed to avoid conflict
 // TestHandleErrorWithHTTPError tests handling an error with an HTTPError, expecting JSON output
 func TestHandleErrorWithHTTPError(t *testing.T) {
 	logger := zap.NewNop() // Use Nop logger for testing
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	httpErr := NewHTTPError(http.StatusNotFound, "Not Found") // Use the actual message, not pre-formatted JSON
 	req, _ := http.NewRequest("GET", "/test", nil)
 	rr := httptest.NewRecorder()
@@ -564,7 +564,7 @@ func TestRegisterTypedRouteWithErrorCoverage(t *testing.T) { // Renamed to avoid
 		Greeting string `json:"greeting"`
 		Age      int    `json:"age"`
 	}
-	r := NewRouter(RouterConfig{}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Route(RouteConfig[TestRequest, TestResponse]{Path: "/greet-error", Methods: []HttpMethod{MethodPost}, Codec: codec.NewJSONCodec[TestRequest, TestResponse](), Handler: func(req *http.Request, data TestRequest) (TestResponse, error) {
 		return TestResponse{}, errors.New("handler error")
 	}})
@@ -600,7 +600,7 @@ func TestResponseWriterCoverage(t *testing.T) { // Renamed to avoid conflict
 
 // TestShutdownWithCancel tests the Shutdown method with a canceled context
 func TestShutdownWithCancel(t *testing.T) {
-	r := NewRouter(RouterConfig{}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	err := r.Shutdown(ctx)
@@ -611,7 +611,7 @@ func TestShutdownWithCancel(t *testing.T) {
 
 // TestShutdownStopsIDGenerator ensures the trace ID generator is stopped on shutdown.
 func TestShutdownStopsIDGenerator(t *testing.T) {
-	r := NewRouter(RouterConfig{Logger: zap.NewNop(), TraceIDBufferSize: 2}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop(), TraceIDBufferSize: 2}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	ctx := context.Background()
 	if err := r.Shutdown(ctx); err != nil {
 		t.Fatalf("Shutdown failed: %v", err)
@@ -678,7 +678,7 @@ func encodeBase62ForTest(data []byte) string {
 // when SourceKey is empty for Base64PathParameter and Base62PathParameter.
 func TestGenericRoutePathParameterFallback(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	// Define test data
 	testPayload := TestData{Value: "hello world"}
@@ -843,7 +843,7 @@ func TestGenericRoutePathParameterFallback(t *testing.T) {
 func TestWriteJSONError_CORSHeaders(t *testing.T) {
 	assert := assert.New(t)
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	tests := []struct {
 		name                 string
@@ -939,7 +939,7 @@ func TestRegisterTypedRouteErrorPaths(t *testing.T) {
 	core, observedLogs := observer.New(zapcore.WarnLevel) // Capture terminal failures and degraded timeout outcomes.
 	logger := zap.New(core)
 	// logger := zap.NewNop() // Original Nop logger
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	// --- Route Definitions for Error Cases ---
 
@@ -1281,7 +1281,7 @@ func TestRouteConfigDirectDefinition(t *testing.T) {
 		},
 	}
 
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Group("/sub").Timeout(time.Second).Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			req.Header.Set("X-Sub-Mw", "sub")
@@ -1338,7 +1338,7 @@ func TestRouteConfigDirectDefinition(t *testing.T) {
 		},
 	}
 	// Create new router with this route
-	slowRouter := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	slowRouter := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	slowRouter.Group("/sub-slow").Timeout(time.Second).Route(slowRouteCfg)
 
 	slowServer := httptest.NewServer(slowRouter)
@@ -1389,7 +1389,7 @@ func TestAuthRequiredMiddleware_OptionsRequireAuth(t *testing.T) {
 		return *user
 	}
 
-	r := NewRouter(RouterConfig{Logger: logger}, mockAuth, mockUserID)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mockAuth, UserID: mockUserID})
 
 	// Simple handler that checks for user ID if not OPTIONS
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -1473,7 +1473,7 @@ func TestAuthOptionalMiddleware_OptionsBypass(t *testing.T) {
 		return *user
 	}
 
-	r := NewRouter(RouterConfig{Logger: logger}, mockAuth, mockUserID)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mockAuth, UserID: mockUserID})
 
 	// Simple handler that checks for user ID if present (and method is not OPTIONS)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -1588,7 +1588,7 @@ func TestConcurrentRequests(t *testing.T) {
 		Middlewares: []common.Middleware{
 			addHeaderMiddleware("X-Global-Test", "true"),
 		},
-	}, authFunc, userIDFunc)
+	}, RouterDependencies[string, string]{Authenticate: authFunc, UserID: userIDFunc})
 
 	// 1. Simple GET route
 	r.Route(RouteConfigBase{
@@ -1752,7 +1752,7 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 		TraceIDBufferSize:  10,   // Enable tracing
 		EnableTraceLogging: true, // <<< ADD THIS LINE to enable the "Request metrics" log block
 	}
-	r := NewRouter(routerConfig, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(routerConfig, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	// 3. Register a simple route
 	r.Route(RouteConfigBase{

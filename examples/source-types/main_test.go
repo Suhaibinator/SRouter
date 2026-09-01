@@ -15,10 +15,8 @@ import (
 
 func TestSourceTypeEndpoints(t *testing.T) {
 	r := router.NewRouter[string, string](
-		router.RouterConfig{Logger: zap.NewNop()},
-		nil,
-		nil,
-	)
+		router.RouterConfig{Logger: zap.NewNop()}, router.RouterDependencies[string, string]{Authenticate: nil, UserID: nil})
+
 	registerRoutes(r)
 
 	payload := "{\"id\":\"1\"}"

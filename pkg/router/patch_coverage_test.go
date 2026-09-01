@@ -146,7 +146,7 @@ func TestMetricsConfigMiddlewareFactory(t *testing.T) {
 			Collector:         registry,
 			EnableQPS:         true,
 		},
-	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfigBase{
 		Path:    "/factory",
@@ -197,7 +197,8 @@ func TestMetricsConfigMismatchedFactoryFallsBackToCollector(t *testing.T) {
 			Subsystem:         "http",
 			EnableQPS:         true,
 		},
-	}, nil, nil)
+	}, RouterDependencies[int, string]{})
+
 	r.Route(RouteConfigBase{
 		Path:    "/collector",
 		Methods: []HttpMethod{MethodGet},
@@ -248,7 +249,7 @@ func TestMetricsConfigMismatchedFactoryFallsBackToCollector(t *testing.T) {
 // RateLimitConfig[any, any] override to the router's concrete types adapts
 // UserIDFromUser and UserIDToString so user-based rate limiting keeps working.
 func TestGetEffectiveRateLimitConvertsUserIDFunctions(t *testing.T) {
-	r := NewRouter(RouterConfig{}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	src := &common.RateLimitConfig[any, any]{
 		BucketName: "user-bucket",

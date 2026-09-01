@@ -11,7 +11,7 @@ import (
 func ExampleNewRouter() {
 	r := router.NewRouter[string, string](router.RouterConfig{
 		ServiceName: "hello-service",
-	}, nil, nil)
+	}, router.RouterDependencies[string, string]{})
 
 	r.Route(router.RouteConfigBase{
 		Path:    "/hello",

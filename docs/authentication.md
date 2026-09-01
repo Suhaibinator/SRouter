@@ -31,7 +31,7 @@ A route-level value wins over its innermost group, and inner groups win over out
 
 ## Router authentication functions
 
-Built-in authentication uses the callbacks passed to `NewRouter`:
+Built-in authentication uses `RouterDependencies` passed to `NewRouter`:
 
 ```go
 func authenticate(ctx context.Context, token string) (*User, bool) {
@@ -46,15 +46,18 @@ func userID(user *User) string {
 	return user.ID
 }
 
-r := router.NewRouter[string, User](config, authenticate, userID)
+r := router.NewRouter(config, router.RouterDependencies[string, User]{
+	Authenticate: authenticate,
+	UserID:       userID,
+})
 ```
 
 On success, `authenticate` must return a usable `*User` and `true`. SRouter passes that pointer to `userID`, stores the resulting ID in `SRouterContext`, and stores the user pointer as well when `RouterConfig.AddUserObjectToCtx` is true.
 
-The callbacks are required only if at least one compiled route resolves to `AuthOptional` or `AuthRequired`. `Build` fails with a descriptive error when such a route exists and either callback is nil. A router containing only `NoAuth` routes can use:
+The authentication dependencies are required only if at least one compiled route resolves to `AuthOptional` or `AuthRequired`. `Build` fails with a descriptive error when such a route exists and either dependency is nil. A router containing only `NoAuth` routes can use:
 
 ```go
-r := router.NewRouter[string, User](config, nil, nil)
+r := router.NewRouter[string, User](config, router.RouterDependencies[string, User]{})
 ```
 
 Calling `Build` during startup is recommended so callback and route configuration errors are reported before serving traffic. Otherwise the first request triggers the build.
@@ -148,7 +151,7 @@ Choose one of these arrangements when user-based limiting must use custom authen
 - Wrap the whole router with authentication before assigning it to `http.Server.Handler`:
 
   ```go
-  r := router.NewRouter[string, User](config, nil, nil)
+  r := router.NewRouter[string, User](config, router.RouterDependencies[string, User]{})
   srv := &http.Server{Handler: corsAwareAPIKeyAuth(r)}
   ```
 

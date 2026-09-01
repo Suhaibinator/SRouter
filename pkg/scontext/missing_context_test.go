@@ -2,6 +2,7 @@ package scontext
 
 import (
 	"context"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -18,6 +19,19 @@ func TestGettersWithoutSRouterContext(t *testing.T) {
 	}
 	if user, ok := GetUser[string, any](ctx); ok || user != nil {
 		t.Errorf("GetUser = (%v, %v), want (nil, false)", user, ok)
+	}
+	if buildID, ok := GetBuildID[string, any](ctx); ok || buildID != "" {
+		t.Errorf("GetBuildID = (%q, %v), want (empty, false)", buildID, ok)
+	}
+	if configID, ok := GetConfigID[string, any](ctx); ok || configID != "" {
+		t.Errorf("GetConfigID = (%q, %v), want (empty, false)", configID, ok)
+	}
+	req := httptest.NewRequest("GET", "/", nil)
+	if buildID, ok := GetBuildIDFromRequest[string, any](req); ok || buildID != "" {
+		t.Errorf("GetBuildIDFromRequest = (%q, %v), want (empty, false)", buildID, ok)
+	}
+	if configID, ok := GetConfigIDFromRequest[string, any](req); ok || configID != "" {
+		t.Errorf("GetConfigIDFromRequest = (%q, %v), want (empty, false)", configID, ok)
 	}
 	if value, exists := GetFlag[string, any](ctx, "feature"); exists || value {
 		t.Errorf("GetFlag = (%v, %v), want (false, false)", value, exists)
@@ -59,6 +73,12 @@ func TestGettersWithSRouterContextButUnsetValues(t *testing.T) {
 
 	if id, ok := GetUserID[string, any](ctx); ok || id != "" {
 		t.Errorf("GetUserID = (%q, %v), want (\"\", false)", id, ok)
+	}
+	if buildID, ok := GetBuildID[string, any](ctx); ok || buildID != "" {
+		t.Errorf("GetBuildID = (%q, %v), want (empty, false)", buildID, ok)
+	}
+	if configID, ok := GetConfigID[string, any](ctx); ok || configID != "" {
+		t.Errorf("GetConfigID = (%q, %v), want (empty, false)", configID, ok)
 	}
 	if value, exists := GetFlag[string, any](ctx, "feature"); exists || value {
 		t.Errorf("GetFlag = (%v, %v), want (false, false)", value, exists)

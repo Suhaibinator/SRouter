@@ -14,7 +14,7 @@ import (
 )
 
 func TestTimeoutMiddleware_WhenHandlerStartedWriting_DoesNotOverrideResponse(t *testing.T) {
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	timeout := 25 * time.Millisecond
 	wroteHeader := make(chan struct{})
@@ -62,7 +62,7 @@ func TestTimeoutMiddleware_WhenHandlerStartedWriting_DoesNotOverrideResponse(t *
 }
 
 func TestTimeoutMiddleware_WhenHandlerPanicsAfterTimeoutAndStartedWrite_RethrowsToRecovery(t *testing.T) {
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	timeout := 15 * time.Millisecond
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -91,7 +91,7 @@ func TestTimeoutMiddleware_WhenHandlerPanicsAfterTimeoutAndStartedWrite_Rethrows
 
 func TestTimeoutMiddleware_LogsStructuredWarning(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
-	r := NewRouter(RouterConfig{Logger: zap.New(core)}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.New(core)}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	handler := r.timeoutMiddleware(5 * time.Millisecond)(http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
 		<-req.Context().Done()
 	}))

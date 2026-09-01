@@ -26,7 +26,10 @@ config := router.RouterConfig{
 	},
 }
 
-r := router.NewRouter[string, User](config, authenticate, userIDFromUser)
+r := router.NewRouter(config, router.RouterDependencies[string, User]{
+	Authenticate: authenticate,
+	UserID:       userIDFromUser,
+})
 ```
 
 With the built-in middleware, non-empty `Namespace` and `Subsystem` values become the default tags `service` and `subsystem`, respectively. They do not configure a backend's native namespace or subsystem. For example, the Prometheus adapter's namespace and subsystem are separately supplied to `prometheus.NewPrometheusRegistry` and become metric-name prefixes.

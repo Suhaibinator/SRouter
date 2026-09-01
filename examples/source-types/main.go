@@ -142,8 +142,8 @@ func main() {
 	}
 
 	// Authentication is unrelated to request-source decoding, so this example
-	// leaves the router's authentication callbacks unset.
-	r := router.NewRouter[string, string](routerConfig, nil, nil)
+	// leaves the router's authentication dependencies unset.
+	r := router.NewRouter[string, string](routerConfig, router.RouterDependencies[string, string]{})
 
 	registerRoutes(r)
 

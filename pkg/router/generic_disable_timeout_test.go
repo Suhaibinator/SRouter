@@ -31,7 +31,8 @@ func TestGenericRouteDefinitionDisableTimeoutBypassesGlobalTimeout(t *testing.T)
 	r := NewRouter[string, string](RouterConfig{
 		Logger:        zap.NewNop(),
 		GlobalTimeout: 25 * time.Millisecond,
-	}, nil, nil)
+	}, RouterDependencies[string, string]{})
+
 	r.Group("/api").Route(
 		newGenericRoute("/slow-disabled", true),
 		newGenericRoute("/slow-enabled", false),
@@ -54,7 +55,8 @@ func TestGenericRouteDefinitionDisableTimeoutBypassesGlobalTimeout(t *testing.T)
 func TestGroupRouteDisableTimeoutBypassesGroupTimeout(t *testing.T) {
 	r := NewRouter[string, string](RouterConfig{
 		Logger: zap.NewNop(),
-	}, nil, nil)
+	}, RouterDependencies[string, string]{})
+
 	api := r.Group("/api").Timeout(25 * time.Millisecond)
 
 	registerGenericRoute := func(path string, disableTimeout bool) {

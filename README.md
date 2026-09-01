@@ -36,7 +36,7 @@ import (
 func main() {
 	r := router.NewRouter[string, string](router.RouterConfig{
 		ServiceName: "hello-service",
-	}, nil, nil)
+	}, router.RouterDependencies[string, string]{})
 
 	r.Route(router.RouteConfigBase{
 		Path:    "/hello",
@@ -58,8 +58,8 @@ func main() {
 curl http://localhost:8080/hello
 ```
 
-The authentication callbacks may be nil when every route uses `NoAuth`, as in
-this example. A nil logger is replaced by a production logger, with a no-op
+Authentication dependencies may be omitted when every route uses `NoAuth`, as
+in this example. A nil logger is replaced by a production logger, with a no-op
 fallback if logger creation fails.
 
 ## Core model
@@ -137,6 +137,8 @@ not called. A failed build is terminal for that router; later mutation panics.
   built-in authentication stage to populate identity first.
 - `TraceIDBufferSize` controls trace-ID generation. `EnableTraceLogging`
   independently enables request-summary logs.
+- Optional build and config identity providers are sampled once per request and
+  stored in the shared SRouter context.
 - Proxy headers are trusted only when explicitly configured. Review the IP
   guide before enabling them because client-IP choice affects security and
   rate-limit keys.

@@ -36,7 +36,7 @@ func main() {
 		GlobalMaxBodySize: 1 << 20,
 	}
 
-	r := router.NewRouter[string, string](config, nil, nil)
+	r := router.NewRouter[string, string](config, router.RouterDependencies[string, string]{})
 	r.Route(router.RouteConfigBase{
 		Path:    "/hello",
 		Methods: []router.HttpMethod{router.MethodGet},
@@ -67,7 +67,7 @@ with `r.Route`; recursive path scopes are created with `r.Group`. Both root and
 group `Route` methods accept standard `RouteConfigBase` values and typed
 `RouteConfig[Req, Resp]` values.
 
-The authentication callbacks may be nil while every effective route auth level
+Authentication dependencies may be nil while every effective route auth level
 is `NoAuth`. Supply them before adding `AuthOptional` or `AuthRequired` routes.
 
 Calling `Build` during startup is recommended. It validates the full route tree

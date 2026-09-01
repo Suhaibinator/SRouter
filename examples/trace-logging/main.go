@@ -48,7 +48,12 @@ func main() {
 	}
 
 	// Create a router
-	r := router.NewRouter(routerConfig, authFunction, userIdFromUserFunction)
+	r := router.NewRouter(routerConfig, router.RouterDependencies[string, string]{
+		Authenticate: authFunction,
+		UserID:       userIdFromUserFunction,
+		BuildID:      func() string { return "trace-example-build" },
+		ConfigID:     func() string { return "trace-example-config" },
+	})
 
 	// Register a route that logs with trace ID
 	r.Route(router.RouteConfigBase{
@@ -57,10 +62,14 @@ func main() {
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Get the trace ID
 			traceID := scontext.GetTraceIDFromRequest[string, string](r) // Use scontext
+			buildID, _ := scontext.GetBuildIDFromRequest[string, string](r)
+			configID, _ := scontext.GetConfigIDFromRequest[string, string](r)
 
 			// Log with trace ID
 			logger.Info("Processing request",
 				zap.String("trace_id", traceID),
+				zap.String("build_id", buildID),
+				zap.String("config_id", configID),
 				zap.String("handler", "hello"),
 			)
 
@@ -70,6 +79,8 @@ func main() {
 			// Log again with the same trace ID
 			logger.Info("Request processed successfully",
 				zap.String("trace_id", traceID),
+				zap.String("build_id", buildID),
+				zap.String("config_id", configID),
 				zap.String("handler", "hello"),
 			)
 

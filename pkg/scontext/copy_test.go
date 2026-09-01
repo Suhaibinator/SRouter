@@ -28,6 +28,8 @@ func createFullSRouterContext() context.Context {
 	ctx := context.Background()
 	userID := 123
 	user := &testUser{ID: 456, Name: "John Doe"}
+	buildID := "build-123"
+	configID := "config-456"
 	traceID := "trace-123"
 	clientIP := "192.168.1.1"
 	userAgent := "test-agent"
@@ -45,6 +47,8 @@ func createFullSRouterContext() context.Context {
 	// Set all values in context
 	ctx = WithUserID[int, testUser](ctx, userID)
 	ctx = WithUser[int](ctx, user)
+	ctx = WithBuildID[int, testUser](ctx, buildID)
+	ctx = WithConfigID[int, testUser](ctx, configID)
 	ctx = WithTraceID[int, testUser](ctx, traceID)
 	ctx = WithClientIP[int, testUser](ctx, clientIP)
 	ctx = WithUserAgent[int, testUser](ctx, userAgent)
@@ -66,6 +70,8 @@ func verifyFullSRouterContext(t *testing.T, ctx context.Context, testName string
 
 	userID := 123
 	user := &testUser{ID: 456, Name: "John Doe"}
+	buildID := "build-123"
+	configID := "config-456"
 	traceID := "trace-123"
 	clientIP := "192.168.1.1"
 	userAgent := "test-agent"
@@ -88,6 +94,16 @@ func verifyFullSRouterContext(t *testing.T, ctx context.Context, testName string
 	copiedUser, ok := GetUser[int, testUser](ctx)
 	if !ok || copiedUser == nil || copiedUser.ID != user.ID || copiedUser.Name != user.Name {
 		t.Errorf("%s: User not copied correctly. Expected %+v, got %+v (ok: %v)", testName, user, copiedUser, ok)
+	}
+
+	copiedBuildID, ok := GetBuildID[int, testUser](ctx)
+	if !ok || copiedBuildID != buildID {
+		t.Errorf("%s: BuildID not copied correctly. Expected %s, got %s (ok: %v)", testName, buildID, copiedBuildID, ok)
+	}
+
+	copiedConfigID, ok := GetConfigID[int, testUser](ctx)
+	if !ok || copiedConfigID != configID {
+		t.Errorf("%s: ConfigID not copied correctly. Expected %s, got %s (ok: %v)", testName, configID, copiedConfigID, ok)
 	}
 
 	copiedTraceID := GetTraceIDFromContext[int, testUser](ctx)

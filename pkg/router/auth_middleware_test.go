@@ -42,7 +42,7 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 		return *user
 	}
 
-	router := NewRouter(config, authFunction, getUserIDFromUser)
+	router := NewRouter(config, RouterDependencies[string, string]{Authenticate: authFunction, UserID: getUserIDFromUser})
 
 	// Create a base test handler
 	baseHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -139,7 +139,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 	core, logs := observer.New(zap.InfoLevel)
 	logger := zap.New(core)
 
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := scontext.GetUserIDFromRequest[string, string](r) // Use scontext
@@ -205,7 +205,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 	// Test with valid Authorization header (using debug logger)
 	debugCore, debugLogs := observer.New(zap.DebugLevel)
 	debugLogger := zap.New(debugCore)
-	r = NewRouter(RouterConfig{Logger: debugLogger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r = NewRouter(RouterConfig{Logger: debugLogger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	wrappedHandler = r.authRequiredMiddlewareWithConfig(defaultAuthTokenConfig())(handler) // Re-wrap with new router instance
 
 	req, _ = http.NewRequest("GET", "/test", nil)
@@ -249,7 +249,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 
 func TestAuthRequiredRejectionIsInfoWithBoundaryContext(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
-	r := NewRouter(RouterConfig{Logger: zap.New(core)}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.New(core)}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	handler := r.authRequiredMiddlewareWithConfig(defaultAuthTokenConfig())(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("next handler called after authentication rejection")
 	}))
@@ -314,7 +314,7 @@ func TestAuthRequiredMiddlewareWithUserObject(t *testing.T) {
 		return *user
 	}
 
-	router := NewRouter(config, authFunction, getUserIDFromUser)
+	router := NewRouter(config, RouterDependencies[string, string]{Authenticate: authFunction, UserID: getUserIDFromUser})
 
 	// Handler that checks both user ID and user object in context
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +359,7 @@ func TestAuthRequiredMiddlewareWithUserObject(t *testing.T) {
 
 func TestAuthRequiredMiddlewareWithCookieSource(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := scontext.GetUserIDFromRequest[string, string](r)
@@ -404,7 +404,7 @@ func TestAuthRequiredMiddlewareWithTraceID(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 
-	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1000}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1000}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -455,7 +455,7 @@ func TestAuthRequiredMiddlewareWithTraceID(t *testing.T) {
 // (from advanced_features_test.go)
 func TestAuthMiddlewareIntegration(t *testing.T) {
 	logger := zap.NewNop()
-	r := NewRouter(RouterConfig{Logger: logger}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	r.Route(RouteConfigBase{
 		Path:      "/protected",

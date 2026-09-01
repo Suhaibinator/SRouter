@@ -15,7 +15,7 @@ import (
 )
 
 func TestRouteGroupRegistersNestedRoutes(t *testing.T) {
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	api := r.Group("/api")
 	v1 := api.Group("/v1")
 	users := v1.Group("/users")
@@ -49,7 +49,8 @@ func TestRouteGroupMiddlewareOrder(t *testing.T) {
 	r := NewRouter(RouterConfig{
 		Logger:      zap.NewNop(),
 		Middlewares: []common.Middleware{middleware("global")},
-	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+
 	api := r.Group("/api").Use(middleware("api"))
 	api.Group("/v1").Use(middleware("v1")).Route(RouteConfigBase{
 		Path:        "/ping",
@@ -80,7 +81,7 @@ func TestRouteGroupPolicyInheritanceAndSelectiveDisable(t *testing.T) {
 			Limit:  1,
 			Window: time.Hour,
 		},
-	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	api := r.Group("/api").Timeout(0).MaxBodySize(0).RateLimit(nil).Auth(AuthRequired)
 	api.Route(RouteConfigBase{
@@ -104,7 +105,7 @@ func TestRouteGroupPolicyInheritanceAndSelectiveDisable(t *testing.T) {
 }
 
 func TestRouteGroupAuthInheritance(t *testing.T) {
-	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	api := r.Group("/api").Auth(AuthRequired)
 	api.Group("/v1").Route(RouteConfigBase{
 		Path:    "/secret",
@@ -229,7 +230,7 @@ func TestBuildRejectsInvalidAndDuplicateRoutes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, nil, nil)
+			r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 			tt.setup(r)
 			if err := r.Build(); err == nil {
 				t.Fatal("expected Build to reject invalid route tree")
@@ -239,7 +240,7 @@ func TestBuildRejectsInvalidAndDuplicateRoutes(t *testing.T) {
 }
 
 func TestBuildFreezesRouteTree(t *testing.T) {
-	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, nil, nil)
+	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 	r.Route(RouteConfigBase{Path: "/ready", Methods: []HttpMethod{MethodGet}, Handler: func(http.ResponseWriter, *http.Request) {}})
 	if err := r.Build(); err != nil {
 		t.Fatalf("Build failed: %v", err)
@@ -257,7 +258,7 @@ func TestBuildFreezesRouteTree(t *testing.T) {
 }
 
 func TestConcurrentFirstRequestBuildsOnce(t *testing.T) {
-	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, nil, nil)
+	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 	r.Group("/api").Group("/v1").Route(RouteConfigBase{
 		Path:    "/ready",
 		Methods: []HttpMethod{MethodGet},

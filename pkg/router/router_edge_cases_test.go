@@ -142,7 +142,7 @@ func TestRouterBuildValidationErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.config.Logger = zap.NewNop()
-			r := NewRouter[string, string](tt.config, nil, nil)
+			r := NewRouter[string, string](tt.config, RouterDependencies[string, string]{})
 			if tt.setup != nil {
 				tt.setup(r)
 			}
@@ -162,7 +162,7 @@ func TestRouterServeHTTPReportsBuildError(t *testing.T) {
 	r := NewRouter[string, string](RouterConfig{
 		Logger:        zap.NewNop(),
 		GlobalTimeout: -time.Second,
-	}, nil, nil)
+	}, RouterDependencies[string, string]{})
 
 	for range 2 {
 		recorder := httptest.NewRecorder()
@@ -184,7 +184,8 @@ func TestRouterBuiltInMetricsRegistryMiddlewareIsApplied(t *testing.T) {
 			Collector:     &mocks.MockMetricsRegistry{},
 			EnableLatency: true,
 		},
-	}, mocks.MockAuthFunction, mocks.MockUserIDFromUser)
+	}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+
 	r.Route(RouteConfigBase{
 		Path:    "/metrics",
 		Methods: []HttpMethod{MethodGet},
@@ -201,7 +202,7 @@ func TestRouterBuiltInMetricsRegistryMiddlewareIsApplied(t *testing.T) {
 }
 
 func TestRouterDirectDispatcherAddsRouteContext(t *testing.T) {
-	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, nil, nil)
+	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 	called := false
 	handle := r.convertToHTTPRouterHandle(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		called = true
@@ -225,7 +226,7 @@ func TestRouterDirectDispatcherAddsRouteContext(t *testing.T) {
 }
 
 func TestRouterBuildReturnsErrorCachedWhileWaitingForLock(t *testing.T) {
-	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, nil, nil)
+	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 	wantErr := errors.New("cached build error")
 
 	previousMaxProcs := runtime.GOMAXPROCS(1)
@@ -253,10 +254,11 @@ func TestRouterBuildReturnsErrorCachedWhileWaitingForLock(t *testing.T) {
 
 func TestRouterBuildRejectsAuthWithoutUserIDFunction(t *testing.T) {
 	auth := AuthRequired
-	r := NewRouter[string](
+	r := NewRouter[string, string](
 		RouterConfig{Logger: zap.NewNop()},
-		func(context.Context, string) (*string, bool) { return nil, false },
-		nil,
+		RouterDependencies[string, string]{
+			Authenticate: func(context.Context, string) (*string, bool) { return nil, false },
+		},
 	)
 	r.Route(RouteConfigBase{
 		Path:      "/authenticated",
@@ -272,7 +274,7 @@ func TestRouterBuildRejectsAuthWithoutUserIDFunction(t *testing.T) {
 }
 
 func TestRouterNonPositiveTimeoutCallsHandlerDirectly(t *testing.T) {
-	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, nil, nil)
+	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 	called := false
 	handler := r.timeoutMiddleware(0)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
@@ -290,7 +292,7 @@ func TestRouterNonPositiveTimeoutCallsHandlerDirectly(t *testing.T) {
 }
 
 func TestRouterTimeoutPropagatesLateHandlerPanic(t *testing.T) {
-	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, nil, nil)
+	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 	handler := r.timeoutMiddleware(time.Millisecond)(http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
 		<-req.Context().Done()
 		time.Sleep(10 * time.Millisecond)
@@ -306,7 +308,7 @@ func TestRouterTimeoutPropagatesLateHandlerPanic(t *testing.T) {
 }
 
 func TestRouterShutdownReturnsCanceledContext(t *testing.T) {
-	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, nil, nil)
+	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 	r.wg.Add(1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -333,7 +335,7 @@ func TestRouterShutdownReturnsCanceledContext(t *testing.T) {
 }
 
 func TestRouterWriteJSONErrorLogsPlainWriterFailure(t *testing.T) {
-	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, nil, nil)
+	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 	r.writeJSONError(
 		&errResponseWriter{},
 		httptest.NewRequest(http.MethodGet, "/error", nil),

@@ -46,7 +46,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 		})
 	}
 	newTestRouter := func(route RouteConfig[TestRequest, TestResponse]) *Router[int, any] {
-		r := NewRouter(RouterConfig{Logger: zap.NewNop()}, getUserByID, getUserID)
+		r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[int, any]{Authenticate: getUserByID, UserID: getUserID})
 		r.Route(route)
 		return r
 	}
@@ -184,7 +184,7 @@ func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
 
 	router := NewRouter(RouterConfig{
 		Logger: zap.NewNop(),
-	}, getUserByID, getUserID)
+	}, RouterDependencies[int, any]{Authenticate: getUserByID, UserID: getUserID})
 
 	type TestRequest struct{}
 	type TestResponse struct{}
