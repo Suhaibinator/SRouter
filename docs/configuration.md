@@ -8,6 +8,8 @@ recursive route tree built with `Router` and `RouteGroup` methods.
 ```go
 type RouterConfig struct {
 	ServiceName         string
+	BuildIDProvider     func() string
+	ConfigIDProvider    func() string
 	Logger              *zap.Logger
 	GlobalTimeout       time.Duration
 	GlobalMaxBodySize   int64
@@ -23,6 +25,12 @@ type RouterConfig struct {
 	CORSConfig          *CORSConfig
 }
 ```
+
+`BuildIDProvider` and `ConfigIDProvider` are optional. SRouter invokes each
+configured provider once per request and stores a non-empty result in the shared
+SRouter context. Returned strings are opaque, log-safe identifiers: SRouter does
+not parse, normalize, cache, or propagate them through headers. Providers must
+be concurrency-safe, fast, and non-panicking.
 
 - Global timeout, body-size, rate-limit, and auth-token settings are defaults
   inherited by route groups and routes.

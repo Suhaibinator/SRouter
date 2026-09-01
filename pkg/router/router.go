@@ -620,6 +620,8 @@ func combineMiddlewares(parent, child []common.Middleware) []common.Middleware {
 // request-summary logging when enabled, and delegates route matching to
 // httprouter. Trace IDs and configured metrics run inside matched route chains.
 func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	req = r.withRuntimeIdentities(req)
+
 	var buildErr error
 	if r.routeTree.ready.Load() {
 		buildErr = r.routeTree.buildErr
@@ -627,7 +629,8 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		buildErr = r.Build()
 	}
 	if buildErr != nil {
-		r.logger.Error("Failed to build route tree", zap.Error(buildErr))
+		fields := append(r.baseFields(req), zap.Error(buildErr))
+		r.logger.Error("Failed to build route tree", fields...)
 		http.Error(w, "Router configuration error", http.StatusInternalServerError)
 		return
 	}
@@ -689,7 +692,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			// 2) Build unified fields - the UNION of all previously separate log
 			// fields. Sized for all fields (including the optional trace ID) up
 			// front so this per-request path allocates the slice exactly once.
-			fields := make([]zap.Field, 0, 8)
+			fields := make([]zap.Field, 0, 10)
 			fields = append(fields,
 				zap.String("method", req.Method),
 				zap.String("path", req.URL.Path),
@@ -699,6 +702,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				zap.String("ip", ip),
 				zap.String("user_agent", ua),
 			)
+			fields = r.addRuntimeIdentityFields(fields, req)
 			fields = r.addTrace(fields, req)
 
 			// 3) Decide the log level based on status code, duration, and trace config
@@ -733,6 +737,30 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// Serve the request via the underlying router
 	r.router.ServeHTTP(rw, req)
+}
+
+// withRuntimeIdentities samples each configured provider once for this request
+// and stores non-empty opaque identities in the shared SRouter context. Local
+// provider values replace identities inherited on the incoming context.
+func (r *Router[T, U]) withRuntimeIdentities(req *http.Request) *http.Request {
+	ctx := req.Context()
+	changed := false
+	if provider := r.config.BuildIDProvider; provider != nil {
+		if buildID := provider(); buildID != "" {
+			ctx = scontext.WithBuildID[T, U](ctx, buildID)
+			changed = true
+		}
+	}
+	if provider := r.config.ConfigIDProvider; provider != nil {
+		if configID := provider(); configID != "" {
+			ctx = scontext.WithConfigID[T, U](ctx, configID)
+			changed = true
+		}
+	}
+	if !changed {
+		return req
+	}
+	return req.WithContext(ctx)
 }
 
 // handleCORS applies CORS logic based on the router's configuration.
@@ -1183,10 +1211,23 @@ func (r *Router[T, U]) convertRateLimit(config *common.RateLimitConfig[any, any]
 
 // baseFields returns common log fields for the request.
 func (r *Router[T, U]) baseFields(req *http.Request) []zap.Field {
-	return []zap.Field{
+	fields := []zap.Field{
 		zap.String("method", req.Method),
 		zap.String("path", req.URL.Path),
 	}
+	return r.addRuntimeIdentityFields(fields, req)
+}
+
+// addRuntimeIdentityFields appends the opaque build and configuration
+// identities installed for this request, when present.
+func (r *Router[T, U]) addRuntimeIdentityFields(fields []zap.Field, req *http.Request) []zap.Field {
+	if buildID, ok := scontext.GetBuildIDFromRequest[T, U](req); ok {
+		fields = append(fields, zap.String("build_id", buildID))
+	}
+	if configID, ok := scontext.GetConfigIDFromRequest[T, U](req); ok {
+		fields = append(fields, zap.String("config_id", configID))
+	}
+	return fields
 }
 
 // addTrace appends the automatic trace_id field when generation is enabled and
@@ -1267,7 +1308,7 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 	}
 
 	traceID := r.errorTraceID(req)
-	fields := make([]zap.Field, 0, 5+len(attachedFields))
+	fields := make([]zap.Field, 0, 7+len(attachedFields))
 	fields = append(fields, sanitizeHTTPErrorFields(attachedFields)...)
 	if invalidStatusCode != 0 {
 		fields = append(fields, zap.Int("invalid_status_code", invalidStatusCode))
@@ -1275,10 +1316,9 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 	fields = append(fields,
 		zap.Error(logErr),
 		zap.Int("status_code", statusCode),
-		zap.String("method", req.Method),
-		zap.String("path", req.URL.Path),
-		zap.String("trace_id", traceID),
 	)
+	fields = append(fields, r.baseFields(req)...)
+	fields = append(fields, zap.String("trace_id", traceID))
 	r.logger.Log(level, logMessage, fields...)
 
 	r.writeJSONError(w, req, statusCode, message, traceID)
@@ -1391,15 +1431,15 @@ func (r *Router[T, U]) logJSONErrorWriteFailure(req *http.Request, err error, st
 	if traceID == "" {
 		traceID = r.errorTraceID(req)
 	}
-	r.logger.Error("Failed to write JSON error response",
+	fields := []zap.Field{
 		zap.Error(err),
 		zap.Int("status_code", statusCode),
 		zap.Int("original_status", statusCode),
 		zap.String("original_message", message),
-		zap.String("method", req.Method),
-		zap.String("path", req.URL.Path),
-		zap.String("trace_id", traceID),
-	)
+	}
+	fields = append(fields, r.baseFields(req)...)
+	fields = append(fields, zap.String("trace_id", traceID))
+	r.logger.Error("Failed to write JSON error response", fields...)
 }
 
 // HTTPError represents a client-facing HTTP status and message with optional
@@ -1494,6 +1534,8 @@ func (e *HTTPError) WithLogLevel(level zapcore.Level) *HTTPError {
 }
 
 var reservedHTTPErrorFieldKeys = map[string]struct{}{
+	"build_id":    {},
+	"config_id":   {},
 	"error":       {},
 	"method":      {},
 	"path":        {},

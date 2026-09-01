@@ -137,6 +137,8 @@ type MetricsConfig struct {
 // It includes settings for logging, timeouts, metrics, and middleware.
 type RouterConfig struct {
 	ServiceName         string                            // Fallback handler name passed to configured metrics middleware
+	BuildIDProvider     func() string                     // Optional current build identity provider, sampled once per request
+	ConfigIDProvider    func() string                     // Optional current configuration identity provider, sampled once per request
 	Logger              *zap.Logger                       // Logger for all router operations
 	GlobalTimeout       time.Duration                     // Default response timeout for all routes
 	GlobalMaxBodySize   int64                             // Default maximum request body size in bytes

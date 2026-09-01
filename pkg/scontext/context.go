@@ -48,6 +48,11 @@ type SRouterContext[T comparable, U any] struct {
 	UserID T
 	User   *U
 
+	// BuildID and ConfigID are opaque runtime identities supplied by the
+	// application. SRouter stores them without parsing or normalization.
+	BuildID  string
+	ConfigID string
+
 	TraceID string
 
 	ClientIP string
@@ -71,6 +76,8 @@ type SRouterContext[T comparable, U any] struct {
 
 	UserIDSet             bool
 	UserSet               bool
+	BuildIDSet            bool
+	ConfigIDSet           bool
 	ClientIPSet           bool
 	UserAgentSet          bool
 	TraceIDSet            bool
@@ -121,6 +128,68 @@ func EnsureSRouterContext[T comparable, U any](ctx context.Context) (*SRouterCon
 		ctx = WithSRouterContext(ctx, rc)
 	}
 	return rc, ctx
+}
+
+// WithBuildID adds or replaces the opaque application build identity in the context.
+// T is the User ID type (comparable), U is the User object type (any).
+func WithBuildID[T comparable, U any](ctx context.Context, buildID string) context.Context {
+	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
+	rc.BuildID = buildID
+	rc.BuildIDSet = true
+	rc.mu.Unlock()
+	return ctx
+}
+
+// GetBuildID retrieves the opaque application build identity from the context.
+// It returns an empty string and false when no build identity has been set.
+func GetBuildID[T comparable, U any](ctx context.Context) (string, bool) {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok {
+		return "", false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.BuildIDSet {
+		return "", false
+	}
+	return rc.BuildID, true
+}
+
+// GetBuildIDFromRequest extracts the build identity from an http.Request.
+func GetBuildIDFromRequest[T comparable, U any](r *http.Request) (string, bool) {
+	return GetBuildID[T, U](r.Context())
+}
+
+// WithConfigID adds or replaces the opaque configuration identity in the context.
+// T is the User ID type (comparable), U is the User object type (any).
+func WithConfigID[T comparable, U any](ctx context.Context, configID string) context.Context {
+	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
+	rc.ConfigID = configID
+	rc.ConfigIDSet = true
+	rc.mu.Unlock()
+	return ctx
+}
+
+// GetConfigID retrieves the opaque configuration identity from the context.
+// It returns an empty string and false when no configuration identity has been set.
+func GetConfigID[T comparable, U any](ctx context.Context) (string, bool) {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok {
+		return "", false
+	}
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	if !rc.ConfigIDSet {
+		return "", false
+	}
+	return rc.ConfigID, true
+}
+
+// GetConfigIDFromRequest extracts the configuration identity from an http.Request.
+func GetConfigIDFromRequest[T comparable, U any](r *http.Request) (string, bool) {
+	return GetConfigID[T, U](r.Context())
 }
 
 // WithUserID adds a user ID to the context.
@@ -631,6 +700,8 @@ func cloneSRouterContext[T comparable, U any](src *SRouterContext[T, U]) *SRoute
 	dst := &SRouterContext[T, U]{
 		UserID:                src.UserID,
 		User:                  src.User,
+		BuildID:               src.BuildID,
+		ConfigID:              src.ConfigID,
 		TraceID:               src.TraceID,
 		ClientIP:              src.ClientIP,
 		UserAgent:             src.UserAgent,
@@ -643,6 +714,8 @@ func cloneSRouterContext[T comparable, U any](src *SRouterContext[T, U]) *SRoute
 		HandlerError:          src.HandlerError,
 		UserIDSet:             src.UserIDSet,
 		UserSet:               src.UserSet,
+		BuildIDSet:            src.BuildIDSet,
+		ConfigIDSet:           src.ConfigIDSet,
 		ClientIPSet:           src.ClientIPSet,
 		UserAgentSet:          src.UserAgentSet,
 		TraceIDSet:            src.TraceIDSet,

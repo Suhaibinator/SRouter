@@ -10,7 +10,9 @@ if err != nil {
 defer logger.Sync()
 
 r := router.NewRouter[string, User](router.RouterConfig{
-	Logger: logger,
+	Logger:           logger,
+	BuildIDProvider:  func() string { return buildID },
+	ConfigIDProvider: func() string { return configID },
 }, authenticate, userIDFromUser)
 ```
 
@@ -21,7 +23,17 @@ For requests that reach normal route dispatch, SRouter emits one `"Request summa
 - `TraceIDBufferSize > 0`, which enables automatic trace IDs on matched routes and request summaries.
 - `EnableTraceLogging`, which enables request summaries independently of trace IDs.
 
-The summary contains `method`, `path`, `status`, `duration`, `bytes`, `ip`, and `user_agent`. For a matched route, it also contains `trace_id` when automatic trace generation is enabled. An unmatched 404 or 405 still receives a summary, but it never enters the per-route trace middleware and therefore has no automatically generated `trace_id`.
+The summary contains `method`, `path`, `status`, `duration`, `bytes`, `ip`, and `user_agent`. It also contains configured `build_id` and `config_id` values when available. For a matched route, it contains `trace_id` when automatic trace generation is enabled. An unmatched 404 or 405 still receives a summary, but it never enters the per-route trace middleware and therefore has no automatically generated `trace_id`.
+
+SRouter adds available runtime identities to its request-bound authentication,
+timeout, panic recovery, handled HTTP error, lazy-build failure, and JSON-response
+write-failure logs. Startup and route-registration logs have no request context
+and remain unchanged.
+
+Runtime identities are opaque, log-safe application values. SRouter samples
+them once per request and does not propagate them through headers. Background
+workers may install already-sampled values with `scontext.WithBuildID` and
+`scontext.WithConfigID`.
 
 Its level is chosen in this priority order:
 

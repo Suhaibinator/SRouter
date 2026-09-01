@@ -23,6 +23,8 @@ func main() {
 	// Create a router configuration with trace middleware
 	routerConfig := router.RouterConfig{
 		ServiceName:       "trace-logging-service", // Added ServiceName
+		BuildIDProvider:   func() string { return "trace-example-build" },
+		ConfigIDProvider:  func() string { return "trace-example-config" },
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
@@ -57,10 +59,14 @@ func main() {
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Get the trace ID
 			traceID := scontext.GetTraceIDFromRequest[string, string](r) // Use scontext
+			buildID, _ := scontext.GetBuildIDFromRequest[string, string](r)
+			configID, _ := scontext.GetConfigIDFromRequest[string, string](r)
 
 			// Log with trace ID
 			logger.Info("Processing request",
 				zap.String("trace_id", traceID),
+				zap.String("build_id", buildID),
+				zap.String("config_id", configID),
 				zap.String("handler", "hello"),
 			)
 
@@ -70,6 +76,8 @@ func main() {
 			// Log again with the same trace ID
 			logger.Info("Request processed successfully",
 				zap.String("trace_id", traceID),
+				zap.String("build_id", buildID),
+				zap.String("config_id", configID),
 				zap.String("handler", "hello"),
 			)
 
