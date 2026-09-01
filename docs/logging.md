@@ -38,6 +38,11 @@ them once per request and does not propagate them through headers. Background
 workers may install already-sampled values with `scontext.WithBuildID` and
 `scontext.WithConfigID`.
 
+All structured-log field names emitted by SRouter are exported from the
+dependency-free `pkg/logkeys` package. Applications use constants such as
+`logkeys.TraceID`, `logkeys.BuildID`, and `logkeys.ConfigID` to keep their logs
+aligned with SRouter without depending on Zap.
+
 Its level is chosen in this priority order:
 
 1. `Error` for status codes `>= 500`.

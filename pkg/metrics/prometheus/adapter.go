@@ -8,6 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
+	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	srouter_metrics "github.com/Suhaibinator/SRouter/pkg/metrics"
 )
 
@@ -106,7 +107,7 @@ func (b *PrometheusCounterBuilder) Build() srouter_metrics.Counter {
 				// and Build can be called from the request path, so never panic.
 				// The metric still works locally; it just won't be exported.
 				b.registry.logger.Error("Failed to register Prometheus counter; metric will not be exported",
-					zap.String("metric_name", b.opts.Name), zap.Error(err))
+					zap.String(logkeys.MetricName, b.opts.Name), zap.NamedError(logkeys.Error, err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
@@ -120,7 +121,7 @@ func (b *PrometheusCounterBuilder) Build() srouter_metrics.Counter {
 			} else {
 				// Never panic in the request path; keep the unregistered metric.
 				b.registry.logger.Error("Failed to register Prometheus counter; metric will not be exported",
-					zap.String("metric_name", b.opts.Name), zap.Error(err))
+					zap.String(logkeys.MetricName, b.opts.Name), zap.NamedError(logkeys.Error, err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
@@ -188,7 +189,7 @@ func (b *PrometheusGaugeBuilder) Build() srouter_metrics.Gauge {
 			} else {
 				// Never panic in the request path; keep the unregistered metric.
 				b.registry.logger.Error("Failed to register Prometheus gauge; metric will not be exported",
-					zap.String("metric_name", b.opts.Name), zap.Error(err))
+					zap.String(logkeys.MetricName, b.opts.Name), zap.NamedError(logkeys.Error, err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
@@ -202,7 +203,7 @@ func (b *PrometheusGaugeBuilder) Build() srouter_metrics.Gauge {
 			} else {
 				// Never panic in the request path; keep the unregistered metric.
 				b.registry.logger.Error("Failed to register Prometheus gauge; metric will not be exported",
-					zap.String("metric_name", b.opts.Name), zap.Error(err))
+					zap.String(logkeys.MetricName, b.opts.Name), zap.NamedError(logkeys.Error, err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
@@ -279,7 +280,7 @@ func (b *PrometheusHistogramBuilder) Build() srouter_metrics.Histogram {
 			} else {
 				// Never panic in the request path; keep the unregistered metric.
 				b.registry.logger.Error("Failed to register Prometheus histogram; metric will not be exported",
-					zap.String("metric_name", b.opts.Name), zap.Error(err))
+					zap.String(logkeys.MetricName, b.opts.Name), zap.NamedError(logkeys.Error, err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
@@ -293,7 +294,7 @@ func (b *PrometheusHistogramBuilder) Build() srouter_metrics.Histogram {
 			} else {
 				// Never panic in the request path; keep the unregistered metric.
 				b.registry.logger.Error("Failed to register Prometheus histogram; metric will not be exported",
-					zap.String("metric_name", b.opts.Name), zap.Error(err))
+					zap.String(logkeys.MetricName, b.opts.Name), zap.NamedError(logkeys.Error, err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
@@ -357,15 +358,15 @@ func (b *PrometheusSummaryBuilder) MaxAge(age time.Duration) srouter_metrics.Sum
 func (b *PrometheusSummaryBuilder) AgeBuckets(buckets int) srouter_metrics.SummaryBuilder {
 	if buckets < 0 {
 		b.registry.logger.Warn("Invalid negative value provided for AgeBuckets, defaulting to 0",
-			zap.Int("provided_buckets", buckets),
-			zap.String("metric_name", b.opts.Name),
+			zap.Int(logkeys.ProvidedBuckets, buckets),
+			zap.String(logkeys.MetricName, b.opts.Name),
 		)
 		b.opts.AgeBuckets = 0
 	} else if buckets > math.MaxUint32 {
 		b.registry.logger.Warn("Value provided for AgeBuckets exceeds MaxUint32, clamping",
-			zap.Int("provided_buckets", buckets),
-			zap.Uint32("clamped_value", math.MaxUint32),
-			zap.String("metric_name", b.opts.Name),
+			zap.Int(logkeys.ProvidedBuckets, buckets),
+			zap.Uint32(logkeys.ClampedValue, math.MaxUint32),
+			zap.String(logkeys.MetricName, b.opts.Name),
 		)
 		b.opts.AgeBuckets = math.MaxUint32
 	} else {
@@ -403,7 +404,7 @@ func (b *PrometheusSummaryBuilder) Build() srouter_metrics.Summary {
 			} else {
 				// Never panic in the request path; keep the unregistered metric.
 				b.registry.logger.Error("Failed to register Prometheus summary; metric will not be exported",
-					zap.String("metric_name", b.opts.Name), zap.Error(err))
+					zap.String(logkeys.MetricName, b.opts.Name), zap.NamedError(logkeys.Error, err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))
@@ -417,7 +418,7 @@ func (b *PrometheusSummaryBuilder) Build() srouter_metrics.Summary {
 			} else {
 				// Never panic in the request path; keep the unregistered metric.
 				b.registry.logger.Error("Failed to register Prometheus summary; metric will not be exported",
-					zap.String("metric_name", b.opts.Name), zap.Error(err))
+					zap.String(logkeys.MetricName, b.opts.Name), zap.NamedError(logkeys.Error, err))
 			}
 		}
 		tags := make(srouter_metrics.Tags, len(b.opts.ConstLabels))

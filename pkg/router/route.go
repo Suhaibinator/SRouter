@@ -8,6 +8,7 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
+	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 )
@@ -307,7 +308,7 @@ func (r *Router[T, U]) warnMissingSanitizer(path string, methods []HttpMethod) {
 		methodNames[i] = string(method)
 	}
 	r.logger.Warn("Route registered without sanitizer function",
-		zap.String("path", path),
-		zap.Strings("methods", methodNames),
+		zap.String(logkeys.Path, path),
+		zap.Strings(logkeys.Methods, methodNames),
 	)
 }

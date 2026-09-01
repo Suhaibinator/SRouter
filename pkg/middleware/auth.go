@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
+	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 )
@@ -125,12 +126,12 @@ func AuthenticationWithProvider[T comparable, U any](
 					traceID = GenerateTraceID()
 				}
 				logger.Info("Authentication failed",
-					zap.String("reason", "credentials rejected"),
-					zap.String("method", r.Method),
-					zap.String("path", r.URL.Path),
-					zap.String("remote_addr", r.RemoteAddr),
-					zap.Int("status_code", http.StatusUnauthorized),
-					zap.String("trace_id", traceID),
+					zap.String(logkeys.Reason, "credentials rejected"),
+					zap.String(logkeys.Method, r.Method),
+					zap.String(logkeys.Path, r.URL.Path),
+					zap.String(logkeys.RemoteAddr, r.RemoteAddr),
+					zap.Int(logkeys.StatusCode, http.StatusUnauthorized),
+					zap.String(logkeys.TraceID, traceID),
 				)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
@@ -347,12 +348,12 @@ func AuthenticationWithUserProvider[T comparable, U any](
 					traceID = GenerateTraceID()
 				}
 				logger.Info("Authentication failed",
-					zap.Error(err),
-					zap.String("method", r.Method),
-					zap.String("path", r.URL.Path),
-					zap.String("remote_addr", r.RemoteAddr),
-					zap.Int("status_code", http.StatusUnauthorized),
-					zap.String("trace_id", traceID),
+					zap.NamedError(logkeys.Error, err),
+					zap.String(logkeys.Method, r.Method),
+					zap.String(logkeys.Path, r.URL.Path),
+					zap.String(logkeys.RemoteAddr, r.RemoteAddr),
+					zap.Int(logkeys.StatusCode, http.StatusUnauthorized),
+					zap.String(logkeys.TraceID, traceID),
 				)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return

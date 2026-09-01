@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/common"
+	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"go.uber.org/zap"
@@ -110,10 +111,10 @@ func DetailedLoggingMiddleware(logger *zap.Logger) common.Middleware {
 
 			// Log the request
 			logger.Info("Request received",
-				zap.String("method", r.Method),
-				zap.String("path", r.URL.Path),
-				zap.String("remote_addr", r.RemoteAddr),
-				zap.String("user_agent", r.UserAgent()),
+				zap.String(logkeys.Method, r.Method),
+				zap.String(logkeys.Path, r.URL.Path),
+				zap.String(logkeys.RemoteAddr, r.RemoteAddr),
+				zap.String(logkeys.UserAgent, r.UserAgent()),
 			)
 
 			// Call the next handler
@@ -121,9 +122,9 @@ func DetailedLoggingMiddleware(logger *zap.Logger) common.Middleware {
 
 			// Log the response
 			logger.Info("Response sent",
-				zap.String("method", r.Method),
-				zap.String("path", r.URL.Path),
-				zap.Int("status", lrw.statusCode),
+				zap.String(logkeys.Method, r.Method),
+				zap.String(logkeys.Path, r.URL.Path),
+				zap.Int(logkeys.Status, lrw.statusCode),
 			)
 		})
 	}

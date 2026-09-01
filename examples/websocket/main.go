@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
@@ -59,7 +60,7 @@ func main() {
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			conn, err := upgrader.Upgrade(w, r, nil)
 			if err != nil {
-				logger.Error("upgrade failed", zap.Error(err))
+				logger.Error("upgrade failed", zap.NamedError(logkeys.Error, err))
 				return
 			}
 			defer func() { _ = conn.Close() }()
