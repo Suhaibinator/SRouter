@@ -62,7 +62,7 @@ func main() {
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Get the trace ID
-			traceID := scontext.GetTraceIDFromContext[string, string](r.Context()) // Use scontext
+			traceID := scontext.GetTraceID[string, string](r.Context()) // Use scontext
 			buildID, _ := scontext.GetBuildID[string, string](r.Context())
 			configID, _ := scontext.GetConfigID[string, string](r.Context())
 
@@ -97,7 +97,7 @@ func main() {
 		Methods: []router.HttpMethod{router.MethodGet},
 		Handler: func(w http.ResponseWriter, r *http.Request) {
 			// Get the trace ID
-			traceID := scontext.GetTraceIDFromContext[string, string](r.Context()) // Use scontext
+			traceID := scontext.GetTraceID[string, string](r.Context()) // Use scontext
 
 			// Log with trace ID
 			logger.Info("Received request, calling downstream service",

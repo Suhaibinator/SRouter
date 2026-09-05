@@ -10,7 +10,7 @@ import (
 // GetParams retrieves the httprouter.Params from the request context.
 // This allows handlers to access route parameters extracted from the URL.
 func GetParams(r *http.Request) httprouter.Params {
-	params, _ := scontext.GetPathParamsFromContext(r.Context())
+	params, _ := scontext.GetPathParams(r.Context())
 	return params
 }
 

@@ -73,7 +73,7 @@ func TestGetCorrelationMatchesIndividualAccessors(t *testing.T) {
 	if !ok {
 		t.Fatal("GetCorrelation returned false, want true")
 	}
-	if want := GetTraceIDFromContext[int, testUser](ctx); c.TraceID != want {
+	if want := GetTraceID[int, testUser](ctx); c.TraceID != want {
 		t.Errorf("TraceID = %q, want %q", c.TraceID, want)
 	}
 	buildID, buildIDSet := GetBuildID[int, testUser](ctx)
@@ -168,7 +168,7 @@ func BenchmarkCorrelation(b *testing.B) {
 		b.Run(fmt.Sprintf("individual/depth=%d", depth), func(b *testing.B) {
 			for b.Loop() {
 				fields := make([]zap.Field, 0, 4)
-				if traceID := GetTraceIDFromContext[int, testUser](ctx); traceID != "" {
+				if traceID := GetTraceID[int, testUser](ctx); traceID != "" {
 					fields = append(fields, zap.String("trace_id", traceID))
 				}
 				if buildID, ok := GetBuildID[int, testUser](ctx); ok {

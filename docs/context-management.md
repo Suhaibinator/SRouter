@@ -19,11 +19,11 @@ with the wrapper's internal lock.
 | User object (`*U`) | `WithUser` | `GetUser` |
 | Client IP | `WithClientIP`, `WithClientInfo` | `GetClientIP` |
 | User agent | `WithUserAgent`, `WithClientInfo` | `GetUserAgent` |
-| Trace ID | `WithTraceID` | `GetTraceIDFromContext` |
+| Trace ID | `WithTraceID` | `GetTraceID` |
 | Build identity | `WithBuildID` | `GetBuildID` |
 | Configuration identity | `WithConfigID` | `GetConfigID` |
 | Database transaction | `WithTransaction` | `GetTransaction` |
-| Route template and path parameters | `WithRouteInfo`, `SetRouteInfo` | `GetRouteTemplateFromContext`, `GetPathParamsFromContext` |
+| Route template and path parameters | `WithRouteInfo`, `SetRouteInfo` | `GetRouteTemplate`, `GetPathParams` |
 | Allowed CORS origin and credentials | `WithCORSInfo` | `GetCORSInfo` |
 | Requested CORS headers | `WithCORSRequestedHeaders` | `GetCORSRequestedHeaders` |
 | Generic-handler error | `WithHandlerError` | `GetHandlerError` |
@@ -105,7 +105,7 @@ func accountHandler(w http.ResponseWriter, r *http.Request) {
 
 	user, hasUser := scontext.GetUser[string, User](r.Context())
 	clientIP, _ := scontext.GetClientIP[string, User](r.Context())
-	routeTemplate, _ := scontext.GetRouteTemplateFromContext(r.Context())
+	routeTemplate, _ := scontext.GetRouteTemplate(r.Context())
 
 	_, _, _ = userID, user, hasUser
 	_, _ = clientIP, routeTemplate

@@ -49,7 +49,7 @@ func TestTraceMiddlewarePropagatesValidInboundTraceID(t *testing.T) {
 	const inbound = "REQ-123_abcXYZ"
 	var handlerTraceID string
 	handler := CreateTraceMiddleware[string, any](generator)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handlerTraceID = scontext.GetTraceIDFromContext[string, any](r.Context())
+		handlerTraceID = scontext.GetTraceID[string, any](r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -86,7 +86,7 @@ func TestTraceMiddlewareReplacesInvalidInboundTraceID(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var handlerTraceID string
 			handler := CreateTraceMiddleware[string, any](generator)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				handlerTraceID = scontext.GetTraceIDFromContext[string, any](r.Context())
+				handlerTraceID = scontext.GetTraceID[string, any](r.Context())
 				w.WriteHeader(http.StatusOK)
 			}))
 

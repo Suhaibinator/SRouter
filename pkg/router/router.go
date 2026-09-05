@@ -590,7 +590,7 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 
 				// Serialize the timeout response write with any handler goroutine currently inside rw methods.
 				wrappedW.mu.Lock()
-				traceID := scontext.GetTraceIDFromContext[T, U](req.Context())
+				traceID := scontext.GetTraceID[T, U](req.Context())
 				r.writeJSONError(wrappedW.ResponseWriter, req, http.StatusRequestTimeout, "Request Timeout", traceID)
 				wrappedW.mu.Unlock()
 
@@ -1245,7 +1245,7 @@ func (r *Router[T, U]) addRuntimeIdentityFields(fields []zap.Field, req *http.Re
 // the request contains one.
 func (r *Router[T, U]) addTrace(fields []zap.Field, req *http.Request) []zap.Field {
 	if r.config.TraceIDBufferSize > 0 {
-		if traceID := scontext.GetTraceIDFromContext[T, U](req.Context()); traceID != "" {
+		if traceID := scontext.GetTraceID[T, U](req.Context()); traceID != "" {
 			fields = append(fields, zap.String(logkeys.TraceID, traceID))
 		}
 	}
@@ -1256,7 +1256,7 @@ func (r *Router[T, U]) addTrace(fields []zap.Field, req *http.Request) []zap.Fie
 // Error records must always be correlatable, even when request-wide trace ID
 // generation is disabled.
 func (r *Router[T, U]) errorTraceID(req *http.Request) string {
-	if traceID := scontext.GetTraceIDFromContext[T, U](req.Context()); traceID != "" {
+	if traceID := scontext.GetTraceID[T, U](req.Context()); traceID != "" {
 		return traceID
 	}
 	return middleware.GenerateTraceID()
@@ -1604,7 +1604,7 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 				}
 
 				// Return a 500 Internal Server Error as JSON
-				traceID := scontext.GetTraceIDFromContext[T, U](req.Context())
+				traceID := scontext.GetTraceID[T, U](req.Context())
 				r.writeJSONError(rw, req, http.StatusInternalServerError, "Internal Server Error", traceID)
 			}
 		}()

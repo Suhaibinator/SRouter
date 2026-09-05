@@ -396,11 +396,11 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 	return ctx
 }
 
-// GetTraceIDFromContext retrieves the trace ID from the context.
+// GetTraceID retrieves the trace ID from the context.
 // It returns the trace ID if set, or an empty string if not found.
 // This function never returns an error; absence is indicated by an empty string.
 // T is the User ID type (comparable), U is the User object type (any).
-func GetTraceIDFromContext[T comparable, U any](ctx context.Context) string {
+func GetTraceID[T comparable, U any](ctx context.Context) string {
 	rc, ok := GetSRouterContext[T, U](ctx)
 	if !ok {
 		return ""
@@ -532,11 +532,11 @@ func (rc *SRouterContext[T, U]) getRouteTemplate() (string, bool) {
 	return rc.RouteTemplate, true
 }
 
-// GetRouteTemplateFromContext retrieves the route template from the context.
+// GetRouteTemplate retrieves the route template from the context.
 // The route template is the original path pattern (e.g., "/users/:id") before parameter substitution.
 // It returns the template and a boolean indicating whether it was found.
 // This is useful for metrics and logging where you want consistent route identifiers.
-func GetRouteTemplateFromContext(ctx context.Context) (string, bool) {
+func GetRouteTemplate(ctx context.Context) (string, bool) {
 	provider, ok := ctx.Value(sRouterContextKey{}).(routeInfoProvider)
 	if !ok {
 		return "", false
@@ -544,10 +544,10 @@ func GetRouteTemplateFromContext(ctx context.Context) (string, bool) {
 	return provider.getRouteTemplate()
 }
 
-// GetPathParamsFromContext retrieves the path parameters from the context.
+// GetPathParams retrieves the path parameters from the context.
 // Path parameters are extracted by httprouter from the URL path (e.g., :id in "/users/:id").
 // It returns the parameters and a boolean indicating whether they were found.
-func GetPathParamsFromContext(ctx context.Context) (httprouter.Params, bool) {
+func GetPathParams(ctx context.Context) (httprouter.Params, bool) {
 	provider, ok := ctx.Value(sRouterContextKey{}).(routeInfoProvider)
 	if !ok {
 		return nil, false

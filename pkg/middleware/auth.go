@@ -121,7 +121,7 @@ func AuthenticationWithProvider[T comparable, U any](
 			// Check if the request is authenticated
 			userID, ok := provider.Authenticate(r)
 			if !ok {
-				traceID := scontext.GetTraceIDFromContext[T, U](r.Context())
+				traceID := scontext.GetTraceID[T, U](r.Context())
 				if traceID == "" {
 					traceID = GenerateTraceID()
 				}
@@ -343,7 +343,7 @@ func AuthenticationWithUserProvider[T comparable, U any](
 			// Authenticate the request
 			user, err := provider.AuthenticateUser(r)
 			if err != nil || user == nil {
-				traceID := scontext.GetTraceIDFromContext[T, U](r.Context())
+				traceID := scontext.GetTraceID[T, U](r.Context())
 				if traceID == "" {
 					traceID = GenerateTraceID()
 				}
