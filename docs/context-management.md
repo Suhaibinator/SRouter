@@ -29,6 +29,7 @@ with the wrapper's internal lock.
 | Generic-handler error | `WithHandlerError` | `GetHandlerError` |
 | Application boolean flag | `WithFlag` | `GetFlag` |
 | All correlation values at once | (see individual writers) | `GetCorrelation` |
+| Request-scoped logger | `WithRequestLogger` | `GetLogger` |
 
 Most getters return `(value, ok)` so an unset value can be distinguished from
 its zero value. The trace-ID getters instead return an empty string when no
@@ -156,6 +157,72 @@ stays distinguishable from one that was never written. The result is a copy
 taken at the moment of the call: a later write through a `With*` helper does
 not change it, and two separate calls are not an atomic pair. The struct has no
 reference-typed members, so it cannot alias the wrapper.
+
+Code that reads correlation only in order to log it should call `GetLogger`
+instead. It returns a logger that already carries the same values as fields.
+
+## Request-scoped logger
+
+`WithRequestLogger(ctx, base, userIDField)` installs `base` as the logger from
+which the request's stamped logger is derived. `base` must be the application's
+own logger, not one that already carries request fields. Passing a nil `base`
+removes the request logger. `userIDField` renders the user ID as a field; a nil
+`userIDField` selects `zap.Any`, which picks the typed constructor for a builtin
+`T` and falls back to reflection for a named type.
+
+The router calls `WithRequestLogger` on every request with its resolved
+application logger and `RouterDependencies.UserIDField`, so handlers and
+middleware only need `GetLogger`:
+
+```go
+logger, ok := scontext.GetLogger[uint64, User](r.Context())
+```
+
+`GetLogger` returns `(nil, false)` when the context carries no SRouter context,
+and also when it carries one with no base installed. A context first touched by
+`EnsureSRouterContext`, or by a bare `WithUserID` call from application code,
+therefore carries correlation but no logger, and the caller falls back to
+whatever logger it used before. `GetCorrelation` is unchanged for that case.
+
+The stamped logger carries these fields, in this fixed order, each present only
+when the corresponding value has been set:
+
+| Field | Key | Constructor |
+| --- | --- | --- |
+| Trace ID | `logkeys.TraceID` | `zap.String` |
+| Build identity | `logkeys.BuildID` | `zap.String` |
+| Configuration identity | `logkeys.ConfigID` | `zap.String` |
+| User ID | `logkeys.UserID` | `userIDField`, else `zap.Any` |
+
+Presence follows the same `Set` flags as `GetCorrelation`, so a trace ID that
+was set to the empty string on purpose is still stamped as `trace_id=""`.
+
+The returned logger reflects the correlation values at the moment of the call. A
+later `WithUserID`, `WithBuildID`, or `WithConfigID` does not change a logger
+already in hand; it is visible only through a fresh `GetLogger`. In a normal
+request that ordering is already correct, because the router writes every
+correlation value before the handler runs. `WithTraceID` on a context that
+already has a trace ID preserves the existing ID and therefore does not change
+the logger at all.
+
+Deriving the logger is lazy. Each correlation writer only marks it stale, and
+the next `GetLogger` rebuilds it once, so a request that writes four correlation
+values before its first log line pays for a single clone rather than four.
+
+Work that runs outside the router owns its own boundary. Background jobs and
+message consumers call `WithRequestLogger` themselves, alongside the
+`WithBuildID` and `WithConfigID` calls they already make there:
+
+```go
+func (w *Worker) handle(ctx context.Context, msg Message) error {
+	ctx = scontext.WithBuildID[uint64, User](ctx, w.buildID)
+	ctx = scontext.WithConfigID[uint64, User](ctx, w.configID)
+	ctx = scontext.WithTraceID[uint64, User](ctx, msg.TraceID)
+	ctx = scontext.WithRequestLogger[uint64, User](ctx, w.logger, nil)
+
+	return w.process(ctx, msg)
+}
+```
 
 ## Database transactions
 

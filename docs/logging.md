@@ -40,8 +40,8 @@ workers may install already-sampled values with `scontext.WithBuildID` and
 
 All structured-log field names emitted by SRouter are exported from the
 dependency-free `pkg/logkeys` package. Applications use constants such as
-`logkeys.TraceID`, `logkeys.BuildID`, and `logkeys.ConfigID` to keep their logs
-aligned with SRouter without depending on Zap.
+`logkeys.TraceID`, `logkeys.BuildID`, `logkeys.ConfigID`, and `logkeys.UserID`
+to keep their logs aligned with SRouter without depending on Zap.
 
 Its level is chosen in this priority order:
 
@@ -124,6 +124,56 @@ func callDownstream(r *http.Request) (*http.Response, error) {
 `scontext.GetTraceID[T, U]` provides the same value when only a `context.Context` is available.
 
 Even with automatic trace IDs disabled, request-boundary error records produced during route handling contain a `trace_id`: SRouter reuses an ID already in the request context or creates a log-only ID. A newly generated log-only ID is not injected into the request, response header, or JSON body. Setup and build logs emitted before route dispatch have no request trace ID.
+
+## Request-scoped logger
+
+SRouter installs a request-scoped `*zap.Logger` at the start of every request.
+It is stamped once with the request's correlation values, so handlers and
+middleware log through it without restating them:
+
+```go
+func handler(w http.ResponseWriter, r *http.Request) {
+	logger, ok := scontext.GetLogger[uint64, User](r.Context())
+	if !ok {
+		logger = fallbackLogger
+	}
+	logger.Info("order created", zap.String("order_id", id))
+}
+```
+
+The base is `RouterConfig.Logger`, or the production fallback when that is nil,
+without the `SRouter` name the router applies to its own logger. Application
+lines therefore do not inherit `logger=SRouter`.
+
+The stamped fields are `trace_id`, `build_id`, `config_id`, and `user_id`, each
+present only when set. `RouterDependencies.UserIDField` chooses how the user ID
+is rendered. It takes the user ID alone, so a typed constructor such as
+`zap.Uint64` does not match its signature directly:
+
+```go
+r := router.NewRouter(router.RouterConfig{
+	Logger: logger,
+}, router.RouterDependencies[uint64, User]{
+	Authenticate: authenticate,
+	UserID:       userIDFromUser,
+	UserIDField: func(id uint64) zap.Field {
+		return zap.Uint64(logkeys.UserID, id)
+	},
+})
+```
+
+Leaving `UserIDField` nil renders the user ID with `zap.Any`, which picks the
+typed constructor for a builtin `T` and falls back to reflection for a named
+type.
+
+The point of the stamped logger is that the correlation fields are encoded once
+per request rather than once per line. It replaces the common pattern of calling
+`logger.With(correlationFields...)` at every log site, which clones the core and
+pre-encodes those fields before the level is even checked.
+
+See [Context management](./context-management.md#request-scoped-logger) for the
+staleness contract, contexts that carry no logger, and installing the base at a
+background-job boundary.
 
 ## Generator lifecycle
 
