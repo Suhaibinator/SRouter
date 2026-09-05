@@ -23,6 +23,7 @@ Several servers print ready-to-run curl commands at startup.
 | [user-auth](../examples/user-auth/) | Boolean, custom-user, bearer-user, and basic-user middleware |
 | [rate-limiting](../examples/rate-limiting/) | IP-based limits and authenticated user-based limits |
 | [graceful-shutdown](../examples/graceful-shutdown/) | Signal handling with HTTP-server and router shutdown |
+| [request-logger](../examples/request-logger/) | Shared request correlation with service-owned names and named user IDs |
 | [trace-logging](../examples/trace-logging/) | Trace-ID generation, propagation, and request correlation |
 | [cors-error-test](../examples/cors-error-test/) | CORS preflight and CORS headers on error responses |
 | [source-types](../examples/source-types/) | Body, Empty, base64, and base62 query/path request sources |
@@ -32,3 +33,20 @@ Several servers print ready-to-run curl commands at startup.
 | [custom-metrics](../examples/custom-metrics/) | Injecting a custom SRouter metrics middleware with JSON exposition |
 | [handler-error-middleware](../examples/handler-error-middleware/) | Reading typed-handler errors while middleware unwinds |
 | [websocket](../examples/websocket/) | `DisableTimeout` for long-lived WebSocket connections |
+
+To try service-owned request logger names:
+
+```bash
+cd examples/request-logger
+go run .
+```
+
+In another terminal:
+
+```bash
+curl -H 'Authorization: Bearer example-token' -H 'X-Trace-ID: demo' localhost:8083/admin
+```
+
+The admin entries use the name `example.common_service.admin` and carry
+`trace_id=demo`, `build_id=example-build`, `config_id=example-config`, and numeric
+`user_id=4242`. Stop the server with Ctrl-C.

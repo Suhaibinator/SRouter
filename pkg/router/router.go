@@ -38,6 +38,11 @@ type RouterDependencies[T comparable, U any] struct {
 	BuildID func() string
 	// ConfigID returns the current opaque application configuration identity.
 	ConfigID func() string
+	// UserIDField renders a user ID as a log field on the request logger.
+	// Optional; nil selects a typed encoder at initialization for primitive T,
+	// including named types. Custom marshalers and other types use zap.Any.
+	// See scontext.NewRequestLoggerSource for the formatter contract.
+	UserIDField func(T) zap.Field
 }
 
 // Router is the main router struct that implements http.Handler.
@@ -48,6 +53,7 @@ type Router[T comparable, U any] struct {
 	router            *httprouter.Router
 	routeTree         *routeTree[T, U]
 	logger            *zap.Logger
+	requestLogSource  *scontext.RequestLoggerSource[T] // Shared application logging configuration
 	middlewares       []common.Middleware
 	rateLimiter       common.RateLimiter
 	wg                sync.WaitGroup
@@ -118,12 +124,13 @@ func NewRouter[T comparable, U any](config RouterConfig, dependencies RouterDepe
 
 	// Create the router
 	r := &Router[T, U]{
-		config:       config,
-		dependencies: dependencies,
-		routeTree:    newRouteTree[T, U](),
-		logger:       logger.Named("SRouter"),
-		middlewares:  config.Middlewares,
-		rateLimiter:  rateLimiter,
+		config:           config,
+		dependencies:     dependencies,
+		routeTree:        newRouteTree[T, U](),
+		logger:           logger.Named("SRouter"),
+		requestLogSource: scontext.NewRequestLoggerSource(logger, dependencies.UserIDField),
+		middlewares:      config.Middlewares,
+		rateLimiter:      rateLimiter,
 		// CORS headers initialized below
 		metricsWriterPool: sync.Pool{
 			New: func() any {
@@ -670,9 +677,14 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Default to the original writer, override if metrics/tracing enabled
 	rw := w
 
-	// Apply Client IP Extraction
+	// Attach the startup logging source, then client info. The stamped
+	// logger is derived lazily on the first scontext.GetLogger call, so the
+	// correlation values written before and after this point (runtime
+	// identities above, trace ID and user ID in the middleware chain) all
+	// land on it without a clone per write.
 	clientIP := extractClientIP(req, r.config.IPConfig)
-	ctx := scontext.WithClientInfo[T, U](req.Context(), clientIP, req.UserAgent())
+	ctx := scontext.WithRequestLogger[T, U](req.Context(), r.requestLogSource)
+	ctx = scontext.WithClientInfo[T, U](ctx, clientIP, req.UserAgent())
 	req = req.WithContext(ctx)
 
 	// Apply request summary logging and status/bytes capture if enabled.

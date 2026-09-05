@@ -11,7 +11,8 @@ import (
 	"sync"
 
 	"github.com/julienschmidt/httprouter" // Import for Params type
-	"gorm.io/gorm"                        // Needed for DatabaseTransaction
+	"go.uber.org/zap"
+	"gorm.io/gorm" // Needed for DatabaseTransaction
 )
 
 // sRouterContextKey is a private type for the context key to avoid collisions
@@ -89,6 +90,16 @@ type SRouterContext[T comparable, U any] struct {
 	HandlerErrorSet bool
 
 	Flags map[string]bool
+
+	// logSource is immutable application configuration shared across requests.
+	// logger is this context's cached request-correlated snapshot. The versions
+	// ensure that snapshot matches the source and current correlation values:
+	// writers advance logVersion, and successful derivation publishes the same
+	// value as loggerVersion.
+	logSource     *RequestLoggerSource[T]
+	logger        *zap.Logger
+	logVersion    uint64
+	loggerVersion uint64
 }
 
 // NewSRouterContext creates a new SRouterContext instance.
@@ -136,6 +147,7 @@ func WithBuildID[T comparable, U any](ctx context.Context, buildID string) conte
 	rc.mu.Lock()
 	rc.BuildID = buildID
 	rc.BuildIDSet = true
+	rc.logVersion++
 	rc.mu.Unlock()
 	return ctx
 }
@@ -162,6 +174,7 @@ func WithConfigID[T comparable, U any](ctx context.Context, configID string) con
 	rc.mu.Lock()
 	rc.ConfigID = configID
 	rc.ConfigIDSet = true
+	rc.logVersion++
 	rc.mu.Unlock()
 	return ctx
 }
@@ -189,6 +202,7 @@ func WithUserID[T comparable, U any](ctx context.Context, userID T) context.Cont
 	rc.mu.Lock()
 	rc.UserID = userID
 	rc.UserIDSet = true
+	rc.logVersion++
 	rc.mu.Unlock()
 	return ctx
 }
@@ -393,6 +407,7 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 	// Otherwise, set the trace ID and the flag.
 	rc.TraceID = traceID
 	rc.TraceIDSet = true
+	rc.logVersion++
 	return ctx
 }
 
@@ -452,11 +467,8 @@ type Correlation[T comparable] struct {
 //		// ...
 //	}
 //
-// Returning the values rather than built log fields keeps this package
-// independent of any logging implementation and lets the caller render the
-// user ID with the constructor that matches its own T. A generic helper would
-// have to funnel every user ID through the logger's any-typed fallback, which
-// boxes the value and allocates.
+// Returning values rather than built log fields lets callers use Correlation
+// with metrics and other logging implementations, or choose their own fields.
 //
 // It returns the zero value and false when the context carries no
 // SRouterContext. The result is a copy taken at the moment of the call: a
@@ -472,7 +484,15 @@ func GetCorrelation[T comparable, U any](ctx context.Context) (Correlation[T], b
 	// Hold the lock only long enough to copy the values out. Nothing between
 	// the two calls can panic, so the unlock does not need to be deferred.
 	rc.mu.RLock()
-	c := Correlation[T]{
+	c := rc.correlationLocked()
+	rc.mu.RUnlock()
+	return c, true
+}
+
+// correlationLocked copies correlation while the caller holds mu for reading
+// or writing. It does not invoke application code.
+func (rc *SRouterContext[T, U]) correlationLocked() Correlation[T] {
+	return Correlation[T]{
 		TraceID:  rc.TraceID,
 		BuildID:  rc.BuildID,
 		ConfigID: rc.ConfigID,
@@ -483,8 +503,6 @@ func GetCorrelation[T comparable, U any](ctx context.Context) (Correlation[T], b
 		ConfigIDSet: rc.ConfigIDSet,
 		UserIDSet:   rc.UserIDSet,
 	}
-	rc.mu.RUnlock()
-	return c, true
 }
 
 // WithRouteInfo adds route information to the context.
@@ -705,6 +723,10 @@ func cloneSRouterContext[T comparable, U any](src *SRouterContext[T, U]) *SRoute
 		CredentialsAllowedSet: src.CredentialsAllowedSet,
 		RequestedHeadersSet:   src.RequestedHeadersSet,
 		HandlerErrorSet:       src.HandlerErrorSet,
+		logSource:             src.logSource,
+		logger:                src.logger,
+		logVersion:            src.logVersion,
+		loggerVersion:         src.loggerVersion,
 	}
 
 	// Deep copy the Flags map

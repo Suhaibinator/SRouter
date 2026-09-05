@@ -47,6 +47,7 @@ type RouterDependencies[T comparable, U any] struct {
 	UserID       func(*U) T
 	BuildID      func() string
 	ConfigID     func() string
+	UserIDField  func(T) zap.Field
 }
 
 r := router.NewRouter(config, router.RouterDependencies[string, User]{
@@ -65,6 +66,11 @@ per request and stores a non-empty result in the shared SRouter context. Returne
 strings are opaque, log-safe identifiers: SRouter does not parse, normalize,
 cache, or propagate them through headers. Resolvers must be concurrency-safe,
 fast, and non-panicking.
+
+`UserIDField` optionally customizes request-logger user-ID rendering. The router
+configures its encoder once at initialization. See the
+[logging guide](./logging.md#request-scoped-logger) for defaults and the formatter
+contract.
 
 This replaces the older three-argument constructor. Migrate
 `NewRouter(config, authenticate, userIDFromUser)` by wrapping the callbacks in a

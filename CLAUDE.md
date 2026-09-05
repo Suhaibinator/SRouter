@@ -115,6 +115,7 @@ userID, ok := scontext.GetUserID[T, U](r.Context())
 user, ok := scontext.GetUser[T, U](r.Context())  // Returns *U
 traceID := scontext.GetTraceIDFromContext[T, U](r.Context())
 handlerErr, ok := scontext.GetHandlerError[T, U](r.Context())  // For generic routes
+logger, ok := scontext.GetLogger[T, U](r.Context())  // Request-scoped *zap.Logger stamped with correlation
 ```
 
 ### Handler Error Context
