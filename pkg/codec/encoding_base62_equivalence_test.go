@@ -222,11 +222,17 @@ func TestDecodeBase62LargeInputScalesSubquadratically(t *testing.T) {
 	smallDuration := fastestDecode(smallSize)
 	largeDuration := fastestDecode(4 * smallSize)
 
-	// Four times the input costs roughly sixteen times as much with the old
-	// quadratic conversion. Allow substantial headroom for scheduler and GC
-	// noise while still distinguishing the balanced conversion.
-	if largeDuration > 10*smallDuration {
-		t.Errorf("decode time grew from %v to %v for 4x input; want less than 10x growth", smallDuration, largeDuration)
+	// The balanced conversion is bounded by math/big's Karatsuba multiply, so
+	// four times the input costs about 4^log2(3) ~ 9x in theory and measures
+	// 7.5x-9x on a quiet machine, rising past 11x on shared CI runners once the
+	// larger input spills out of cache. The quadratic conversion it replaced
+	// costs 16x in theory and measures 15x or more under the same conditions,
+	// and noise only pushes it higher. 13x sits between the two with margin on
+	// both sides.
+	const maxGrowth = 13
+	if largeDuration > maxGrowth*smallDuration {
+		t.Errorf("decode time grew from %v to %v for 4x input (%.1fx); want less than %dx growth",
+			smallDuration, largeDuration, float64(largeDuration)/float64(smallDuration), maxGrowth)
 	}
 }
 
