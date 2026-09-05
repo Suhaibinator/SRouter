@@ -44,5 +44,6 @@ const (
 	Timeout           = "timeout"
 	TraceID           = "trace_id"
 	UserAgent         = "user_agent"
+	UserID            = "user_id"
 	Window            = "window"
 )

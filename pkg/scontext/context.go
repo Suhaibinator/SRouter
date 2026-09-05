@@ -10,8 +10,10 @@ import (
 	"maps"
 	"sync"
 
+	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/julienschmidt/httprouter" // Import for Params type
-	"gorm.io/gorm"                        // Needed for DatabaseTransaction
+	"go.uber.org/zap"
+	"gorm.io/gorm" // Needed for DatabaseTransaction
 )
 
 // sRouterContextKey is a private type for the context key to avoid collisions
@@ -89,6 +91,17 @@ type SRouterContext[T comparable, U any] struct {
 	HandlerErrorSet bool
 
 	Flags map[string]bool
+
+	// Request-scoped logging. logBase is installed once by the boundary that
+	// owns the request (WithRequestLogger); logger is derived from logBase
+	// plus the correlation fields and rebuilt on demand after any correlation
+	// write. These fields are unexported because the derived logger has an
+	// invariant (it must match the correlation values) that direct writes
+	// would break.
+	logBase     *zap.Logger
+	logger      *zap.Logger
+	loggerStale bool
+	userIDField func(T) zap.Field
 }
 
 // NewSRouterContext creates a new SRouterContext instance.
@@ -136,6 +149,7 @@ func WithBuildID[T comparable, U any](ctx context.Context, buildID string) conte
 	rc.mu.Lock()
 	rc.BuildID = buildID
 	rc.BuildIDSet = true
+	rc.loggerStale = true
 	rc.mu.Unlock()
 	return ctx
 }
@@ -162,6 +176,7 @@ func WithConfigID[T comparable, U any](ctx context.Context, configID string) con
 	rc.mu.Lock()
 	rc.ConfigID = configID
 	rc.ConfigIDSet = true
+	rc.loggerStale = true
 	rc.mu.Unlock()
 	return ctx
 }
@@ -189,6 +204,7 @@ func WithUserID[T comparable, U any](ctx context.Context, userID T) context.Cont
 	rc.mu.Lock()
 	rc.UserID = userID
 	rc.UserIDSet = true
+	rc.loggerStale = true
 	rc.mu.Unlock()
 	return ctx
 }
@@ -393,6 +409,7 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 	// Otherwise, set the trace ID and the flag.
 	rc.TraceID = traceID
 	rc.TraceIDSet = true
+	rc.loggerStale = true
 	return ctx
 }
 
@@ -485,6 +502,93 @@ func GetCorrelation[T comparable, U any](ctx context.Context) (Correlation[T], b
 	}
 	rc.mu.RUnlock()
 	return c, true
+}
+
+// WithRequestLogger installs base as the logger from which the request's
+// stamped logger is derived. base must be the application's logger, not one
+// already stamped with request fields. Passing nil removes the request
+// logger. userIDField renders the user ID; nil selects zap.Any.
+//
+// The router calls this once per request with its resolved application
+// logger. Applications that run work outside the router (background jobs,
+// message consumers) call it themselves at the job boundary, alongside
+// WithBuildID and WithConfigID.
+// T is the User ID type (comparable), U is the User object type (any).
+func WithRequestLogger[T comparable, U any](ctx context.Context, base *zap.Logger, userIDField func(T) zap.Field) context.Context {
+	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
+	rc.logBase = base
+	rc.userIDField = userIDField
+	rc.loggerStale = true
+	rc.mu.Unlock()
+	return ctx
+}
+
+// GetLogger returns the request-scoped logger, stamped with the correlation
+// values written so far: trace_id, build_id, config_id, and user_id, each
+// present only when set. It returns nil and false when the context carries
+// no SRouterContext or no request logger was installed. The returned logger
+// reflects the correlation values at the moment of the call; a later
+// correlation write is visible only through a fresh GetLogger call.
+//
+// The logger is derived lazily. Correlation writers mark it stale and the
+// next GetLogger rebuilds it once, so a request that writes several
+// correlation values before its handler logs pays for a single clone. The
+// fast path is one context walk, one read lock, and no allocations.
+// T is the User ID type (comparable), U is the User object type (any).
+func GetLogger[T comparable, U any](ctx context.Context) (*zap.Logger, bool) {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok {
+		return nil, false
+	}
+	rc.mu.RLock()
+	if !rc.loggerStale {
+		l := rc.logger
+		rc.mu.RUnlock()
+		return l, l != nil
+	}
+	rc.mu.RUnlock()
+
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	if rc.loggerStale { // re-check: another reader may have rebuilt
+		rc.rebuildLoggerLocked()
+	}
+	return rc.logger, rc.logger != nil
+}
+
+// rebuildLoggerLocked derives the stamped logger from logBase and the current
+// correlation values, clearing the stale flag. It must be called with mu held
+// for writing.
+func (rc *SRouterContext[T, U]) rebuildLoggerLocked() {
+	rc.loggerStale = false
+	if rc.logBase == nil {
+		rc.logger = nil
+		return
+	}
+	var fields [4]zap.Field
+	n := 0
+	if rc.TraceIDSet {
+		fields[n] = zap.String(logkeys.TraceID, rc.TraceID)
+		n++
+	}
+	if rc.BuildIDSet {
+		fields[n] = zap.String(logkeys.BuildID, rc.BuildID)
+		n++
+	}
+	if rc.ConfigIDSet {
+		fields[n] = zap.String(logkeys.ConfigID, rc.ConfigID)
+		n++
+	}
+	if rc.UserIDSet {
+		if rc.userIDField != nil {
+			fields[n] = rc.userIDField(rc.UserID)
+		} else {
+			fields[n] = zap.Any(logkeys.UserID, rc.UserID)
+		}
+		n++
+	}
+	rc.logger = rc.logBase.With(fields[:n]...)
 }
 
 // WithRouteInfo adds route information to the context.
@@ -705,6 +809,10 @@ func cloneSRouterContext[T comparable, U any](src *SRouterContext[T, U]) *SRoute
 		CredentialsAllowedSet: src.CredentialsAllowedSet,
 		RequestedHeadersSet:   src.RequestedHeadersSet,
 		HandlerErrorSet:       src.HandlerErrorSet,
+		logBase:               src.logBase,
+		logger:                src.logger,
+		loggerStale:           src.loggerStale,
+		userIDField:           src.userIDField,
 	}
 
 	// Deep copy the Flags map

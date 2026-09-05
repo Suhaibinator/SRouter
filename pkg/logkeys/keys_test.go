@@ -11,6 +11,7 @@ func TestCorrelationKeys(t *testing.T) {
 		{name: "trace", got: TraceID, want: "trace_id"},
 		{name: "build", got: BuildID, want: "build_id"},
 		{name: "config", got: ConfigID, want: "config_id"},
+		{name: "user", got: UserID, want: "user_id"},
 	}
 	for _, test := range tests {
 		if test.got != test.want {
