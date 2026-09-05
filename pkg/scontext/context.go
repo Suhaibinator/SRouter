@@ -514,20 +514,28 @@ func CorrelationFields[T comparable, U any](ctx context.Context) (fields []zap.F
 		return nil, zero, false
 	}
 
-	rc.mu.RLock()
-	defer rc.mu.RUnlock()
-
+	// Allocate before taking the lock: writers block behind readers, and this
+	// allocation can pull in garbage collector assist work.
 	fields = make([]zap.Field, 0, correlationFieldCapacity)
-	if rc.TraceIDSet {
-		fields = append(fields, zap.String(logkeys.TraceID, rc.TraceID))
+
+	// Hold the lock only long enough to copy the values out.
+	rc.mu.RLock()
+	traceID, traceIDSet := rc.TraceID, rc.TraceIDSet
+	buildID, buildIDSet := rc.BuildID, rc.BuildIDSet
+	configID, configIDSet := rc.ConfigID, rc.ConfigIDSet
+	userID, userIDSet = rc.UserID, rc.UserIDSet
+	rc.mu.RUnlock()
+
+	if traceIDSet {
+		fields = append(fields, zap.String(logkeys.TraceID, traceID))
 	}
-	if rc.BuildIDSet {
-		fields = append(fields, zap.String(logkeys.BuildID, rc.BuildID))
+	if buildIDSet {
+		fields = append(fields, zap.String(logkeys.BuildID, buildID))
 	}
-	if rc.ConfigIDSet {
-		fields = append(fields, zap.String(logkeys.ConfigID, rc.ConfigID))
+	if configIDSet {
+		fields = append(fields, zap.String(logkeys.ConfigID, configID))
 	}
-	return fields, rc.UserID, rc.UserIDSet
+	return fields, userID, userIDSet
 }
 
 // CorrelationFieldsFromRequest is a convenience function that builds the
