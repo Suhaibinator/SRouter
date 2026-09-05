@@ -15,20 +15,20 @@ with the wrapper's internal lock.
 
 | Value | Write helper | Read helper |
 | --- | --- | --- |
-| User ID | `WithUserID` | `GetUserID`, `GetUserIDFromRequest` |
-| User object (`*U`) | `WithUser` | `GetUser`, `GetUserFromRequest` |
-| Client IP | `WithClientIP`, `WithClientInfo` | `GetClientIP`, `GetClientIPFromRequest` |
-| User agent | `WithUserAgent`, `WithClientInfo` | `GetUserAgent`, `GetUserAgentFromRequest` |
-| Trace ID | `WithTraceID` | `GetTraceIDFromContext`, `GetTraceIDFromRequest` |
-| Build identity | `WithBuildID` | `GetBuildID`, `GetBuildIDFromRequest` |
-| Configuration identity | `WithConfigID` | `GetConfigID`, `GetConfigIDFromRequest` |
-| Database transaction | `WithTransaction` | `GetTransaction`, `GetTransactionFromRequest` |
-| Route template and path parameters | `WithRouteInfo`, `SetRouteInfo` | `GetRouteTemplateFromRequest`, `GetPathParamsFromRequest` |
-| Allowed CORS origin and credentials | `WithCORSInfo` | `GetCORSInfo`, `GetCORSInfoFromRequest` |
-| Requested CORS headers | `WithCORSRequestedHeaders` | `GetCORSRequestedHeaders`, `GetCORSRequestedHeadersFromRequest` |
-| Generic-handler error | `WithHandlerError` | `GetHandlerError`, `GetHandlerErrorFromRequest` |
-| Application boolean flag | `WithFlag` | `GetFlag`, `GetFlagFromRequest` |
-| All correlation values at once | (see individual writers) | `GetCorrelation`, `GetCorrelationFromRequest` |
+| User ID | `WithUserID` | `GetUserID` |
+| User object (`*U`) | `WithUser` | `GetUser` |
+| Client IP | `WithClientIP`, `WithClientInfo` | `GetClientIP` |
+| User agent | `WithUserAgent`, `WithClientInfo` | `GetUserAgent` |
+| Trace ID | `WithTraceID` | `GetTraceIDFromContext` |
+| Build identity | `WithBuildID` | `GetBuildID` |
+| Configuration identity | `WithConfigID` | `GetConfigID` |
+| Database transaction | `WithTransaction` | `GetTransaction` |
+| Route template and path parameters | `WithRouteInfo`, `SetRouteInfo` | `GetRouteTemplateFromContext`, `GetPathParamsFromContext` |
+| Allowed CORS origin and credentials | `WithCORSInfo` | `GetCORSInfo` |
+| Requested CORS headers | `WithCORSRequestedHeaders` | `GetCORSRequestedHeaders` |
+| Generic-handler error | `WithHandlerError` | `GetHandlerError` |
+| Application boolean flag | `WithFlag` | `GetFlag` |
+| All correlation values at once | (see individual writers) | `GetCorrelation` |
 
 Most getters return `(value, ok)` so an unset value can be distinguished from
 its zero value. The trace-ID getters instead return an empty string when no
@@ -88,7 +88,7 @@ ctx := scontext.WithFlag[string, User](r.Context(), "audited", true)
 nextRequest := r.WithContext(ctx)
 next.ServeHTTP(w, nextRequest)
 
-handlerErr, failed := scontext.GetHandlerErrorFromRequest[string, User](nextRequest)
+handlerErr, failed := scontext.GetHandlerError[string, User](nextRequest.Context())
 _ = handlerErr
 _ = failed
 ```
@@ -97,15 +97,15 @@ _ = failed
 
 ```go
 func accountHandler(w http.ResponseWriter, r *http.Request) {
-	userID, authenticated := scontext.GetUserIDFromRequest[string, User](r)
+	userID, authenticated := scontext.GetUserID[string, User](r.Context())
 	if !authenticated {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	user, hasUser := scontext.GetUserFromRequest[string, User](r)
-	clientIP, _ := scontext.GetClientIPFromRequest[string, User](r)
-	routeTemplate, _ := scontext.GetRouteTemplateFromRequest(r)
+	user, hasUser := scontext.GetUser[string, User](r.Context())
+	clientIP, _ := scontext.GetClientIP[string, User](r.Context())
+	routeTemplate, _ := scontext.GetRouteTemplateFromContext(r.Context())
 
 	_, _, _ = userID, user, hasUser
 	_, _ = clientIP, routeTemplate

@@ -209,7 +209,7 @@ func TestRouterDirectDispatcherAddsRouteContext(t *testing.T) {
 		if got := GetParam(req, "id"); got != "42" {
 			t.Errorf("GetParam(id) = %q, want %q", got, "42")
 		}
-		if got, ok := scontext.GetRouteTemplateFromRequest(req); !ok || got != "/users/:id" {
+		if got, ok := scontext.GetRouteTemplateFromContext(req.Context()); !ok || got != "/users/:id" {
 			t.Errorf("route template = (%q, %v), want (%q, true)", got, ok, "/users/:id")
 		}
 		w.WriteHeader(http.StatusNoContent)

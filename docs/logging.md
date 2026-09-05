@@ -103,7 +103,7 @@ Retrieve and propagate it with the `pkg/scontext` helpers:
 
 ```go
 func callDownstream(r *http.Request) (*http.Response, error) {
-	traceID := scontext.GetTraceIDFromRequest[string, User](r)
+	traceID := scontext.GetTraceIDFromContext[string, User](r.Context())
 
 	req, err := http.NewRequestWithContext(
 		r.Context(),

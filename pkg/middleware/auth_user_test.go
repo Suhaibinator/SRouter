@@ -298,7 +298,7 @@ func TestAuthenticationWithUserProvider(t *testing.T) {
 	// Create a handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user from the context
-		user, ok := scontext.GetUserFromRequest[string, User](r) // Use scontext
+		user, ok := scontext.GetUser[string, User](r.Context()) // Use scontext
 		if !ok || user == nil {
 			t.Error("Expected user to be in context, got nil")
 			w.WriteHeader(http.StatusInternalServerError)
@@ -349,7 +349,7 @@ func TestAuthenticationWithUser(t *testing.T) {
 	// Create a handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user from the context
-		user, ok := scontext.GetUserFromRequest[string, User](r) // Use scontext
+		user, ok := scontext.GetUser[string, User](r.Context()) // Use scontext
 		if !ok || user == nil {
 			t.Error("Expected user to be in context, got nil")
 			w.WriteHeader(http.StatusInternalServerError)
@@ -424,7 +424,7 @@ func TestGetUser(t *testing.T) {
 	req = req.WithContext(ctx)
 
 	// Get the user from the context
-	retrievedUser, _ := scontext.GetUserFromRequest[string, User](req) // Use scontext
+	retrievedUser, _ := scontext.GetUser[string, User](req.Context()) // Use scontext
 	if retrievedUser == nil {
 		t.Error("Expected user to be retrieved, got nil")
 	} else if retrievedUser.ID != "1" {
@@ -433,14 +433,14 @@ func TestGetUser(t *testing.T) {
 
 	// Test with no user in context
 	req, _ = http.NewRequest("GET", "/", nil)
-	retrievedUser, _ = scontext.GetUserFromRequest[string, User](req) // Use scontext
+	retrievedUser, _ = scontext.GetUser[string, User](req.Context()) // Use scontext
 	if retrievedUser != nil {
 		t.Error("Expected nil user when no user in context")
 	}
 
 	// Test with an empty context (no user stored)
 	req, _ = http.NewRequest("GET", "/", nil)
-	retrievedUser, _ = scontext.GetUserFromRequest[string, User](req) // Use scontext
+	retrievedUser, _ = scontext.GetUser[string, User](req.Context()) // Use scontext
 	if retrievedUser != nil {
 		t.Error("Expected nil user when wrong type in context")
 	}
@@ -469,7 +469,7 @@ func TestNewBearerTokenWithUserMiddleware(t *testing.T) {
 	// Create a handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user from the context
-		user, ok := scontext.GetUserFromRequest[string, User](r) // Use scontext
+		user, ok := scontext.GetUser[string, User](r.Context()) // Use scontext
 		if !ok || user == nil {
 			t.Error("Expected user to be in context, got nil")
 			w.WriteHeader(http.StatusInternalServerError)
@@ -538,7 +538,7 @@ func TestNewAPIKeyWithUserMiddleware(t *testing.T) {
 	// Create a handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user from the context
-		user, ok := scontext.GetUserFromRequest[string, User](r) // Use scontext
+		user, ok := scontext.GetUser[string, User](r.Context()) // Use scontext
 		if !ok || user == nil {
 			t.Error("Expected user to be in context, got nil")
 			w.WriteHeader(http.StatusInternalServerError)

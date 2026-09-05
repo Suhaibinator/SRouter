@@ -88,7 +88,7 @@ func (m *MetricsMiddlewareImpl[T, U]) Handler(name string, handler http.Handler)
 
 		// Prefer the route template from the SRouter request context.
 		routeIdentifier := name // Default to the name parameter if no route template is found
-		routeTemplate, hasTemplate := scontext.GetRouteTemplateFromRequest(r)
+		routeTemplate, hasTemplate := scontext.GetRouteTemplateFromContext(r.Context())
 		if hasTemplate {
 			routeIdentifier = routeTemplate
 		}

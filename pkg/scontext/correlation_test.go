@@ -3,7 +3,6 @@ package scontext
 import (
 	"context"
 	"fmt"
-	"net/http/httptest"
 	"sync"
 	"testing"
 
@@ -115,20 +114,6 @@ func TestGetCorrelationWithoutSRouterContext(t *testing.T) {
 	}
 	if c != (Correlation[int]{}) {
 		t.Errorf("correlation = %+v, want zero value", c)
-	}
-}
-
-func TestGetCorrelationFromRequest(t *testing.T) {
-	ctx := WithTraceID[int, testUser](context.Background(), "trace-req")
-	req := httptest.NewRequest("GET", "/", nil).WithContext(ctx)
-
-	c, ok := GetCorrelationFromRequest[int, testUser](req)
-	if !ok || c.TraceID != "trace-req" {
-		t.Fatalf("GetCorrelationFromRequest = (%q, %v), want (trace-req, true)", c.TraceID, ok)
-	}
-
-	if _, ok := GetCorrelationFromRequest[int, testUser](httptest.NewRequest("GET", "/", nil)); ok {
-		t.Error("GetCorrelationFromRequest on a bare request returned true, want false")
 	}
 }
 

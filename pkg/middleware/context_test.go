@@ -94,18 +94,18 @@ func TestTransactionContext(t *testing.T) {
 	assert.True(ok, "Should work with different generic types [int, CustomUser]")
 	assert.Same(mockTx1, retrievedTx, "Should retrieve correct tx with different generic types")
 
-	// 9. Test GetTransactionFromRequest
+	// 9. Test GetTransaction
 	req := httptest.NewRequest("GET", "/", nil)
 	// Get from request with no context tx
-	retrievedTx, ok = scontext.GetTransactionFromRequest[string, any](req) // Use scontext
-	assert.False(ok, "GetTransactionFromRequest should return false for request with no tx")
-	assert.Nil(retrievedTx, "GetTransactionFromRequest should return nil for request with no tx")
+	retrievedTx, ok = scontext.GetTransaction[string, any](req.Context()) // Use scontext
+	assert.False(ok, "GetTransaction should return false for request with no tx")
+	assert.Nil(retrievedTx, "GetTransaction should return nil for request with no tx")
 
 	// Add tx to request context (using ctxWithTx2 which has the latest state)
 	reqWithTx := req.WithContext(ctxWithTx2)
-	retrievedTx, ok = scontext.GetTransactionFromRequest[string, any](reqWithTx) // Use scontext
-	assert.True(ok, "GetTransactionFromRequest should return true for request with tx")
-	assert.Same(mockTx2, retrievedTx, "GetTransactionFromRequest should retrieve the correct tx instance (tx2)")
+	retrievedTx, ok = scontext.GetTransaction[string, any](reqWithTx.Context()) // Use scontext
+	assert.True(ok, "GetTransaction should return true for request with tx")
+	assert.Same(mockTx2, retrievedTx, "GetTransaction should retrieve the correct tx instance (tx2)")
 }
 
 // TestFlagContext tests adding and retrieving flags from context using scontext
@@ -169,28 +169,28 @@ func TestFlagContext(t *testing.T) {
 	assert.True(val, "Should retrieve correct flag value with different generic types")
 }
 
-// TestGetFlagFromRequest tests the GetFlagFromRequest convenience function using scontext
-func TestGetFlagFromRequest(t *testing.T) {
+// TestGetFlag tests scontext.GetFlag against a request context
+func TestGetFlag(t *testing.T) {
 	assert := assert.New(t)
 	req := httptest.NewRequest("GET", "/", nil)
 	flagName := "test-flag"
 
 	// 1. Get from request with no context flag
-	val, ok := scontext.GetFlagFromRequest[string, any](req, flagName) // Use scontext
-	assert.False(ok, "GetFlagFromRequest should return false for request with no flag")
-	assert.False(val, "GetFlagFromRequest value should be false for request with no flag")
+	val, ok := scontext.GetFlag[string, any](req.Context(), flagName) // Use scontext
+	assert.False(ok, "GetFlag should return false for request with no flag")
+	assert.False(val, "GetFlag value should be false for request with no flag")
 
 	// 2. Add flag to request context
 	ctxWithFlag := scontext.WithFlag[string, any](req.Context(), flagName, true) // Use scontext
 	reqWithFlag := req.WithContext(ctxWithFlag)
 
 	// 3. Get flag from request
-	val, ok = scontext.GetFlagFromRequest[string, any](reqWithFlag, flagName) // Use scontext
-	assert.True(ok, "GetFlagFromRequest should return true for request with flag")
-	assert.True(val, "GetFlagFromRequest value should be true for request with flag")
+	val, ok = scontext.GetFlag[string, any](reqWithFlag.Context(), flagName) // Use scontext
+	assert.True(ok, "GetFlag should return true for request with flag")
+	assert.True(val, "GetFlag value should be true for request with flag")
 
 	// 4. Get non-existent flag from request with flag
-	val, ok = scontext.GetFlagFromRequest[string, any](reqWithFlag, "other-flag") // Use scontext
-	assert.False(ok, "GetFlagFromRequest should return false for non-existent flag")
-	assert.False(val, "GetFlagFromRequest value should be false for non-existent flag")
+	val, ok = scontext.GetFlag[string, any](reqWithFlag.Context(), "other-flag") // Use scontext
+	assert.False(ok, "GetFlag should return false for non-existent flag")
+	assert.False(val, "GetFlag value should be false for non-existent flag")
 }

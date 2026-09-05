@@ -51,8 +51,8 @@ func TestRuntimeIdentityProvidersSampleOncePerRequest(t *testing.T) {
 		Path:    "/identities",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
-			gotBuildID, _ := scontext.GetBuildIDFromRequest[string, struct{}](req)
-			gotConfigID, _ := scontext.GetConfigIDFromRequest[string, struct{}](req)
+			gotBuildID, _ := scontext.GetBuildID[string, struct{}](req.Context())
+			gotConfigID, _ := scontext.GetConfigID[string, struct{}](req.Context())
 			seen = append(seen, [2]string{gotBuildID, gotConfigID})
 			w.WriteHeader(http.StatusNoContent)
 		},
@@ -87,8 +87,8 @@ func TestRuntimeIdentityProvidersReplaceOnlyNonEmptyValues(t *testing.T) {
 		Path:    "/identities",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
-			buildID, buildOK := scontext.GetBuildIDFromRequest[string, struct{}](req)
-			configID, configOK := scontext.GetConfigIDFromRequest[string, struct{}](req)
+			buildID, buildOK := scontext.GetBuildID[string, struct{}](req.Context())
+			configID, configOK := scontext.GetConfigID[string, struct{}](req.Context())
 			if !buildOK || buildID != "local-build" {
 				t.Errorf("build identity = (%q, %v)", buildID, buildOK)
 			}
@@ -117,10 +117,10 @@ func TestRuntimeIdentityProvidersLeaveAbsentValuesUnset(t *testing.T) {
 		Path:    "/identities",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
-			if buildID, ok := scontext.GetBuildIDFromRequest[string, struct{}](req); ok || buildID != "" {
+			if buildID, ok := scontext.GetBuildID[string, struct{}](req.Context()); ok || buildID != "" {
 				t.Errorf("build identity = (%q, %v), want absent", buildID, ok)
 			}
-			if configID, ok := scontext.GetConfigIDFromRequest[string, struct{}](req); ok || configID != "" {
+			if configID, ok := scontext.GetConfigID[string, struct{}](req.Context()); ok || configID != "" {
 				t.Errorf("config identity = (%q, %v), want absent", configID, ok)
 			}
 			w.WriteHeader(http.StatusNoContent)

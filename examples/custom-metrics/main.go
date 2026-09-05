@@ -64,7 +64,7 @@ func (m *requestMetrics) Handler(fallbackName string, next http.Handler) http.Ha
 		writer := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(writer, r)
 
-		routeName, ok := scontext.GetRouteTemplateFromRequest(r)
+		routeName, ok := scontext.GetRouteTemplateFromContext(r.Context())
 		if !ok {
 			routeName = fallbackName
 		}

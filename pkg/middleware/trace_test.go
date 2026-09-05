@@ -30,7 +30,7 @@ func TestAddTraceIDToRequest(t *testing.T) {
 	}
 
 	// Verify no trace ID initially
-	if traceID := scontext.GetTraceIDFromRequest[uint64, string](req); traceID != "" { // Use scontext
+	if traceID := scontext.GetTraceIDFromContext[uint64, string](req.Context()); traceID != "" { // Use scontext
 		t.Errorf("Expected trace ID to be empty initially, got %q", traceID)
 	}
 
@@ -39,7 +39,7 @@ func TestAddTraceIDToRequest(t *testing.T) {
 	req = AddTraceIDToRequest[uint64, string](req, expectedTraceID) // Use local helper
 
 	// Verify the trace ID was added
-	if traceID := scontext.GetTraceIDFromRequest[uint64, string](req); traceID != expectedTraceID { // Use scontext
+	if traceID := scontext.GetTraceIDFromContext[uint64, string](req.Context()); traceID != expectedTraceID { // Use scontext
 		t.Errorf("Expected trace ID to be %q after adding, got %q", expectedTraceID, traceID)
 	}
 }
@@ -94,7 +94,7 @@ func TestIDGeneratorBatchFill(t *testing.T) {
 	}
 }
 
-// TestGetTraceID tests that GetTraceIDFromRequest returns the trace ID from the request context
+// TestGetTraceID tests that GetTraceIDFromContext returns the trace ID from the request context
 func TestGetTraceID(t *testing.T) {
 	// Create a request
 	req, err := http.NewRequest("GET", "/test", nil)
@@ -103,7 +103,7 @@ func TestGetTraceID(t *testing.T) {
 	}
 
 	// Test with no trace ID
-	if traceID := scontext.GetTraceIDFromRequest[uint64, string](req); traceID != "" { // Use scontext
+	if traceID := scontext.GetTraceIDFromContext[uint64, string](req.Context()); traceID != "" { // Use scontext
 		t.Errorf("Expected trace ID to be empty, got %q", traceID)
 	}
 
@@ -112,7 +112,7 @@ func TestGetTraceID(t *testing.T) {
 	req = AddTraceIDToRequest[uint64, string](req, expectedTraceID) // Use local helper
 
 	// Test with trace ID
-	if traceID := scontext.GetTraceIDFromRequest[uint64, string](req); traceID != expectedTraceID { // Use scontext
+	if traceID := scontext.GetTraceIDFromContext[uint64, string](req.Context()); traceID != expectedTraceID { // Use scontext
 		t.Errorf("Expected trace ID to be %q, got %q", expectedTraceID, traceID)
 	}
 }
@@ -158,7 +158,7 @@ func TestCreateTraceMiddleware_WithExistingHeader(t *testing.T) {
 	var handlerTraceID string
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Use the same generic types as the middleware [string, any]
-		handlerTraceID = scontext.GetTraceIDFromRequest[string, any](r) // Use scontext
+		handlerTraceID = scontext.GetTraceIDFromContext[string, any](r.Context()) // Use scontext
 		w.WriteHeader(http.StatusOK)
 	})
 

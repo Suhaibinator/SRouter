@@ -111,8 +111,8 @@ during deployment.
 Use the typed context helpers:
 
 ```go
-userID, authenticated := scontext.GetUserIDFromRequest[string, User](req)
-user, userStored := scontext.GetUserFromRequest[string, User](req)
+userID, authenticated := scontext.GetUserID[string, User](req.Context())
+user, userStored := scontext.GetUser[string, User](req.Context())
 ```
 
 `userID` is available after successful built-in authentication. For built-in

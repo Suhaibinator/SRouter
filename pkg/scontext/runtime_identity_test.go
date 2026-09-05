@@ -2,7 +2,6 @@ package scontext
 
 import (
 	"context"
-	"net/http/httptest"
 	"testing"
 )
 
@@ -16,17 +15,6 @@ func TestRuntimeIdentityHelpers(t *testing.T) {
 	}
 	if configID, ok := GetConfigID[string, testUser](ctx); !ok || configID != "config-1" {
 		t.Fatalf("GetConfigID = (%q, %v), want (config-1, true)", configID, ok)
-	}
-
-	ctx = WithBuildID[string, testUser](ctx, "build-2")
-	ctx = WithConfigID[string, testUser](ctx, "config-2")
-	req := httptest.NewRequest("GET", "/", nil).WithContext(ctx)
-
-	if buildID, ok := GetBuildIDFromRequest[string, testUser](req); !ok || buildID != "build-2" {
-		t.Fatalf("GetBuildIDFromRequest = (%q, %v), want (build-2, true)", buildID, ok)
-	}
-	if configID, ok := GetConfigIDFromRequest[string, testUser](req); !ok || configID != "config-2" {
-		t.Fatalf("GetConfigIDFromRequest = (%q, %v), want (config-2, true)", configID, ok)
 	}
 }
 

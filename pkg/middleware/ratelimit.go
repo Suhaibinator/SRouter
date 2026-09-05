@@ -284,14 +284,14 @@ func extractUserKey[T comparable, U any](r *http.Request, config *common.RateLim
 	// Try getting the full user object first. Extracting an ID from it
 	// requires the UserIDFromUser function; without it, fall through to the
 	// user ID from the context.
-	user, userOk := scontext.GetUserFromRequest[T, U](r)
+	user, userOk := scontext.GetUser[T, U](r.Context())
 	if userOk && user != nil && config.UserIDFromUser != nil {
 		userID := config.UserIDFromUser(*user)
 		return userIDToString(userID)
 	}
 
 	// Otherwise use the user ID directly from the context.
-	userID, idOk := scontext.GetUserIDFromRequest[T, U](r)
+	userID, idOk := scontext.GetUserID[T, U](r.Context())
 	if idOk {
 		return userIDToString(userID)
 	}

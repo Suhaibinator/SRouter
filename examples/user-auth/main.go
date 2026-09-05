@@ -25,7 +25,7 @@ type User struct {
 // Protected resource that requires authentication and uses the user object
 func protectedUserHandler(w http.ResponseWriter, r *http.Request) {
 	// Get the user from the context
-	user, ok := scontext.GetUserFromRequest[string, User](r)
+	user, ok := scontext.GetUser[string, User](r.Context())
 	if !ok || user == nil {
 		http.Error(w, "User not found in context", http.StatusInternalServerError)
 		return

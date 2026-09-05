@@ -146,7 +146,7 @@ func TestClientIPRetrieval(t *testing.T) {
 	ctx := scontext.WithClientIP[string, any](req.Context(), expectedIP)
 	req = req.WithContext(ctx)
 
-	ip, ok := scontext.GetClientIPFromRequest[string, any](req)
+	ip, ok := scontext.GetClientIP[string, any](req.Context())
 	if !ok {
 		t.Errorf("Expected to find IP in context, but ok was false")
 	}
@@ -156,7 +156,7 @@ func TestClientIPRetrieval(t *testing.T) {
 
 	// Test getting IP when it's not set
 	req = httptest.NewRequest("GET", "/test", nil) // Fresh request without IP in context
-	ip, ok = scontext.GetClientIPFromRequest[string, any](req)
+	ip, ok = scontext.GetClientIP[string, any](req.Context())
 	if ok {
 		t.Errorf("Expected not to find IP in context, but ok was true")
 	}
