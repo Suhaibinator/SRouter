@@ -127,53 +127,81 @@ Even with automatic trace IDs disabled, request-boundary error records produced 
 
 ## Request-scoped logger
 
-SRouter installs a request-scoped `*zap.Logger` at the start of every request.
-It is stamped once with the request's correlation values, so handlers and
-middleware log through it without restating them:
+SRouter makes one shared request logger available before route dispatch. It
+lazily stamps `trace_id`, `build_id`, `config_id`, and `user_id`, each only when
+set. Services own their relative component names and apply them with Zap's
+`Named` method:
 
 ```go
-func handler(w http.ResponseWriter, r *http.Request) {
-	logger, ok := scontext.GetLogger[uint64, User](r.Context())
-	if !ok {
-		logger = fallbackLogger
+func (h *AdminHandler) handle(ctx context.Context) {
+	logger, ok := scontext.GetLogger[UserID, User](ctx)
+	if ok {
+		logger = logger.Named("common_service.admin")
+	} else {
+		logger = h.fallbackLogger // Already named at service initialization.
 	}
-	logger.Info("order created", zap.String("order_id", id))
+	logger.Info("operation started")
+	// Reuse this logger throughout the operation.
+	logger.Info("operation completed")
 }
 ```
 
-The base is `RouterConfig.Logger`, or the production fallback when that is nil,
-without the `SRouter` name the router applies to its own logger. Application
-lines therefore do not inherit `logger=SRouter`.
+The base is the resolved `RouterConfig.Logger`, including its existing name,
+static fields, sinks, levels, and options. SRouter appends `SRouter` only to its
+own internal logger. Given a root named `myapp`, the example emits
+`myapp.common_service.admin`; another service can independently derive
+`myapp.common_service.permission` from the same request logger.
 
-The stamped fields are `trace_id`, `build_id`, `config_id`, and `user_id`, each
-present only when set. `RouterDependencies.UserIDField` chooses how the user ID
-is rendered. It takes the user ID alone, so a typed constructor such as
-`zap.Uint64` does not match its signature directly:
+Keep the service name relative to the application root. Passing an existing
+fully qualified `h.logger.Name()` to `Named` could duplicate the application
+prefix. `Named` sets Zap's logger-name metadata, emitted under the encoder's
+`NameKey`; adding `zap.String("logger", name)` would be an ordinary field instead.
+
+A named child shares the request logger's core and already encoded correlation.
+Naming still clones the small logger value and may allocate a joined name, so
+derive once per service operation and reuse it across log lines. This model
+uses application-wide logging configuration. Additional service fields or
+options must be applied explicitly to the child; naming cannot transfer them
+from another logger.
+
+Configure user-ID formatting at router initialization:
 
 ```go
+type UserID uint64
+
 r := router.NewRouter(router.RouterConfig{
-	Logger: logger,
-}, router.RouterDependencies[uint64, User]{
+	Logger: appLogger,
+}, router.RouterDependencies[UserID, User]{
 	Authenticate: authenticate,
 	UserID:       userIDFromUser,
-	UserIDField: func(id uint64) zap.Field {
-		return zap.Uint64(logkeys.UserID, id)
+	// Optional: provide an explicit typed conversion or custom representation.
+	UserIDField: func(id UserID) zap.Field {
+		return zap.Uint64(logkeys.UserID, uint64(id))
 	},
 })
 ```
 
-Leaving `UserIDField` nil renders the user ID with `zap.Any`, which picks the
-typed constructor for a builtin `T` and falls back to reflection for a named
-type.
+Leaving `UserIDField` nil selects the encoder once from `T`'s static type.
+Strings, bools, integers, and floats, including named types such as `UserID`,
+use typed Zap fields. The implementation uses safe reflection kind accessors;
+it does not use unsafe casts. Types implementing Zap object/array marshaling,
+JSON/text marshaling, `fmt.Stringer`, or `error` retain `zap.Any` semantics.
+Other types also use `zap.Any`; for interface-typed IDs it handles each value's
+dynamic type.
+`T` remains `comparable`, so built-in IDs require no added interface methods.
 
-The point of the stamped logger is that the correlation fields are encoded once
-per request rather than once per line. It replaces the common pattern of calling
-`logger.With(correlationFields...)` at every log site, which clones the core and
-pre-encodes those fields before the level is even checked.
+An explicit formatter overrides the default representation and field key. It
+must be concurrency-safe and should be fast and free of side effects, since
+concurrent derivations may call it more than once. It may read context values,
+but must not recursively request the same logger or mutate correlation. Panics
+propagate and leave the cache invalidated for a subsequent retry.
 
-See [Context management](./context-management.md#request-scoped-logger) for the
-staleness contract, contexts that carry no logger, and installing the base at a
-background-job boundary.
+A warmed `GetLogger` allocates nothing. A later correlation write invalidates
+the cache, and previously returned loggers remain unchanged. See
+[Context management](./context-management.md#request-scoped-logger) for cache
+semantics and configuring a reusable source for background jobs. Run the
+[request logger example](../examples/request-logger/main.go) to see named service
+logging with a named numeric user-ID type.
 
 ## Generator lifecycle
 

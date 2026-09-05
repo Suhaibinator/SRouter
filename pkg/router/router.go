@@ -39,9 +39,9 @@ type RouterDependencies[T comparable, U any] struct {
 	// ConfigID returns the current opaque application configuration identity.
 	ConfigID func() string
 	// UserIDField renders a user ID as a log field on the request logger.
-	// Optional; nil renders with zap.Any, which picks the typed zap constructor
-	// for builtin T (uint64, string, ...) and falls back to reflection for
-	// named types.
+	// Optional; nil selects a typed encoder at initialization for primitive T,
+	// including named types. Custom marshalers and other types use zap.Any.
+	// See scontext.NewRequestLoggerSource for the formatter contract.
 	UserIDField func(T) zap.Field
 }
 
@@ -53,7 +53,7 @@ type Router[T comparable, U any] struct {
 	router            *httprouter.Router
 	routeTree         *routeTree[T, U]
 	logger            *zap.Logger
-	requestLogBase    *zap.Logger // Resolved application logger, unnamed; base for request-scoped loggers
+	requestLogSource  *scontext.RequestLoggerSource[T] // Shared application logging configuration
 	middlewares       []common.Middleware
 	rateLimiter       common.RateLimiter
 	wg                sync.WaitGroup
@@ -124,13 +124,13 @@ func NewRouter[T comparable, U any](config RouterConfig, dependencies RouterDepe
 
 	// Create the router
 	r := &Router[T, U]{
-		config:         config,
-		dependencies:   dependencies,
-		routeTree:      newRouteTree[T, U](),
-		logger:         logger.Named("SRouter"),
-		requestLogBase: logger,
-		middlewares:    config.Middlewares,
-		rateLimiter:    rateLimiter,
+		config:           config,
+		dependencies:     dependencies,
+		routeTree:        newRouteTree[T, U](),
+		logger:           logger.Named("SRouter"),
+		requestLogSource: scontext.NewRequestLoggerSource(logger, dependencies.UserIDField),
+		middlewares:      config.Middlewares,
+		rateLimiter:      rateLimiter,
 		// CORS headers initialized below
 		metricsWriterPool: sync.Pool{
 			New: func() any {
@@ -677,13 +677,13 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Default to the original writer, override if metrics/tracing enabled
 	rw := w
 
-	// Install the request-scoped logger base, then client info. The stamped
+	// Attach the startup logging source, then client info. The stamped
 	// logger is derived lazily on the first scontext.GetLogger call, so the
 	// correlation values written before and after this point (runtime
 	// identities above, trace ID and user ID in the middleware chain) all
 	// land on it without a clone per write.
 	clientIP := extractClientIP(req, r.config.IPConfig)
-	ctx := scontext.WithRequestLogger[T, U](req.Context(), r.requestLogBase, r.dependencies.UserIDField)
+	ctx := scontext.WithRequestLogger[T, U](req.Context(), r.requestLogSource)
 	ctx = scontext.WithClientInfo[T, U](ctx, clientIP, req.UserAgent())
 	req = req.WithContext(ctx)
 

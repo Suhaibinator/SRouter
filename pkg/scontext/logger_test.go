@@ -71,7 +71,8 @@ func TestGetLoggerWithoutBase(t *testing.T) {
 
 func TestGetLoggerWithBaseAndNoCorrelation(t *testing.T) {
 	base, logs := newObservedLogger()
-	ctx := WithRequestLogger[int, testUser](context.Background(), base, nil)
+	source := NewRequestLoggerSource[int](base, nil)
+	ctx := WithRequestLogger[int, testUser](context.Background(), source)
 
 	logger, ok := GetLogger[int, testUser](ctx)
 	if !ok {
@@ -79,6 +80,16 @@ func TestGetLoggerWithBaseAndNoCorrelation(t *testing.T) {
 	}
 	if logger == nil {
 		t.Fatal("GetLogger returned a nil logger with a base installed")
+	}
+
+	if logger != base {
+		t.Fatal("empty correlation should reuse the application logger")
+	}
+	if allocs := testing.AllocsPerRun(1000, func() {
+		WithRequestLogger[int, testUser](ctx, source)
+		loggerSink, _ = GetLogger[int, testUser](ctx)
+	}); allocs != 0 {
+		t.Errorf("empty correlation derivation = %.1f allocs/op, want 0", allocs)
 	}
 
 	entry := logAndTake(t, logger, logs, "no correlation")
@@ -92,7 +103,7 @@ func TestGetLoggerWithBaseAndNoCorrelation(t *testing.T) {
 // field order, and must leave the previously returned logger untouched.
 func TestGetLoggerStampsCorrelationInOrder(t *testing.T) {
 	base, logs := newObservedLogger()
-	ctx := WithRequestLogger[int, testUser](context.Background(), base, nil)
+	ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 
 	previous, ok := GetLogger[int, testUser](ctx)
 	if !ok {
@@ -174,7 +185,7 @@ func TestGetLoggerStampsCorrelationInOrder(t *testing.T) {
 // pointer comes back and the original trace ID stays stamped.
 func TestGetLoggerTraceIDPreservedDoesNotRebuild(t *testing.T) {
 	base, logs := newObservedLogger()
-	ctx := WithRequestLogger[int, testUser](context.Background(), base, nil)
+	ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 	ctx = WithTraceID[int, testUser](ctx, "trace-original")
 
 	first, ok := GetLogger[int, testUser](ctx)
@@ -202,7 +213,7 @@ func TestGetLoggerTraceIDPreservedDoesNotRebuild(t *testing.T) {
 // flag decides presence, so a deliberately empty trace ID is still stamped.
 func TestGetLoggerStampsExplicitlyEmptyTraceID(t *testing.T) {
 	base, logs := newObservedLogger()
-	ctx := WithRequestLogger[int, testUser](context.Background(), base, nil)
+	ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 	ctx = WithTraceID[int, testUser](ctx, "")
 
 	logger, ok := GetLogger[int, testUser](ctx)
@@ -225,7 +236,7 @@ func TestGetLoggerStampsExplicitlyEmptyTraceID(t *testing.T) {
 func TestGetLoggerUsesUserIDField(t *testing.T) {
 	base, logs := newObservedLogger()
 	userIDField := func(id uint64) zap.Field { return zap.Uint64("actor_id", id) }
-	ctx := WithRequestLogger[uint64, testUser](context.Background(), base, userIDField)
+	ctx := WithRequestLogger[uint64, testUser](context.Background(), NewRequestLoggerSource(base, userIDField))
 	ctx = WithUserID[uint64, testUser](ctx, 42)
 
 	logger, ok := GetLogger[uint64, testUser](ctx)
@@ -243,11 +254,10 @@ func TestGetLoggerUsesUserIDField(t *testing.T) {
 	}
 }
 
-// TestGetLoggerUserIDAnyFallbackUint64 covers the nil-hook path for a builtin
-// numeric T: zap.Any must pick the typed constructor, not reflection.
-func TestGetLoggerUserIDAnyFallbackUint64(t *testing.T) {
+// TestGetLoggerUserIDDefaultUint64 covers the default encoder for a builtin numeric T.
+func TestGetLoggerUserIDDefaultUint64(t *testing.T) {
 	base, logs := newObservedLogger()
-	ctx := WithRequestLogger[uint64, testUser](context.Background(), base, nil)
+	ctx := WithRequestLogger[uint64, testUser](context.Background(), NewRequestLoggerSource[uint64](base, nil))
 	ctx = WithUserID[uint64, testUser](ctx, 42)
 
 	logger, ok := GetLogger[uint64, testUser](ctx)
@@ -262,10 +272,10 @@ func TestGetLoggerUserIDAnyFallbackUint64(t *testing.T) {
 	}
 }
 
-// TestGetLoggerUserIDAnyFallbackString covers the nil-hook path for a string T.
-func TestGetLoggerUserIDAnyFallbackString(t *testing.T) {
+// TestGetLoggerUserIDDefaultString covers the nil-hook path for a string T.
+func TestGetLoggerUserIDDefaultString(t *testing.T) {
 	base, logs := newObservedLogger()
-	ctx := WithRequestLogger[string, testUser](context.Background(), base, nil)
+	ctx := WithRequestLogger[string, testUser](context.Background(), NewRequestLoggerSource[string](base, nil))
 	ctx = WithUserID[string, testUser](ctx, "user-42")
 
 	logger, ok := GetLogger[string, testUser](ctx)
@@ -283,14 +293,14 @@ func TestGetLoggerUserIDAnyFallbackString(t *testing.T) {
 // TestWithRequestLoggerNilRemovesLogger covers the documented removal path.
 func TestWithRequestLoggerNilRemovesLogger(t *testing.T) {
 	base, _ := newObservedLogger()
-	ctx := WithRequestLogger[int, testUser](context.Background(), base, nil)
+	ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 	ctx = WithTraceID[int, testUser](ctx, "trace-1")
 
 	if _, ok := GetLogger[int, testUser](ctx); !ok {
 		t.Fatal("GetLogger returned false with a base installed, want true")
 	}
 
-	ctx = WithRequestLogger[int, testUser](ctx, nil, nil)
+	ctx = WithRequestLogger[int, testUser](ctx, nil)
 
 	logger, ok := GetLogger[int, testUser](ctx)
 	if ok || logger != nil {
@@ -298,16 +308,15 @@ func TestWithRequestLoggerNilRemovesLogger(t *testing.T) {
 	}
 }
 
-// TestGetLoggerConcurrentWithWrites exercises the double-checked rebuild
+// TestGetLoggerConcurrentWithWrites exercises cache publication
 // against concurrent correlation writes; it is meaningful under -race.
 func TestGetLoggerConcurrentWithWrites(t *testing.T) {
 	base, _ := newObservedLogger()
-	ctx := WithRequestLogger[int, testUser](context.Background(), base, nil)
+	ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 	ctx = WithTraceID[int, testUser](ctx, "trace-1")
 
 	var readers sync.WaitGroup
 	var writer sync.WaitGroup
-	done := make(chan struct{})
 
 	for range 8 {
 		readers.Go(func() {
@@ -323,18 +332,12 @@ func TestGetLoggerConcurrentWithWrites(t *testing.T) {
 	}
 
 	writer.Go(func() {
-		for i := 0; ; i++ {
-			select {
-			case <-done:
-				return
-			default:
-			}
+		for i := range 1000 {
 			WithUserID[int, testUser](ctx, i)
 		}
 	})
 
 	readers.Wait()
-	close(done)
 	writer.Wait()
 }
 
@@ -342,7 +345,7 @@ func TestGetLoggerConcurrentWithWrites(t *testing.T) {
 // request logger and its stamped fields.
 func TestCopySRouterContextPreservesLogger(t *testing.T) {
 	base, logs := newObservedLogger()
-	src := WithRequestLogger[int, testUser](context.Background(), base, nil)
+	src := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 	src = WithTraceID[int, testUser](src, "trace-1")
 	src = WithBuildID[int, testUser](src, "build-1")
 	src = WithConfigID[int, testUser](src, "config-1")
@@ -370,7 +373,7 @@ var loggerSink *zap.Logger
 // correlation value written, with the derived logger already warmed.
 func benchLoggerContext() context.Context {
 	core, _ := observer.New(zapcore.DebugLevel)
-	ctx := WithRequestLogger[uint64, testUser](context.Background(), zap.New(core), nil)
+	ctx := WithRequestLogger[uint64, testUser](context.Background(), NewRequestLoggerSource[uint64](zap.New(core), nil))
 	ctx = WithTraceID[uint64, testUser](ctx, "trace-1")
 	ctx = WithBuildID[uint64, testUser](ctx, "build-1")
 	ctx = WithConfigID[uint64, testUser](ctx, "config-1")

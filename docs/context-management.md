@@ -145,84 +145,105 @@ func logFields(ctx context.Context) []zap.Field {
 }
 ```
 
-`Correlation[T]` holds values, not built log fields, so this package stays
-independent of any logging implementation and the caller renders the user ID
-with whatever constructor matches its own `T` — `zap.Uint64`, `zap.String`, or
-its own encoder. A helper that built the field here would have to funnel every
-user ID through the logger's any-typed fallback, which boxes the value and
-allocates.
+`Correlation[T]` holds values rather than Zap fields, so it can also be used
+with metrics and other logging implementations. Callers can choose their own
+rendering for the user ID.
 
 Each field carries a `Set` flag, so a value that was written empty on purpose
 stays distinguishable from one that was never written. The result is a copy
 taken at the moment of the call: a later write through a `With*` helper does
-not change it, and two separate calls are not an atomic pair. The struct has no
-reference-typed members, so it cannot alias the wrapper.
+not change it, and two separate calls are not an atomic pair. Scalar values and
+presence flags are copied; references inside a generic user ID retain their
+normal Go sharing semantics.
 
 Code that reads correlation only in order to log it should call `GetLogger`
 instead. It returns a logger that already carries the same values as fields.
 
 ## Request-scoped logger
 
-`WithRequestLogger(ctx, base, userIDField)` installs `base` as the logger from
-which the request's stamped logger is derived. `base` must be the application's
-own logger, not one that already carries request fields. Passing a nil `base`
-removes the request logger. `userIDField` renders the user ID as a field; a nil
-`userIDField` selects `zap.Any`, which picks the typed constructor for a builtin
-`T` and falls back to reflection for a named type.
+Configure logging once at application initialization. `NewRouter` creates a
+`scontext.RequestLoggerSource[T]` from its resolved `RouterConfig.Logger` and
+optional `RouterDependencies.UserIDField`, then attaches that source before
+route dispatch. The source holds the application logger and user-ID encoder;
+it contains no request values or per-request cache.
 
-The router calls `WithRequestLogger` on every request with its resolved
-application logger and `RouterDependencies.UserIDField`, so handlers and
-middleware only need `GetLogger`:
+`GetLogger[T, U](ctx)` returns the shared request logger. Use `Named` with a
+relative service name and reuse that child within the operation:
 
 ```go
-logger, ok := scontext.GetLogger[uint64, User](r.Context())
+logger, ok := scontext.GetLogger[uint64, User](ctx)
+if ok {
+	logger = logger.Named("common_service.admin")
+} else {
+	logger = adminFallbackLogger
+}
+logger.Info("operation started")
+logger.Info("operation completed")
 ```
 
-`GetLogger` returns `(nil, false)` when the context carries no SRouter context,
-and also when it carries one with no base installed. A context first touched by
-`EnsureSRouterContext`, or by a bare `WithUserID` call from application code,
-therefore carries correlation but no logger, and the caller falls back to
-whatever logger it used before. `GetCorrelation` is unchanged for that case.
+The application name is preserved: an application logger named `myapp` produces
+`myapp.common_service.admin`. The [logging guide](./logging.md#request-scoped-logger)
+explains component ownership and startup user-ID formatting.
 
-The stamped logger carries these fields, in this fixed order, each present only
-when the corresponding value has been set:
+Correlation is stamped in this order, with each field present only when its
+corresponding `Set` flag is true:
 
-| Field | Key | Constructor |
+| Field | Key | Rendering |
 | --- | --- | --- |
-| Trace ID | `logkeys.TraceID` | `zap.String` |
-| Build identity | `logkeys.BuildID` | `zap.String` |
-| Configuration identity | `logkeys.ConfigID` | `zap.String` |
-| User ID | `logkeys.UserID` | `userIDField`, else `zap.Any` |
+| Trace ID | `logkeys.TraceID` | String |
+| Build identity | `logkeys.BuildID` | String |
+| Configuration identity | `logkeys.ConfigID` | String |
+| User ID | `logkeys.UserID` | Startup encoder, or explicit `UserIDField` override |
 
-Presence follows the same `Set` flags as `GetCorrelation`, so a trace ID that
-was set to the empty string on purpose is still stamped as `trace_id=""`.
+Explicitly empty strings and zero user IDs remain present. `WithTraceID`
+preserves an existing trace ID and leaves the cache current in that case.
+`WithBuildID`, `WithConfigID`, and `WithUserID` invalidate the cache.
 
-The returned logger reflects the correlation values at the moment of the call. A
-later `WithUserID`, `WithBuildID`, or `WithConfigID` does not change a logger
-already in hand; it is visible only through a fresh `GetLogger`. In a normal
-request that ordering is already correct, because the router writes every
-correlation value before the handler runs. `WithTraceID` on a context that
-already has a trace ID preserves the existing ID and therefore does not change
-the logger at all.
+Derivation is lazy: multiple correlation writes before the first `GetLogger`
+lead to one derivation during sequential use. Formatting and Zap core encoding
+run outside the context lock. Concurrent first readers may duplicate this work;
+they reuse the first published logger for the current correlation/source
+version. If either changes during derivation, `GetLogger` retries. Panics
+propagate without marking an obsolete logger current.
 
-Deriving the logger is lazy. Each correlation writer only marks it stale, and
-the next `GetLogger` rebuilds it once, so a request that writes four correlation
-values before its first log line pays for a single clone rather than four.
+A returned logger, including a named child, is an immutable snapshot. After a
+correlation write, call `GetLogger` again and derive a new named child to see the
+change. Copying an SRouter context shares the immutable source and any current
+logger, but future correlation/source writes and cache updates are independent.
+Use the `With*` helpers for writes; direct struct-field writes bypass cache
+invalidation and synchronization.
 
-Work that runs outside the router owns its own boundary. Background jobs and
-message consumers call `WithRequestLogger` themselves, alongside the
-`WithBuildID` and `WithConfigID` calls they already make there:
+Contexts created by `EnsureSRouterContext` or a correlation helper alone have no
+logging source; `GetLogger` returns `nil, false`. Existing users of
+`GetCorrelation` can continue applying their own fields in that case.
+
+For background work, create a source once at worker initialization and reuse it
+at each job boundary:
+
+```go
+// At startup, using the application logger before any job fields are added:
+source := scontext.NewRequestLoggerSource[uint64](appLogger, nil)
+worker := &Worker{logSource: source}
+```
+
+The worker holds `logSource *scontext.RequestLoggerSource[uint64]`:
 
 ```go
 func (w *Worker) handle(ctx context.Context, msg Message) error {
+	ctx = scontext.WithRequestLogger[uint64, User](ctx, w.logSource)
 	ctx = scontext.WithBuildID[uint64, User](ctx, w.buildID)
 	ctx = scontext.WithConfigID[uint64, User](ctx, w.configID)
 	ctx = scontext.WithTraceID[uint64, User](ctx, msg.TraceID)
-	ctx = scontext.WithRequestLogger[uint64, User](ctx, w.logger, nil)
-
 	return w.process(ctx, msg)
 }
 ```
+
+`WithRequestLogger(ctx, source)` replaces the source and invalidates the cached
+logger. Passing nil removes it. A source's zero value disables logging, and
+`NewRequestLoggerSource` returns nil when its base is nil. The router resolves a
+nil configured logger to its production/no-op fallback before creating a source.
+A base must not already carry request correlation fields, since Zap appends
+fields instead of replacing them.
 
 ## Database transactions
 

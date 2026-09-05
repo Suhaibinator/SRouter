@@ -76,6 +76,8 @@ func TestRequestLoggerCarriesCorrelationOnAuthRequiredRoute(t *testing.T) {
 		return zap.Uint64(logkeys.UserID, id)
 	}))
 
+	t.Cleanup(func() { _ = r.Shutdown(context.Background()) })
+
 	authLevel := AuthRequired
 	handlerRan := false
 	r.Route(RouteConfigBase{
@@ -167,6 +169,8 @@ func TestRequestLoggerOmitsUserIDOnAuthOptionalWithoutToken(t *testing.T) {
 		return zap.Uint64(logkeys.UserID, id)
 	}))
 
+	t.Cleanup(func() { _ = r.Shutdown(context.Background()) })
+
 	authLevel := AuthOptional
 	handlerRan := false
 	r.Route(RouteConfigBase{
@@ -221,6 +225,7 @@ func TestRequestLoggerOmitsUserIDOnAuthOptionalWithoutToken(t *testing.T) {
 // derived from the unnamed fallback rather than the router's named logger.
 func TestRequestLoggerFallsBackToDefaultLoggerWhenConfigLoggerNil(t *testing.T) {
 	r := NewRouter(RouterConfig{}, RouterDependencies[string, reqLogUser]{})
+	t.Cleanup(func() { _ = r.Shutdown(context.Background()) })
 
 	handlerRan := false
 	r.Route(RouteConfigBase{
@@ -261,9 +266,9 @@ func TestRequestLoggerFallsBackToDefaultLoggerWhenConfigLoggerNil(t *testing.T) 
 	}
 }
 
-// TestRequestLoggerUserIDFieldNilUsesZapAny verifies that a nil UserIDField
-// falls back to zap.Any, which renders a string user ID as a string field.
-func TestRequestLoggerUserIDFieldNilUsesZapAny(t *testing.T) {
+// TestRequestLoggerUserIDFieldDefaultString verifies that a nil UserIDField
+// selects an encoder that renders a string user ID as a string field.
+func TestRequestLoggerUserIDFieldDefaultString(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
 	r := NewRouter(RouterConfig{
 		Logger:            zap.New(core),
@@ -283,8 +288,10 @@ func TestRequestLoggerUserIDFieldNilUsesZapAny(t *testing.T) {
 		},
 		BuildID:  func() string { return "build-1" },
 		ConfigID: func() string { return "config-1" },
-		// UserIDField intentionally nil: the logger falls back to zap.Any.
+		// UserIDField intentionally nil: initialization selects the encoder.
 	})
+
+	t.Cleanup(func() { _ = r.Shutdown(context.Background()) })
 
 	authLevel := AuthRequired
 	handlerRan := false
@@ -328,5 +335,51 @@ func TestRequestLoggerUserIDFieldNilUsesZapAny(t *testing.T) {
 	}
 	if userID != "ada" {
 		t.Errorf("user_id = %q, want %q", userID, "ada")
+	}
+}
+
+func TestRequestLoggerNamedServicesAndNamedUserID(t *testing.T) {
+	type userID uint64
+	core, logs := observer.New(zapcore.DebugLevel)
+	base := zap.New(core).Named("myapp")
+	r := NewRouter(RouterConfig{Logger: base}, RouterDependencies[userID, reqLogUser]{
+		Authenticate: reqLogUint64Deps(nil).Authenticate,
+		UserID:       func(u *reqLogUser) userID { return userID(u.id) },
+	})
+	t.Cleanup(func() { _ = r.Shutdown(context.Background()) })
+	auth := AuthRequired
+	r.Route(RouteConfigBase{
+		Path:      "/admin",
+		Methods:   []HttpMethod{MethodGet},
+		AuthLevel: &auth,
+		Handler: func(w http.ResponseWriter, req *http.Request) {
+			logger, ok := scontext.GetLogger[userID, reqLogUser](req.Context())
+			if !ok {
+				t.Error("missing request logger")
+				return
+			}
+			logger.Named("common_service.admin").Info("admin line")
+			logger.Named("common_service.permission").Info("permission line")
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.Header.Set("Authorization", "Bearer "+reqLogValidToken)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rec.Code)
+	}
+	for message, name := range map[string]string{
+		"admin line":      "myapp.common_service.admin",
+		"permission line": "myapp.common_service.permission",
+	} {
+		entry := reqLogSingleEntry(t, logs, message)
+		if entry.LoggerName != name || entry.ContextMap()[logkeys.UserID] != uint64(4242) {
+			t.Fatalf("wrong service name or user ID: %#v", entry)
+		}
+		if len(entry.Context) != 1 || entry.Context[0].Type != zapcore.Uint64Type {
+			t.Fatalf("named ID did not use a single typed field: %#v", entry.Context)
+		}
 	}
 }
