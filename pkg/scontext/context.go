@@ -11,10 +11,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/Suhaibinator/SRouter/pkg/logkeys" // Canonical structured-log field names
-	"github.com/julienschmidt/httprouter"         // Import for Params type
-	"go.uber.org/zap"                             // Needed for CorrelationFields
-	"gorm.io/gorm"                                // Needed for DatabaseTransaction
+	"github.com/julienschmidt/httprouter" // Import for Params type
+	"gorm.io/gorm"                        // Needed for DatabaseTransaction
 )
 
 // sRouterContextKey is a private type for the context key to avoid collisions
@@ -476,74 +474,86 @@ func GetTraceIDFromRequest[T comparable, U any](r *http.Request) string {
 	return GetTraceIDFromContext[T, U](r.Context())
 }
 
-// correlationFieldCapacity sizes the slice CorrelationFields returns: the
-// three fields it builds itself plus one spare slot, so a caller appending the
-// user ID field does not reallocate.
-const correlationFieldCapacity = 4
+// Correlation carries the per-operation values used to correlate log entries
+// and metrics: the trace ID, the opaque build and configuration identities,
+// and the user ID. Each Set flag reports whether the corresponding value was
+// ever written, so a deliberately empty value stays distinguishable from an
+// absent one.
+//
+// It is a plain value copy with no reference-typed members, so passing it
+// around costs nothing beyond the copy and it cannot alias the wrapper.
+// T is the User ID type (comparable).
+type Correlation[T comparable] struct {
+	TraceID  string
+	BuildID  string
+	ConfigID string
+	UserID   T
 
-// CorrelationFields returns the correlation fields for the request as zap
-// fields, together with the raw user ID.
-//
-// It reads every value under a single lock acquisition after one walk of the
-// context chain, where the individual accessors pay both costs per field. Code
-// that stamps correlation onto log entries should prefer it.
-//
-// The returned fields are the values SRouter can type itself: trace_id,
-// build_id, and config_id, each present only when it was set. The user ID
-// comes back as a raw T instead, because only the caller knows which typed zap
-// constructor fits its own user ID type; building it here would force every
-// user ID through zap.Any, which allocates. Append it with the constructor
-// that matches:
-//
-//	fields, userID, ok := scontext.CorrelationFields[uint64, User](ctx)
-//	if ok {
-//		fields = append(fields, zap.Uint64("user_id", userID))
-//	}
-//
-// The slice has spare capacity for exactly that append. userIDSet reports
-// whether a user ID was ever written, so a deliberate zero stays
-// distinguishable from an absent one.
-//
-// The result is a copy taken at the moment of the call; a later write through
-// a With* helper does not change it.
-// T is the User ID type (comparable), U is the User object type (any).
-func CorrelationFields[T comparable, U any](ctx context.Context) (fields []zap.Field, userID T, userIDSet bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
-	if !ok {
-		var zero T
-		return nil, zero, false
-	}
-
-	// Allocate before taking the lock: writers block behind readers, and this
-	// allocation can pull in garbage collector assist work.
-	fields = make([]zap.Field, 0, correlationFieldCapacity)
-
-	// Hold the lock only long enough to copy the values out.
-	rc.mu.RLock()
-	traceID, traceIDSet := rc.TraceID, rc.TraceIDSet
-	buildID, buildIDSet := rc.BuildID, rc.BuildIDSet
-	configID, configIDSet := rc.ConfigID, rc.ConfigIDSet
-	userID, userIDSet = rc.UserID, rc.UserIDSet
-	rc.mu.RUnlock()
-
-	if traceIDSet {
-		fields = append(fields, zap.String(logkeys.TraceID, traceID))
-	}
-	if buildIDSet {
-		fields = append(fields, zap.String(logkeys.BuildID, buildID))
-	}
-	if configIDSet {
-		fields = append(fields, zap.String(logkeys.ConfigID, configID))
-	}
-	return fields, userID, userIDSet
+	TraceIDSet  bool
+	BuildIDSet  bool
+	ConfigIDSet bool
+	UserIDSet   bool
 }
 
-// CorrelationFieldsFromRequest is a convenience function that builds the
-// correlation fields from an http.Request.
-// It is equivalent to calling CorrelationFields with r.Context().
+// GetCorrelation returns the correlation values carried by the context.
+//
+// It reads them after one walk of the context chain and under a single lock
+// acquisition, where the individual accessors pay both costs per value. Code
+// that stamps correlation onto log entries or metrics should prefer it, and
+// unpack the result with the typed constructors its own logger wants:
+//
+//	if c, ok := scontext.GetCorrelation[uint64, User](ctx); ok {
+//		fields := make([]zap.Field, 0, 4)
+//		if c.TraceIDSet {
+//			fields = append(fields, zap.String(logkeys.TraceID, c.TraceID))
+//		}
+//		if c.UserIDSet {
+//			fields = append(fields, zap.Uint64("user_id", c.UserID))
+//		}
+//		// ...
+//	}
+//
+// Returning the values rather than built log fields keeps this package
+// independent of any logging implementation and lets the caller render the
+// user ID with the constructor that matches its own T. A generic helper would
+// have to funnel every user ID through the logger's any-typed fallback, which
+// boxes the value and allocates.
+//
+// It returns the zero value and false when the context carries no
+// SRouterContext. The result is a copy taken at the moment of the call: a
+// later write through a With* helper does not change it, and two separate
+// calls are not an atomic pair.
 // T is the User ID type (comparable), U is the User object type (any).
-func CorrelationFieldsFromRequest[T comparable, U any](r *http.Request) (fields []zap.Field, userID T, userIDSet bool) {
-	return CorrelationFields[T, U](r.Context())
+func GetCorrelation[T comparable, U any](ctx context.Context) (Correlation[T], bool) {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok {
+		return Correlation[T]{}, false
+	}
+
+	// Hold the lock only long enough to copy the values out. Nothing between
+	// the two calls can panic, so the unlock does not need to be deferred.
+	rc.mu.RLock()
+	c := Correlation[T]{
+		TraceID:  rc.TraceID,
+		BuildID:  rc.BuildID,
+		ConfigID: rc.ConfigID,
+		UserID:   rc.UserID,
+
+		TraceIDSet:  rc.TraceIDSet,
+		BuildIDSet:  rc.BuildIDSet,
+		ConfigIDSet: rc.ConfigIDSet,
+		UserIDSet:   rc.UserIDSet,
+	}
+	rc.mu.RUnlock()
+	return c, true
+}
+
+// GetCorrelationFromRequest is a convenience function that extracts the
+// correlation values from an http.Request.
+// It is equivalent to calling GetCorrelation with r.Context().
+// T is the User ID type (comparable), U is the User object type (any).
+func GetCorrelationFromRequest[T comparable, U any](r *http.Request) (Correlation[T], bool) {
+	return GetCorrelation[T, U](r.Context())
 }
 
 // WithRouteInfo adds route information to the context.

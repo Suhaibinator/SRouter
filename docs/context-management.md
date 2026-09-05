@@ -28,7 +28,7 @@ with the wrapper's internal lock.
 | Requested CORS headers | `WithCORSRequestedHeaders` | `GetCORSRequestedHeaders`, `GetCORSRequestedHeadersFromRequest` |
 | Generic-handler error | `WithHandlerError` | `GetHandlerError`, `GetHandlerErrorFromRequest` |
 | Application boolean flag | `WithFlag` | `GetFlag`, `GetFlagFromRequest` |
-| All correlation values at once | (see individual writers) | `CorrelationFields`, `CorrelationFieldsFromRequest` |
+| All correlation values at once | (see individual writers) | `GetCorrelation`, `GetCorrelationFromRequest` |
 
 Most getters return `(value, ok)` so an unset value can be distinguished from
 its zero value. The trace-ID getters instead return an empty string when no
@@ -112,36 +112,50 @@ func accountHandler(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-## Stamping correlation onto log entries
+## Reading correlation values together
 
 Every individual getter walks the context chain and takes the wrapper's lock
-once. Code that stamps correlation onto log entries needs the trace ID, the
-build and configuration identities, and the user ID together, so it pays both
-costs four times per entry. `CorrelationFields` reads them in one pass — one
-chain walk, one read lock — and returns the three identities it can type
-itself as `zap.Field` values:
+once. Code that stamps correlation onto log entries or metrics needs the trace
+ID, the build and configuration identities, and the user ID together, so it
+pays both costs four times per entry. `GetCorrelation` reads them in one pass —
+one chain walk, one read lock — and returns them as a plain value:
 
 ```go
 func logFields(ctx context.Context) []zap.Field {
-	fields, userID, ok := scontext.CorrelationFields[uint64, User](ctx)
-	if ok {
-		fields = append(fields, zap.Uint64("user_id", userID))
+	c, ok := scontext.GetCorrelation[uint64, User](ctx)
+	if !ok {
+		return nil
+	}
+
+	fields := make([]zap.Field, 0, 4)
+	if c.TraceIDSet {
+		fields = append(fields, zap.String(logkeys.TraceID, c.TraceID))
+	}
+	if c.BuildIDSet {
+		fields = append(fields, zap.String(logkeys.BuildID, c.BuildID))
+	}
+	if c.ConfigIDSet {
+		fields = append(fields, zap.String(logkeys.ConfigID, c.ConfigID))
+	}
+	if c.UserIDSet {
+		fields = append(fields, zap.Uint64("user_id", c.UserID))
 	}
 	return fields
 }
 ```
 
-The user ID comes back as a raw `T` rather than a field because only the
-caller knows which typed constructor fits its own user ID type. Building it
-here would mean `zap.Any`, which boxes the value and allocates; the caller can
-reach for `zap.Uint64`, `zap.String`, or its own encoder instead. The returned
-slice carries spare capacity for exactly that append, so it does not
-reallocate.
+`Correlation[T]` holds values, not built log fields, so this package stays
+independent of any logging implementation and the caller renders the user ID
+with whatever constructor matches its own `T` — `zap.Uint64`, `zap.String`, or
+its own encoder. A helper that built the field here would have to funnel every
+user ID through the logger's any-typed fallback, which boxes the value and
+allocates.
 
-Fields are present only when the corresponding value was set, and `ok` reports
-whether a user ID was ever written, so a deliberate zero stays distinguishable
-from an absent one. The result is a copy taken at the moment of the call: a
-later write through a `With*` helper does not change it.
+Each field carries a `Set` flag, so a value that was written empty on purpose
+stays distinguishable from one that was never written. The result is a copy
+taken at the moment of the call: a later write through a `With*` helper does
+not change it, and two separate calls are not an atomic pair. The struct has no
+reference-typed members, so it cannot alias the wrapper.
 
 ## Database transactions
 
