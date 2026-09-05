@@ -28,7 +28,7 @@ with the wrapper's internal lock.
 | Requested CORS headers | `WithCORSRequestedHeaders` | `GetCORSRequestedHeaders`, `GetCORSRequestedHeadersFromRequest` |
 | Generic-handler error | `WithHandlerError` | `GetHandlerError`, `GetHandlerErrorFromRequest` |
 | Application boolean flag | `WithFlag` | `GetFlag`, `GetFlagFromRequest` |
-| All identity values at once | (see individual writers) | `GetIdentitySnapshot`, `GetIdentitySnapshotFromRequest` |
+| All correlation values at once | (see individual writers) | `CorrelationFields`, `CorrelationFieldsFromRequest` |
 
 Most getters return `(value, ok)` so an unset value can be distinguished from
 its zero value. The trace-ID getters instead return an empty string when no
@@ -112,42 +112,36 @@ func accountHandler(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-## Reading several identities at once
+## Stamping correlation onto log entries
 
 Every individual getter walks the context chain and takes the wrapper's lock
-once. Code that stamps log fields or metric labels usually needs the user ID,
-trace ID, build and configuration identities, and client information together,
-so it pays that cost several times per call. `GetIdentitySnapshot` reads them
-all in one pass — one chain walk, one read lock — and returns a value copy:
+once. Code that stamps correlation onto log entries needs the trace ID, the
+build and configuration identities, and the user ID together, so it pays both
+costs four times per entry. `CorrelationFields` reads them in one pass — one
+chain walk, one read lock — and returns the three identities it can type
+itself as `zap.Field` values:
 
 ```go
-func logFields[T comparable, U any](ctx context.Context) []zap.Field {
-	snapshot, ok := scontext.GetIdentitySnapshot[T, U](ctx)
-	if !ok {
-		return nil
-	}
-
-	fields := make([]zap.Field, 0, 4)
-	fields = append(fields, zap.String("trace_id", snapshot.TraceID))
-	if snapshot.BuildIDSet {
-		fields = append(fields, zap.String("build_id", snapshot.BuildID))
-	}
-	if snapshot.ConfigIDSet {
-		fields = append(fields, zap.String("config_id", snapshot.ConfigID))
-	}
-	if snapshot.UserIDSet {
-		fields = append(fields, zap.Any("user_id", snapshot.UserID))
+func logFields(ctx context.Context) []zap.Field {
+	fields, userID, ok := scontext.CorrelationFields[uint64, User](ctx)
+	if ok {
+		fields = append(fields, zap.Uint64("user_id", userID))
 	}
 	return fields
 }
 ```
 
-Each field carries a `Set` flag, so a value that was written empty on purpose
-stays distinguishable from one that was never written. The snapshot is a copy
-taken at the moment of the call: a later write through a `With*` helper does not
-change it, and reading two snapshots is not an atomic pair. Values the wrapper
-holds by reference — the user object, the transaction, path parameters — are
-deliberately absent; keep using `GetUser` and `GetTransaction` for those.
+The user ID comes back as a raw `T` rather than a field because only the
+caller knows which typed constructor fits its own user ID type. Building it
+here would mean `zap.Any`, which boxes the value and allocates; the caller can
+reach for `zap.Uint64`, `zap.String`, or its own encoder instead. The returned
+slice carries spare capacity for exactly that append, so it does not
+reallocate.
+
+Fields are present only when the corresponding value was set, and `ok` reports
+whether a user ID was ever written, so a deliberate zero stays distinguishable
+from an absent one. The result is a copy taken at the moment of the call: a
+later write through a `With*` helper does not change it.
 
 ## Database transactions
 

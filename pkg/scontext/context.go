@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/julienschmidt/httprouter" // Import for Params type
-	"gorm.io/gorm"                        // Needed for DatabaseTransaction
+	"github.com/Suhaibinator/SRouter/pkg/logkeys" // Canonical structured-log field names
+	"github.com/julienschmidt/httprouter"         // Import for Params type
+	"go.uber.org/zap"                             // Needed for CorrelationFields
+	"gorm.io/gorm"                                // Needed for DatabaseTransaction
 )
 
 // sRouterContextKey is a private type for the context key to avoid collisions
@@ -474,71 +476,66 @@ func GetTraceIDFromRequest[T comparable, U any](r *http.Request) string {
 	return GetTraceIDFromContext[T, U](r.Context())
 }
 
-// IdentitySnapshot is a point-in-time copy of the per-operation identity
-// fields carried by an SRouterContext. Each Set flag reports whether the
-// corresponding value was ever written, so a deliberately empty value stays
+// correlationFieldCapacity sizes the slice CorrelationFields returns: the
+// three fields it builds itself plus one spare slot, so a caller appending the
+// user ID field does not reallocate.
+const correlationFieldCapacity = 4
+
+// CorrelationFields returns the correlation fields for the request as zap
+// fields, together with the raw user ID.
+//
+// It reads every value under a single lock acquisition after one walk of the
+// context chain, where the individual accessors pay both costs per field. Code
+// that stamps correlation onto log entries should prefer it.
+//
+// The returned fields are the values SRouter can type itself: trace_id,
+// build_id, and config_id, each present only when it was set. The user ID
+// comes back as a raw T instead, because only the caller knows which typed zap
+// constructor fits its own user ID type; building it here would force every
+// user ID through zap.Any, which allocates. Append it with the constructor
+// that matches:
+//
+//	fields, userID, ok := scontext.CorrelationFields[uint64, User](ctx)
+//	if ok {
+//		fields = append(fields, zap.Uint64("user_id", userID))
+//	}
+//
+// The slice has spare capacity for exactly that append. userIDSet reports
+// whether a user ID was ever written, so a deliberate zero stays
 // distinguishable from an absent one.
-// T is the User ID type (comparable).
-type IdentitySnapshot[T comparable] struct {
-	UserID    T
-	TraceID   string
-	BuildID   string
-	ConfigID  string
-	ClientIP  string
-	UserAgent string
-
-	UserIDSet    bool
-	TraceIDSet   bool
-	BuildIDSet   bool
-	ConfigIDSet  bool
-	ClientIPSet  bool
-	UserAgentSet bool
-}
-
-// IdentitySnapshot reads every identity field under a single read lock.
-// Callers that need more than one identity should prefer it over the
-// individual accessors, which lock once per field.
-func (rc *SRouterContext[T, U]) IdentitySnapshot() IdentitySnapshot[T] {
-	rc.mu.RLock()
-	defer rc.mu.RUnlock()
-	return IdentitySnapshot[T]{
-		UserID:    rc.UserID,
-		TraceID:   rc.TraceID,
-		BuildID:   rc.BuildID,
-		ConfigID:  rc.ConfigID,
-		ClientIP:  rc.ClientIP,
-		UserAgent: rc.UserAgent,
-
-		UserIDSet:    rc.UserIDSet,
-		TraceIDSet:   rc.TraceIDSet,
-		BuildIDSet:   rc.BuildIDSet,
-		ConfigIDSet:  rc.ConfigIDSet,
-		ClientIPSet:  rc.ClientIPSet,
-		UserAgentSet: rc.UserAgentSet,
-	}
-}
-
-// GetIdentitySnapshot retrieves every identity field from the context in one
-// pass: one walk of the context chain and one lock acquisition, instead of one
-// of each per field. It returns the zero snapshot and false when the context
-// carries no SRouterContext. Log field stamping and metrics labelling, which
-// read several identities together, should use it in place of repeated
-// GetTraceIDFromContext/GetUserID/GetBuildID/GetConfigID calls.
+//
+// The result is a copy taken at the moment of the call; a later write through
+// a With* helper does not change it.
 // T is the User ID type (comparable), U is the User object type (any).
-func GetIdentitySnapshot[T comparable, U any](ctx context.Context) (IdentitySnapshot[T], bool) {
+func CorrelationFields[T comparable, U any](ctx context.Context) (fields []zap.Field, userID T, userIDSet bool) {
 	rc, ok := GetSRouterContext[T, U](ctx)
 	if !ok {
-		return IdentitySnapshot[T]{}, false
+		var zero T
+		return nil, zero, false
 	}
-	return rc.IdentitySnapshot(), true
+
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+
+	fields = make([]zap.Field, 0, correlationFieldCapacity)
+	if rc.TraceIDSet {
+		fields = append(fields, zap.String(logkeys.TraceID, rc.TraceID))
+	}
+	if rc.BuildIDSet {
+		fields = append(fields, zap.String(logkeys.BuildID, rc.BuildID))
+	}
+	if rc.ConfigIDSet {
+		fields = append(fields, zap.String(logkeys.ConfigID, rc.ConfigID))
+	}
+	return fields, rc.UserID, rc.UserIDSet
 }
 
-// GetIdentitySnapshotFromRequest is a convenience function that extracts the
-// identity snapshot from an http.Request.
-// It is equivalent to calling GetIdentitySnapshot with r.Context().
+// CorrelationFieldsFromRequest is a convenience function that builds the
+// correlation fields from an http.Request.
+// It is equivalent to calling CorrelationFields with r.Context().
 // T is the User ID type (comparable), U is the User object type (any).
-func GetIdentitySnapshotFromRequest[T comparable, U any](r *http.Request) (IdentitySnapshot[T], bool) {
-	return GetIdentitySnapshot[T, U](r.Context())
+func CorrelationFieldsFromRequest[T comparable, U any](r *http.Request) (fields []zap.Field, userID T, userIDSet bool) {
+	return CorrelationFields[T, U](r.Context())
 }
 
 // WithRouteInfo adds route information to the context.
