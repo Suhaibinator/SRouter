@@ -15,19 +15,20 @@ with the wrapper's internal lock.
 
 | Value | Write helper | Read helper |
 | --- | --- | --- |
-| User ID | `WithUserID` | `GetUserID`, `GetUserIDFromRequest` |
-| User object (`*U`) | `WithUser` | `GetUser`, `GetUserFromRequest` |
-| Client IP | `WithClientIP`, `WithClientInfo` | `GetClientIP`, `GetClientIPFromRequest` |
-| User agent | `WithUserAgent`, `WithClientInfo` | `GetUserAgent`, `GetUserAgentFromRequest` |
-| Trace ID | `WithTraceID` | `GetTraceIDFromContext`, `GetTraceIDFromRequest` |
-| Build identity | `WithBuildID` | `GetBuildID`, `GetBuildIDFromRequest` |
-| Configuration identity | `WithConfigID` | `GetConfigID`, `GetConfigIDFromRequest` |
-| Database transaction | `WithTransaction` | `GetTransaction`, `GetTransactionFromRequest` |
-| Route template and path parameters | `WithRouteInfo`, `SetRouteInfo` | `GetRouteTemplateFromRequest`, `GetPathParamsFromRequest` |
-| Allowed CORS origin and credentials | `WithCORSInfo` | `GetCORSInfo`, `GetCORSInfoFromRequest` |
-| Requested CORS headers | `WithCORSRequestedHeaders` | `GetCORSRequestedHeaders`, `GetCORSRequestedHeadersFromRequest` |
-| Generic-handler error | `WithHandlerError` | `GetHandlerError`, `GetHandlerErrorFromRequest` |
-| Application boolean flag | `WithFlag` | `GetFlag`, `GetFlagFromRequest` |
+| User ID | `WithUserID` | `GetUserID` |
+| User object (`*U`) | `WithUser` | `GetUser` |
+| Client IP | `WithClientIP`, `WithClientInfo` | `GetClientIP` |
+| User agent | `WithUserAgent`, `WithClientInfo` | `GetUserAgent` |
+| Trace ID | `WithTraceID` | `GetTraceID` |
+| Build identity | `WithBuildID` | `GetBuildID` |
+| Configuration identity | `WithConfigID` | `GetConfigID` |
+| Database transaction | `WithTransaction` | `GetTransaction` |
+| Route template and path parameters | `WithRouteInfo`, `SetRouteInfo` | `GetRouteTemplate`, `GetPathParams` |
+| Allowed CORS origin and credentials | `WithCORSInfo` | `GetCORSInfo` |
+| Requested CORS headers | `WithCORSRequestedHeaders` | `GetCORSRequestedHeaders` |
+| Generic-handler error | `WithHandlerError` | `GetHandlerError` |
+| Application boolean flag | `WithFlag` | `GetFlag` |
+| All correlation values at once | (see individual writers) | `GetCorrelation` |
 
 Most getters return `(value, ok)` so an unset value can be distinguished from
 its zero value. The trace-ID getters instead return an empty string when no
@@ -87,7 +88,7 @@ ctx := scontext.WithFlag[string, User](r.Context(), "audited", true)
 nextRequest := r.WithContext(ctx)
 next.ServeHTTP(w, nextRequest)
 
-handlerErr, failed := scontext.GetHandlerErrorFromRequest[string, User](nextRequest)
+handlerErr, failed := scontext.GetHandlerError[string, User](nextRequest.Context())
 _ = handlerErr
 _ = failed
 ```
@@ -96,20 +97,65 @@ _ = failed
 
 ```go
 func accountHandler(w http.ResponseWriter, r *http.Request) {
-	userID, authenticated := scontext.GetUserIDFromRequest[string, User](r)
+	userID, authenticated := scontext.GetUserID[string, User](r.Context())
 	if !authenticated {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	user, hasUser := scontext.GetUserFromRequest[string, User](r)
-	clientIP, _ := scontext.GetClientIPFromRequest[string, User](r)
-	routeTemplate, _ := scontext.GetRouteTemplateFromRequest(r)
+	user, hasUser := scontext.GetUser[string, User](r.Context())
+	clientIP, _ := scontext.GetClientIP[string, User](r.Context())
+	routeTemplate, _ := scontext.GetRouteTemplate(r.Context())
 
 	_, _, _ = userID, user, hasUser
 	_, _ = clientIP, routeTemplate
 }
 ```
+
+## Reading correlation values together
+
+Every individual getter walks the context chain and takes the wrapper's lock
+once. Code that stamps correlation onto log entries or metrics needs the trace
+ID, the build and configuration identities, and the user ID together, so it
+pays both costs four times per entry. `GetCorrelation` reads them in one pass —
+one chain walk, one read lock — and returns them as a plain value:
+
+```go
+func logFields(ctx context.Context) []zap.Field {
+	c, ok := scontext.GetCorrelation[uint64, User](ctx)
+	if !ok {
+		return nil
+	}
+
+	fields := make([]zap.Field, 0, 4)
+	if c.TraceIDSet {
+		fields = append(fields, zap.String(logkeys.TraceID, c.TraceID))
+	}
+	if c.BuildIDSet {
+		fields = append(fields, zap.String(logkeys.BuildID, c.BuildID))
+	}
+	if c.ConfigIDSet {
+		fields = append(fields, zap.String(logkeys.ConfigID, c.ConfigID))
+	}
+	if c.UserIDSet {
+		fields = append(fields, zap.Uint64("user_id", c.UserID))
+	}
+	return fields
+}
+```
+
+`Correlation[T]` holds values, not built log fields, so this package stays
+independent of any logging implementation and the caller renders the user ID
+with whatever constructor matches its own `T` — `zap.Uint64`, `zap.String`, or
+its own encoder. A helper that built the field here would have to funnel every
+user ID through the logger's any-typed fallback, which boxes the value and
+allocates.
+
+Each field carries a `Set` flag, so a value that was written empty on purpose
+stays distinguishable from one that was never written. The result is a copy
+taken at the moment of the call: a later write through a `With*` helper does
+not change it, and two separate calls are not an atomic pair. The struct has no
+reference-typed members, so it cannot alias the wrapper.
 
 ## Database transactions
 

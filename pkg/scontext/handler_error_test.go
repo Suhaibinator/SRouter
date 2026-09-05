@@ -52,23 +52,6 @@ func TestHandlerError(t *testing.T) {
 		}
 	})
 
-	t.Run("GetHandlerErrorFromRequest", func(t *testing.T) {
-		testErr := errors.New("request handler error")
-
-		// Create request with context containing error
-		req := httptest.NewRequest("GET", "/test", nil)
-		ctx := WithHandlerError[int, string](req.Context(), testErr)
-		req = req.WithContext(ctx)
-
-		err, ok := GetHandlerErrorFromRequest[int, string](req)
-		if !ok {
-			t.Error("Expected handler error to be set in request")
-		}
-		if err != testErr {
-			t.Errorf("Expected error %v, got %v", testErr, err)
-		}
-	})
-
 	t.Run("Multiple errors overwrites previous", func(t *testing.T) {
 		ctx := context.Background()
 		err1 := errors.New("first error")
@@ -118,7 +101,7 @@ func TestHandlerErrorInMiddleware(t *testing.T) {
 			next.ServeHTTP(w, r)
 
 			// After handler execution, check for errors
-			if err, ok := GetHandlerErrorFromRequest[int, string](r); ok && err != nil {
+			if err, ok := GetHandlerError[int, string](r.Context()); ok && err != nil {
 				// In real middleware, you might rollback a transaction here
 				w.Header().Set("X-Handler-Error", err.Error())
 			}

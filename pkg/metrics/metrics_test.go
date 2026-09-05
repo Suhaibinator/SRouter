@@ -1183,8 +1183,6 @@ func TestMetricsMiddlewareImpl_Handler_Error(t *testing.T) {
 	}
 }
 
-// Removed TestGetRouteTemplateFromRequest as the helper function was removed.
-
 // TestResponseWriter tests the responseWriter struct
 func TestResponseWriter(t *testing.T) {
 	// Create a mock response writer

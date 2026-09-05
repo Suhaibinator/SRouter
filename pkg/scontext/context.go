@@ -8,7 +8,6 @@ package scontext
 import (
 	"context"
 	"maps"
-	"net/http"
 	"sync"
 
 	"github.com/julienschmidt/httprouter" // Import for Params type
@@ -156,11 +155,6 @@ func GetBuildID[T comparable, U any](ctx context.Context) (string, bool) {
 	return rc.BuildID, true
 }
 
-// GetBuildIDFromRequest extracts the build identity from an http.Request.
-func GetBuildIDFromRequest[T comparable, U any](r *http.Request) (string, bool) {
-	return GetBuildID[T, U](r.Context())
-}
-
 // WithConfigID adds or replaces the opaque configuration identity in the context.
 // T is the User ID type (comparable), U is the User object type (any).
 func WithConfigID[T comparable, U any](ctx context.Context, configID string) context.Context {
@@ -185,11 +179,6 @@ func GetConfigID[T comparable, U any](ctx context.Context) (string, bool) {
 		return "", false
 	}
 	return rc.ConfigID, true
-}
-
-// GetConfigIDFromRequest extracts the configuration identity from an http.Request.
-func GetConfigIDFromRequest[T comparable, U any](r *http.Request) (string, bool) {
-	return GetConfigID[T, U](r.Context())
 }
 
 // WithUserID adds a user ID to the context.
@@ -222,13 +211,6 @@ func GetUserID[T comparable, U any](ctx context.Context) (T, bool) {
 	return rc.UserID, true
 }
 
-// GetUserIDFromRequest is a convenience function that extracts the user ID from an http.Request.
-// It is equivalent to calling GetUserID with r.Context().
-// T is the User ID type (comparable), U is the User object type (any).
-func GetUserIDFromRequest[T comparable, U any](r *http.Request) (T, bool) {
-	return GetUserID[T, U](r.Context())
-}
-
 // WithUser adds a user object to the context.
 // The user object is typically set by authentication middleware that returns full user details.
 // T is the User ID type (comparable), U is the User object type (any).
@@ -256,13 +238,6 @@ func GetUser[T comparable, U any](ctx context.Context) (*U, bool) {
 		return nil, false
 	}
 	return rc.User, true
-}
-
-// GetUserFromRequest is a convenience function that extracts the user object from an http.Request.
-// It is equivalent to calling GetUser with r.Context().
-// T is the User ID type (comparable), U is the User object type (any).
-func GetUserFromRequest[T comparable, U any](r *http.Request) (*U, bool) {
-	return GetUser[T, U](r.Context())
 }
 
 // WithFlag adds a boolean flag to the context.
@@ -296,13 +271,6 @@ func GetFlag[T comparable, U any](ctx context.Context, name string) (bool, bool)
 	}
 	value, exists := rc.Flags[name]
 	return value, exists
-}
-
-// GetFlagFromRequest is a convenience function that extracts a flag from an http.Request.
-// It is equivalent to calling GetFlag with r.Context() and the flag name.
-// T is the User ID type (comparable), U is the User object type (any).
-func GetFlagFromRequest[T comparable, U any](r *http.Request, name string) (bool, bool) {
-	return GetFlag[T, U](r.Context(), name)
 }
 
 // WithClientIP adds the client IP address to the context.
@@ -349,13 +317,6 @@ func GetClientIP[T comparable, U any](ctx context.Context) (string, bool) {
 	return rc.ClientIP, true
 }
 
-// GetClientIPFromRequest is a convenience function that extracts the client IP from an http.Request.
-// It is equivalent to calling GetClientIP with r.Context().
-// T is the User ID type (comparable), U is the User object type (any).
-func GetClientIPFromRequest[T comparable, U any](r *http.Request) (string, bool) {
-	return GetClientIP[T, U](r.Context())
-}
-
 // WithUserAgent adds the User-Agent string to the context.
 // The User-Agent is typically extracted from the request headers by the router.
 // T is the User ID type (comparable), U is the User object type (any).
@@ -383,13 +344,6 @@ func GetUserAgent[T comparable, U any](ctx context.Context) (string, bool) {
 		return "", false
 	}
 	return rc.UserAgent, true
-}
-
-// GetUserAgentFromRequest is a convenience function that extracts the User-Agent from an http.Request.
-// It is equivalent to calling GetUserAgent with r.Context().
-// T is the User ID type (comparable), U is the User object type (any).
-func GetUserAgentFromRequest[T comparable, U any](r *http.Request) (string, bool) {
-	return GetUserAgent[T, U](r.Context())
 }
 
 // WithTransaction adds a database transaction to the context.
@@ -423,13 +377,6 @@ func GetTransaction[T comparable, U any](ctx context.Context) (DatabaseTransacti
 	return rc.Transaction, true
 }
 
-// GetTransactionFromRequest is a convenience function that extracts a database transaction from an http.Request.
-// It is equivalent to calling GetTransaction with r.Context().
-// T is the User ID type (comparable), U is the User object type (any).
-func GetTransactionFromRequest[T comparable, U any](r *http.Request) (DatabaseTransaction, bool) {
-	return GetTransaction[T, U](r.Context())
-}
-
 // WithTraceID adds a trace ID to the context.
 // The trace ID is used for distributed tracing and request correlation.
 // If a trace ID is already set, this function will not overwrite it,
@@ -449,11 +396,11 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 	return ctx
 }
 
-// GetTraceIDFromContext retrieves the trace ID from the context.
+// GetTraceID retrieves the trace ID from the context.
 // It returns the trace ID if set, or an empty string if not found.
 // This function never returns an error; absence is indicated by an empty string.
 // T is the User ID type (comparable), U is the User object type (any).
-func GetTraceIDFromContext[T comparable, U any](ctx context.Context) string {
+func GetTraceID[T comparable, U any](ctx context.Context) string {
 	rc, ok := GetSRouterContext[T, U](ctx)
 	if !ok {
 		return ""
@@ -466,12 +413,78 @@ func GetTraceIDFromContext[T comparable, U any](ctx context.Context) string {
 	return rc.TraceID
 }
 
-// GetTraceIDFromRequest is a convenience function that extracts the trace ID from an http.Request.
-// It is equivalent to calling GetTraceIDFromContext with r.Context().
-// Returns an empty string if no trace ID is set.
+// Correlation carries the per-operation values used to correlate log entries
+// and metrics: the trace ID, the opaque build and configuration identities,
+// and the user ID. Each Set flag reports whether the corresponding value was
+// ever written, so a deliberately empty value stays distinguishable from an
+// absent one.
+//
+// It is a plain value copy with no reference-typed members, so passing it
+// around costs nothing beyond the copy and it cannot alias the wrapper.
+// T is the User ID type (comparable).
+type Correlation[T comparable] struct {
+	TraceID  string
+	BuildID  string
+	ConfigID string
+	UserID   T
+
+	TraceIDSet  bool
+	BuildIDSet  bool
+	ConfigIDSet bool
+	UserIDSet   bool
+}
+
+// GetCorrelation returns the correlation values carried by the context.
+//
+// It reads them after one walk of the context chain and under a single lock
+// acquisition, where the individual accessors pay both costs per value. Code
+// that stamps correlation onto log entries or metrics should prefer it, and
+// unpack the result with the typed constructors its own logger wants:
+//
+//	if c, ok := scontext.GetCorrelation[uint64, User](ctx); ok {
+//		fields := make([]zap.Field, 0, 4)
+//		if c.TraceIDSet {
+//			fields = append(fields, zap.String(logkeys.TraceID, c.TraceID))
+//		}
+//		if c.UserIDSet {
+//			fields = append(fields, zap.Uint64("user_id", c.UserID))
+//		}
+//		// ...
+//	}
+//
+// Returning the values rather than built log fields keeps this package
+// independent of any logging implementation and lets the caller render the
+// user ID with the constructor that matches its own T. A generic helper would
+// have to funnel every user ID through the logger's any-typed fallback, which
+// boxes the value and allocates.
+//
+// It returns the zero value and false when the context carries no
+// SRouterContext. The result is a copy taken at the moment of the call: a
+// later write through a With* helper does not change it, and two separate
+// calls are not an atomic pair.
 // T is the User ID type (comparable), U is the User object type (any).
-func GetTraceIDFromRequest[T comparable, U any](r *http.Request) string {
-	return GetTraceIDFromContext[T, U](r.Context())
+func GetCorrelation[T comparable, U any](ctx context.Context) (Correlation[T], bool) {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok {
+		return Correlation[T]{}, false
+	}
+
+	// Hold the lock only long enough to copy the values out. Nothing between
+	// the two calls can panic, so the unlock does not need to be deferred.
+	rc.mu.RLock()
+	c := Correlation[T]{
+		TraceID:  rc.TraceID,
+		BuildID:  rc.BuildID,
+		ConfigID: rc.ConfigID,
+		UserID:   rc.UserID,
+
+		TraceIDSet:  rc.TraceIDSet,
+		BuildIDSet:  rc.BuildIDSet,
+		ConfigIDSet: rc.ConfigIDSet,
+		UserIDSet:   rc.UserIDSet,
+	}
+	rc.mu.RUnlock()
+	return c, true
 }
 
 // WithRouteInfo adds route information to the context.
@@ -519,11 +532,11 @@ func (rc *SRouterContext[T, U]) getRouteTemplate() (string, bool) {
 	return rc.RouteTemplate, true
 }
 
-// GetRouteTemplateFromContext retrieves the route template from the context.
+// GetRouteTemplate retrieves the route template from the context.
 // The route template is the original path pattern (e.g., "/users/:id") before parameter substitution.
 // It returns the template and a boolean indicating whether it was found.
 // This is useful for metrics and logging where you want consistent route identifiers.
-func GetRouteTemplateFromContext(ctx context.Context) (string, bool) {
+func GetRouteTemplate(ctx context.Context) (string, bool) {
 	provider, ok := ctx.Value(sRouterContextKey{}).(routeInfoProvider)
 	if !ok {
 		return "", false
@@ -531,27 +544,15 @@ func GetRouteTemplateFromContext(ctx context.Context) (string, bool) {
 	return provider.getRouteTemplate()
 }
 
-// GetRouteTemplateFromRequest is a convenience function that extracts the route template from an http.Request.
-// It is equivalent to calling GetRouteTemplateFromContext with r.Context().
-func GetRouteTemplateFromRequest(r *http.Request) (string, bool) {
-	return GetRouteTemplateFromContext(r.Context())
-}
-
-// GetPathParamsFromContext retrieves the path parameters from the context.
+// GetPathParams retrieves the path parameters from the context.
 // Path parameters are extracted by httprouter from the URL path (e.g., :id in "/users/:id").
 // It returns the parameters and a boolean indicating whether they were found.
-func GetPathParamsFromContext(ctx context.Context) (httprouter.Params, bool) {
+func GetPathParams(ctx context.Context) (httprouter.Params, bool) {
 	provider, ok := ctx.Value(sRouterContextKey{}).(routeInfoProvider)
 	if !ok {
 		return nil, false
 	}
 	return provider.getPathParams()
-}
-
-// GetPathParamsFromRequest is a convenience function that extracts path parameters from an http.Request.
-// It is equivalent to calling GetPathParamsFromContext with r.Context().
-func GetPathParamsFromRequest(r *http.Request) (httprouter.Params, bool) {
-	return GetPathParamsFromContext(r.Context())
 }
 
 // WithCORSInfo adds CORS (Cross-Origin Resource Sharing) information to the context.
@@ -590,13 +591,6 @@ func GetCORSInfo[T comparable, U any](ctx context.Context) (allowedOrigin string
 	return rc.AllowedOrigin, rc.CredentialsAllowed, true
 }
 
-// GetCORSInfoFromRequest is a convenience function that extracts CORS details from an http.Request.
-// It is equivalent to calling GetCORSInfo with r.Context().
-// T is the User ID type (comparable), U is the User object type (any).
-func GetCORSInfoFromRequest[T comparable, U any](r *http.Request) (allowedOrigin string, credentialsAllowed bool, ok bool) {
-	return GetCORSInfo[T, U](r.Context())
-}
-
 // WithCORSRequestedHeaders stores the Access-Control-Request-Headers value from a CORS preflight request.
 // This is used internally when the CORS configuration allows wildcard headers (*),
 // so the exact requested headers can be echoed back in the Access-Control-Allow-Headers response.
@@ -628,13 +622,6 @@ func GetCORSRequestedHeaders[T comparable, U any](ctx context.Context) (string, 
 	return rc.RequestedHeaders, true
 }
 
-// GetCORSRequestedHeadersFromRequest is a convenience function that extracts CORS requested headers from an http.Request.
-// It is equivalent to calling GetCORSRequestedHeaders with r.Context().
-// T is the User ID type (comparable), U is the User object type (any).
-func GetCORSRequestedHeadersFromRequest[T comparable, U any](r *http.Request) (string, bool) {
-	return GetCORSRequestedHeaders[T, U](r.Context())
-}
-
 // WithHandlerError sets the handler error in the context. This is typically used by the framework
 // to store errors returned by generic route handlers, making them available to middleware.
 // T is the User ID type (comparable), U is the User object type (any).
@@ -662,13 +649,6 @@ func GetHandlerError[T comparable, U any](ctx context.Context) (error, bool) {
 		return nil, false
 	}
 	return rc.HandlerError, true
-}
-
-// GetHandlerErrorFromRequest is a convenience function that extracts the handler error from an http.Request.
-// It is equivalent to calling GetHandlerError with r.Context().
-// T is the User ID type (comparable), U is the User object type (any).
-func GetHandlerErrorFromRequest[T comparable, U any](r *http.Request) (error, bool) {
-	return GetHandlerError[T, U](r.Context())
 }
 
 // SRouter context copying functions

@@ -103,7 +103,7 @@ Retrieve and propagate it with the `pkg/scontext` helpers:
 
 ```go
 func callDownstream(r *http.Request) (*http.Response, error) {
-	traceID := scontext.GetTraceIDFromRequest[string, User](r)
+	traceID := scontext.GetTraceID[string, User](r.Context())
 
 	req, err := http.NewRequestWithContext(
 		r.Context(),
@@ -121,7 +121,7 @@ func callDownstream(r *http.Request) (*http.Response, error) {
 }
 ```
 
-`scontext.GetTraceIDFromContext[T, U]` provides the same value when only a `context.Context` is available.
+`scontext.GetTraceID[T, U]` provides the same value when only a `context.Context` is available.
 
 Even with automatic trace IDs disabled, request-boundary error records produced during route handling contain a `trace_id`: SRouter reuses an ID already in the request context or creates a log-only ID. A newly generated log-only ID is not injected into the request, response header, or JSON body. Setup and build logs emitted before route dispatch have no request trace ID.
 

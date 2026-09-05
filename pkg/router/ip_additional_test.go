@@ -32,7 +32,7 @@ func TestClientIPMiddleware(t *testing.T) {
 
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip, _ := scontext.GetClientIPFromRequest[uint64, any](r) // Use scontext function
+		ip, _ := scontext.GetClientIP[uint64, any](r.Context()) // Use scontext function
 		_, _ = w.Write([]byte(ip))
 	})
 

@@ -106,7 +106,7 @@ func verifyFullSRouterContext(t *testing.T, ctx context.Context, testName string
 		t.Errorf("%s: ConfigID not copied correctly. Expected %s, got %s (ok: %v)", testName, configID, copiedConfigID, ok)
 	}
 
-	copiedTraceID := GetTraceIDFromContext[int, testUser](ctx)
+	copiedTraceID := GetTraceID[int, testUser](ctx)
 	if copiedTraceID != traceID {
 		t.Errorf("%s: TraceID not copied correctly. Expected %s, got %s", testName, traceID, copiedTraceID)
 	}
@@ -126,12 +126,12 @@ func verifyFullSRouterContext(t *testing.T, ctx context.Context, testName string
 		t.Errorf("%s: Transaction not copied correctly. Expected non-nil, got %v (ok: %v)", testName, copiedTx, ok)
 	}
 
-	copiedRouteTemplate, ok := GetRouteTemplateFromContext(ctx)
+	copiedRouteTemplate, ok := GetRouteTemplate(ctx)
 	if !ok || copiedRouteTemplate != routeTemplate {
 		t.Errorf("%s: RouteTemplate not copied correctly. Expected %s, got %s (ok: %v)", testName, routeTemplate, copiedRouteTemplate, ok)
 	}
 
-	copiedParams, ok := GetPathParamsFromContext(ctx)
+	copiedParams, ok := GetPathParams(ctx)
 	if !ok || len(copiedParams) != len(params) {
 		t.Errorf("%s: PathParams not copied correctly. Expected %v, got %v (ok: %v)", testName, params, copiedParams, ok)
 	}

@@ -78,7 +78,7 @@ Make sure requests cannot bypass the proxy and reach the application with a clie
 Use the context helper in a handler or middleware:
 
 ```go
-clientIP, ok := scontext.GetClientIPFromRequest[string, User](req)
+clientIP, ok := scontext.GetClientIP[string, User](req.Context())
 if !ok {
 	// No SRouter client information has been attached to this request.
 }

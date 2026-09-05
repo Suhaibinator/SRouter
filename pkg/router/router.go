@@ -590,7 +590,7 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 
 				// Serialize the timeout response write with any handler goroutine currently inside rw methods.
 				wrappedW.mu.Lock()
-				traceID := scontext.GetTraceIDFromRequest[T, U](req)
+				traceID := scontext.GetTraceID[T, U](req.Context())
 				r.writeJSONError(wrappedW.ResponseWriter, req, http.StatusRequestTimeout, "Request Timeout", traceID)
 				wrappedW.mu.Unlock()
 
@@ -697,8 +697,8 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		defer func() {
 			// 1) Compute duration, traceID, ip
 			duration := time.Since(mrw.startTime)
-			ip, _ := scontext.GetClientIPFromRequest[T, U](req)
-			ua, _ := scontext.GetUserAgentFromRequest[T, U](req)
+			ip, _ := scontext.GetClientIP[T, U](req.Context())
+			ua, _ := scontext.GetUserAgent[T, U](req.Context())
 
 			// 2) Build unified fields - the UNION of all previously separate log
 			// fields. Sized for all fields (including the optional trace ID) up
@@ -1232,10 +1232,10 @@ func (r *Router[T, U]) baseFields(req *http.Request) []zap.Field {
 // addRuntimeIdentityFields appends the opaque build and configuration
 // identities installed for this request, when present.
 func (r *Router[T, U]) addRuntimeIdentityFields(fields []zap.Field, req *http.Request) []zap.Field {
-	if buildID, ok := scontext.GetBuildIDFromRequest[T, U](req); ok {
+	if buildID, ok := scontext.GetBuildID[T, U](req.Context()); ok {
 		fields = append(fields, zap.String(logkeys.BuildID, buildID))
 	}
-	if configID, ok := scontext.GetConfigIDFromRequest[T, U](req); ok {
+	if configID, ok := scontext.GetConfigID[T, U](req.Context()); ok {
 		fields = append(fields, zap.String(logkeys.ConfigID, configID))
 	}
 	return fields
@@ -1245,7 +1245,7 @@ func (r *Router[T, U]) addRuntimeIdentityFields(fields []zap.Field, req *http.Re
 // the request contains one.
 func (r *Router[T, U]) addTrace(fields []zap.Field, req *http.Request) []zap.Field {
 	if r.config.TraceIDBufferSize > 0 {
-		if traceID := scontext.GetTraceIDFromRequest[T, U](req); traceID != "" {
+		if traceID := scontext.GetTraceID[T, U](req.Context()); traceID != "" {
 			fields = append(fields, zap.String(logkeys.TraceID, traceID))
 		}
 	}
@@ -1256,7 +1256,7 @@ func (r *Router[T, U]) addTrace(fields []zap.Field, req *http.Request) []zap.Fie
 // Error records must always be correlatable, even when request-wide trace ID
 // generation is disabled.
 func (r *Router[T, U]) errorTraceID(req *http.Request) string {
-	if traceID := scontext.GetTraceIDFromRequest[T, U](req); traceID != "" {
+	if traceID := scontext.GetTraceID[T, U](req.Context()); traceID != "" {
 		return traceID
 	}
 	return middleware.GenerateTraceID()
@@ -1351,7 +1351,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 		mrw.mu.Lock()
 		defer mrw.mu.Unlock()
 
-		allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfoFromRequest[T, U](req)
+		allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfo[T, U](req.Context())
 		header := mrw.ResponseWriter.Header()
 
 		if corsOK {
@@ -1386,7 +1386,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 	}
 
 	// Retrieve CORS info from context using the passed-in request
-	allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfoFromRequest[T, U](req)
+	allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfo[T, U](req.Context())
 
 	// Set CORS headers if applicable BEFORE writing status code or body
 	if corsOK {
@@ -1604,7 +1604,7 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 				}
 
 				// Return a 500 Internal Server Error as JSON
-				traceID := scontext.GetTraceIDFromRequest[T, U](req)
+				traceID := scontext.GetTraceID[T, U](req.Context())
 				r.writeJSONError(rw, req, http.StatusInternalServerError, "Internal Server Error", traceID)
 			}
 		}()

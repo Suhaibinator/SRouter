@@ -72,7 +72,7 @@ func userHandler(req *http.Request, data UserRequest) (UserResponse, error) {
 // Generic handler for profile that accesses user information from the request context
 func profileHandler(req *http.Request, data ProfileRequest) (ProfileResponse, error) {
 	// Get the user ID from the request context
-	userID, loggedIn := scontext.GetUserIDFromRequest[string, string](req) // Use scontext
+	userID, loggedIn := scontext.GetUserID[string, string](req.Context()) // Use scontext
 
 	// Create a response with the user information
 	response := ProfileResponse{

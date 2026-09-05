@@ -31,7 +31,7 @@ func optionalAuthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Try to get the user from the context
-	user, ok := scontext.GetUserFromRequest[string, User](r)
+	user, ok := scontext.GetUser[string, User](r.Context())
 	if ok && user != nil {
 		// User is authenticated
 		_, _ = fmt.Fprintf(w, `{"message":"Hello, %s! This route has optional authentication", "authenticated":true}`, user.Name)
@@ -46,7 +46,7 @@ func requiredAuthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Get the user from the context
-	user, ok := scontext.GetUserFromRequest[string, User](r)
+	user, ok := scontext.GetUser[string, User](r.Context())
 	if !ok || user == nil {
 		// This should not happen since the middleware should have rejected the request
 		http.Error(w, "User not found in context", http.StatusInternalServerError)

@@ -80,7 +80,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func userProfileHandler(w http.ResponseWriter, r *http.Request) {
-	user, ok := scontext.GetUserFromRequest[string, User](r)
+	user, ok := scontext.GetUser[string, User](r.Context())
 	if !ok || user == nil {
 		http.Error(w, "User not found in context", http.StatusInternalServerError)
 		return

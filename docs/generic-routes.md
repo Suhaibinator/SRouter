@@ -116,7 +116,7 @@ Error behavior is:
 When the handler completes through the normal chain, its error is stored in the
 SRouter context before outer middleware resumes. This lets transaction or
 observability middleware inspect the result with
-`scontext.GetHandlerErrorFromRequest`. A timed-out handler that ignores context
+`scontext.GetHandlerError`. A timed-out handler that ignores context
 cancellation can continue after the timeout stage returns and record a later
 error; outer middleware cannot assume the value is already present in that
 case.
