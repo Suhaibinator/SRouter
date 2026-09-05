@@ -474,6 +474,73 @@ func GetTraceIDFromRequest[T comparable, U any](r *http.Request) string {
 	return GetTraceIDFromContext[T, U](r.Context())
 }
 
+// IdentitySnapshot is a point-in-time copy of the per-operation identity
+// fields carried by an SRouterContext. Each Set flag reports whether the
+// corresponding value was ever written, so a deliberately empty value stays
+// distinguishable from an absent one.
+// T is the User ID type (comparable).
+type IdentitySnapshot[T comparable] struct {
+	UserID    T
+	TraceID   string
+	BuildID   string
+	ConfigID  string
+	ClientIP  string
+	UserAgent string
+
+	UserIDSet    bool
+	TraceIDSet   bool
+	BuildIDSet   bool
+	ConfigIDSet  bool
+	ClientIPSet  bool
+	UserAgentSet bool
+}
+
+// IdentitySnapshot reads every identity field under a single read lock.
+// Callers that need more than one identity should prefer it over the
+// individual accessors, which lock once per field.
+func (rc *SRouterContext[T, U]) IdentitySnapshot() IdentitySnapshot[T] {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	return IdentitySnapshot[T]{
+		UserID:    rc.UserID,
+		TraceID:   rc.TraceID,
+		BuildID:   rc.BuildID,
+		ConfigID:  rc.ConfigID,
+		ClientIP:  rc.ClientIP,
+		UserAgent: rc.UserAgent,
+
+		UserIDSet:    rc.UserIDSet,
+		TraceIDSet:   rc.TraceIDSet,
+		BuildIDSet:   rc.BuildIDSet,
+		ConfigIDSet:  rc.ConfigIDSet,
+		ClientIPSet:  rc.ClientIPSet,
+		UserAgentSet: rc.UserAgentSet,
+	}
+}
+
+// GetIdentitySnapshot retrieves every identity field from the context in one
+// pass: one walk of the context chain and one lock acquisition, instead of one
+// of each per field. It returns the zero snapshot and false when the context
+// carries no SRouterContext. Log field stamping and metrics labelling, which
+// read several identities together, should use it in place of repeated
+// GetTraceIDFromContext/GetUserID/GetBuildID/GetConfigID calls.
+// T is the User ID type (comparable), U is the User object type (any).
+func GetIdentitySnapshot[T comparable, U any](ctx context.Context) (IdentitySnapshot[T], bool) {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok {
+		return IdentitySnapshot[T]{}, false
+	}
+	return rc.IdentitySnapshot(), true
+}
+
+// GetIdentitySnapshotFromRequest is a convenience function that extracts the
+// identity snapshot from an http.Request.
+// It is equivalent to calling GetIdentitySnapshot with r.Context().
+// T is the User ID type (comparable), U is the User object type (any).
+func GetIdentitySnapshotFromRequest[T comparable, U any](r *http.Request) (IdentitySnapshot[T], bool) {
+	return GetIdentitySnapshot[T, U](r.Context())
+}
+
 // WithRouteInfo adds route information to the context.
 // This includes path parameters extracted by httprouter and the route template string.
 // This function is called internally by the router when a route is matched.

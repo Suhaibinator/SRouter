@@ -28,6 +28,7 @@ with the wrapper's internal lock.
 | Requested CORS headers | `WithCORSRequestedHeaders` | `GetCORSRequestedHeaders`, `GetCORSRequestedHeadersFromRequest` |
 | Generic-handler error | `WithHandlerError` | `GetHandlerError`, `GetHandlerErrorFromRequest` |
 | Application boolean flag | `WithFlag` | `GetFlag`, `GetFlagFromRequest` |
+| All identity values at once | (see individual writers) | `GetIdentitySnapshot`, `GetIdentitySnapshotFromRequest` |
 
 Most getters return `(value, ok)` so an unset value can be distinguished from
 its zero value. The trace-ID getters instead return an empty string when no
@@ -110,6 +111,43 @@ func accountHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = clientIP, routeTemplate
 }
 ```
+
+## Reading several identities at once
+
+Every individual getter walks the context chain and takes the wrapper's lock
+once. Code that stamps log fields or metric labels usually needs the user ID,
+trace ID, build and configuration identities, and client information together,
+so it pays that cost several times per call. `GetIdentitySnapshot` reads them
+all in one pass — one chain walk, one read lock — and returns a value copy:
+
+```go
+func logFields[T comparable, U any](ctx context.Context) []zap.Field {
+	snapshot, ok := scontext.GetIdentitySnapshot[T, U](ctx)
+	if !ok {
+		return nil
+	}
+
+	fields := make([]zap.Field, 0, 4)
+	fields = append(fields, zap.String("trace_id", snapshot.TraceID))
+	if snapshot.BuildIDSet {
+		fields = append(fields, zap.String("build_id", snapshot.BuildID))
+	}
+	if snapshot.ConfigIDSet {
+		fields = append(fields, zap.String("config_id", snapshot.ConfigID))
+	}
+	if snapshot.UserIDSet {
+		fields = append(fields, zap.Any("user_id", snapshot.UserID))
+	}
+	return fields
+}
+```
+
+Each field carries a `Set` flag, so a value that was written empty on purpose
+stays distinguishable from one that was never written. The snapshot is a copy
+taken at the moment of the call: a later write through a `With*` helper does not
+change it, and reading two snapshots is not an atomic pair. Values the wrapper
+holds by reference — the user object, the transaction, path parameters — are
+deliberately absent; keep using `GetUser` and `GetTransaction` for those.
 
 ## Database transactions
 
