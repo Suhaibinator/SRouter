@@ -366,3 +366,55 @@ func TestGetLoggerConcurrentFirstReadersSharePublishedLogger(t *testing.T) {
 		}
 	}
 }
+
+func TestGetLoggerStopsRetryingUnderSustainedWrites(t *testing.T) {
+	base, logs := newObservedLogger()
+	var ctx context.Context
+	var derivations int
+	hostile := true
+	// The formatter mutates correlation on the same context, which the
+	// formatter contract forbids. It is the simplest way to guarantee that a
+	// write lands inside every derivation window, simulating a writer that
+	// never pauses.
+	source := NewRequestLoggerSource(base, func(id int) zap.Field {
+		derivations++
+		if hostile {
+			WithBuildID[int, testUser](ctx, fmt.Sprintf("build-%d", derivations))
+		}
+		return zap.Int(logkeys.UserID, id)
+	})
+	ctx = WithRequestLogger[int, testUser](context.Background(), source)
+	ctx = WithUserID[int, testUser](ctx, 7)
+
+	logger, ok := GetLogger[int, testUser](ctx)
+	if !ok || logger == nil {
+		t.Fatal("no logger returned under sustained writes")
+	}
+	if derivations != maxLoggerDerivations {
+		t.Fatalf("derivations = %d, want %d", derivations, maxLoggerDerivations)
+	}
+	entry := logAndTake(t, logger, logs, "under contention")
+	if entry.ContextMap()[logkeys.UserID] != int64(7) {
+		t.Fatalf("returned snapshot lost correlation: %v", entry.ContextMap())
+	}
+	// The final build_id write landed after the last snapshot was taken, so
+	// the returned logger carries the previous one.
+	if got := entry.ContextMap()[logkeys.BuildID]; got != "build-2" {
+		t.Fatalf("build_id = %v, want the pre-final snapshot build-2", got)
+	}
+
+	// The uncached result left the cache invalid. Once the writer stops, one
+	// more derivation publishes and later calls hit the cache.
+	hostile = false
+	published, _ := GetLogger[int, testUser](ctx)
+	if derivations != maxLoggerDerivations+1 {
+		t.Fatalf("derivations after writer stopped = %d, want %d", derivations, maxLoggerDerivations+1)
+	}
+	if again, _ := GetLogger[int, testUser](ctx); again != published {
+		t.Fatal("logger was not cached after the writer stopped")
+	}
+	entry = logAndTake(t, published, logs, "after contention")
+	if got := entry.ContextMap()[logkeys.BuildID]; got != "build-3" {
+		t.Fatalf("build_id = %v, want the final write build-3", got)
+	}
+}

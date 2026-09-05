@@ -203,8 +203,11 @@ Derivation is lazy: multiple correlation writes before the first `GetLogger`
 lead to one derivation during sequential use. Formatting and Zap core encoding
 run outside the context lock. Concurrent first readers may duplicate this work;
 they reuse the first published logger for the current correlation/source
-version. If either changes during derivation, `GetLogger` retries. Panics
-propagate without marking an obsolete logger current.
+version. If either changes during derivation, `GetLogger` discards the result
+and tries again, at most three derivations per call. After that it returns the
+last snapshot it built without caching it, so a call racing a sustained stream
+of writes still returns promptly. Panics propagate without marking an obsolete
+logger current.
 
 A returned logger, including a named child, is an immutable snapshot. After a
 correlation write, call `GetLogger` again and derive a new named child to see the

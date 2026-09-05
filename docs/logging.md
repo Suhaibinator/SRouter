@@ -194,7 +194,7 @@ An explicit formatter overrides the default representation and field key. It
 must be concurrency-safe and should be fast and free of side effects, since
 concurrent derivations may call it more than once. It may read context values,
 but must not recursively request the same logger or mutate correlation. Panics
-propagate and leave the cache invalidated for a subsequent retry.
+propagate and leave the cache invalidated for a subsequent call.
 
 A warmed `GetLogger` allocates nothing. A later correlation write invalidates
 the cache, and previously returned loggers remain unchanged. See

@@ -68,7 +68,14 @@ func WithRequestLogger[T comparable, U any](ctx context.Context, source *Request
 // The cached path takes one context walk and one read lock with no allocations.
 // Concurrent first readers may derive independently; only a logger matching the
 // current correlation/source version is published. Formatting and Zap core work
-// run outside the context lock. A panic leaves the cache invalidated for retry.
+// run outside the context lock. A panic leaves the cache invalidated, so the
+// next call derives again.
+//
+// If a correlation or source write lands during derivation, GetLogger discards
+// the result and tries again, up to maxLoggerDerivations times in total. After
+// that it returns the last snapshot it built without caching it, so a caller
+// racing a sustained stream of writes still terminates and still receives a
+// logger that matched the correlation at some point during the call.
 //
 // The returned logger is an immutable snapshot. A later correlation write is
 // visible only through another GetLogger call, including for named children.
@@ -78,10 +85,11 @@ func GetLogger[T comparable, U any](ctx context.Context) (*zap.Logger, bool) {
 	if !ok {
 		return nil, false
 	}
-	for {
+	var logger *zap.Logger
+	for range maxLoggerDerivations {
 		rc.mu.RLock()
 		if rc.loggerVersion == rc.logVersion {
-			logger := rc.logger
+			logger = rc.logger
 			rc.mu.RUnlock()
 			return logger, logger != nil
 		}
@@ -93,10 +101,11 @@ func GetLogger[T comparable, U any](ctx context.Context) (*zap.Logger, bool) {
 		version, correlation := rc.logVersion, rc.correlationLocked()
 		rc.mu.RUnlock()
 
-		logger := source.derive(correlation)
+		logger = source.derive(correlation)
 
 		rc.mu.Lock()
 		if rc.logVersion != version {
+			// A write raced this derivation; the result is already obsolete.
 			rc.mu.Unlock()
 			continue
 		}
@@ -108,7 +117,17 @@ func GetLogger[T comparable, U any](ctx context.Context) (*zap.Logger, bool) {
 		rc.mu.Unlock()
 		return logger, true
 	}
+	// Every attempt was invalidated by a concurrent write. Return the most
+	// recent snapshot uncached rather than spin; the cache stays invalid, so
+	// the next call derives from whatever the writer finally settles on.
+	// Deriving under the write lock instead would deadlock a formatter that
+	// reads the context, which the formatter contract allows.
+	return logger, true
 }
+
+// maxLoggerDerivations bounds how many times GetLogger derives a logger in one
+// call before it stops retrying against concurrent correlation writes.
+const maxLoggerDerivations = 3
 
 func (source *RequestLoggerSource[T]) derive(c Correlation[T]) *zap.Logger {
 	if !c.TraceIDSet && !c.BuildIDSet && !c.ConfigIDSet && !c.UserIDSet {

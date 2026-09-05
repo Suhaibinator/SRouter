@@ -56,8 +56,10 @@ source also advances the version and releases the cached logger.
    return `nil, false` when logging is disabled.
 2. Otherwise snapshot correlation, source, and version under that lock, then
    release it. Build fields and call `base.With` outside the lock. Acquire the
-   write lock to publish only if the version is still current; retry if it
-   changed. If another reader already published this version, reuse its logger.
+   write lock to publish only if the version is still current. If it changed,
+   discard the result and try again, up to three derivations per call; after
+   that, return the last snapshot uncached. If another reader already
+   published this version, reuse its logger.
 
 Correlation fields are ordered trace, build, config, user. Presence follows the
 existing `Set` flags, including explicitly empty strings or zero IDs.
@@ -65,8 +67,9 @@ existing `Set` flags, including explicitly empty strings or zero IDs.
 Application formatters and Zap custom encoding can read context values without
 deadlocking. They must be concurrency-safe and should be free of side effects;
 concurrent first readers can derive independently. A failed derivation never
-marks an obsolete logger current. Continuous correlation writes can cause
-retries; the normal request flow finishes these writes before handler logging.
+marks an obsolete logger current. Continuous correlation writes cause bounded
+retries, never a spin; the normal request flow finishes these writes before
+handler logging.
 No extra derivation mutex or per-service map is stored in the context.
 
 Previously returned loggers are immutable snapshots. After changing
