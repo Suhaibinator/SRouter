@@ -54,8 +54,8 @@ All structured-log field names emitted by SRouter are exported from the
 dependency-free `pkg/logkeys` package. Applications use constants such as
 `logkeys.ClientIP`, `logkeys.TraceID`, `logkeys.BuildID`, `logkeys.ConfigID`,
 and `logkeys.UserID` to keep their logs aligned with SRouter without depending
-on Zap. `logkeys.IP` remains as a deprecated source-compatibility constant;
-SRouter no longer emits the `ip` alias.
+on Zap. Replace uses of the removed `logkeys.IP` constant with
+`logkeys.ClientIP`; SRouter no longer emits the `ip` alias.
 
 Its level is chosen in this priority order:
 

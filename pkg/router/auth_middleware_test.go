@@ -133,6 +133,50 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 	})
 }
 
+func TestAuthOptionalSuccessLogsAuthenticatedRequestContext(t *testing.T) {
+	core, logs := observer.New(zapcore.DebugLevel)
+	r := NewRouter(
+		RouterConfig{Logger: zap.New(core)},
+		RouterDependencies[string, string]{
+			Authenticate: mocks.MockAuthFunction,
+			UserID:       mocks.MockUserIDFromUser,
+		},
+	)
+	wrapped := r.authOptionalMiddlewareWithConfig(defaultAuthTokenConfig())(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
+	req := httptest.NewRequest(http.MethodGet, "/optional", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	req = r.withRequestLogging(req)
+	rec := httptest.NewRecorder()
+
+	wrapped.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("response status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	entries := logs.FilterMessage("Authentication successful").AllUntimed()
+	if len(entries) != 1 {
+		t.Fatalf("authentication logs = %d, want 1: %#v", len(entries), logs.AllUntimed())
+	}
+	entry := entries[0]
+	if entry.LoggerName != "SRouter" {
+		t.Errorf("logger name = %q, want %q", entry.LoggerName, "SRouter")
+	}
+	fields := entry.ContextMap()
+	for key, want := range map[string]any{
+		"user_id": "user123",
+		"method":  http.MethodGet,
+		"path":    "/optional",
+	} {
+		if fields[key] != want {
+			t.Errorf("%s = %#v, want %#v", key, fields[key], want)
+		}
+	}
+}
+
 // TestAuthRequiredMiddleware tests the authRequiredMiddleware function
 // (from auth_required_middleware_test.go)
 func TestAuthRequiredMiddleware(t *testing.T) {
