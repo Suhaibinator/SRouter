@@ -70,8 +70,8 @@ func reqLogSingleEntry(t *testing.T, logs *observer.ObservedLogs, message string
 func TestRequestLoggerCarriesCorrelationOnAuthRequiredRoute(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
 	r := NewRouter(RouterConfig{
-		Logger:            zap.New(core),
-		TraceIDBufferSize: 10,
+		Logger:        zap.New(core),
+		TraceIDConfig: &TraceIDConfig{BufferSize: 10},
 	}, reqLogUint64Deps(func(id uint64) zap.Field {
 		return zap.Uint64(logkeys.UserID, id)
 	}))
@@ -172,8 +172,8 @@ func TestRequestLoggerCarriesCorrelationOnAuthRequiredRoute(t *testing.T) {
 func TestRequestLoggerOmitsUserIDOnAuthOptionalWithoutToken(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
 	r := NewRouter(RouterConfig{
-		Logger:            zap.New(core),
-		TraceIDBufferSize: 10,
+		Logger:        zap.New(core),
+		TraceIDConfig: &TraceIDConfig{BufferSize: 10},
 	}, reqLogUint64Deps(func(id uint64) zap.Field {
 		return zap.Uint64(logkeys.UserID, id)
 	}))
@@ -283,8 +283,8 @@ func TestRequestLoggerFallsBackToDefaultLoggerWhenConfigLoggerNil(t *testing.T) 
 func TestRequestLoggerUserIDFieldDefaultString(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
 	r := NewRouter(RouterConfig{
-		Logger:            zap.New(core),
-		TraceIDBufferSize: 10,
+		Logger:        zap.New(core),
+		TraceIDConfig: &TraceIDConfig{BufferSize: 10},
 	}, RouterDependencies[string, reqLogUser]{
 		Authenticate: func(_ context.Context, token string) (*reqLogUser, bool) {
 			if token != reqLogValidToken {

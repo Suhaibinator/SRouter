@@ -91,7 +91,7 @@ func (w *errResponseWriter) Write([]byte) (int, error) {
 func TestWriteJSONError_MutexResponseWriter_LogsOnEncodeFailure(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDConfig: &TraceIDConfig{BufferSize: 1}}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/test", nil)
 	req = req.WithContext(scontext.WithTraceID[string, string](req.Context(), "trace-123"))

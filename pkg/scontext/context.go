@@ -425,6 +425,19 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 	return ctx
 }
 
+// SetTraceID unconditionally replaces the trace ID under the context lock and
+// invalidates the cached request logger. It performs no validation. WithTraceID
+// instead preserves an ID that is already set, including an empty ID.
+func SetTraceID[T comparable, U any](ctx context.Context, traceID string) context.Context {
+	rc, ctx := EnsureSRouterContext[T, U](ctx)
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.TraceID = traceID
+	rc.TraceIDSet = true
+	rc.logVersion++
+	return ctx
+}
+
 // GetTraceID retrieves the trace ID from the context.
 // It returns the trace ID if set, or an empty string if not found.
 // This function never returns an error; absence is indicated by an empty string.

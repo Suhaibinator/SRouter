@@ -129,13 +129,13 @@ not called. A failed build is terminal for that router; later mutation panics.
 ## Important behavior
 
 - Route registration is frozen after `Build` or the first request.
-- Middleware order is recovery, automatic trace-ID injection, built-in
+- Trace IDs resolve at the request boundary. Middleware order is recovery, built-in
   authentication, configured rate limiting, global middleware, outer-to-inner group
   middleware, route middleware, timeout, then handler.
 - Custom authentication added as global or group middleware runs after the
   configured rate limiter. User-based configured limits therefore require the
   built-in authentication stage to populate identity first.
-- `TraceIDBufferSize` controls trace-ID generation. `EnableTraceLogging`
+- `TraceIDConfig` controls upstream trace-ID resolution and UUIDv7 generation. `EnableTraceLogging`
   independently enables request-summary logs.
 - Optional build and config identity providers are sampled once per request and
   stored in the shared SRouter context.

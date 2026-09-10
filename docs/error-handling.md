@@ -24,7 +24,8 @@ message rather than `err.Error()`:
 }
 ```
 
-When automatic trace IDs are enabled with `TraceIDBufferSize > 0`, the error object also contains `trace_id`.
+The ID is resolved before build, shutdown, CORS, or routing and is shared with
+request logs and the configured response header. When automatic trace IDs are enabled with `TraceIDConfig != nil`, the error object also contains `trace_id`.
 
 ## HTTPError
 

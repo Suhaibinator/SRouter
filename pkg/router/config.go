@@ -7,6 +7,7 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/codec"
 	"github.com/Suhaibinator/SRouter/pkg/common"
+	"github.com/Suhaibinator/SRouter/pkg/traceid"
 	"go.uber.org/zap"
 )
 
@@ -133,6 +134,15 @@ type MetricsConfig struct {
 	EnableErrors bool
 }
 
+// TraceIDConfig enables automatic correlation at the ServeHTTP boundary.
+// Source and Validator must be fast, concurrency-safe, and non-panicking.
+type TraceIDConfig struct {
+	BufferSize     int               // Zero generates synchronously; positive buffers UUIDv7 IDs; negative fails Build.
+	Source         traceid.Source    // Nil defaults to traceid.FromHeader(traceid.HeaderXTraceID).
+	Validator      traceid.Validator // Nil defaults to traceid.IsValid; transport safety always applies.
+	ResponseHeader string            // Empty defaults to X-Trace-ID. This header receives the resolved ID only.
+}
+
 // RouterConfig defines the global configuration for the router.
 // It includes settings for logging, timeouts, metrics, and middleware.
 type RouterConfig struct {
@@ -143,9 +153,9 @@ type RouterConfig struct {
 	GlobalRateLimit     *common.RateLimitConfig[any, any] // Default rate limit for all routes
 	GlobalAuthToken     *common.AuthTokenConfig           // Default auth token source for built-in auth middleware
 	IPConfig            *IPConfig                         // Configuration for client IP extraction
-	EnableTraceLogging  bool                              // Enable per-request summary logging even when TraceIDBufferSize is 0
+	EnableTraceLogging  bool                              // Enable per-request summary logging even when TraceIDConfig is nil
 	TraceLoggingUseInfo bool                              // Promote otherwise-successful request summaries from Debug to Info
-	TraceIDBufferSize   int                               // Buffer size for trace ID generator (0 disables trace ID)
+	TraceIDConfig       *TraceIDConfig                    // Nil disables automatic trace IDs; non-nil also enables summaries
 	MetricsConfig       *MetricsConfig                    // Metrics configuration (optional)
 	Middlewares         []common.Middleware               // Global middleware for matched requests that pass built-in auth and rate limiting
 	AddUserObjectToCtx  bool                              // Add user object to context

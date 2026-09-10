@@ -132,9 +132,9 @@ func TestWebSocketRoute(t *testing.T) {
 func TestWebSocketRoutePreservesHijackerWithTracingEnabled(t *testing.T) {
 	logger := zap.NewNop()
 	config := router.RouterConfig{
-		Logger:            logger,
-		GlobalTimeout:     100 * time.Millisecond,
-		TraceIDBufferSize: 1,
+		Logger:        logger,
+		GlobalTimeout: 100 * time.Millisecond,
+		TraceIDConfig: &router.TraceIDConfig{BufferSize: 1},
 	}
 
 	r := router.NewRouter(config, router.RouterDependencies[string, string]{})
@@ -183,9 +183,9 @@ func TestWebSocketRoutePreservesHijackerWithTracingEnabled(t *testing.T) {
 func TestWebSocketRouteHijackNotSupportedIsWrapped(t *testing.T) {
 	logger := zap.NewNop()
 	config := router.RouterConfig{
-		Logger:            logger,
-		GlobalTimeout:     100 * time.Millisecond,
-		TraceIDBufferSize: 1,
+		Logger:        logger,
+		GlobalTimeout: 100 * time.Millisecond,
+		TraceIDConfig: &router.TraceIDConfig{BufferSize: 1},
 	}
 
 	r := router.NewRouter(config, router.RouterDependencies[string, string]{})
@@ -226,9 +226,9 @@ func TestWebSocketRouteHijackNotSupportedIsWrapped(t *testing.T) {
 func TestWebSocketRouteResponseControllerCanReachOptionalInterfaces(t *testing.T) {
 	logger := zap.NewNop()
 	config := router.RouterConfig{
-		Logger:            logger,
-		GlobalTimeout:     100 * time.Millisecond,
-		TraceIDBufferSize: 1, // ensures the router wraps the ResponseWriter
+		Logger:        logger,
+		GlobalTimeout: 100 * time.Millisecond,
+		TraceIDConfig: &router.TraceIDConfig{BufferSize: 1}, // ensures the router wraps the ResponseWriter
 	}
 
 	r := router.NewRouter(config, router.RouterDependencies[string, string]{})

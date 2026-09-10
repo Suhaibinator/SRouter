@@ -56,8 +56,8 @@ func main() {
 	appLogger := base.Named("example")
 
 	r := router.NewRouter(router.RouterConfig{
-		Logger:            appLogger,
-		TraceIDBufferSize: 100,
+		Logger:        appLogger,
+		TraceIDConfig: &router.TraceIDConfig{BufferSize: 100},
 	}, router.RouterDependencies[userID, user]{
 		Authenticate: func(_ context.Context, token string) (*user, bool) {
 			if token != "example-token" {

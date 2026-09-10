@@ -77,7 +77,7 @@ func TestMetrics(t *testing.T) {
 		Logger:              logger,
 		EnableTraceLogging:  true,
 		TraceLoggingUseInfo: true,
-		TraceIDBufferSize:   1000,
+		TraceIDConfig:       &TraceIDConfig{BufferSize: 1000},
 	}, RouterDependencies[string, string]{Authenticate: authFunction, UserID: userIdFromUserFunction})
 
 	// Register a route
@@ -168,7 +168,7 @@ func TestMetrics(t *testing.T) {
 				t.Errorf("Expected field %q not found in log context", key)
 			}
 		}
-		// Also check for trace_id presence since TraceIDBufferSize > 0
+		// Also check for trace_id presence since TraceIDConfig != nil
 		if !foundKeys["trace_id"] {
 			t.Errorf("Expected field 'trace_id' not found in log context")
 		}
@@ -214,7 +214,7 @@ func TestTracing(t *testing.T) {
 	// Create a router with string as both the user ID and user type
 	r := NewRouter(RouterConfig{
 		Logger:              logger,
-		TraceIDBufferSize:   1000,
+		TraceIDConfig:       &TraceIDConfig{BufferSize: 1000},
 		EnableTraceLogging:  true,
 		TraceLoggingUseInfo: true,
 	}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
