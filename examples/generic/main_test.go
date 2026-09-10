@@ -12,7 +12,7 @@ import (
 )
 
 func TestBodylessRoutesReachTheirHandlers(t *testing.T) {
-	r := router.NewRouter[string, string](
+	r := router.NewRouter(
 		router.RouterConfig{Logger: zap.NewNop()}, router.RouterDependencies[string, string]{Authenticate: nil, UserID: nil})
 
 	registerRoutes(r)
@@ -51,7 +51,7 @@ func TestUserStoreConcurrentAccess(t *testing.T) {
 	var wg sync.WaitGroup
 	ids := make(chan string, workers)
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

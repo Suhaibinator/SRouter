@@ -9,7 +9,7 @@ import (
 )
 
 func ExampleNewRouter() {
-	r := router.NewRouter[string, string](router.RouterConfig{
+	r := router.NewRouter(router.RouterConfig{
 		ServiceName: "hello-service",
 	}, router.RouterDependencies[string, string]{})
 

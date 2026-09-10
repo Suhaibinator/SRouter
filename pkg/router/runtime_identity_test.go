@@ -34,7 +34,7 @@ func TestRuntimeIdentityProvidersSampleOncePerRequest(t *testing.T) {
 	buildID, configID := "build-1", "config-1"
 	buildCalls, configCalls := 0, 0
 	var seen [][2]string
-	r := NewRouter[string, struct{}](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger:             zap.New(core),
 		EnableTraceLogging: true,
 	}, RouterDependencies[string, struct{}]{
@@ -136,7 +136,7 @@ func TestRuntimeIdentityProvidersLeaveAbsentValuesUnset(t *testing.T) {
 func TestRuntimeIdentitiesEnrichAuthenticationAndErrorLogs(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
 	auth := AuthRequired
-	r := NewRouter[string, struct{}](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger: zap.New(core),
 	}, RouterDependencies[string, struct{}]{
 		Authenticate: func(context.Context, string) (*struct{}, bool) {
@@ -168,6 +168,7 @@ func TestRuntimeIdentitiesEnrichAuthenticationAndErrorLogs(t *testing.T) {
 	ctx := scontext.WithBuildID[string, struct{}](context.Background(), "build-error")
 	ctx = scontext.WithConfigID[string, struct{}](ctx, "config-error")
 	req := httptest.NewRequest(http.MethodGet, "/error", nil).WithContext(ctx)
+	req = r.withRequestLogging(req)
 	r.handleError(httptest.NewRecorder(), req, errors.New("boom"), http.StatusInternalServerError, "failed")
 	errorEntries := logs.FilterMessage("failed").All()
 	if len(errorEntries) != 1 {

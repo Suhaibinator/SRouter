@@ -116,7 +116,7 @@ func newUserAuthRouter(logger *zap.Logger) *router.Router[string, User] {
 		GlobalMaxBodySize: 1 << 20, // 1 MB
 	}
 
-	// These routes demonstrate standalone authentication middleware, so they all
+	// These routes demonstrate custom authentication middleware, so they all
 	// use NoAuth at the router's built-in authentication stage.
 	r := router.NewRouter[string, User](routerConfig, router.RouterDependencies[string, User]{})
 
@@ -151,7 +151,7 @@ func newUserAuthRouter(logger *zap.Logger) *router.Router[string, User] {
 			Handler: protectedUserHandler,
 		})
 	userAuth.Group("/bearer").
-		Use(middleware.NewBearerTokenWithUserMiddleware[string, User](bearerTokenUserAuth, logger)).
+		Use(middleware.NewBearerTokenWithUserMiddleware[string, User](bearerTokenUserAuth)).
 		Route(router.RouteConfigBase{
 			Methods: []router.HttpMethod{router.MethodGet},
 			Handler: protectedUserHandler,
@@ -159,7 +159,6 @@ func newUserAuthRouter(logger *zap.Logger) *router.Router[string, User] {
 	userAuth.Group("/basic").
 		Use(middleware.AuthenticationWithUserProvider[string, User](
 			&middleware.BasicUserAuthProvider[User]{GetUserFunc: basicUserAuth},
-			logger,
 		)).
 		Route(router.RouteConfigBase{
 			Methods: []router.HttpMethod{router.MethodGet},

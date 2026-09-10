@@ -230,7 +230,7 @@ func TestBuildRejectsInvalidAndDuplicateRoutes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
+			r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 			tt.setup(r)
 			if err := r.Build(); err == nil {
 				t.Fatal("expected Build to reject invalid route tree")
@@ -240,7 +240,7 @@ func TestBuildRejectsInvalidAndDuplicateRoutes(t *testing.T) {
 }
 
 func TestBuildFreezesRouteTree(t *testing.T) {
-	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 	r.Route(RouteConfigBase{Path: "/ready", Methods: []HttpMethod{MethodGet}, Handler: func(http.ResponseWriter, *http.Request) {}})
 	if err := r.Build(); err != nil {
 		t.Fatalf("Build failed: %v", err)
@@ -258,7 +258,7 @@ func TestBuildFreezesRouteTree(t *testing.T) {
 }
 
 func TestConcurrentFirstRequestBuildsOnce(t *testing.T) {
-	r := NewRouter[string, string](RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
+	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 	r.Group("/api").Group("/v1").Route(RouteConfigBase{
 		Path:    "/ready",
 		Methods: []HttpMethod{MethodGet},

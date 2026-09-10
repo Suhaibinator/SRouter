@@ -22,7 +22,6 @@ func TestBodyDecodingExamplesConfigurePositiveGlobalLimit(t *testing.T) {
 	}
 
 	for _, name := range files {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 

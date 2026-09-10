@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Middleware wraps an HTTP handler.
+// Middleware wraps an HTTP handler within SRouter.
 type Middleware func(http.Handler) http.Handler
 
 // RateLimitStrategy defines how the rate limiter identifies clients.
@@ -14,7 +14,7 @@ type RateLimitStrategy int
 
 const (
 	// StrategyIP uses the client's IP address as the key for rate limiting.
-	// Requires router.ClientIPMiddleware to be applied first.
+	// SRouter initializes the client IP before middleware runs.
 	StrategyIP RateLimitStrategy = iota
 	// StrategyUser uses the authenticated user's ID from the context.
 	StrategyUser

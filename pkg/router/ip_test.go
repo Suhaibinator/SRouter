@@ -1,7 +1,7 @@
 package router
 
 import (
-	// Import net/http
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -52,8 +52,8 @@ func TestExtractIPFromXForwardedFor(t *testing.T) {
 	}
 }
 
-// TestExtractClientIP tests the extractClientIP function with various configurations
-func TestExtractClientIP(t *testing.T) {
+// TestClientIPSelectionAndNormalization exercises selection and context storage together.
+func TestClientIPSelectionAndNormalization(t *testing.T) {
 	// Test cases
 	tests := []struct {
 		name         string
@@ -130,10 +130,13 @@ func TestExtractClientIP(t *testing.T) {
 			}
 			req.RemoteAddr = tc.remoteAddr
 
-			ip := extractClientIP(req, tc.config)
-			if ip != tc.expectedIP {
-				t.Errorf("Expected IP %q, got %q", tc.expectedIP, ip)
-			}
+			handler := ClientIPMiddleware[string, any](tc.config)(http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
+				ip, _ := scontext.GetClientIP[string, any](req.Context())
+				if ip != tc.expectedIP {
+					t.Errorf("Expected IP %q, got %q", tc.expectedIP, ip)
+				}
+			}))
+			handler.ServeHTTP(httptest.NewRecorder(), req)
 		})
 	}
 }

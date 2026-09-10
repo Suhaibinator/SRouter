@@ -114,6 +114,21 @@ RateLimit: &common.RateLimitConfig[any, any]{
 
 A nil extractor, extractor error, or empty returned key produces a `500 Internal Server Error`. Do not include raw secrets in the key if rate-limit warning logs must not contain them.
 
+## Logging
+
+Rate-limit warnings and errors use the shared request logger. `client_ip` is the
+resolved request address when available. The `key` field remains the limiter
+identity selected by the strategy, including the raw socket address when the
+limiter falls back to `RemoteAddr`. Logs do not emit a separate `remote_addr`
+field or label this fallback key as a resolved `client_ip`. A non-empty context
+`trace_id` is included even when automatic trace generation is disabled.
+
+The constructor is `middleware.RateLimit[T, U](config, limiter)`; it no longer
+accepts a logger. Use it within SRouter, which initializes the shared logger
+and client IP before middleware executes. Configure IP selection through
+`RouterConfig.IPConfig`; no separate client-IP middleware is needed. See
+[Middleware logging](./logging.md#middleware-logging).
+
 ## Shared buckets
 
 Give multiple routes the same effective configuration to share a counter for each derived client key:

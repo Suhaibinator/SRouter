@@ -1,7 +1,6 @@
 package router
 
 import (
-	"net"
 	"net/http"
 	"strings"
 
@@ -52,7 +51,8 @@ func DefaultIPConfig() *IPConfig {
 }
 
 // ClientIPMiddleware creates a middleware that extracts the client IP from the request
-// and adds it to the SRouterContext.
+// and adds it to the SRouterContext. SRouter already initializes this information;
+// configure RouterConfig.IPConfig instead of adding this middleware to a router.
 // T is the User ID type (comparable), U is the User object type (any).
 // It stores the IP address in the SRouterContext.
 func ClientIPMiddleware[T comparable, U any](config *IPConfig) func(http.Handler) http.Handler {
@@ -83,11 +83,12 @@ func ClientIPMiddleware[T comparable, U any](config *IPConfig) func(http.Handler
 	}
 }
 
-// extractClientIP extracts the client IP address from the request based on the IPConfig.
+// extractClientIP selects the configured address. The context setter normalizes
+// it once when storing client information.
 func extractClientIP(r *http.Request, config *IPConfig) string {
 	var ip string
 	if config == nil {
-		return cleanIP(r.RemoteAddr)
+		return r.RemoteAddr
 	}
 	// Determine IP based on configured source
 	switch config.Source {
@@ -108,8 +109,7 @@ func extractClientIP(r *http.Request, config *IPConfig) string {
 		ip = r.RemoteAddr
 	}
 
-	// Clean up the IP address (remove port if present)
-	return cleanIP(ip)
+	return ip
 }
 
 // extractIPFromXForwardedFor extracts the client IP from the X-Forwarded-For header.
@@ -136,34 +136,4 @@ func extractIPFromXForwardedFor(r *http.Request) string {
 		}
 		xff = xff[:comma]
 	}
-}
-
-// cleanIP removes the port from an IP address if present
-func cleanIP(ip string) string {
-	host, _, err := net.SplitHostPort(ip)
-	if err == nil {
-		// If the host contains a zone identifier, return without brackets
-		if strings.Contains(host, "%") {
-			return host
-		}
-		// Only return the host portion if it parses as a valid IP
-		if net.ParseIP(host) != nil {
-			// Preserve brackets if the original string contained them
-			if strings.HasPrefix(ip, "[") && strings.Contains(ip, "]") {
-				return "[" + host + "]"
-			}
-			return host
-		}
-		// If host isn't a valid IP, fall back to the original string
-		return ip
-	}
-
-	// If SplitHostPort fails, it might be an IP without a port or an invalid format
-	// For IPv6 without port but with brackets, e.g. "[::1]"
-	if strings.HasPrefix(ip, "[") && strings.HasSuffix(ip, "]") {
-		return ip
-	}
-	// For IPs without port or other cases, return the original string if SplitHostPort failed
-	// This maintains previous behavior for IPs that don't have a port.
-	return ip
 }

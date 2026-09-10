@@ -19,7 +19,6 @@ const (
 	HeaderName        = "header_name"
 	Invariant         = "invariant"
 	InvalidStatusCode = "invalid_status_code"
-	IP                = "ip"
 	Key               = "key"
 	Limit             = "limit"
 	Method            = "method"

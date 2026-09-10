@@ -59,10 +59,11 @@ func WithRequestLogger[T comparable, U any](ctx context.Context, source *Request
 	return ctx
 }
 
-// GetLogger returns a logger stamped with the current trace_id, build_id,
-// config_id, and user_id, each only when set. It returns nil, false if no source
-// is attached. Services can apply Named with their relative component name to
-// share the stamped core, and reuse that child throughout an operation.
+// GetLogger returns a logger stamped with the current nonempty trace_id and
+// client_ip, plus build_id, config_id, and user_id when set. It returns nil,
+// false if no source is attached. Services can apply Named with their relative
+// component name to share the stamped core, and reuse that child throughout an
+// operation.
 //
 // Derivation is lazy, so requests that never call GetLogger do not encode fields.
 // The cached path takes one context walk and one read lock with no allocations.
@@ -98,10 +99,10 @@ func GetLogger[T comparable, U any](ctx context.Context) (*zap.Logger, bool) {
 			rc.mu.RUnlock()
 			return nil, false
 		}
-		version, correlation := rc.logVersion, rc.correlationLocked()
+		version, snapshot := rc.logVersion, rc.requestLoggerSnapshotLocked()
 		rc.mu.RUnlock()
 
-		logger = source.derive(correlation)
+		logger = source.derive(snapshot)
 
 		rc.mu.Lock()
 		if rc.logVersion != version {
@@ -129,13 +130,34 @@ func GetLogger[T comparable, U any](ctx context.Context) (*zap.Logger, bool) {
 // call before it stops retrying against concurrent correlation writes.
 const maxLoggerDerivations = 3
 
-func (source *RequestLoggerSource[T]) derive(c Correlation[T]) *zap.Logger {
-	if !c.TraceIDSet && !c.BuildIDSet && !c.ConfigIDSet && !c.UserIDSet {
+// requestLoggerSnapshot is the private, point-in-time input to logger
+// derivation. Client IP is logging correlation, but remains outside the public
+// Correlation value so that adding it does not change that API's shape.
+type requestLoggerSnapshot[T comparable] struct {
+	correlation Correlation[T]
+	clientIP    string
+	clientIPSet bool
+}
+
+// requestLoggerSnapshotLocked copies every value used by logger derivation
+// while the caller holds rc.mu for reading or writing.
+func (rc *SRouterContext[T, U]) requestLoggerSnapshotLocked() requestLoggerSnapshot[T] {
+	return requestLoggerSnapshot[T]{
+		correlation: rc.correlationLocked(),
+		clientIP:    rc.ClientIP,
+		clientIPSet: rc.ClientIPSet,
+	}
+}
+
+func (source *RequestLoggerSource[T]) derive(snapshot requestLoggerSnapshot[T]) *zap.Logger {
+	c := snapshot.correlation
+	if (!c.TraceIDSet || c.TraceID == "") && !c.BuildIDSet && !c.ConfigIDSet &&
+		(!snapshot.clientIPSet || snapshot.clientIP == "") && !c.UserIDSet {
 		return source.base
 	}
-	var fields [4]zap.Field
+	var fields [5]zap.Field
 	n := 0
-	if c.TraceIDSet {
+	if c.TraceIDSet && c.TraceID != "" {
 		fields[n] = zap.String(logkeys.TraceID, c.TraceID)
 		n++
 	}
@@ -145,6 +167,10 @@ func (source *RequestLoggerSource[T]) derive(c Correlation[T]) *zap.Logger {
 	}
 	if c.ConfigIDSet {
 		fields[n] = zap.String(logkeys.ConfigID, c.ConfigID)
+		n++
+	}
+	if snapshot.clientIPSet && snapshot.clientIP != "" {
+		fields[n] = zap.String(logkeys.ClientIP, snapshot.clientIP)
 		n++
 	}
 	if c.UserIDSet {

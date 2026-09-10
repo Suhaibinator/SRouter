@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -82,11 +83,15 @@ func TestRecovery(t *testing.T) {
 	})
 
 	// Apply the Recovery middleware
-	recoveryMiddleware := Recovery(logger) // Use the variable
+	recoveryMiddleware := Recovery[string, any]()
 	wrappedHandler := recoveryMiddleware(handler)
 
 	// Create a test request
 	req := httptest.NewRequest("GET", "/test", nil)
+	ctx := scontext.WithRequestLogger[string, any](req.Context(), scontext.NewRequestLoggerSource[string](logger, nil))
+	ctx = scontext.WithClientIP[string, any](ctx, "198.51.100.8")
+	ctx = scontext.WithTraceID[string, any](ctx, "recovery-trace")
+	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
 
 	// Call the handler (should not panic)
@@ -107,12 +112,35 @@ func TestRecovery(t *testing.T) {
 	for _, log := range logs.All() {
 		if log.Level == zapcore.ErrorLevel && log.Message == "Panic recovered" {
 			found = true
+			if log.LoggerName != "SRouter" {
+				t.Errorf("logger name = %q, want SRouter", log.LoggerName)
+			}
+			fields := log.ContextMap()
+			if fields["client_ip"] != "198.51.100.8" {
+				t.Errorf("client_ip = %#v, want 198.51.100.8", fields["client_ip"])
+			}
+			if fields["trace_id"] != "recovery-trace" {
+				t.Errorf("trace_id = %#v, want recovery-trace", fields["trace_id"])
+			}
 			break
 		}
 	}
 
 	if !found {
 		t.Error("Expected to find an error log with message 'Panic recovered'")
+	}
+}
+
+func TestRecoveryWithoutRequestLogger(t *testing.T) {
+	handler := Recovery[string, any]()(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("test panic")
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/test", nil))
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusInternalServerError)
 	}
 }
 

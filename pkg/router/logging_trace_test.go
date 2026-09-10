@@ -54,8 +54,9 @@ func TestTraceIDLogging(t *testing.T) {
 	}
 }
 
-// TestTraceIDLoggingDisabled tests that trace IDs are not included in log entries when TraceIDBufferSize is 0
-func TestTraceIDLoggingDisabled(t *testing.T) {
+// TestTraceIDLoggingDisabledStillUsesExistingTrace verifies that trace logging
+// configuration controls generation, not whether an existing trace is logged.
+func TestTraceIDLoggingDisabledStillUsesExistingTrace(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
 	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 0, EnableTraceLogging: true}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
@@ -70,18 +71,20 @@ func TestTraceIDLoggingDisabled(t *testing.T) {
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
-	// With EnableTraceLogging = true the summary logging block runs even when
-	// TraceIDBufferSize is 0, but no trace_id field may be attached.
+	// With EnableTraceLogging = true the summary block runs even when automatic
+	// trace generation is disabled, and preserves a caller-provided trace ID.
 	logEntries := logs.AllUntimed() // Use AllUntimed() for consistency
 	if len(logEntries) == 0 {
 		t.Errorf("Expected request summary log entries when EnableTraceLogging is true")
 	}
+	found := false
 	for _, entry := range logEntries {
-		for _, field := range entry.Context {
-			if field.Key == "trace_id" {
-				t.Errorf("Expected no trace_id field when TraceIDBufferSize is 0, found %q", field.String)
-			}
+		if got := entry.ContextMap()["trace_id"]; got == traceID {
+			found = true
 		}
+	}
+	if !found {
+		t.Errorf("expected existing trace_id %q with automatic generation disabled", traceID)
 	}
 }
 
@@ -97,6 +100,7 @@ func TestHandleErrorWithTraceID(t *testing.T) {
 	traceID := "test-trace-id"
 	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
 	req = req.WithContext(ctxWithTrace)                                          // Apply context
+	req = r.withRequestLogging(req)
 	rr := httptest.NewRecorder()
 	r.handleError(rr, req, err, http.StatusInternalServerError, "Test error") // Pass err from NewRequest
 	logEntries := logs.All()
@@ -120,8 +124,9 @@ func TestHandleErrorWithTraceID(t *testing.T) {
 	}
 }
 
-// TestHandleErrorGeneratesTraceID tests that error logs remain correlatable when TraceIDBufferSize is 0.
-func TestHandleErrorGeneratesTraceID(t *testing.T) {
+// TestHandleErrorOmitsAbsentTraceID verifies that error logging does not create
+// a log-only trace when automatic trace generation is disabled.
+func TestHandleErrorOmitsAbsentTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
 	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 0}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
@@ -129,29 +134,19 @@ func TestHandleErrorGeneratesTraceID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
-	traceID := "test-trace-id"
-	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
-	req = req.WithContext(ctxWithTrace)                                          // Apply context
+	req = r.withRequestLogging(req)
 	rr := httptest.NewRecorder()
 	r.handleError(rr, req, err, http.StatusInternalServerError, "Test error") // Pass err from NewRequest
 	logEntries := logs.All()
 	if len(logEntries) == 0 {
 		t.Errorf("Expected logs to be recorded")
 	}
-	found := false
 	for _, log := range logEntries {
 		for _, field := range log.Context {
-			if field.Key == "trace_id" && field.String != "" {
-				found = true
-				break
+			if field.Key == "trace_id" {
+				t.Errorf("trace_id = %q, want field omitted", field.String)
 			}
 		}
-		if found {
-			break
-		}
-	}
-	if !found {
-		t.Errorf("Expected a non-empty trace ID to be included in error log entries")
 	}
 }
 
@@ -169,6 +164,7 @@ func TestRecoveryMiddlewareWithTraceID(t *testing.T) {
 	traceID := "test-trace-id"
 	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
 	req = req.WithContext(ctxWithTrace)                                          // Apply context
+	req = r.withRequestLogging(req)
 	rr := httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)
 	logEntries := logs.All()
@@ -192,8 +188,9 @@ func TestRecoveryMiddlewareWithTraceID(t *testing.T) {
 	}
 }
 
-// TestRecoveryMiddlewareGeneratesTraceID tests that recovered panics remain correlatable when tracing is disabled.
-func TestRecoveryMiddlewareGeneratesTraceID(t *testing.T) {
+// TestRecoveryMiddlewareOmitsExplicitlyEmptyTraceID verifies that an empty
+// trace value is not logged and is not replaced with a synthetic ID.
+func TestRecoveryMiddlewareOmitsExplicitlyEmptyTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
 	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 0}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
@@ -203,29 +200,21 @@ func TestRecoveryMiddlewareGeneratesTraceID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
-	traceID := "test-trace-id"
-	ctxWithTrace := scontext.WithTraceID[uint64, string](req.Context(), traceID) // Use scontext
-	req = req.WithContext(ctxWithTrace)                                          // Apply context
+	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), "")
+	req = req.WithContext(ctxWithTrace) // Apply context
+	req = r.withRequestLogging(req)
 	rr := httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)
 	logEntries := logs.All()
 	if len(logEntries) == 0 {
 		t.Errorf("Expected logs to be recorded")
 	}
-	found := false
 	for _, log := range logEntries {
 		for _, field := range log.Context {
-			if field.Key == "trace_id" && field.String != "" {
-				found = true
-				break
+			if field.Key == "trace_id" {
+				t.Errorf("trace_id = %q, want field omitted", field.String)
 			}
 		}
-		if found {
-			break
-		}
-	}
-	if !found {
-		t.Errorf("Expected a non-empty trace ID to be included in recovered panic log entries")
 	}
 }
 

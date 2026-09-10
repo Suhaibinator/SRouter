@@ -40,20 +40,18 @@ func TestAuthenticationRejectionsAreInfoWithRequestContext(t *testing.T) {
 	}{
 		{
 			name: "ID provider rejects credentials",
-			middleware: func(logger *zap.Logger) common.Middleware {
+			middleware: func(*zap.Logger) common.Middleware {
 				return AuthenticationWithProvider[string, string](
 					&BearerTokenProvider[string]{ValidTokens: map[string]string{}},
-					logger,
 				)
 			},
 			wantReason: "credentials rejected",
 		},
 		{
 			name: "user provider returns authentication error",
-			middleware: func(logger *zap.Logger) common.Middleware {
+			middleware: func(*zap.Logger) common.Middleware {
 				return AuthenticationWithUserProvider[string](
 					rejectingUserProvider{err: errors.New("credentials rejected by provider")},
-					logger,
 				)
 			},
 			wantCause: "credentials rejected by provider",
@@ -69,7 +67,10 @@ func TestAuthenticationRejectionsAreInfoWithRequestContext(t *testing.T) {
 			}))
 			req := httptest.NewRequest(http.MethodPost, "/sessions", nil)
 			req.RemoteAddr = "192.0.2.15:4321"
-			req = req.WithContext(scontext.WithTraceID[string, string](req.Context(), "auth-trace"))
+			ctx := scontext.WithRequestLogger[string, string](req.Context(), scontext.NewRequestLoggerSource[string](zap.New(core), nil))
+			ctx = scontext.WithTraceID[string, string](ctx, "auth-trace")
+			ctx = scontext.WithClientIP[string, string](ctx, "198.51.100.9")
+			req = req.WithContext(ctx)
 			rr := httptest.NewRecorder()
 
 			handler.ServeHTTP(rr, req)
@@ -88,11 +89,17 @@ func TestAuthenticationRejectionsAreInfoWithRequestContext(t *testing.T) {
 			if entry.Level != zapcore.InfoLevel || entry.Message != "Authentication failed" {
 				t.Errorf("log = (%s, %q), want (info, Authentication failed)", entry.Level, entry.Message)
 			}
+			if entry.LoggerName != "SRouter" {
+				t.Errorf("logger name = %q, want SRouter", entry.LoggerName)
+			}
 			fields := entry.ContextMap()
+			if _, present := fields["remote_addr"]; present {
+				t.Error("authentication log includes socket address")
+			}
 			wants := map[string]any{
 				"method":      http.MethodPost,
 				"path":        "/sessions",
-				"remote_addr": "192.0.2.15:4321",
+				"client_ip":   "198.51.100.9",
 				"status_code": int64(http.StatusUnauthorized),
 				"trace_id":    "auth-trace",
 			}
@@ -111,23 +118,24 @@ func TestAuthenticationRejectionsAreInfoWithRequestContext(t *testing.T) {
 	}
 }
 
-func TestAuthenticationRejectionGeneratesTraceWhenMissing(t *testing.T) {
+func TestAuthenticationRejectionOmitsTraceWhenMissing(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	handler := AuthenticationWithProvider[string, any](
 		&BearerTokenProvider[string]{ValidTokens: map[string]string{}},
-		zap.New(core),
 	)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("next handler called")
 	}))
 
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/protected", nil))
+	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+	req = req.WithContext(scontext.WithRequestLogger[string, any](req.Context(), scontext.NewRequestLoggerSource[string](zap.New(core), nil)))
+	handler.ServeHTTP(httptest.NewRecorder(), req)
 
 	entries := logs.AllUntimed()
 	if len(entries) != 1 {
 		t.Fatalf("log entries = %d, want 1", len(entries))
 	}
-	if traceID, ok := entries[0].ContextMap()["trace_id"].(string); !ok || traceID == "" {
-		t.Errorf("trace_id = %#v, want generated non-empty string", entries[0].ContextMap()["trace_id"])
+	if traceID, ok := entries[0].ContextMap()["trace_id"]; ok {
+		t.Errorf("trace_id = %#v, want field omitted", traceID)
 	}
 }
 
@@ -143,11 +151,14 @@ func TestRateLimitExceededIsStructuredWarning(t *testing.T) {
 		remaining: 0,
 		reset:     1500 * time.Millisecond,
 	}
-	handler := RateLimit(config, limiter, zap.New(core))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := RateLimit(config, limiter)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("next handler called after rate limit rejection")
 	}))
 	req := httptest.NewRequest(http.MethodPost, "/sessions", nil)
-	req = req.WithContext(scontext.WithClientIP[string, any](req.Context(), "198.51.100.7"))
+	ctx := scontext.WithRequestLogger[string, any](req.Context(), scontext.NewRequestLoggerSource[string](zap.New(core), nil))
+	ctx = scontext.WithClientIP[string, any](ctx, "198.51.100.7")
+	ctx = scontext.WithTraceID[string, any](ctx, "rate-trace")
+	req = req.WithContext(ctx)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -166,6 +177,9 @@ func TestRateLimitExceededIsStructuredWarning(t *testing.T) {
 	if entry.Level != zapcore.WarnLevel || entry.Message != "Rate limit exceeded" {
 		t.Errorf("log = (%s, %q), want (warn, Rate limit exceeded)", entry.Level, entry.Message)
 	}
+	if entry.LoggerName != "SRouter" {
+		t.Errorf("logger name = %q, want SRouter", entry.LoggerName)
+	}
 	fields := entry.ContextMap()
 	wants := map[string]any{
 		"bucket":              "login",
@@ -177,6 +191,8 @@ func TestRateLimitExceededIsStructuredWarning(t *testing.T) {
 		"retry_after_seconds": int64(1),
 		"method":              http.MethodPost,
 		"path":                "/sessions",
+		"client_ip":           "198.51.100.7",
+		"trace_id":            "rate-trace",
 	}
 	for key, want := range wants {
 		if got := fields[key]; got != want {

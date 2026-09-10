@@ -97,9 +97,6 @@ func TestGetLimiter_Coverage(t *testing.T) {
 
 // TestRateLimitWithCustomKeyExtractor tests the RateLimit function with a custom key extractor
 func TestRateLimitWithCustomKeyExtractor(t *testing.T) {
-	// Create a logger
-	logger := zap.NewNop()
-
 	// Create a rate limiter
 	limiter := NewUberRateLimiter()
 
@@ -124,7 +121,7 @@ func TestRateLimitWithCustomKeyExtractor(t *testing.T) {
 	})
 
 	// Create the middleware
-	middleware := RateLimit(config, limiter, logger)
+	middleware := RateLimit(config, limiter)
 
 	// Wrap the handler with the middleware
 	wrappedHandler := middleware(handler)
@@ -144,9 +141,6 @@ func TestRateLimitWithCustomKeyExtractor(t *testing.T) {
 
 // TestRateLimitWithUserStrategy tests the RateLimit function with user strategy
 func TestRateLimitWithUserStrategy_Coverage(t *testing.T) {
-	// Create a logger
-	logger := zap.NewNop()
-
 	// Create a rate limiter
 	limiter := NewUberRateLimiter()
 
@@ -167,7 +161,7 @@ func TestRateLimitWithUserStrategy_Coverage(t *testing.T) {
 	})
 
 	// Create the middleware
-	middleware := RateLimit(config, limiter, logger)
+	middleware := RateLimit(config, limiter)
 
 	// Wrap the handler with the middleware
 	wrappedHandler := middleware(handler)
@@ -264,14 +258,12 @@ func TestRateLimit_NilLimiterPanic(t *testing.T) {
 		Window:     time.Minute,
 		Strategy:   common.StrategyIP,
 	}
-	logger := zap.NewNop()
-
 	// Call RateLimit with nil limiter - this should panic
-	_ = RateLimit(config, nil, logger)
+	_ = RateLimit(config, nil)
 }
 
-// TestRateLimit_NilLogger tests that RateLimit uses a Nop logger if nil is provided
-func TestRateLimit_NilLogger(t *testing.T) {
+// TestRateLimit_NoRequestLogger tests that RateLimit works without a request logger.
+func TestRateLimit_NoRequestLogger(t *testing.T) {
 	config := &common.RateLimitConfig[string, string]{
 		BucketName: "test",
 		Limit:      10,
@@ -280,8 +272,8 @@ func TestRateLimit_NilLogger(t *testing.T) {
 	}
 	limiter := NewUberRateLimiter() // Use a real limiter
 
-	// Call RateLimit with nil logger - should not panic
-	middleware := RateLimit(config, limiter, nil) // Pass nil logger
+	// Call RateLimit without a request logger - should not panic.
+	middleware := RateLimit(config, limiter)
 
 	// Create a simple handler and apply the middleware
 	handlerCalled := false
@@ -318,7 +310,7 @@ func TestRateLimit_UserStrategyFallback(t *testing.T) {
 			Strategy:       common.StrategyUser,
 			UserIDToString: func(id string) string { return id }, // Need this for extractUserKey
 		}
-		middleware := RateLimit(config, limiter, logger)
+		middleware := rateLimitWithLogger(config, limiter, logger)
 		handlerCalled := false
 		testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			handlerCalled = true
@@ -363,7 +355,7 @@ func TestRateLimit_UserStrategyFallback(t *testing.T) {
 			Strategy:       common.StrategyUser,
 			UserIDToString: func(id string) string { return id }, // Need this for extractUserKey
 		}
-		middleware := RateLimit(config, limiter, logger)
+		middleware := rateLimitWithLogger(config, limiter, logger)
 		handlerCalled := false
 		testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			handlerCalled = true
@@ -384,14 +376,17 @@ func TestRateLimit_UserStrategyFallback(t *testing.T) {
 		logEntries := observedLogs.FilterMessage("User key not found, falling back to RemoteAddr for rate limiting.").All()
 		assert.Equal(t, 1, len(logEntries), "Expected one log entry for RemoteAddr fallback")
 		if len(logEntries) > 0 {
+			fields := logEntries[0].ContextMap()
+			assert.NotContains(t, fields, "remote_addr")
+			assert.NotContains(t, fields, "client_ip")
 			foundAddr := false
 			for _, field := range logEntries[0].Context {
-				if field.Key == "remote_addr" && field.String == "10.0.0.1:54321" {
+				if field.Key == "key" && field.String == "10.0.0.1:54321" {
 					foundAddr = true
 					break
 				}
 			}
-			assert.True(t, foundAddr, "Expected log context to contain correct remote_addr")
+			assert.True(t, foundAddr, "Expected log context to contain correct fallback key")
 		}
 	})
 }
@@ -435,7 +430,7 @@ func TestRateLimit_CustomStrategyEmptyKey(t *testing.T) {
 			return "", nil // Return empty key
 		},
 	}
-	middleware := RateLimit(config, limiter, logger)
+	middleware := rateLimitWithLogger(config, limiter, logger)
 	handlerCalled := false
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handlerCalled = true
@@ -471,7 +466,6 @@ func (m *MockRateLimiterWithReset) Allow(key string, limit int, window time.Dura
 
 // TestRateLimit_RetryAfterMinimum tests the minimum value for the Retry-After header
 func TestRateLimit_RetryAfterMinimum(t *testing.T) {
-	logger := zap.NewNop()
 	// Mock limiter that denies the request and returns a reset duration less than 1 second
 	mockLimiter := &MockRateLimiterWithReset{
 		allowFunc: func(key string, limit int, window time.Duration) (bool, int, time.Duration) {
@@ -485,7 +479,7 @@ func TestRateLimit_RetryAfterMinimum(t *testing.T) {
 		Window:     time.Minute,
 		Strategy:   common.StrategyIP,
 	}
-	middleware := RateLimit(config, mockLimiter, logger)
+	middleware := RateLimit(config, mockLimiter)
 	handlerCalled := false
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handlerCalled = true

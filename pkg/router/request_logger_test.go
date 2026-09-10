@@ -114,7 +114,13 @@ func TestRequestLoggerCarriesCorrelationOnAuthRequiredRoute(t *testing.T) {
 
 	entry := reqLogSingleEntry(t, logs, "handler line")
 
-	wantKeys := []string{logkeys.TraceID, logkeys.BuildID, logkeys.ConfigID, logkeys.UserID}
+	wantKeys := []string{
+		logkeys.TraceID,
+		logkeys.BuildID,
+		logkeys.ConfigID,
+		logkeys.ClientIP,
+		logkeys.UserID,
+	}
 	if got := reqLogFieldKeys(entry); !slices.Equal(got, wantKeys) {
 		t.Errorf("handler line field keys = %v, want %v", got, wantKeys)
 	}
@@ -128,6 +134,9 @@ func TestRequestLoggerCarriesCorrelationOnAuthRequiredRoute(t *testing.T) {
 	}
 	if got := fields[logkeys.ConfigID]; got != "config-1" {
 		t.Errorf("config_id = %#v, want %q", got, "config-1")
+	}
+	if got := fields[logkeys.ClientIP]; got != "192.0.2.1" {
+		t.Errorf("client_ip = %#v, want %q", got, "192.0.2.1")
 	}
 	userID, ok := fields[logkeys.UserID].(uint64)
 	if !ok {
@@ -200,7 +209,7 @@ func TestRequestLoggerOmitsUserIDOnAuthOptionalWithoutToken(t *testing.T) {
 
 	entry := reqLogSingleEntry(t, logs, "handler line")
 
-	wantKeys := []string{logkeys.TraceID, logkeys.BuildID, logkeys.ConfigID}
+	wantKeys := []string{logkeys.TraceID, logkeys.BuildID, logkeys.ConfigID, logkeys.ClientIP}
 	if got := reqLogFieldKeys(entry); !slices.Equal(got, wantKeys) {
 		t.Errorf("handler line field keys = %v, want %v", got, wantKeys)
 	}
@@ -214,6 +223,9 @@ func TestRequestLoggerOmitsUserIDOnAuthOptionalWithoutToken(t *testing.T) {
 	}
 	if got := fields[logkeys.ConfigID]; got != "config-1" {
 		t.Errorf("config_id = %#v, want %q", got, "config-1")
+	}
+	if got := fields[logkeys.ClientIP]; got != "192.0.2.1" {
+		t.Errorf("client_ip = %#v, want %q", got, "192.0.2.1")
 	}
 	if got, present := fields[logkeys.UserID]; present {
 		t.Errorf("user_id = %#v, want absent for an unauthenticated request", got)
@@ -323,7 +335,13 @@ func TestRequestLoggerUserIDFieldDefaultString(t *testing.T) {
 
 	entry := reqLogSingleEntry(t, logs, "handler line")
 
-	wantKeys := []string{logkeys.TraceID, logkeys.BuildID, logkeys.ConfigID, logkeys.UserID}
+	wantKeys := []string{
+		logkeys.TraceID,
+		logkeys.BuildID,
+		logkeys.ConfigID,
+		logkeys.ClientIP,
+		logkeys.UserID,
+	}
 	if got := reqLogFieldKeys(entry); !slices.Equal(got, wantKeys) {
 		t.Errorf("handler line field keys = %v, want %v", got, wantKeys)
 	}
@@ -378,7 +396,13 @@ func TestRequestLoggerNamedServicesAndNamedUserID(t *testing.T) {
 		if entry.LoggerName != name || entry.ContextMap()[logkeys.UserID] != uint64(4242) {
 			t.Fatalf("wrong service name or user ID: %#v", entry)
 		}
-		if len(entry.Context) != 1 || entry.Context[0].Type != zapcore.Uint64Type {
+		if got := entry.ContextMap()[logkeys.ClientIP]; got != "192.0.2.1" {
+			t.Fatalf("client IP = %#v, want %q", got, "192.0.2.1")
+		}
+		if got := reqLogFieldKeys(entry); !slices.Equal(got, []string{logkeys.ClientIP, logkeys.UserID}) {
+			t.Fatalf("fields = %v, want [%s %s]", got, logkeys.ClientIP, logkeys.UserID)
+		}
+		if entry.Context[1].Type != zapcore.Uint64Type {
 			t.Fatalf("named ID did not use a single typed field: %#v", entry.Context)
 		}
 	}

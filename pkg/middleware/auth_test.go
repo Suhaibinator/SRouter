@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
-	"go.uber.org/zap"
 )
 
 // TestAuthenticationGeneric tests the generic Authentication middleware
@@ -116,11 +115,8 @@ func TestAuthenticationWithProvider_OptionsBypass(t *testing.T) {
 		w.WriteHeader(http.StatusOK) // Indicate success
 	})
 
-	// Create a Nop logger (no output)
-	logger := zap.NewNop()
-
 	// Apply the AuthenticationWithProvider middleware
-	authMiddleware := AuthenticationWithProvider[string, any](provider, logger)
+	authMiddleware := AuthenticationWithProvider[string, any](provider)
 	wrappedHandler := authMiddleware(handler)
 
 	// --- Test Case 1: Valid Authentication (Non-OPTIONS) ---

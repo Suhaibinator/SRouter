@@ -11,6 +11,7 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/router"
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 )
 
@@ -74,7 +75,7 @@ func HeadersMiddleware(headers map[string]string) common.Middleware {
 }
 
 // RateLimitMiddleware implements a simple, non-blocking rate limiter.
-func RateLimitMiddleware(requestsPerSecond int, logger *zap.Logger) common.Middleware {
+func RateLimitMiddleware(requestsPerSecond int) common.Middleware {
 	return middleware.RateLimit(
 		&common.RateLimitConfig[string, string]{
 			BucketName: "middleware-example",
@@ -83,7 +84,6 @@ func RateLimitMiddleware(requestsPerSecond int, logger *zap.Logger) common.Middl
 			Strategy:   common.StrategyIP,
 		},
 		middleware.NewUberRateLimiter(),
-		logger,
 	)
 }
 
@@ -100,7 +100,7 @@ func (lrw *LoggingResponseWriter) WriteHeader(code int) {
 }
 
 // DetailedLoggingMiddleware logs detailed information about the request and response
-func DetailedLoggingMiddleware(logger *zap.Logger) common.Middleware {
+func DetailedLoggingMiddleware() common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Create a response writer that captures the status code
@@ -110,22 +110,29 @@ func DetailedLoggingMiddleware(logger *zap.Logger) common.Middleware {
 			}
 
 			// Log the request
-			logger.Info("Request received",
-				zap.String(logkeys.Method, r.Method),
-				zap.String(logkeys.Path, r.URL.Path),
-				zap.String(logkeys.RemoteAddr, r.RemoteAddr),
-				zap.String(logkeys.UserAgent, r.UserAgent()),
-			)
+			if logger, ok := scontext.GetLogger[string, string](r.Context()); ok {
+				if ce := logger.Check(zap.InfoLevel, "Request received"); ce != nil {
+					ce.Write(
+						zap.String(logkeys.Method, r.Method),
+						zap.String(logkeys.Path, r.URL.Path),
+						zap.String(logkeys.UserAgent, r.UserAgent()),
+					)
+				}
+			}
 
 			// Call the next handler
 			next.ServeHTTP(lrw, r)
 
 			// Log the response
-			logger.Info("Response sent",
-				zap.String(logkeys.Method, r.Method),
-				zap.String(logkeys.Path, r.URL.Path),
-				zap.Int(logkeys.Status, lrw.statusCode),
-			)
+			if logger, ok := scontext.GetLogger[string, string](r.Context()); ok {
+				if ce := logger.Check(zap.InfoLevel, "Response sent"); ce != nil {
+					ce.Write(
+						zap.String(logkeys.Method, r.Method),
+						zap.String(logkeys.Path, r.URL.Path),
+						zap.Int(logkeys.Status, lrw.statusCode),
+					)
+				}
+			}
 		})
 	}
 }
@@ -152,8 +159,8 @@ func main() {
 			// Add other CORS options as needed (Methods, Headers, etc.)
 		},
 		Middlewares: []common.Middleware{
-			middleware.Recovery(logger),       // Use variable
-			DetailedLoggingMiddleware(logger), // Log detailed request/response info
+			middleware.Recovery[string, string](),
+			DetailedLoggingMiddleware(), // Log detailed request/response info
 			// CORS middleware removed, handled by RouterConfig.CORSConfig now
 			HeadersMiddleware(customHeaders), // Add custom headers
 			RequestIDMiddleware(),            // Add request ID
@@ -203,7 +210,7 @@ func main() {
 			},
 		)
 	r.Group("/rate-limited").
-		Use(RateLimitMiddleware(2, logger)).
+		Use(RateLimitMiddleware(2)).
 		Route(router.RouteConfigBase{
 			Path:    "/resource",
 			Methods: []router.HttpMethod{router.MethodGet},

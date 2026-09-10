@@ -34,8 +34,8 @@ func newAuthRouter(logger *zap.Logger) *router.Router[int64, int64] {
 		"key2": 25,
 	}
 
-	bearerTokenMiddleware := middleware.NewBearerTokenMiddleware[int64, int64](bearerTokens, logger)
-	apiKeyMiddleware := middleware.NewAPIKeyMiddleware[int64, int64](apiKeys, "X-API-Key", "api_key", logger)
+	bearerTokenMiddleware := middleware.NewBearerTokenMiddleware[int64, int64](bearerTokens)
+	apiKeyMiddleware := middleware.NewAPIKeyMiddleware[int64, int64](apiKeys, "X-API-Key", "api_key")
 
 	config := router.RouterConfig{
 		ServiceName:       "auth-example-service",
