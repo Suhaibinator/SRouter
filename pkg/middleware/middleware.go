@@ -7,8 +7,10 @@ import (
 	"runtime/debug"
 	"slices"
 
+	"github.com/Suhaibinator/SRouter/internal/requestlog"
 	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // Chain combines multiple middleware functions into a single middleware.
@@ -31,20 +33,22 @@ func Chain(middlewares ...Middleware) Middleware {
 }
 
 // Recovery is a middleware that recovers from panics in HTTP handlers.
-// It logs the panic and stack trace using the provided logger and returns a 500 Internal Server Error response.
+// It logs the panic and stack trace through the request logger, when configured,
+// and returns a 500 Internal Server Error response.
 // This prevents the server from crashing when a panic occurs in a handler.
-func recovery(logger *zap.Logger) Middleware {
+func Recovery[T comparable, U any]() Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if rec := recover(); rec != nil {
-					// Log the panic
-					logger.Error("Panic recovered",
-						zap.Any(logkeys.Panic, rec),
-						zap.String(logkeys.Stack, string(debug.Stack())),
-						zap.String(logkeys.Method, r.Method),
-						zap.String(logkeys.Path, r.URL.Path),
-					)
+					if ce := requestlog.Check[T, U](r, zapcore.ErrorLevel, "Panic recovered"); ce != nil {
+						ce.Write(
+							zap.Any(logkeys.Panic, rec),
+							zap.String(logkeys.Stack, string(debug.Stack())),
+							zap.String(logkeys.Method, r.Method),
+							zap.String(logkeys.Path, r.URL.Path),
+						)
+					}
 
 					// Return a 500 Internal Server Error
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)

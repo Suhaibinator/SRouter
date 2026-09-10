@@ -71,8 +71,8 @@ func generateUUID() string {
 }
 
 // GenerateTraceID returns a new trace ID without requiring a buffered ID
-// generator. It is primarily useful for low-volume paths that must always be
-// correlated, such as error handling when request-wide tracing is disabled.
+// generator. Callers can use it when they need to create an ID explicitly
+// outside the router's request-wide trace generation.
 func GenerateTraceID() string {
 	return generateUUID()
 }

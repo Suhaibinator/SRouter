@@ -257,6 +257,7 @@ func TestCopySRouterContextCachedLoggerIsIndependent(t *testing.T) {
 	base, logs := newObservedLogger()
 	src := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 	src = WithUserID[int, testUser](src, 1)
+	src = WithClientIP[int, testUser](src, "192.0.2.1")
 	original, _ := GetLogger[int, testUser](src)
 	dst := CopySRouterContext[int, testUser](context.Background(), src)
 	copied, _ := GetLogger[int, testUser](dst)
@@ -264,15 +265,16 @@ func TestCopySRouterContextCachedLoggerIsIndependent(t *testing.T) {
 		t.Fatal("copy did not retain immutable cached logger")
 	}
 	WithUserID[int, testUser](src, 2)
+	WithClientIP[int, testUser](src, "198.51.100.2")
 	WithRequestLogger[int, testUser](dst, NewRequestLoggerSource[int](base.Named("copy"), nil))
 	current, _ := GetLogger[int, testUser](src)
 	copied, _ = GetLogger[int, testUser](dst)
 	entry := logAndTake(t, current, logs, "source")
-	if entry.LoggerName != "" || entry.ContextMap()[logkeys.UserID] != int64(2) {
+	if entry.LoggerName != "" || entry.ContextMap()[logkeys.UserID] != int64(2) || entry.ContextMap()[logkeys.ClientIP] != "198.51.100.2" {
 		t.Fatalf("source changed with copy: %#v", entry)
 	}
 	entry = logAndTake(t, copied, logs, "copy")
-	if entry.LoggerName != "copy" || entry.ContextMap()[logkeys.UserID] != int64(1) {
+	if entry.LoggerName != "copy" || entry.ContextMap()[logkeys.UserID] != int64(1) || entry.ContextMap()[logkeys.ClientIP] != "192.0.2.1" {
 		t.Fatalf("copy changed with source: %#v", entry)
 	}
 }
@@ -282,6 +284,7 @@ func TestNamedRequestLoggersShareCoreAndPreserveApplicationName(t *testing.T) {
 	base = base.Named("app").With(zap.String("region", "west"))
 	ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 	ctx = WithTraceID[int, testUser](ctx, "trace-1")
+	ctx = WithClientIP[int, testUser](ctx, "192.0.2.1")
 	ctx = WithUserID[int, testUser](ctx, 42)
 	request, _ := GetLogger[int, testUser](ctx)
 	admin := request.Named("common_service.admin")
@@ -291,10 +294,10 @@ func TestNamedRequestLoggersShareCoreAndPreserveApplicationName(t *testing.T) {
 	}
 	for _, logger := range []*zap.Logger{admin, permissions, request} {
 		entry := logAndTake(t, logger, logs, "named")
-		if entry.LoggerName != logger.Name() || entry.ContextMap()[logkeys.TraceID] != "trace-1" || entry.ContextMap()["region"] != "west" {
+		if entry.LoggerName != logger.Name() || entry.ContextMap()[logkeys.TraceID] != "trace-1" || entry.ContextMap()[logkeys.ClientIP] != "192.0.2.1" || entry.ContextMap()["region"] != "west" {
 			t.Fatalf("name or application/request fields lost: %#v", entry)
 		}
-		if got := fieldKeys(entry.Context); !reflect.DeepEqual(got, []string{"region", logkeys.TraceID, logkeys.UserID}) {
+		if got := fieldKeys(entry.Context); !reflect.DeepEqual(got, []string{"region", logkeys.TraceID, logkeys.ClientIP, logkeys.UserID}) {
 			t.Fatalf("duplicated correlation or name fields: %v", got)
 		}
 	}
@@ -302,12 +305,15 @@ func TestNamedRequestLoggersShareCoreAndPreserveApplicationName(t *testing.T) {
 		t.Fatalf("incorrect names: %q, %q, %q", admin.Name(), permissions.Name(), request.Name())
 	}
 	WithUserID[int, testUser](ctx, 43)
+	WithClientIP[int, testUser](ctx, "198.51.100.2")
 	latest, _ := GetLogger[int, testUser](ctx)
-	if got := logAndTake(t, admin, logs, "old child").ContextMap()[logkeys.UserID]; got != int64(42) {
-		t.Fatalf("named snapshot changed: %v", got)
+	oldFields := logAndTake(t, admin, logs, "old child").ContextMap()
+	if oldFields[logkeys.UserID] != int64(42) || oldFields[logkeys.ClientIP] != "192.0.2.1" {
+		t.Fatalf("named snapshot changed: %v", oldFields)
 	}
-	if got := logAndTake(t, latest.Named("common_service.admin"), logs, "new child").ContextMap()[logkeys.UserID]; got != int64(43) {
-		t.Fatalf("fresh named snapshot stale: %v", got)
+	newFields := logAndTake(t, latest.Named("common_service.admin"), logs, "new child").ContextMap()
+	if newFields[logkeys.UserID] != int64(43) || newFields[logkeys.ClientIP] != "198.51.100.2" {
+		t.Fatalf("fresh named snapshot stale: %v", newFields)
 	}
 }
 

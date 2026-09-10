@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks"
+	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
@@ -97,6 +98,8 @@ func TestTimeoutMiddleware_LogsStructuredWarning(t *testing.T) {
 	}))
 	req := httptest.NewRequest(http.MethodPut, "http://example.com/slow", nil)
 	req.RemoteAddr = "192.0.2.44:9090"
+	req = req.WithContext(scontext.WithTraceID[string, string](req.Context(), "timeout-trace"))
+	req = r.withRequestLogging(req)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -116,7 +119,7 @@ func TestTimeoutMiddleware_LogsStructuredWarning(t *testing.T) {
 	wants := map[string]any{
 		"method":      http.MethodPut,
 		"path":        "/slow",
-		"client_ip":   "192.0.2.44:9090",
+		"client_ip":   "192.0.2.44",
 		"status_code": int64(http.StatusRequestTimeout),
 	}
 	for key, want := range wants {
@@ -124,7 +127,7 @@ func TestTimeoutMiddleware_LogsStructuredWarning(t *testing.T) {
 			t.Errorf("%s = %#v, want %#v", key, got, want)
 		}
 	}
-	if traceID, ok := fields["trace_id"].(string); !ok || traceID == "" {
-		t.Errorf("trace_id = %#v, want generated non-empty string", fields["trace_id"])
+	if traceID := fields["trace_id"]; traceID != "timeout-trace" {
+		t.Errorf("trace_id = %#v, want %q", traceID, "timeout-trace")
 	}
 }

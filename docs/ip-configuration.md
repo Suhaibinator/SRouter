@@ -1,6 +1,9 @@
 # IP Configuration
 
-SRouter records a client IP in `SRouterContext` for logging and rate limiting. Configure its source with `RouterConfig.IPConfig`.
+SRouter records a client IP in `SRouterContext` for logging and rate limiting.
+Configure its source with `RouterConfig.IPConfig`. Structured request logs use
+the canonical `client_ip` field; the former request-summary `ip` alias is no
+longer emitted.
 
 ## Safe default
 

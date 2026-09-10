@@ -1,6 +1,11 @@
 # Logging
 
-SRouter writes structured logs with `go.uber.org/zap`. Set `RouterConfig.Logger` to control encoding, destinations, and enabled levels. When it is nil, `NewRouter` creates a production logger and falls back to a no-op logger only if creation fails. The router names its child logger `SRouter`.
+SRouter writes structured logs with `go.uber.org/zap`. Library request log sites use
+Zap's `Check`/`Write` pattern, constructing event fields only for records
+accepted by the logger, including its sampling decision. Set `RouterConfig.Logger`
+to control encoding, destinations, and enabled levels. When it is nil,
+`NewRouter` creates a production logger and falls back to a no-op logger only
+if creation fails. SRouter names its library logger child `SRouter`.
 
 ```go
 logger, err := zap.NewProduction()
@@ -26,12 +31,19 @@ For requests that reach normal route dispatch, SRouter emits one `"Request summa
 - `TraceIDBufferSize > 0`, which enables automatic trace IDs on matched routes and request summaries.
 - `EnableTraceLogging`, which enables request summaries independently of trace IDs.
 
-The summary contains `method`, `path`, `status`, `duration`, `bytes`, `ip`, and `user_agent`. It also contains configured `build_id` and `config_id` values when available. For a matched route, it contains `trace_id` when automatic trace generation is enabled. An unmatched 404 or 405 still receives a summary, but it never enters the per-route trace middleware and therefore has no automatically generated `trace_id`.
+The summary contains `method`, `path`, `status`, `duration`, `bytes`,
+`client_ip`, and `user_agent`. It also contains configured `build_id` and
+`config_id` values when available. A non-empty `trace_id` already present in
+the request context is included independently of the automatic trace setting.
+For a matched route, automatic tracing creates that ID when one is not already
+present. An unmatched 404 or 405 still receives a summary, but it never enters
+the per-route trace middleware and therefore has no automatically generated
+`trace_id`.
 
-SRouter adds available runtime identities to its request-bound authentication,
-timeout, panic recovery, handled HTTP error, lazy-build failure, and JSON-response
-write-failure logs. Startup and route-registration logs have no request context
-and remain unchanged.
+SRouter adds available runtime identities to its request summaries and
+request-bound authentication, rate-limit, timeout, panic recovery, handled
+HTTP error, lazy-build failure, and JSON-response write-failure logs. Startup
+and route-registration logs have no request context and remain unchanged.
 
 Runtime identities are opaque, log-safe application values. SRouter samples
 them once per request and does not propagate them through headers. Background
@@ -40,8 +52,10 @@ workers may install already-sampled values with `scontext.WithBuildID` and
 
 All structured-log field names emitted by SRouter are exported from the
 dependency-free `pkg/logkeys` package. Applications use constants such as
-`logkeys.TraceID`, `logkeys.BuildID`, `logkeys.ConfigID`, and `logkeys.UserID`
-to keep their logs aligned with SRouter without depending on Zap.
+`logkeys.ClientIP`, `logkeys.TraceID`, `logkeys.BuildID`, `logkeys.ConfigID`,
+and `logkeys.UserID` to keep their logs aligned with SRouter without depending
+on Zap. `logkeys.IP` remains as a deprecated source-compatibility constant;
+SRouter no longer emits the `ip` alias.
 
 Its level is chosen in this priority order:
 
@@ -97,7 +111,9 @@ For each request that matches a configured route, the middleware:
 3. Stores the ID in the SRouter request context.
 4. Sets the response `X-Trace-ID` header.
 
-In automatic mode, the same context ID is used by request summaries and router error logs for matched routes. JSON error responses include it as `error.trace_id`.
+In automatic mode, the same context ID is used by request summaries and router
+error logs for matched routes. JSON error responses include it as
+`error.trace_id`.
 
 Retrieve and propagate it with the `pkg/scontext` helpers:
 
@@ -123,14 +139,23 @@ func callDownstream(r *http.Request) (*http.Response, error) {
 
 `scontext.GetTraceID[T, U]` provides the same value when only a `context.Context` is available.
 
-Even with automatic trace IDs disabled, request-boundary error records produced during route handling contain a `trace_id`: SRouter reuses an ID already in the request context or creates a log-only ID. A newly generated log-only ID is not injected into the request, response header, or JSON body. Setup and build logs emitted before route dispatch have no request trace ID.
+Request logs include a non-empty trace ID already stored in the SRouter context,
+even when automatic tracing is disabled. SRouter does not generate IDs solely
+for logging, so a request without a context trace omits `trace_id`. Log
+enrichment does not create or change response headers or JSON bodies. The
+configured automatic trace stage controls JSON error trace fields, while the
+automatic or manually installed trace middleware controls the response header.
+
+Startup and explicit build logs have no request context. A lazy-build failure
+has the request logger, resolved client IP, and any trace inherited from an
+outer SRouter-aware middleware, but automatic route tracing has not run yet.
 
 ## Request-scoped logger
 
-SRouter makes one shared request logger available before route dispatch. It
-lazily stamps `trace_id`, `build_id`, `config_id`, and `user_id`, each only when
-set. Services own their relative component names and apply them with Zap's
-`Named` method:
+SRouter makes one shared request logger available at the beginning of request
+handling. It lazily stamps non-empty `client_ip` and `trace_id`, plus available
+`build_id`, `config_id`, and `user_id`. Services own their relative component
+names and apply them with Zap's `Named` method:
 
 ```go
 func (h *AdminHandler) handle(ctx context.Context) {
@@ -196,12 +221,62 @@ concurrent derivations may call it more than once. It may read context values,
 but must not recursively request the same logger or mutate correlation. Panics
 propagate and leave the cache invalidated for a subsequent call.
 
-A warmed `GetLogger` allocates nothing. A later correlation write invalidates
-the cache, and previously returned loggers remain unchanged. See
+A warmed `GetLogger` allocates nothing. A later stamped-field write invalidates
+the cache; this includes `WithClientIP` and `WithClientInfo` when they change
+the client IP. A user-agent-only change does not rebuild the logger. Previously
+returned loggers remain unchanged. See
 [Context management](./context-management.md#request-scoped-logger) for cache
 semantics and configuring a reusable source for background jobs. Run the
 [request logger example](../examples/request-logger/main.go) to see named service
 logging with a named numeric user-ID type.
+
+### Standalone middleware
+
+Logging middleware in `pkg/middleware` reads the same request logger rather
+than accepting a logger argument. When using it outside `Router`, create one
+source at application startup and attach it before middleware that can log.
+Install client-IP extraction before rate limiting so logs and rate-limit keys
+use the same resolved address:
+
+```go
+source := scontext.NewRequestLoggerSource[string](appLogger, nil)
+
+attachRequestLogger := func(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		ctx := scontext.WithRequestLogger[string, User](req.Context(), source)
+		next.ServeHTTP(w, req.WithContext(ctx))
+	})
+}
+
+handler := middleware.Chain(
+	attachRequestLogger,
+	router.ClientIPMiddleware[string, User](&router.IPConfig{
+		Source: router.IPSourceRemoteAddr,
+	}),
+	middleware.Recovery[string, User](),
+	middleware.RateLimit[string, User](limitConfig, limiter),
+)(applicationHandler)
+```
+
+Run the [standalone middleware example](../examples/standalone-middleware/main.go)
+with `go run .` to see an accepted request and a correlated rate-limit rejection.
+
+If no request logger source is installed, these middleware keep their HTTP
+behavior and skip their own log records. They do not create a fallback logger.
+When a standalone logging middleware has a logger but no context client IP, its
+record uses a cleaned `RemoteAddr` as `client_ip`; this does not populate the
+context or change the rate-limit key selection rules.
+
+The logger-accepting middleware forms were removed. Update direct calls as
+follows:
+
+| Previous form | Current form |
+| --- | --- |
+| `middleware.Recovery(logger)` | `middleware.Recovery[UserID, User]()` |
+| `middleware.RateLimit(config, limiter, logger)` | `middleware.RateLimit(config, limiter)` |
+| `middleware.AuthenticationWithProvider(provider, logger)` | `middleware.AuthenticationWithProvider[UserID, User](provider)` |
+| `middleware.AuthenticationWithUserProvider(provider, logger)` | `middleware.AuthenticationWithUserProvider[UserID, User](provider)` |
+| Bearer/API-key convenience constructor with a final `logger` argument | Remove the final `logger` argument |
 
 ## Generator lifecycle
 
@@ -225,11 +300,15 @@ r := router.NewRouter(router.RouterConfig{
 handler := traceMiddleware(r)
 ```
 
-Wrapping the router places the trace ID in the context and response header before built-in authentication, rate limiting, CORS, and route dispatch, so router error logs can reuse it. Adding trace middleware through `RouterConfig.Middlewares` runs it later, after built-in authentication and rate limiting; failures in those earlier stages will not see its ID.
+Wrapping the router places the trace ID in the context and response header
+before built-in authentication, rate limiting, CORS, and route dispatch, so
+router logs can reuse it. Adding trace middleware through
+`RouterConfig.Middlewares` runs it later, after built-in authentication and
+rate limiting; failures in those earlier stages will not see its ID.
 
-Request summaries include `trace_id` when automatic tracing is enabled with
-`TraceIDBufferSize > 0`. The manual wrapper above still supplies an ID to
-handlers and router error logs, but with a zero buffer setting the request
-summary omits it. Serve `handler` rather than `r` in that example.
+Request summaries include any non-empty trace ID present by the time the
+summary is emitted. The manual wrapper above therefore supplies an ID to
+handlers, router logs, and summaries even with a zero buffer setting. Serve
+`handler` rather than `r` in that example.
 
 See `examples/trace-logging` for a runnable example.

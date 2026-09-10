@@ -168,6 +168,7 @@ func TestRuntimeIdentitiesEnrichAuthenticationAndErrorLogs(t *testing.T) {
 	ctx := scontext.WithBuildID[string, struct{}](context.Background(), "build-error")
 	ctx = scontext.WithConfigID[string, struct{}](ctx, "config-error")
 	req := httptest.NewRequest(http.MethodGet, "/error", nil).WithContext(ctx)
+	req = r.withRequestLogging(req)
 	r.handleError(httptest.NewRecorder(), req, errors.New("boom"), http.StatusInternalServerError, "failed")
 	errorEntries := logs.FilterMessage("failed").All()
 	if len(errorEntries) != 1 {

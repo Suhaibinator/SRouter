@@ -294,6 +294,9 @@ func GetFlag[T comparable, U any](ctx context.Context, name string) (bool, bool)
 func WithClientIP[T comparable, U any](ctx context.Context, ip string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
+	if !rc.ClientIPSet || rc.ClientIP != ip {
+		rc.logVersion++
+	}
 	rc.ClientIP = ip
 	rc.ClientIPSet = true
 	rc.mu.Unlock()
@@ -306,6 +309,9 @@ func WithClientIP[T comparable, U any](ctx context.Context, ip string) context.C
 func WithClientInfo[T comparable, U any](ctx context.Context, ip, userAgent string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
+	if !rc.ClientIPSet || rc.ClientIP != ip {
+		rc.logVersion++
+	}
 	rc.ClientIP = ip
 	rc.ClientIPSet = true
 	rc.UserAgent = userAgent

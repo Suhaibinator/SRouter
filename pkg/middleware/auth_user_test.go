@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
-	"go.uber.org/zap"
 )
 
 // User is a test user type
@@ -277,9 +276,6 @@ func TestAPIKeyUserAuthProvider(t *testing.T) {
 }
 
 func TestAuthenticationWithUserProvider(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewDevelopment()
-
 	// Create a provider
 	provider := &BasicUserAuthProvider[User]{
 		GetUserFunc: func(username, password string) (*User, error) {
@@ -317,7 +313,7 @@ func TestAuthenticationWithUserProvider(t *testing.T) {
 	})
 
 	// Create a middleware
-	middleware := AuthenticationWithUserProvider[string](provider, logger)
+	middleware := AuthenticationWithUserProvider[string](provider)
 
 	// Wrap the handler
 	wrappedHandler := middleware(handler)
@@ -447,9 +443,6 @@ func TestGetUser(t *testing.T) {
 }
 
 func TestNewBearerTokenWithUserMiddleware(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewDevelopment()
-
 	// Create a middleware
 	middleware := NewBearerTokenWithUserMiddleware[string](
 		func(token string) (*User, error) {
@@ -463,7 +456,6 @@ func TestNewBearerTokenWithUserMiddleware(t *testing.T) {
 			}
 			return nil, errors.New("invalid token")
 		},
-		logger,
 	)
 
 	// Create a handler
@@ -514,9 +506,6 @@ func TestNewBearerTokenWithUserMiddleware(t *testing.T) {
 }
 
 func TestNewAPIKeyWithUserMiddleware(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewDevelopment()
-
 	// Create a middleware
 	middleware := NewAPIKeyWithUserMiddleware[string](
 		func(key string) (*User, error) {
@@ -532,7 +521,6 @@ func TestNewAPIKeyWithUserMiddleware(t *testing.T) {
 		},
 		"X-API-Key",
 		"api_key",
-		logger,
 	)
 
 	// Create a handler

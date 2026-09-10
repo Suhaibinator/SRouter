@@ -87,8 +87,6 @@ func (c *captureLimiter) Allow(key string, limit int, window time.Duration) (boo
 }
 
 func TestRateLimitExtractIP(t *testing.T) {
-	logger := zap.NewNop()
-
 	t.Run("uses IP from context", func(t *testing.T) {
 		limiter := &captureLimiter{}
 		config := &common.RateLimitConfig[string, any]{
@@ -98,7 +96,7 @@ func TestRateLimitExtractIP(t *testing.T) {
 			Strategy:   common.StrategyIP,
 		}
 
-		middleware := RateLimit(config, limiter, logger)
+		middleware := RateLimit(config, limiter)
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -124,7 +122,7 @@ func TestRateLimitExtractIP(t *testing.T) {
 			Strategy:   common.StrategyIP,
 		}
 
-		middleware := RateLimit(config, limiter, logger)
+		middleware := RateLimit(config, limiter)
 		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -202,9 +200,6 @@ func (m *TestRateLimiter) Allow(key string, limit int, window time.Duration) (bo
 }
 
 func TestRateLimitMiddleware(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewDevelopment()
-
 	// Create a mock rate limiter
 	mockLimiter := &TestRateLimiter{}
 
@@ -217,7 +212,7 @@ func TestRateLimitMiddleware(t *testing.T) {
 	}
 
 	// Create the middleware
-	middleware := RateLimit(config, mockLimiter, logger)
+	middleware := RateLimit(config, mockLimiter)
 
 	// Create a test handler that returns 200 OK
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -275,9 +270,6 @@ func TestRateLimitMiddleware(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareCustomStrategySuccess(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewDevelopment()
-
 	// Create a mock rate limiter
 	mockLimiter := &TestRateLimiter{} // Reuse mock
 
@@ -296,7 +288,7 @@ func TestRateLimitMiddlewareCustomStrategySuccess(t *testing.T) {
 	}
 
 	// Create the middleware
-	middleware := RateLimit(config, mockLimiter, logger)
+	middleware := RateLimit(config, mockLimiter)
 
 	// Create a test handler
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -367,7 +359,7 @@ func TestRateLimitMiddlewareCustomStrategyNilExtractor(t *testing.T) {
 	}
 
 	// Create the middleware
-	middleware := RateLimit(config, mockLimiter, logger)
+	middleware := rateLimitWithLogger(config, mockLimiter, logger)
 
 	// Create a test handler
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -429,7 +421,7 @@ func TestRateLimitMiddlewareCustomStrategyError(t *testing.T) {
 	}
 
 	// Create the middleware
-	middleware := RateLimit(config, mockLimiter, logger)
+	middleware := rateLimitWithLogger(config, mockLimiter, logger)
 
 	// Create a test handler (it won't be reached)
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -481,9 +473,6 @@ func TestRateLimitMiddlewareCustomStrategyError(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareWithCustomHandler(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewDevelopment()
-
 	// Create a mock rate limiter
 	mockLimiter := &TestRateLimiter{}
 
@@ -504,7 +493,7 @@ func TestRateLimitMiddlewareWithCustomHandler(t *testing.T) {
 	}
 
 	// Create the middleware
-	middleware := RateLimit(config, mockLimiter, logger)
+	middleware := RateLimit(config, mockLimiter)
 
 	// Create a test handler that returns 200 OK
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -572,9 +561,6 @@ type TestUser struct {
 }
 
 func TestRateLimitMiddlewareWithUserStrategy(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewDevelopment()
-
 	// Create a mock rate limiter
 	mockLimiter := &TestRateLimiter{}
 
@@ -589,7 +575,7 @@ func TestRateLimitMiddlewareWithUserStrategy(t *testing.T) {
 	}
 
 	// Create the middleware
-	middleware := RateLimit(config, mockLimiter, logger)
+	middleware := RateLimit(config, mockLimiter)
 
 	// Create a test handler that returns 200 OK
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -657,7 +643,7 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 	}
 
 	// Create the rate limit middleware
-	rateLimitMiddleware := RateLimit(config, mockLimiter, logger)
+	rateLimitMiddleware := rateLimitWithLogger(config, mockLimiter, logger)
 
 	// Create a test handler that returns 200 OK
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -747,9 +733,6 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 }
 
 func TestRateLimitMiddlewareDefaultStrategy(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewDevelopment()
-
 	// Create a mock rate limiter
 	mockLimiter := &TestRateLimiter{} // Reuse the mock from other tests
 
@@ -763,7 +746,7 @@ func TestRateLimitMiddlewareDefaultStrategy(t *testing.T) {
 	}
 
 	// Create the middleware
-	middleware := RateLimit(config, mockLimiter, logger)
+	middleware := RateLimit(config, mockLimiter)
 
 	// Create a test handler that returns 200 OK
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -874,7 +857,7 @@ func TestRateLimitDefaultStrategyUsesContextIP(t *testing.T) {
 		Strategy:   common.RateLimitStrategy(99), // Unknown strategy triggers the default case
 	}
 
-	middleware := RateLimit(config, limiter, zap.NewNop())
+	middleware := RateLimit(config, limiter)
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))

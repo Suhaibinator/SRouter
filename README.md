@@ -121,7 +121,7 @@ not called. A failed build is terminal for that router; later mutation panics.
 | Request-scoped state | [Context management](docs/context-management.md) |
 | JSON, Protocol Buffers, and custom formats | [Codecs](docs/codecs.md) |
 | Registries, middleware, and Prometheus | [Metrics](docs/metrics.md) |
-| Trace IDs and request summaries | [Logging](docs/logging.md) |
+| Trace IDs and shared request logging | [Logging](docs/logging.md) |
 | Structured handler errors | [Error handling](docs/error-handling.md) |
 | Shutdown, deployment, and security | [Production](docs/production.md) |
 | Runnable programs | [Examples](docs/examples.md) |

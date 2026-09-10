@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Added import
-	"go.uber.org/zap"
 )
 
 // TestBearerTokenProvider_Authenticate tests the Authenticate method of BearerTokenProvider
@@ -173,9 +172,6 @@ func TestAPIKeyProvider_Authenticate(t *testing.T) {
 
 // TestAuthenticationWithProvider tests the AuthenticationWithProvider middleware
 func TestAuthenticationWithProvider(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewProduction()
-
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
@@ -199,7 +195,7 @@ func TestAuthenticationWithProvider(t *testing.T) {
 	}
 
 	// Apply the AuthenticationWithProvider middleware
-	middleware := AuthenticationWithProvider[string, any](provider, logger)
+	middleware := AuthenticationWithProvider[string, any](provider)
 	wrappedHandler := middleware(handler)
 
 	// Test with valid authentication
@@ -231,9 +227,6 @@ func TestAuthenticationWithProvider(t *testing.T) {
 
 // TestNewBearerTokenMiddleware tests the NewBearerTokenMiddleware function
 func TestNewBearerTokenMiddleware(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewProduction()
-
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
@@ -254,7 +247,7 @@ func TestNewBearerTokenMiddleware(t *testing.T) {
 	}
 
 	// Apply the NewBearerTokenMiddleware
-	middleware := NewBearerTokenMiddleware[string, any](validTokens, logger)
+	middleware := NewBearerTokenMiddleware[string, any](validTokens)
 	wrappedHandler := middleware(handler)
 
 	// Test with valid authentication
@@ -273,9 +266,6 @@ func TestNewBearerTokenMiddleware(t *testing.T) {
 
 // TestNewBearerTokenValidatorMiddleware tests the NewBearerTokenValidatorMiddleware function
 func TestNewBearerTokenValidatorMiddleware(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewProduction()
-
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
@@ -298,7 +288,7 @@ func TestNewBearerTokenValidatorMiddleware(t *testing.T) {
 	}
 
 	// Apply the NewBearerTokenValidatorMiddleware
-	middleware := NewBearerTokenValidatorMiddleware[string, any](validator, logger)
+	middleware := NewBearerTokenValidatorMiddleware[string, any](validator)
 	wrappedHandler := middleware(handler)
 
 	// Test with valid authentication
@@ -317,9 +307,6 @@ func TestNewBearerTokenValidatorMiddleware(t *testing.T) {
 
 // TestNewAPIKeyMiddleware tests the NewAPIKeyMiddleware function
 func TestNewAPIKeyMiddleware(t *testing.T) {
-	// Create a logger
-	logger, _ := zap.NewProduction()
-
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
@@ -340,7 +327,7 @@ func TestNewAPIKeyMiddleware(t *testing.T) {
 	}
 
 	// Apply the NewAPIKeyMiddleware
-	middleware := NewAPIKeyMiddleware[string, any](validKeys, "X-API-Key", "api_key", logger)
+	middleware := NewAPIKeyMiddleware[string, any](validKeys, "X-API-Key", "api_key")
 	wrappedHandler := middleware(handler)
 
 	// Test with valid authentication in header

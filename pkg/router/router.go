@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Suhaibinator/SRouter/internal/requestlog"
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/Suhaibinator/SRouter/pkg/metrics"
@@ -489,7 +490,7 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLeve
 	if rateLimit != nil {
 		// Ensure the rate limiter implementation is compatible
 		// Since r.rateLimiter is common.RateLimiter, this should work directly
-		chain = chain.Append(middleware.RateLimit(rateLimit, r.rateLimiter, r.logger))
+		chain = chain.Append(middleware.RateLimit(rateLimit, r.rateLimiter))
 	}
 
 	// 5. Global middlewares (defined in RouterConfig)
@@ -561,13 +562,13 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 				return
 			case <-ctx.Done():
 				// Timeout occurred. Log it.
-				fields := append(r.baseFields(req),
-					zap.Duration(logkeys.Timeout, timeout),
-					zap.String(logkeys.ClientIP, req.RemoteAddr),
-					zap.Int(logkeys.StatusCode, http.StatusRequestTimeout),
-					zap.String(logkeys.TraceID, r.errorTraceID(req)),
-				)
-				r.logger.Warn("Request timed out", fields...)
+				if ce := requestlog.Check[T, U](req, zapcore.WarnLevel, "Request timed out"); ce != nil {
+					fields := append(r.baseFields(req),
+						zap.Duration(logkeys.Timeout, timeout),
+						zap.Int(logkeys.StatusCode, http.StatusRequestTimeout),
+					)
+					ce.Write(fields...)
+				}
 
 				// If the handler already started writing, don't attempt to take over the response.
 				// Wait for the handler to finish to avoid returning while another goroutine is writing.
@@ -639,6 +640,7 @@ func combineMiddlewares(parent, child []common.Middleware) []common.Middleware {
 // httprouter. Trace IDs and configured metrics run inside matched route chains.
 func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	req = r.withRuntimeIdentities(req)
+	req = r.withRequestLogging(req)
 
 	var buildErr error
 	if r.routeTree.ready.Load() {
@@ -647,8 +649,10 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		buildErr = r.Build()
 	}
 	if buildErr != nil {
-		fields := append(r.baseFields(req), zap.NamedError(logkeys.Error, buildErr))
-		r.logger.Error("Failed to build route tree", fields...)
+		if ce := requestlog.Check[T, U](req, zapcore.ErrorLevel, "Failed to build route tree"); ce != nil {
+			fields := append(r.baseFields(req), zap.NamedError(logkeys.Error, buildErr))
+			ce.Write(fields...)
+		}
 		http.Error(w, "Router configuration error", http.StatusInternalServerError)
 		return
 	}
@@ -677,19 +681,9 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Default to the original writer, override if metrics/tracing enabled
 	rw := w
 
-	// Attach the startup logging source, then client info. The stamped
-	// logger is derived lazily on the first scontext.GetLogger call, so the
-	// correlation values written before and after this point (runtime
-	// identities above, trace ID and user ID in the middleware chain) all
-	// land on it without a clone per write.
-	clientIP := extractClientIP(req, r.config.IPConfig)
-	ctx := scontext.WithRequestLogger[T, U](req.Context(), r.requestLogSource)
-	ctx = scontext.WithClientInfo[T, U](ctx, clientIP, req.UserAgent())
-	req = req.WithContext(ctx)
-
 	// Apply request summary logging and status/bytes capture if enabled.
 	// This is independent of trace IDs: EnableTraceLogging turns it on even
-	// when TraceIDBufferSize is 0 (trace_id fields are simply absent then).
+	// when TraceIDBufferSize is 0; existing context trace IDs are still logged.
 	if r.config.TraceIDBufferSize > 0 || r.config.EnableTraceLogging {
 		// Get a metricsResponseWriter from the pool
 		mrw := r.metricsWriterPool.Get().(*metricsResponseWriter[T, U])
@@ -707,28 +701,10 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 		// Defer logging, metrics collection, and returning the writer to the pool
 		defer func() {
-			// 1) Compute duration, traceID, ip
+			// 1) Capture the completed request outcome
 			duration := time.Since(mrw.startTime)
-			ip, _ := scontext.GetClientIP[T, U](req.Context())
-			ua, _ := scontext.GetUserAgent[T, U](req.Context())
 
-			// 2) Build unified fields - the UNION of all previously separate log
-			// fields. Sized for all fields (including the optional trace ID) up
-			// front so this per-request path allocates the slice exactly once.
-			fields := make([]zap.Field, 0, 10)
-			fields = append(fields,
-				zap.String(logkeys.Method, req.Method),
-				zap.String(logkeys.Path, req.URL.Path),
-				zap.Int(logkeys.Status, mrw.statusCode),
-				zap.Duration(logkeys.Duration, duration),
-				zap.Int64(logkeys.Bytes, mrw.bytesWritten),
-				zap.String(logkeys.IP, ip),
-				zap.String(logkeys.UserAgent, ua),
-			)
-			fields = r.addRuntimeIdentityFields(fields, req)
-			fields = r.addTrace(fields, req)
-
-			// 3) Decide the log level based on status code, duration, and trace config
+			// Decide severity before constructing any log fields.
 			var lvl zapcore.Level
 			switch {
 			case mrw.statusCode >= 500:
@@ -743,8 +719,20 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				lvl = zapcore.DebugLevel
 			}
 
-			// 4) Emit a single, unified log with the appropriate level
-			r.logger.Log(lvl, "Request summary statistics", fields...)
+			if ce := requestlog.Check[T, U](req, lvl, "Request summary statistics"); ce != nil {
+				ua, _ := scontext.GetUserAgent[T, U](req.Context())
+				fields := make([]zap.Field, 0, 6)
+				fields = append(fields,
+					zap.String(logkeys.Method, req.Method),
+					zap.String(logkeys.Path, req.URL.Path),
+					zap.Int(logkeys.Status, mrw.statusCode),
+					zap.Duration(logkeys.Duration, duration),
+					zap.Int64(logkeys.Bytes, mrw.bytesWritten),
+					zap.String(logkeys.UserAgent, ua),
+				)
+
+				ce.Write(fields...)
+			}
 
 			// Reset fields that might hold references to prevent memory leaks
 			mrw.baseResponseWriter = baseResponseWriter{}
@@ -1232,46 +1220,20 @@ func (r *Router[T, U]) convertRateLimit(config *common.RateLimitConfig[any, any]
 	}
 }
 
-// baseFields returns common log fields for the request.
+// withRequestLogging installs the configured source and client information
+// before any request-bound log, including a lazy-build failure. Derivation stays lazy.
+func (r *Router[T, U]) withRequestLogging(req *http.Request) *http.Request {
+	ctx := scontext.WithRequestLogger[T, U](req.Context(), r.requestLogSource)
+	ctx = scontext.WithClientInfo[T, U](ctx, extractClientIP(req, r.config.IPConfig), req.UserAgent())
+	return req.WithContext(ctx)
+}
+
+// baseFields contains event location only; the request logger owns correlation.
 func (r *Router[T, U]) baseFields(req *http.Request) []zap.Field {
-	fields := []zap.Field{
+	return []zap.Field{
 		zap.String(logkeys.Method, req.Method),
 		zap.String(logkeys.Path, req.URL.Path),
 	}
-	return r.addRuntimeIdentityFields(fields, req)
-}
-
-// addRuntimeIdentityFields appends the opaque build and configuration
-// identities installed for this request, when present.
-func (r *Router[T, U]) addRuntimeIdentityFields(fields []zap.Field, req *http.Request) []zap.Field {
-	if buildID, ok := scontext.GetBuildID[T, U](req.Context()); ok {
-		fields = append(fields, zap.String(logkeys.BuildID, buildID))
-	}
-	if configID, ok := scontext.GetConfigID[T, U](req.Context()); ok {
-		fields = append(fields, zap.String(logkeys.ConfigID, configID))
-	}
-	return fields
-}
-
-// addTrace appends the automatic trace_id field when generation is enabled and
-// the request contains one.
-func (r *Router[T, U]) addTrace(fields []zap.Field, req *http.Request) []zap.Field {
-	if r.config.TraceIDBufferSize > 0 {
-		if traceID := scontext.GetTraceID[T, U](req.Context()); traceID != "" {
-			fields = append(fields, zap.String(logkeys.TraceID, traceID))
-		}
-	}
-	return fields
-}
-
-// errorTraceID returns the request trace ID or creates one for the error log.
-// Error records must always be correlatable, even when request-wide trace ID
-// generation is disabled.
-func (r *Router[T, U]) errorTraceID(req *http.Request) string {
-	if traceID := scontext.GetTraceID[T, U](req.Context()); traceID != "" {
-		return traceID
-	}
-	return middleware.GenerateTraceID()
 }
 
 // isMaxBytesError reports whether err was caused by http.MaxBytesReader
@@ -1287,7 +1249,7 @@ func isMaxBytesError(err error) bool {
 func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err error, statusCode int, message string) {
 	logErr := err
 	logMessage := message
-	var attachedFields []zap.Field
+	var httpError *HTTPError
 	var levelOverride zapcore.Level
 	var hasLevelOverride bool
 
@@ -1295,7 +1257,7 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 		statusCode = httpErr.StatusCode
 		message = httpErr.Message
 		logMessage = message
-		attachedFields = httpErr.Fields()
+		httpError = httpErr
 		levelOverride, hasLevelOverride = httpErr.LogLevel()
 		if cause := httpErr.Cause(); cause != nil {
 			logErr = cause
@@ -1330,19 +1292,24 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 		level = zapcore.InfoLevel
 	}
 
-	traceID := r.errorTraceID(req)
-	fields := make([]zap.Field, 0, 7+len(attachedFields))
-	fields = append(fields, sanitizeHTTPErrorFields(attachedFields)...)
-	if invalidStatusCode != 0 {
-		fields = append(fields, zap.Int(logkeys.InvalidStatusCode, invalidStatusCode))
+	traceID := scontext.GetTraceID[T, U](req.Context())
+	if ce := requestlog.Check[T, U](req, level, logMessage); ce != nil {
+		var attachedFields []zap.Field
+		if httpError != nil {
+			attachedFields = httpError.fields
+		}
+		fields := make([]zap.Field, 0, 7+len(attachedFields))
+		fields = append(fields, sanitizeHTTPErrorFields(attachedFields)...)
+		if invalidStatusCode != 0 {
+			fields = append(fields, zap.Int(logkeys.InvalidStatusCode, invalidStatusCode))
+		}
+		fields = append(fields,
+			zap.NamedError(logkeys.Error, logErr),
+			zap.Int(logkeys.StatusCode, statusCode),
+		)
+		fields = append(fields, r.baseFields(req)...)
+		ce.Write(fields...)
 	}
-	fields = append(fields,
-		zap.NamedError(logkeys.Error, logErr),
-		zap.Int(logkeys.StatusCode, statusCode),
-	)
-	fields = append(fields, r.baseFields(req)...)
-	fields = append(fields, zap.String(logkeys.TraceID, traceID))
-	r.logger.Log(level, logMessage, fields...)
 
 	r.writeJSONError(w, req, statusCode, message, traceID)
 }
@@ -1392,7 +1359,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 		}
 
 		if err := json.MarshalWrite(mrw.ResponseWriter, errorPayload); err != nil {
-			r.logJSONErrorWriteFailure(req, err, statusCode, message, traceID)
+			r.logJSONErrorWriteFailure(req, err, statusCode, message)
 		}
 		return
 	}
@@ -1446,23 +1413,21 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 
 	// Marshal and write the JSON response
 	if err := json.MarshalWrite(w, errorPayload); err != nil {
-		r.logJSONErrorWriteFailure(req, err, statusCode, message, traceID)
+		r.logJSONErrorWriteFailure(req, err, statusCode, message)
 	}
 }
 
-func (r *Router[T, U]) logJSONErrorWriteFailure(req *http.Request, err error, statusCode int, message, traceID string) {
-	if traceID == "" {
-		traceID = r.errorTraceID(req)
+func (r *Router[T, U]) logJSONErrorWriteFailure(req *http.Request, err error, statusCode int, message string) {
+	if ce := requestlog.Check[T, U](req, zapcore.ErrorLevel, "Failed to write JSON error response"); ce != nil {
+		fields := []zap.Field{
+			zap.NamedError(logkeys.Error, err),
+			zap.Int(logkeys.StatusCode, statusCode),
+			zap.Int(logkeys.OriginalStatus, statusCode),
+			zap.String(logkeys.OriginalMessage, message),
+		}
+		fields = append(fields, r.baseFields(req)...)
+		ce.Write(fields...)
 	}
-	fields := []zap.Field{
-		zap.NamedError(logkeys.Error, err),
-		zap.Int(logkeys.StatusCode, statusCode),
-		zap.Int(logkeys.OriginalStatus, statusCode),
-		zap.String(logkeys.OriginalMessage, message),
-	}
-	fields = append(fields, r.baseFields(req)...)
-	fields = append(fields, zap.String(logkeys.TraceID, traceID))
-	r.logger.Error("Failed to write JSON error response", fields...)
 }
 
 // HTTPError represents a client-facing HTTP status and message with optional
@@ -1558,6 +1523,8 @@ func (e *HTTPError) WithLogLevel(level zapcore.Level) *HTTPError {
 
 var reservedHTTPErrorFieldKeys = map[string]struct{}{
 	logkeys.BuildID:    {},
+	logkeys.ClientIP:   {},
+	logkeys.UserID:     {},
 	logkeys.ConfigID:   {},
 	logkeys.Error:      {},
 	logkeys.Method:     {},
@@ -1601,12 +1568,13 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 		rw := &recoveryResponseWriter{ResponseWriter: w}
 		defer func() {
 			if rec := recover(); rec != nil {
-				fields := append([]zap.Field{zap.Any(logkeys.Panic, rec)}, r.baseFields(req)...)
-				fields = append(fields,
-					zap.Int(logkeys.StatusCode, http.StatusInternalServerError),
-					zap.String(logkeys.TraceID, r.errorTraceID(req)),
-				)
-				r.logger.Error("Panic recovered", fields...)
+				if ce := requestlog.Check[T, U](req, zapcore.ErrorLevel, "Panic recovered"); ce != nil {
+					fields := append([]zap.Field{zap.Any(logkeys.Panic, rec)}, r.baseFields(req)...)
+					fields = append(fields,
+						zap.Int(logkeys.StatusCode, http.StatusInternalServerError),
+					)
+					ce.Write(fields...)
+				}
 
 				if rw.wrote {
 					// The handler already started writing; appending a JSON
@@ -1685,20 +1653,22 @@ func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.A
 			var reason string
 			req, ok, reason = r.authenticateRequest(req, extractToken)
 			if !ok {
-				traceID := r.errorTraceID(req)
-				fields := append(r.baseFields(req),
-					zap.String(logkeys.RemoteAddr, req.RemoteAddr),
-					zap.String(logkeys.Error, reason),
-					zap.Int(logkeys.StatusCode, http.StatusUnauthorized),
-					zap.String(logkeys.TraceID, traceID),
-				)
-				r.logger.Info("Authentication failed", fields...)
+				traceID := scontext.GetTraceID[T, U](req.Context())
+				if ce := requestlog.Check[T, U](req, zapcore.InfoLevel, "Authentication failed"); ce != nil {
+					fields := append(r.baseFields(req),
+						zap.String(logkeys.RemoteAddr, req.RemoteAddr),
+						zap.String(logkeys.Error, reason),
+						zap.Int(logkeys.StatusCode, http.StatusUnauthorized),
+					)
+					ce.Write(fields...)
+				}
 				r.writeJSONError(w, req, http.StatusUnauthorized, "Unauthorized", traceID)
 				return
 			}
 
-			fields := r.addTrace(r.baseFields(req), req)
-			r.logger.Debug("Authentication successful", fields...)
+			if ce := requestlog.Check[T, U](req, zapcore.DebugLevel, "Authentication successful"); ce != nil {
+				ce.Write(r.baseFields(req)...)
+			}
 			next.ServeHTTP(w, req)
 		})
 	}
@@ -1713,8 +1683,9 @@ func (r *Router[T, U]) authOptionalMiddlewareWithConfig(authTokenConfig common.A
 			var ok bool
 			req, ok, _ = r.authenticateRequest(req, extractToken)
 			if ok {
-				fields := r.addTrace(r.baseFields(req), req)
-				r.logger.Debug("Authentication successful", fields...)
+				if ce := requestlog.Check[T, U](req, zapcore.DebugLevel, "Authentication successful"); ce != nil {
+					ce.Write(r.baseFields(req)...)
+				}
 			}
 
 			// Call the next handler regardless of authentication result

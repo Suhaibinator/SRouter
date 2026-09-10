@@ -2,6 +2,7 @@ package scontext
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -98,7 +99,7 @@ func TestGetLoggerWithBaseAndNoCorrelation(t *testing.T) {
 	}
 }
 
-// TestGetLoggerStampsCorrelationInOrder walks the four correlation writers in
+// TestGetLoggerStampsCorrelationInOrder walks the request logger writers in
 // turn. Each write must be visible on the next GetLogger, in the documented
 // field order, and must leave the previously returned logger untouched.
 func TestGetLoggerStampsCorrelationInOrder(t *testing.T) {
@@ -135,10 +136,16 @@ func TestGetLoggerStampsCorrelationInOrder(t *testing.T) {
 			want:  []string{logkeys.TraceID, logkeys.BuildID, logkeys.ConfigID},
 		},
 		{
+			name:  "client IP",
+			write: func(c context.Context) context.Context { return WithClientIP[int, testUser](c, "192.0.2.1") },
+			key:   logkeys.ClientIP,
+			want:  []string{logkeys.TraceID, logkeys.BuildID, logkeys.ConfigID, logkeys.ClientIP},
+		},
+		{
 			name:  "user ID",
 			write: func(c context.Context) context.Context { return WithUserID[int, testUser](c, 123) },
 			key:   logkeys.UserID,
-			want:  []string{logkeys.TraceID, logkeys.BuildID, logkeys.ConfigID, logkeys.UserID},
+			want:  []string{logkeys.TraceID, logkeys.BuildID, logkeys.ConfigID, logkeys.ClientIP, logkeys.UserID},
 		},
 	}
 
@@ -170,6 +177,7 @@ func TestGetLoggerStampsCorrelationInOrder(t *testing.T) {
 		logkeys.TraceID:  "trace-1",
 		logkeys.BuildID:  "build-1",
 		logkeys.ConfigID: "config-1",
+		logkeys.ClientIP: "192.0.2.1",
 		logkeys.UserID:   int64(123),
 	}
 	got := final.ContextMap()
@@ -209,25 +217,68 @@ func TestGetLoggerTraceIDPreservedDoesNotRebuild(t *testing.T) {
 	}
 }
 
-// TestGetLoggerStampsExplicitlyEmptyTraceID mirrors GetCorrelation: the Set
-// flag decides presence, so a deliberately empty trace ID is still stamped.
-func TestGetLoggerStampsExplicitlyEmptyTraceID(t *testing.T) {
+// TestGetLoggerOmitsEmptyRequestStrings keeps GetCorrelation's set semantics
+// independent from the logging contract: empty trace IDs and client IPs are
+// retained by context accessors but omitted from derived loggers.
+func TestGetLoggerOmitsEmptyRequestStrings(t *testing.T) {
 	base, logs := newObservedLogger()
 	ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 	ctx = WithTraceID[int, testUser](ctx, "")
+	ctx = WithClientIP[int, testUser](ctx, "")
 
 	logger, ok := GetLogger[int, testUser](ctx)
 	if !ok {
 		t.Fatal("GetLogger returned false, want true")
 	}
 
-	entry := logAndTake(t, logger, logs, "empty trace")
-	value, present := entry.ContextMap()[logkeys.TraceID]
-	if !present {
-		t.Fatalf("entry fields = %v, want %q present", fieldKeys(entry.Context), logkeys.TraceID)
+	entry := logAndTake(t, logger, logs, "empty request strings")
+	for _, key := range []string{logkeys.TraceID, logkeys.ClientIP} {
+		if _, present := entry.ContextMap()[key]; present {
+			t.Errorf("entry fields = %v, want %q omitted", fieldKeys(entry.Context), key)
+		}
 	}
-	if value != "" {
-		t.Errorf("%s = %#v, want the empty string", logkeys.TraceID, value)
+	correlation, _ := GetCorrelation[int, testUser](ctx)
+	if !correlation.TraceIDSet || correlation.TraceID != "" {
+		t.Errorf("correlation trace = (%q, %v), want (empty, true)", correlation.TraceID, correlation.TraceIDSet)
+	}
+	if ip, set := GetClientIP[int, testUser](ctx); !set || ip != "" {
+		t.Errorf("client IP = (%q, %v), want (empty, true)", ip, set)
+	}
+}
+
+func TestClientIPWritesInvalidateOnlyWhenLoggerFieldChanges(t *testing.T) {
+	base, logs := newObservedLogger()
+	ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
+	initial, _ := GetLogger[int, testUser](ctx)
+
+	ctx = WithClientIP[int, testUser](ctx, "192.0.2.1")
+	withIP, _ := GetLogger[int, testUser](ctx)
+	if withIP == initial {
+		t.Fatal("setting client IP did not invalidate the cached logger")
+	}
+	if got := logAndTake(t, withIP, logs, "first IP").ContextMap()[logkeys.ClientIP]; got != "192.0.2.1" {
+		t.Fatalf("client_ip = %v, want 192.0.2.1", got)
+	}
+
+	ctx = WithClientIP[int, testUser](ctx, "192.0.2.1")
+	sameIP, _ := GetLogger[int, testUser](ctx)
+	if sameIP != withIP {
+		t.Fatal("writing the same client IP rebuilt the cached logger")
+	}
+
+	ctx = WithClientInfo[int, testUser](ctx, "198.51.100.2", "agent-1")
+	updated, _ := GetLogger[int, testUser](ctx)
+	if updated == sameIP {
+		t.Fatal("WithClientInfo client IP update did not invalidate the cached logger")
+	}
+	if got := logAndTake(t, updated, logs, "updated IP").ContextMap()[logkeys.ClientIP]; got != "198.51.100.2" {
+		t.Fatalf("client_ip = %v, want 198.51.100.2", got)
+	}
+
+	ctx = WithClientInfo[int, testUser](ctx, "198.51.100.2", "agent-2")
+	userAgentOnly, _ := GetLogger[int, testUser](ctx)
+	if userAgentOnly != updated {
+		t.Fatal("user-agent-only update rebuilt the cached logger")
 	}
 }
 
@@ -316,7 +367,7 @@ func TestGetLoggerConcurrentWithWrites(t *testing.T) {
 	ctx = WithTraceID[int, testUser](ctx, "trace-1")
 
 	var readers sync.WaitGroup
-	var writer sync.WaitGroup
+	var writers sync.WaitGroup
 
 	for range 8 {
 		readers.Go(func() {
@@ -331,14 +382,19 @@ func TestGetLoggerConcurrentWithWrites(t *testing.T) {
 		})
 	}
 
-	writer.Go(func() {
+	writers.Go(func() {
 		for i := range 1000 {
 			WithUserID[int, testUser](ctx, i)
 		}
 	})
+	writers.Go(func() {
+		for i := range 1000 {
+			WithClientInfo[int, testUser](ctx, fmt.Sprintf("192.0.2.%d", i%255), "concurrent-agent")
+		}
+	})
 
 	readers.Wait()
-	writer.Wait()
+	writers.Wait()
 }
 
 // TestCopySRouterContextPreservesLogger pins that a cloned wrapper keeps the
@@ -349,6 +405,7 @@ func TestCopySRouterContextPreservesLogger(t *testing.T) {
 	src = WithTraceID[int, testUser](src, "trace-1")
 	src = WithBuildID[int, testUser](src, "build-1")
 	src = WithConfigID[int, testUser](src, "config-1")
+	src = WithClientIP[int, testUser](src, "192.0.2.1")
 	src = WithUserID[int, testUser](src, 123)
 
 	dst := CopySRouterContext[int, testUser](context.Background(), src)
@@ -359,7 +416,7 @@ func TestCopySRouterContextPreservesLogger(t *testing.T) {
 	}
 
 	entry := logAndTake(t, logger, logs, "copied context")
-	want := []string{logkeys.TraceID, logkeys.BuildID, logkeys.ConfigID, logkeys.UserID}
+	want := []string{logkeys.TraceID, logkeys.BuildID, logkeys.ConfigID, logkeys.ClientIP, logkeys.UserID}
 	if got := fieldKeys(entry.Context); !slices.Equal(got, want) {
 		t.Errorf("entry fields = %v, want %v", got, want)
 	}
@@ -377,6 +434,7 @@ func benchLoggerContext() context.Context {
 	ctx = WithTraceID[uint64, testUser](ctx, "trace-1")
 	ctx = WithBuildID[uint64, testUser](ctx, "build-1")
 	ctx = WithConfigID[uint64, testUser](ctx, "config-1")
+	ctx = WithClientIP[uint64, testUser](ctx, "192.0.2.1")
 	ctx = WithUserID[uint64, testUser](ctx, 123)
 	loggerSink, _ = GetLogger[uint64, testUser](ctx)
 	return ctx

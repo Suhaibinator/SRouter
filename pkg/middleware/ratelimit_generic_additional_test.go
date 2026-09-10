@@ -9,7 +9,6 @@ import (
 
 	"github.com/Suhaibinator/SRouter/pkg/common"   // Added import
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Import scontext
-	"go.uber.org/zap"
 )
 
 // Define a custom type with String method for testing
@@ -229,9 +228,6 @@ func TestExtractUser(t *testing.T) {
 
 // TestRateLimit tests the RateLimit function with various scenarios
 func TestRateLimit(t *testing.T) {
-	// Create a test logger
-	logger := zap.NewNop()
-
 	// Create a mock rate limiter
 	mockLimiter := &MockRateLimiter{
 		allowFunc: func(key string, limit int, window time.Duration) (bool, int, time.Duration) {
@@ -254,7 +250,7 @@ func TestRateLimit(t *testing.T) {
 		}
 
 		// Create the middleware
-		middleware := RateLimit(config, mockLimiter, logger)
+		middleware := RateLimit(config, mockLimiter)
 
 		// Create a test handler
 		handlerCalled := false
@@ -299,7 +295,7 @@ func TestRateLimit(t *testing.T) {
 		}
 
 		// Create the middleware
-		middleware := RateLimit(config, mockLimiter, logger)
+		middleware := RateLimit(config, mockLimiter)
 
 		// Create a test handler
 		handlerCalled := false
@@ -340,7 +336,7 @@ func TestRateLimit(t *testing.T) {
 		}
 
 		// Create the middleware
-		middleware := RateLimit(config, mockLimiter, logger)
+		middleware := RateLimit(config, mockLimiter)
 
 		// Create a test handler
 		handlerCalled := false
@@ -384,7 +380,7 @@ func TestRateLimit(t *testing.T) {
 		}
 
 		// Create the middleware
-		middleware := RateLimit(config, mockLimiter, logger)
+		middleware := RateLimit(config, mockLimiter)
 
 		// Create a test handler
 		handlerCalled := false
@@ -421,7 +417,7 @@ func TestRateLimit(t *testing.T) {
 		}
 
 		// Create the middleware
-		middleware := RateLimit(config, mockLimiter, logger)
+		middleware := RateLimit(config, mockLimiter)
 
 		// Create a test handler
 		handlerCalled := false
@@ -461,7 +457,7 @@ func TestRateLimit(t *testing.T) {
 		}
 
 		// Create the middleware
-		middleware := RateLimit(config, mockLimiter, logger)
+		middleware := RateLimit(config, mockLimiter)
 
 		// Create a test handler
 		handlerCalled := false
@@ -519,7 +515,7 @@ func TestRateLimit(t *testing.T) {
 		}
 
 		// Create the middleware
-		middleware := RateLimit(config, mockLimiter, logger)
+		middleware := RateLimit(config, mockLimiter)
 
 		// Create a test handler
 		handlerCalled := false
@@ -565,7 +561,7 @@ func TestRateLimit(t *testing.T) {
 	// Test case 8: Nil config
 	t.Run("with nil config", func(t *testing.T) {
 		// Create the middleware with nil config
-		middleware := RateLimit[string, string](nil, mockLimiter, logger)
+		middleware := RateLimit[string, string](nil, mockLimiter)
 
 		// Create a test handler
 		handlerCalled := false

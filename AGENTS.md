@@ -57,9 +57,9 @@ comparable user-ID type and `U` is the user object type. Typed
 - **pkg/common/**: Shared types like Middleware, RateLimitConfig
 
 ### Request Flow
-1. `Router.ServeHTTP` builds lazily if needed and registers the request for shutdown tracking.
-2. CORS handling may finish preflight requests before route matching.
-3. Client IP and user-agent values are stored in the SRouter context.
+1. `Router.ServeHTTP` samples runtime identities and installs the shared request logger, client IP, and user agent in the SRouter context.
+2. The router builds lazily if needed and registers the request for shutdown tracking.
+3. CORS handling may finish preflight requests before route matching.
 4. An optional request-summary wrapper captures outcomes, including unmatched routes.
 5. `httprouter` matches the request.
 6. Matched routes execute Recovery → Trace ID → built-in Auth → RateLimit → Global/metrics → outer groups → inner groups → Route → Timeout → body limit → Handler.
@@ -115,7 +115,7 @@ userID, ok := scontext.GetUserID[T, U](r.Context())
 user, ok := scontext.GetUser[T, U](r.Context())  // Returns *U
 traceID := scontext.GetTraceIDFromContext[T, U](r.Context())
 handlerErr, ok := scontext.GetHandlerError[T, U](r.Context())  // For generic routes
-logger, ok := scontext.GetLogger[T, U](r.Context())  // Request-scoped *zap.Logger stamped with correlation
+logger, ok := scontext.GetLogger[T, U](r.Context())  // Request-scoped *zap.Logger stamped with client_ip and correlation
 ```
 
 ### Handler Error Context

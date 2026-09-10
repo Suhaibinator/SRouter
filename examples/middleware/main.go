@@ -74,7 +74,7 @@ func HeadersMiddleware(headers map[string]string) common.Middleware {
 }
 
 // RateLimitMiddleware implements a simple, non-blocking rate limiter.
-func RateLimitMiddleware(requestsPerSecond int, logger *zap.Logger) common.Middleware {
+func RateLimitMiddleware(requestsPerSecond int) common.Middleware {
 	return middleware.RateLimit(
 		&common.RateLimitConfig[string, string]{
 			BucketName: "middleware-example",
@@ -83,7 +83,6 @@ func RateLimitMiddleware(requestsPerSecond int, logger *zap.Logger) common.Middl
 			Strategy:   common.StrategyIP,
 		},
 		middleware.NewUberRateLimiter(),
-		logger,
 	)
 }
 
@@ -152,7 +151,7 @@ func main() {
 			// Add other CORS options as needed (Methods, Headers, etc.)
 		},
 		Middlewares: []common.Middleware{
-			middleware.Recovery(logger),       // Use variable
+			middleware.Recovery[string, string](),
 			DetailedLoggingMiddleware(logger), // Log detailed request/response info
 			// CORS middleware removed, handled by RouterConfig.CORSConfig now
 			HeadersMiddleware(customHeaders), // Add custom headers
@@ -203,7 +202,7 @@ func main() {
 			},
 		)
 	r.Group("/rate-limited").
-		Use(RateLimitMiddleware(2, logger)).
+		Use(RateLimitMiddleware(2)).
 		Route(router.RouteConfigBase{
 			Path:    "/resource",
 			Methods: []router.HttpMethod{router.MethodGet},

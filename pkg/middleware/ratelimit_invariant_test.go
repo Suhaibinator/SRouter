@@ -70,7 +70,7 @@ func TestRateLimitInvariantViolationsAreSingleStructuredErrors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			core, observed := observer.New(zapcore.DebugLevel)
 			limiter := &captureLimiter{}
-			handler := RateLimit(test.config, limiter, zap.New(core))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handler := rateLimitWithLogger(test.config, limiter, zap.New(core))(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusNoContent)
 			}))
 			req := httptest.NewRequest(http.MethodGet, "/limited", nil)

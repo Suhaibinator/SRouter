@@ -98,7 +98,7 @@ func TestRateLimit_CustomStrategyEmptyKey_Codecov(t *testing.T) {
 	}
 
 	// Create the middleware
-	middleware := RateLimit(config, limiter, logger)
+	middleware := rateLimitWithLogger(config, limiter, logger)
 
 	// Create a test handler
 	handlerCalled := false

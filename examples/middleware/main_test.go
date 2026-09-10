@@ -5,12 +5,10 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-
-	"go.uber.org/zap"
 )
 
 func TestRateLimitMiddlewareReturnsWithoutBlocking(t *testing.T) {
-	handler := RateLimitMiddleware(1, zap.NewNop())(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := RateLimitMiddleware(1)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

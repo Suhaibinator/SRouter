@@ -124,16 +124,23 @@ and handle panics deliberately.
 The `pkg/middleware` package exports:
 
 - `Chain` for composing middleware;
-- `Recovery` and `MaxBodySize` for direct use outside the router;
+- generic `Recovery[T, U]()` and `MaxBodySize` for direct use outside the router;
 - trace-ID generation and propagation helpers;
 - authentication providers and middleware;
-- `RateLimit` and the built-in rate limiter; and
+- generic `RateLimit[T, U](config, limiter)` and the built-in rate limiter; and
 - `NewGormTransactionWrapper` for the transaction context interface.
 
 The router installs its own recovery, authentication, trace, rate-limit,
 timeout, and body-limit stages from configuration. Do not install duplicates
 unless the extra layer is intentional. CORS, IP extraction, and request-summary
 logging are router behavior rather than exported middleware.
+
+Recovery, rate-limit, and provider-based authentication middleware obtain
+their logger from `scontext.GetLogger`; their constructors do not accept a
+logger. Standalone chains must attach a source with `WithRequestLogger` before
+these middleware run. Without one, their HTTP behavior is unchanged and their
+own log records are skipped. See [Standalone middleware logging](logging.md#standalone-middleware)
+for setup and the migration from the former logger-accepting signatures.
 
 See [Authentication](authentication.md), [Rate limiting](rate-limiting.md),
 [Logging](logging.md), and [`examples/middleware`](../examples/middleware).

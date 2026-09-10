@@ -157,6 +157,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 
 	// Test with no Authorization header
 	req, _ := http.NewRequest("GET", "/test", nil)
+	req = r.withRequestLogging(req)
 	rr := httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusUnauthorized {
@@ -181,6 +182,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 	// Test with invalid Authorization header
 	req, _ = http.NewRequest("GET", "/test", nil)
 	req.Header.Set("Authorization", "Bearer invalid-token")
+	req = r.withRequestLogging(req)
 	rr = httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusUnauthorized {
@@ -210,6 +212,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 
 	req, _ = http.NewRequest("GET", "/test", nil)
 	req.Header.Set("Authorization", "Bearer valid-token")
+	req = r.withRequestLogging(req)
 	rr = httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -237,6 +240,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 	// Note: The default auth func in mocks.MockAuthFunction expects the token directly.
 	req, _ = http.NewRequest("GET", "/test", nil)
 	req.Header.Set("Authorization", "valid-token") // No Bearer prefix
+	req = r.withRequestLogging(req)
 	rr = httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -256,6 +260,7 @@ func TestAuthRequiredRejectionIsInfoWithBoundaryContext(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/private", nil)
 	req.RemoteAddr = "203.0.113.9:8080"
 	req = req.WithContext(scontext.WithTraceID[string, string](req.Context(), "router-auth-trace"))
+	req = r.withRequestLogging(req)
 	rr := httptest.NewRecorder()
 
 	handler.ServeHTTP(rr, req)
@@ -271,11 +276,24 @@ func TestAuthRequiredRejectionIsInfoWithBoundaryContext(t *testing.T) {
 	if entry.Level != zapcore.InfoLevel || entry.Message != "Authentication failed" {
 		t.Errorf("log = (%s, %q), want (info, Authentication failed)", entry.Level, entry.Message)
 	}
+	if entry.LoggerName != "SRouter" {
+		t.Errorf("logger name = %q, want %q", entry.LoggerName, "SRouter")
+	}
+	assertObservedFieldKeys(t, entry, []string{
+		"trace_id",
+		"client_ip",
+		"method",
+		"path",
+		"remote_addr",
+		"error",
+		"status_code",
+	})
 	fields := entry.ContextMap()
 	wants := map[string]any{
 		"method":      http.MethodGet,
 		"path":        "/private",
 		"remote_addr": "203.0.113.9:8080",
+		"client_ip":   "203.0.113.9",
 		"status_code": int64(http.StatusUnauthorized),
 		"trace_id":    "router-auth-trace",
 	}
@@ -419,6 +437,7 @@ func TestAuthRequiredMiddlewareWithTraceID(t *testing.T) {
 	// Replace mw.AddTraceIDToRequest with scontext.WithTraceID
 	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), traceID) // Use scontext
 	req = req.WithContext(ctxWithTrace)                                          // Apply the context with trace ID
+	req = r.withRequestLogging(req)
 
 	rr := httptest.NewRecorder()
 	wrappedHandler.ServeHTTP(rr, req)

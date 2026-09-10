@@ -94,6 +94,8 @@ func TestWriteJSONError_MutexResponseWriter_LogsOnEncodeFailure(t *testing.T) {
 	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/test", nil)
+	req = req.WithContext(scontext.WithTraceID[string, string](req.Context(), "trace-123"))
+	req = r.withRequestLogging(req)
 
 	var mu sync.Mutex
 	mrw := &mutexResponseWriter{ResponseWriter: &errResponseWriter{}, mu: &mu}
@@ -143,12 +145,13 @@ func TestWriteJSONError_MutexResponseWriter_LogsOnEncodeFailure(t *testing.T) {
 	}
 }
 
-func TestWriteJSONError_EncodeFailureGeneratesCorrelationTrace(t *testing.T) {
+func TestWriteJSONError_EncodeFailureOmitsAbsentTrace(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	r := NewRouter(
 		RouterConfig{Logger: zap.New(core)}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	req := httptest.NewRequest(http.MethodDelete, "http://example.com/widgets/42", nil)
+	req = r.withRequestLogging(req)
 
 	r.writeJSONError(&errResponseWriter{}, req, http.StatusInternalServerError, "Internal Server Error", "")
 
@@ -157,8 +160,8 @@ func TestWriteJSONError_EncodeFailureGeneratesCorrelationTrace(t *testing.T) {
 		t.Fatalf("log entries = %d, want 1", len(entries))
 	}
 	fields := entries[0].ContextMap()
-	if traceID, ok := fields["trace_id"].(string); !ok || traceID == "" {
-		t.Errorf("trace_id = %#v, want generated non-empty string", fields["trace_id"])
+	if traceID, ok := fields["trace_id"]; ok {
+		t.Errorf("trace_id = %#v, want field omitted", traceID)
 	}
 	if fields["method"] != http.MethodDelete || fields["path"] != "/widgets/42" {
 		t.Errorf("request context = %#v", fields)

@@ -73,7 +73,7 @@ if errors.Is(err, sql.ErrNoRows) {
 		"user not found",
 		err,
 	).WithFields(
-		zap.String("user_id", req.UserID),
+		zap.String("requested_user_id", req.UserID),
 	)
 }
 if err != nil {
@@ -108,7 +108,12 @@ When a key is attached more than once, the most recently attached value wins. SR
 - `method`
 - `path`
 - `status_code`
+- `client_ip`
 - `trace_id`
+- `user_id`
+
+`client_ip`, `trace_id`, and `user_id` come from the shared request logger, so
+use domain-specific names such as `requested_user_id` for attached fields.
 
 ### Log level selection
 
@@ -139,7 +144,8 @@ Route timeouts are logged separately by the timeout middleware at `Warn`. A body
 For a valid `HTTPError`, SRouter:
 
 1. Uses its status and message.
-2. Logs the cause, attached fields, status, method, path, and trace ID.
+2. Logs the cause, attached fields, status, method, path, and available fields
+   from the shared request logger, including a non-empty client IP and trace ID.
 3. Sets `Content-Type: application/json; charset=utf-8`.
 4. Writes the safe JSON response.
 
@@ -152,7 +158,10 @@ For a valid `HTTPError`, SRouter:
 }
 ```
 
-`trace_id` is present in the JSON only when automatic trace generation is enabled. Error log records still receive a correlation ID when it is disabled; that log-only ID is not exposed to the client.
+`trace_id` is present in the JSON only when automatic trace generation is
+enabled. Error log records include an existing non-empty context trace even
+when automatic generation is disabled. SRouter does not create a trace ID only
+for logging, so logs and responses omit it when the request has none.
 
 `HTTPError.StatusCode` must be between 400 and 599. Values outside that range are replaced with `500 Internal Server Error`, and the rejected value is logged as `invalid_status_code`.
 

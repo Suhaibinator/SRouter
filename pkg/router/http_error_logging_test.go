@@ -52,6 +52,7 @@ func TestHandleErrorClassifiesFinalOutcome(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r, logs := observedErrorRouter()
 			req := httptest.NewRequest(http.MethodPost, "/resource", nil)
+			req = r.withRequestLogging(req)
 			rr := httptest.NewRecorder()
 
 			r.handleError(rr, req, tt.err, tt.statusCode, tt.message)
@@ -73,8 +74,11 @@ func TestHandleErrorClassifiesFinalOutcome(t *testing.T) {
 			if fields["method"] != http.MethodPost || fields["path"] != "/resource" {
 				t.Errorf("request fields = %#v", fields)
 			}
-			if traceID, ok := fields["trace_id"].(string); !ok || traceID == "" {
-				t.Errorf("trace_id = %#v, want non-empty string", fields["trace_id"])
+			if traceID, ok := fields["trace_id"]; ok {
+				t.Errorf("trace_id = %#v, want field omitted", traceID)
+			}
+			if fields["client_ip"] != "192.0.2.1" {
+				t.Errorf("client_ip = %#v, want %q", fields["client_ip"], "192.0.2.1")
 			}
 		})
 	}
@@ -89,6 +93,7 @@ func TestHTTPErrorCauseFieldsOverrideAndNonDisclosure(t *testing.T) {
 			zap.String("path", "/spoofed"),
 			zap.Int("status_code", 299),
 			zap.String("trace_id", "spoofed-trace"),
+			zap.String("client_ip", "spoofed-client"),
 			zap.String("error", "spoofed-error"),
 		).
 		WithFields(
@@ -106,6 +111,10 @@ func TestHTTPErrorCauseFieldsOverrideAndNonDisclosure(t *testing.T) {
 
 	r, logs := observedErrorRouter()
 	req := httptest.NewRequest(http.MethodPut, "/accounts/42", nil)
+	ctx := scontext.WithTraceID[string, string](req.Context(), "boundary-trace")
+	ctx = scontext.WithUserID[string, string](ctx, "boundary-user")
+	req = req.WithContext(ctx)
+	req = r.withRequestLogging(req)
 	rr := httptest.NewRecorder()
 	r.handleError(rr, req, err, http.StatusInternalServerError, "internal")
 
@@ -120,7 +129,8 @@ func TestHTTPErrorCauseFieldsOverrideAndNonDisclosure(t *testing.T) {
 	fields := entry.ContextMap()
 	wants := map[string]any{
 		"email":       "outer@example.com",
-		"user_id":     uint64(42),
+		"user_id":     "boundary-user",
+		"client_ip":   "192.0.2.1",
 		"method":      http.MethodPut,
 		"path":        "/accounts/42",
 		"status_code": int64(http.StatusConflict),
@@ -134,7 +144,10 @@ func TestHTTPErrorCauseFieldsOverrideAndNonDisclosure(t *testing.T) {
 	if fields["trace_id"] == "spoofed-trace" {
 		t.Error("attached trace_id overrode boundary trace_id")
 	}
-	for _, key := range []string{"email", "method", "path", "status_code", "trace_id", "error"} {
+	if fields["trace_id"] != "boundary-trace" {
+		t.Errorf("trace_id = %#v, want boundary trace", fields["trace_id"])
+	}
+	for _, key := range []string{"email", "method", "path", "status_code", "trace_id", "client_ip", "user_id", "error"} {
 		count := 0
 		for _, field := range entry.Context {
 			if field.Key == key {
@@ -280,6 +293,7 @@ func TestHTTPErrorSeverityOverrideTakesPrecedence(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r, logs := observedErrorRouter()
 			req := httptest.NewRequest(http.MethodGet, "/severity", nil)
+			req = r.withRequestLogging(req)
 			rr := httptest.NewRecorder()
 
 			r.handleError(rr, req, tt.err, http.StatusInternalServerError, "internal")
@@ -302,6 +316,7 @@ func TestHandleErrorUsesExistingTraceAndReportsInvalidStatus(t *testing.T) {
 	r, logs := observedErrorRouter()
 	req := httptest.NewRequest(http.MethodPatch, "/invalid-status", nil)
 	req = req.WithContext(scontext.WithTraceID[string, string](req.Context(), "existing-trace"))
+	req = r.withRequestLogging(req)
 	rr := httptest.NewRecorder()
 
 	r.handleError(rr, req, NewHTTPError(299, "must not escape"), http.StatusBadGateway, "gateway failure")

@@ -19,6 +19,7 @@ const (
 	HeaderName        = "header_name"
 	Invariant         = "invariant"
 	InvalidStatusCode = "invalid_status_code"
+	// Deprecated: request logs use ClientIP.
 	IP                = "ip"
 	Key               = "key"
 	Limit             = "limit"

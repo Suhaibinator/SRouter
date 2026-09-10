@@ -140,7 +140,7 @@ func main() {
 		GlobalTimeout:     5 * time.Second,
 		GlobalMaxBodySize: 2 << 20, // 2 MB
 		Middlewares: []common.Middleware{
-			middleware.Recovery(logger),
+			middleware.Recovery[string, string](),
 		},
 	}
 

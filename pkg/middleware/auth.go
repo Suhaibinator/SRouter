@@ -5,10 +5,12 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Suhaibinator/SRouter/internal/requestlog"
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // AuthProvider defines an interface for authentication providers.
@@ -114,25 +116,21 @@ func (p *APIKeyProvider[T]) Authenticate(r *http.Request) (T, bool) {
 // parameters allow for type-safe access to the user ID without type assertions.
 func AuthenticationWithProvider[T comparable, U any](
 	provider AuthProvider[T],
-	logger *zap.Logger,
 ) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Check if the request is authenticated
 			userID, ok := provider.Authenticate(r)
 			if !ok {
-				traceID := scontext.GetTraceID[T, U](r.Context())
-				if traceID == "" {
-					traceID = GenerateTraceID()
+				if ce := requestlog.Check[T, U](r, zapcore.InfoLevel, "Authentication failed"); ce != nil {
+					ce.Write(
+						zap.String(logkeys.Reason, "credentials rejected"),
+						zap.String(logkeys.Method, r.Method),
+						zap.String(logkeys.Path, r.URL.Path),
+						zap.String(logkeys.RemoteAddr, r.RemoteAddr),
+						zap.Int(logkeys.StatusCode, http.StatusUnauthorized),
+					)
 				}
-				logger.Info("Authentication failed",
-					zap.String(logkeys.Reason, "credentials rejected"),
-					zap.String(logkeys.Method, r.Method),
-					zap.String(logkeys.Path, r.URL.Path),
-					zap.String(logkeys.RemoteAddr, r.RemoteAddr),
-					zap.Int(logkeys.StatusCode, http.StatusUnauthorized),
-					zap.String(logkeys.TraceID, traceID),
-				)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -209,12 +207,11 @@ func AuthenticationBool[T comparable, U any](
 // T is the User ID type (comparable), U is the User object type (any).
 func NewBearerTokenMiddleware[T comparable, U any](
 	validTokens map[string]T,
-	logger *zap.Logger,
 ) common.Middleware {
 	provider := &BearerTokenProvider[T]{
 		ValidTokens: validTokens,
 	}
-	return AuthenticationWithProvider[T, U](provider, logger)
+	return AuthenticationWithProvider[T, U](provider)
 }
 
 // NewBearerTokenValidatorMiddleware creates a middleware that uses Bearer Token Authentication
@@ -222,12 +219,11 @@ func NewBearerTokenMiddleware[T comparable, U any](
 // T is the User ID type (comparable), U is the User object type (any).
 func NewBearerTokenValidatorMiddleware[T comparable, U any](
 	validator func(string) (T, bool),
-	logger *zap.Logger,
 ) common.Middleware {
 	provider := &BearerTokenProvider[T]{
 		Validator: validator,
 	}
-	return AuthenticationWithProvider[T, U](provider, logger)
+	return AuthenticationWithProvider[T, U](provider)
 }
 
 // NewAPIKeyMiddleware creates a middleware that uses API Key Authentication.
@@ -235,14 +231,13 @@ func NewBearerTokenValidatorMiddleware[T comparable, U any](
 func NewAPIKeyMiddleware[T comparable, U any](
 	validKeys map[string]T,
 	header, query string,
-	logger *zap.Logger,
 ) common.Middleware {
 	provider := &APIKeyProvider[T]{
 		ValidKeys: validKeys,
 		Header:    header,
 		Query:     query,
 	}
-	return AuthenticationWithProvider[T, U](provider, logger)
+	return AuthenticationWithProvider[T, U](provider)
 }
 
 // UserAuthProvider defines an interface for authentication providers that return a user object.
@@ -336,25 +331,21 @@ func (p *APIKeyUserAuthProvider[T]) AuthenticateUser(r *http.Request) (*T, error
 // T is the User ID type (comparable), U is the User object type (any).
 func AuthenticationWithUserProvider[T comparable, U any](
 	provider UserAuthProvider[U], // Provider uses U
-	logger *zap.Logger,
 ) common.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Authenticate the request
 			user, err := provider.AuthenticateUser(r)
 			if err != nil || user == nil {
-				traceID := scontext.GetTraceID[T, U](r.Context())
-				if traceID == "" {
-					traceID = GenerateTraceID()
+				if ce := requestlog.Check[T, U](r, zapcore.InfoLevel, "Authentication failed"); ce != nil {
+					ce.Write(
+						zap.NamedError(logkeys.Error, err),
+						zap.String(logkeys.Method, r.Method),
+						zap.String(logkeys.Path, r.URL.Path),
+						zap.String(logkeys.RemoteAddr, r.RemoteAddr),
+						zap.Int(logkeys.StatusCode, http.StatusUnauthorized),
+					)
 				}
-				logger.Info("Authentication failed",
-					zap.NamedError(logkeys.Error, err),
-					zap.String(logkeys.Method, r.Method),
-					zap.String(logkeys.Path, r.URL.Path),
-					zap.String(logkeys.RemoteAddr, r.RemoteAddr),
-					zap.Int(logkeys.StatusCode, http.StatusUnauthorized),
-					zap.String(logkeys.TraceID, traceID),
-				)
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -397,12 +388,11 @@ func AuthenticationWithUser[T comparable, U any](
 // T is the User ID type (comparable), U is the User object type (any).
 func NewBearerTokenWithUserMiddleware[T comparable, U any](
 	getUserFunc func(token string) (*U, error),
-	logger *zap.Logger,
 ) common.Middleware {
 	provider := &BearerTokenUserAuthProvider[U]{
 		GetUserFunc: getUserFunc,
 	}
-	return AuthenticationWithUserProvider[T](provider, logger)
+	return AuthenticationWithUserProvider[T](provider)
 }
 
 // NewAPIKeyWithUserMiddleware creates a middleware that uses API Key Authentication
@@ -411,12 +401,11 @@ func NewBearerTokenWithUserMiddleware[T comparable, U any](
 func NewAPIKeyWithUserMiddleware[T comparable, U any](
 	getUserFunc func(key string) (*U, error),
 	header, query string,
-	logger *zap.Logger,
 ) common.Middleware {
 	provider := &APIKeyUserAuthProvider[U]{
 		GetUserFunc: getUserFunc,
 		Header:      header,
 		Query:       query,
 	}
-	return AuthenticationWithUserProvider[T](provider, logger)
+	return AuthenticationWithUserProvider[T](provider)
 }

@@ -48,5 +48,6 @@ curl -H 'Authorization: Bearer example-token' -H 'X-Trace-ID: demo' localhost:80
 ```
 
 The admin entries use the name `example.common_service.admin` and carry
-`trace_id=demo`, `build_id=example-build`, `config_id=example-config`, and numeric
-`user_id=4242`. Stop the server with Ctrl-C.
+`client_ip`, `trace_id=demo`, `build_id=example-build`,
+`config_id=example-config`, and numeric `user_id=4242`. Stop the server with
+Ctrl-C.
