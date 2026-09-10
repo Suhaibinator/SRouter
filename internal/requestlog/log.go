@@ -2,7 +2,7 @@
 package requestlog
 
 import (
-	"net/http"
+	"context"
 
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
@@ -14,8 +14,8 @@ import (
 // source retains its HTTP behavior and emits no logs. Callers must construct
 // event fields only after Check returns a nonnil entry, then call Write once.
 // Request metadata, including normalized client IP, must be installed at ingress.
-func Check[T comparable, U any](req *http.Request, level zapcore.Level, message string) *zapcore.CheckedEntry {
-	logger, ok := scontext.GetLogger[T, U](req.Context())
+func Check[T comparable, U any](ctx context.Context, level zapcore.Level, message string) *zapcore.CheckedEntry {
+	logger, ok := scontext.GetLogger[T, U](ctx)
 	if !ok || !logger.Core().Enabled(level) {
 		return nil
 	}

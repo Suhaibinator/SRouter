@@ -41,7 +41,7 @@ func Recovery[T comparable, U any]() Middleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if rec := recover(); rec != nil {
-					if ce := requestlog.Check[T, U](r, zapcore.ErrorLevel, "Panic recovered"); ce != nil {
+					if ce := requestlog.Check[T, U](r.Context(), zapcore.ErrorLevel, "Panic recovered"); ce != nil {
 						ce.Write(
 							zap.Any(logkeys.Panic, rec),
 							zap.String(logkeys.Stack, string(debug.Stack())),

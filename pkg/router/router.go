@@ -562,7 +562,7 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 				return
 			case <-ctx.Done():
 				// Timeout occurred. Log it.
-				if ce := requestlog.Check[T, U](req, zapcore.WarnLevel, "Request timed out"); ce != nil {
+				if ce := requestlog.Check[T, U](req.Context(), zapcore.WarnLevel, "Request timed out"); ce != nil {
 					fields := append(r.baseFields(req),
 						zap.Duration(logkeys.Timeout, timeout),
 						zap.Int(logkeys.StatusCode, http.StatusRequestTimeout),
@@ -649,7 +649,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		buildErr = r.Build()
 	}
 	if buildErr != nil {
-		if ce := requestlog.Check[T, U](req, zapcore.ErrorLevel, "Failed to build route tree"); ce != nil {
+		if ce := requestlog.Check[T, U](req.Context(), zapcore.ErrorLevel, "Failed to build route tree"); ce != nil {
 			fields := append(r.baseFields(req), zap.NamedError(logkeys.Error, buildErr))
 			ce.Write(fields...)
 		}
@@ -719,7 +719,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				lvl = zapcore.DebugLevel
 			}
 
-			if ce := requestlog.Check[T, U](req, lvl, "Request summary statistics"); ce != nil {
+			if ce := requestlog.Check[T, U](req.Context(), lvl, "Request summary statistics"); ce != nil {
 				ua, _ := scontext.GetUserAgent[T, U](req.Context())
 				fields := make([]zap.Field, 0, 6)
 				fields = append(fields,
@@ -1293,7 +1293,7 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 	}
 
 	traceID := scontext.GetTraceID[T, U](req.Context())
-	if ce := requestlog.Check[T, U](req, level, logMessage); ce != nil {
+	if ce := requestlog.Check[T, U](req.Context(), level, logMessage); ce != nil {
 		var attachedFields []zap.Field
 		if httpError != nil {
 			attachedFields = httpError.fields
@@ -1418,7 +1418,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 }
 
 func (r *Router[T, U]) logJSONErrorWriteFailure(req *http.Request, err error, statusCode int, message string) {
-	if ce := requestlog.Check[T, U](req, zapcore.ErrorLevel, "Failed to write JSON error response"); ce != nil {
+	if ce := requestlog.Check[T, U](req.Context(), zapcore.ErrorLevel, "Failed to write JSON error response"); ce != nil {
 		fields := []zap.Field{
 			zap.NamedError(logkeys.Error, err),
 			zap.Int(logkeys.StatusCode, statusCode),
@@ -1568,7 +1568,7 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 		rw := &recoveryResponseWriter{ResponseWriter: w}
 		defer func() {
 			if rec := recover(); rec != nil {
-				if ce := requestlog.Check[T, U](req, zapcore.ErrorLevel, "Panic recovered"); ce != nil {
+				if ce := requestlog.Check[T, U](req.Context(), zapcore.ErrorLevel, "Panic recovered"); ce != nil {
 					fields := append([]zap.Field{zap.Any(logkeys.Panic, rec)}, r.baseFields(req)...)
 					fields = append(fields,
 						zap.Int(logkeys.StatusCode, http.StatusInternalServerError),
@@ -1654,7 +1654,7 @@ func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.A
 			req, ok, reason = r.authenticateRequest(req, extractToken)
 			if !ok {
 				traceID := scontext.GetTraceID[T, U](req.Context())
-				if ce := requestlog.Check[T, U](req, zapcore.InfoLevel, "Authentication failed"); ce != nil {
+				if ce := requestlog.Check[T, U](req.Context(), zapcore.InfoLevel, "Authentication failed"); ce != nil {
 					fields := append(r.baseFields(req),
 						zap.String(logkeys.RemoteAddr, req.RemoteAddr),
 						zap.String(logkeys.Error, reason),
@@ -1666,7 +1666,7 @@ func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.A
 				return
 			}
 
-			if ce := requestlog.Check[T, U](req, zapcore.DebugLevel, "Authentication successful"); ce != nil {
+			if ce := requestlog.Check[T, U](req.Context(), zapcore.DebugLevel, "Authentication successful"); ce != nil {
 				ce.Write(r.baseFields(req)...)
 			}
 			next.ServeHTTP(w, req)
@@ -1683,7 +1683,7 @@ func (r *Router[T, U]) authOptionalMiddlewareWithConfig(authTokenConfig common.A
 			var ok bool
 			req, ok, _ = r.authenticateRequest(req, extractToken)
 			if ok {
-				if ce := requestlog.Check[T, U](req, zapcore.DebugLevel, "Authentication successful"); ce != nil {
+				if ce := requestlog.Check[T, U](req.Context(), zapcore.DebugLevel, "Authentication successful"); ce != nil {
 					ce.Write(r.baseFields(req)...)
 				}
 			}

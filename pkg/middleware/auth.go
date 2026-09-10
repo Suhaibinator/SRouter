@@ -122,7 +122,7 @@ func AuthenticationWithProvider[T comparable, U any](
 			// Check if the request is authenticated
 			userID, ok := provider.Authenticate(r)
 			if !ok {
-				if ce := requestlog.Check[T, U](r, zapcore.InfoLevel, "Authentication failed"); ce != nil {
+				if ce := requestlog.Check[T, U](r.Context(), zapcore.InfoLevel, "Authentication failed"); ce != nil {
 					ce.Write(
 						zap.String(logkeys.Reason, "credentials rejected"),
 						zap.String(logkeys.Method, r.Method),
@@ -337,7 +337,7 @@ func AuthenticationWithUserProvider[T comparable, U any](
 			// Authenticate the request
 			user, err := provider.AuthenticateUser(r)
 			if err != nil || user == nil {
-				if ce := requestlog.Check[T, U](r, zapcore.InfoLevel, "Authentication failed"); ce != nil {
+				if ce := requestlog.Check[T, U](r.Context(), zapcore.InfoLevel, "Authentication failed"); ce != nil {
 					ce.Write(
 						zap.NamedError(logkeys.Error, err),
 						zap.String(logkeys.Method, r.Method),

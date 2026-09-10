@@ -2,7 +2,6 @@ package requestlog
 
 import (
 	"context"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -15,26 +14,21 @@ import (
 )
 
 func TestCheckUsesNormalizedContextIPOnly(t *testing.T) {
-	for _, tc := range []struct{ name, contextIP, remote, wantIP string }{
-		{"context wins", "198.51.100.9:1234", "192.0.2.1:9000", "198.51.100.9"},
-		{"missing context does not infer peer", "", "192.0.2.1:9000", ""},
-		{"IPv6 context normalized", "[2001:db8::1]:9000", "192.0.2.1:9000", "[2001:db8::1]"},
-		{"missing addresses", "", "", ""},
+	for _, tc := range []struct{ name, contextIP, wantIP string }{
+		{"IPv4 context normalized", "198.51.100.9:1234", "198.51.100.9"},
+		{"IPv6 context normalized", "[2001:db8::1]:9000", "[2001:db8::1]"},
+		{"missing context IP", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			core, logs := observer.New(zapcore.DebugLevel)
 			source := scontext.NewRequestLoggerSource[string](zap.New(core, zap.AddCaller()).Named("app").With(zap.String("static", "kept")), nil)
-			req := httptest.NewRequest("GET", "/test", nil)
-			req.RemoteAddr = tc.remote
-			req.Header.Set("X-Forwarded-For", "203.0.113.99")
-			ctx := scontext.WithRequestLogger[string, any](req.Context(), source)
+			ctx := scontext.WithRequestLogger[string, any](context.Background(), source)
 			ctx = scontext.WithClientIP[string, any](ctx, tc.contextIP)
 			ctx = scontext.WithTraceID[string, any](ctx, "context-trace")
 			ctx = scontext.WithBuildID[string, any](ctx, "build-1")
 			ctx = scontext.WithUserID[string, any](ctx, "user-1")
-			req = req.WithContext(ctx)
-			if ce := Check[string, any](req, zapcore.WarnLevel, "test"); ce != nil {
-				ce.Write(zap.String("method", req.Method))
+			if ce := Check[string, any](ctx, zapcore.WarnLevel, "test"); ce != nil {
+				ce.Write(zap.String("method", "GET"))
 			}
 			entries := logs.All()
 			if len(entries) != 1 {
@@ -75,16 +69,16 @@ func TestCheckUsesNormalizedContextIPOnly(t *testing.T) {
 }
 
 func TestCheckMissingSourceAndDisabledLevel(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test", nil)
-	if ce := Check[string, any](req, zapcore.ErrorLevel, "without source"); ce != nil {
+	ctx := context.Background()
+	if ce := Check[string, any](ctx, zapcore.ErrorLevel, "without source"); ce != nil {
 		t.Fatal("unexpected entry without source")
 	}
-	if _, ok := scontext.GetSRouterContext[string, any](req.Context()); ok {
+	if _, ok := scontext.GetSRouterContext[string, any](ctx); ok {
 		t.Fatal("logging installed context")
 	}
 	core, logs := observer.New(zapcore.ErrorLevel)
-	ctx := scontext.WithRequestLogger[string, any](req.Context(), scontext.NewRequestLoggerSource[string](zap.New(core), nil))
-	if ce := Check[string, any](req.WithContext(ctx), zapcore.InfoLevel, "disabled"); ce != nil {
+	ctx = scontext.WithRequestLogger[string, any](ctx, scontext.NewRequestLoggerSource[string](zap.New(core), nil))
+	if ce := Check[string, any](ctx, zapcore.InfoLevel, "disabled"); ce != nil {
 		t.Fatal("disabled entry was checked")
 	}
 	if logs.Len() != 0 {
@@ -94,9 +88,7 @@ func TestCheckMissingSourceAndDisabledLevel(t *testing.T) {
 
 func TestCheckConcurrentClientIPWritesDoNotDuplicateFields(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
-	req := httptest.NewRequest("GET", "/test", nil)
-	ctx := scontext.WithRequestLogger[string, any](req.Context(), scontext.NewRequestLoggerSource[string](zap.New(core), nil))
-	req = req.WithContext(ctx)
+	ctx := scontext.WithRequestLogger[string, any](context.Background(), scontext.NewRequestLoggerSource[string](zap.New(core), nil))
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -107,7 +99,7 @@ func TestCheckConcurrentClientIPWritesDoNotDuplicateFields(t *testing.T) {
 		}
 	}()
 	for range 500 {
-		if ce := Check[string, any](req, zapcore.InfoLevel, "concurrent"); ce != nil {
+		if ce := Check[string, any](ctx, zapcore.InfoLevel, "concurrent"); ce != nil {
 			ce.Write()
 		}
 	}
@@ -131,14 +123,13 @@ func TestCheckSkipsFieldsForDisabledAndSampledRecords(t *testing.T) {
 	sampled := zapcore.NewSamplerWithOptions(core, time.Hour, 1, 0)
 	ctx := scontext.WithRequestLogger[string, any](context.Background(), scontext.NewRequestLoggerSource[string](zap.New(sampled), nil))
 	ctx = scontext.WithClientIP[string, any](ctx, "192.0.2.1")
-	req := httptest.NewRequest("GET", "/sample", nil).WithContext(ctx)
 	constructed := 0
 	field := func() zap.Field { constructed++; return zap.Int("constructed", constructed) }
 	for range 3 {
-		if ce := Check[string, any](req, zapcore.DebugLevel, "disabled"); ce != nil {
+		if ce := Check[string, any](ctx, zapcore.DebugLevel, "disabled"); ce != nil {
 			ce.Write(field())
 		}
-		if ce := Check[string, any](req, zapcore.InfoLevel, "sampled"); ce != nil {
+		if ce := Check[string, any](ctx, zapcore.InfoLevel, "sampled"); ce != nil {
 			ce.Write(field())
 		}
 	}
@@ -151,10 +142,9 @@ func TestCheckDisabledWarmPathDoesNotAllocate(t *testing.T) {
 	ctx := scontext.WithRequestLogger[string, any](context.Background(), scontext.NewRequestLoggerSource[string](zap.NewNop(), nil))
 	ctx = scontext.WithTraceID[string, any](ctx, "trace")
 	ctx = scontext.WithClientIP[string, any](ctx, "192.0.2.1")
-	req := httptest.NewRequest("GET", "/disabled", nil).WithContext(ctx)
-	_ = Check[string, any](req, zapcore.DebugLevel, "disabled")
+	_ = Check[string, any](ctx, zapcore.DebugLevel, "disabled")
 	allocs := testing.AllocsPerRun(1000, func() {
-		if ce := Check[string, any](req, zapcore.DebugLevel, "disabled"); ce != nil {
+		if ce := Check[string, any](ctx, zapcore.DebugLevel, "disabled"); ce != nil {
 			panic("unexpected enabled entry")
 		}
 	})
@@ -173,10 +163,8 @@ func TestCheckReusesCachedLoggerWithoutClientIP(t *testing.T) {
 	ctx := scontext.WithRequestLogger[string, any](context.Background(), source)
 	ctx = scontext.WithUserID[string, any](ctx, "user")
 	warmed, _ := scontext.GetLogger[string, any](ctx)
-	req := httptest.NewRequest("GET", "/test", nil).WithContext(ctx)
-	req.RemoteAddr = "192.0.2.1:1234"
 	for range 5 {
-		if ce := Check[string, any](req, zapcore.InfoLevel, "event"); ce != nil {
+		if ce := Check[string, any](ctx, zapcore.InfoLevel, "event"); ce != nil {
 			ce.Write()
 		}
 	}

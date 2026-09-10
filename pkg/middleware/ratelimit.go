@@ -330,7 +330,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 				ip, ipFound := scontext.GetClientIP[T, U](r.Context())
 				if !ipFound || ip == "" {
 					key = r.RemoteAddr
-					if ce := requestlog.Check[T, U](r, zapcore.ErrorLevel, "Client IP not found in context for StrategyIP rate limiting. Ensure router.ClientIPMiddleware is applied first."); ce != nil {
+					if ce := requestlog.Check[T, U](r.Context(), zapcore.ErrorLevel, "Client IP not found in context for StrategyIP rate limiting. Ensure router.ClientIPMiddleware is applied first."); ce != nil {
 						ce.Write(
 							zap.String(logkeys.Invariant, "rate_limit_client_ip_context_present"),
 							zap.String(logkeys.Operation, "rate_limit"),
@@ -357,7 +357,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 					ip, ipFound := scontext.GetClientIP[T, U](r.Context())
 					if !ipFound || ip == "" {
 						key = r.RemoteAddr
-						if ce := requestlog.Check[T, U](r, zapcore.WarnLevel, "User key not found, falling back to RemoteAddr for rate limiting."); ce != nil {
+						if ce := requestlog.Check[T, U](r.Context(), zapcore.WarnLevel, "User key not found, falling back to RemoteAddr for rate limiting."); ce != nil {
 							ce.Write(
 								zap.String(logkeys.Operation, "rate_limit"),
 								zap.String(logkeys.Reason, "user key missing"),
@@ -370,7 +370,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 						}
 					} else {
 						key = ip
-						if ce := requestlog.Check[T, U](r, zapcore.WarnLevel, "User key not found, falling back to ClientIP from context for rate limiting."); ce != nil {
+						if ce := requestlog.Check[T, U](r.Context(), zapcore.WarnLevel, "User key not found, falling back to ClientIP from context for rate limiting."); ce != nil {
 							ce.Write(
 								zap.String(logkeys.Operation, "rate_limit"),
 								zap.String(logkeys.Reason, "user key missing"),
@@ -386,7 +386,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 			case common.StrategyCustom:
 				strategyUsed = "Custom"
 				if config.KeyExtractor == nil {
-					if ce := requestlog.Check[T, U](r, zapcore.ErrorLevel, "KeyExtractor function is required for StrategyCustom rate limiting."); ce != nil {
+					if ce := requestlog.Check[T, U](r.Context(), zapcore.ErrorLevel, "KeyExtractor function is required for StrategyCustom rate limiting."); ce != nil {
 						ce.Write(
 							zap.String(logkeys.Invariant, "rate_limit_custom_key_extractor_configured"),
 							zap.String(logkeys.Operation, "rate_limit"),
@@ -404,7 +404,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 				}
 				key, err = config.KeyExtractor(r)
 				if err != nil {
-					if ce := requestlog.Check[T, U](r, zapcore.ErrorLevel, "Custom KeyExtractor failed"); ce != nil {
+					if ce := requestlog.Check[T, U](r.Context(), zapcore.ErrorLevel, "Custom KeyExtractor failed"); ce != nil {
 						ce.Write(
 							zap.NamedError(logkeys.Error, err),
 							zap.String(logkeys.Method, r.Method),
@@ -415,7 +415,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 					return
 				}
 				if key == "" {
-					if ce := requestlog.Check[T, U](r, zapcore.ErrorLevel, "Custom KeyExtractor returned an empty key."); ce != nil {
+					if ce := requestlog.Check[T, U](r.Context(), zapcore.ErrorLevel, "Custom KeyExtractor returned an empty key."); ce != nil {
 						ce.Write(
 							zap.String(logkeys.Invariant, "rate_limit_custom_key_nonempty"),
 							zap.String(logkeys.Operation, "rate_limit"),
@@ -442,7 +442,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 				} else {
 					key = ip
 				}
-				if ce := requestlog.Check[T, U](r, zapcore.ErrorLevel, "Unknown rate limit strategy specified, defaulting to IP."); ce != nil {
+				if ce := requestlog.Check[T, U](r.Context(), zapcore.ErrorLevel, "Unknown rate limit strategy specified, defaulting to IP."); ce != nil {
 					ce.Write(
 						zap.String(logkeys.Invariant, "rate_limit_strategy_known"),
 						zap.String(logkeys.Operation, "rate_limit"),
@@ -478,7 +478,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 					1)
 				w.Header().Set("Retry-After", strconv.FormatInt(retryAfterSeconds, 10))
 
-				if ce := requestlog.Check[T, U](r, zapcore.WarnLevel, "Rate limit exceeded"); ce != nil {
+				if ce := requestlog.Check[T, U](r.Context(), zapcore.WarnLevel, "Rate limit exceeded"); ce != nil {
 					ce.Write(
 						zap.String(logkeys.Bucket, config.BucketName),
 						zap.String(logkeys.Key, key), // Log the actual key used (IP, user ID, custom)
