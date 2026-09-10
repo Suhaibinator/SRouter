@@ -28,7 +28,7 @@ func TestGenericRouteDefinitionDisableTimeoutBypassesGlobalTimeout(t *testing.T)
 		}
 	}
 
-	r := NewRouter[string, string](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger:        zap.NewNop(),
 		GlobalTimeout: 25 * time.Millisecond,
 	}, RouterDependencies[string, string]{})
@@ -53,7 +53,7 @@ func TestGenericRouteDefinitionDisableTimeoutBypassesGlobalTimeout(t *testing.T)
 }
 
 func TestGroupRouteDisableTimeoutBypassesGroupTimeout(t *testing.T) {
-	r := NewRouter[string, string](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger: zap.NewNop(),
 	}, RouterDependencies[string, string]{})
 

@@ -123,7 +123,7 @@ func TestGetCorrelationConcurrentWithWrites(t *testing.T) {
 	_, ctx := EnsureSRouterContext[int, testUser](context.Background())
 
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		wg.Add(2)
 		go func(i int) {
 			defer wg.Done()
@@ -149,7 +149,7 @@ func benchCorrelationContext(depth int) context.Context {
 	ctx = WithTraceID[int, testUser](ctx, "trace-1")
 	ctx = WithBuildID[int, testUser](ctx, "build-1")
 	ctx = WithConfigID[int, testUser](ctx, "config-1")
-	for i := 0; i < depth; i++ {
+	for i := range depth {
 		ctx = context.WithValue(ctx, benchKey(i), i)
 	}
 	return ctx

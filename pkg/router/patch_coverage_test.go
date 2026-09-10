@@ -188,7 +188,7 @@ func TestMetricsConfigMismatchedFactoryFallsBackToCollector(t *testing.T) {
 	factory := &fakeMetricsMiddlewareFactory{} // MetricsMiddleware[string, string]
 	registry := &recordingMetricsRegistry{}
 
-	r := NewRouter[int, string](RouterConfig{
+	r := NewRouter(RouterConfig{
 		ServiceName: "fallback-service",
 		MetricsConfig: &MetricsConfig{
 			MiddlewareFactory: factory,

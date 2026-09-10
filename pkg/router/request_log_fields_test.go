@@ -50,7 +50,7 @@ func assertObservedFieldKeys(t *testing.T, entry observer.LoggedEntry, want []st
 // fields exactly once.
 func TestRateLimitAndSummaryShareRequestCorrelation(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
-	r := NewRouter[string, struct{}](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger:             zap.New(core),
 		EnableTraceLogging: true,
 		GlobalRateLimit: &common.RateLimitConfig[any, any]{
@@ -139,7 +139,7 @@ func TestRateLimitAndSummaryShareRequestCorrelation(t *testing.T) {
 
 func TestLazyBuildFailureUsesRequestLoggerInstalledAtBoundary(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
-	r := NewRouter[string, struct{}](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger:        zap.New(core),
 		GlobalTimeout: -time.Second,
 	}, RouterDependencies[string, struct{}]{
@@ -174,7 +174,7 @@ func TestLazyBuildFailureUsesRequestLoggerInstalledAtBoundary(t *testing.T) {
 
 func TestUnmatchedRequestSummaryUsesCanonicalRequestFields(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
-	r := NewRouter[string, struct{}](RouterConfig{
+	r := NewRouter(RouterConfig{
 		Logger:             zap.New(core),
 		EnableTraceLogging: true,
 	}, RouterDependencies[string, struct{}]{})
@@ -232,7 +232,7 @@ func TestRequestSummaryClientIPHonorsProxyTrust(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			core, logs := observer.New(zapcore.DebugLevel)
-			r := NewRouter[string, struct{}](RouterConfig{
+			r := NewRouter(RouterConfig{
 				Logger:             zap.New(core),
 				EnableTraceLogging: true,
 				IPConfig: &IPConfig{

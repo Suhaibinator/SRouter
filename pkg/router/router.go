@@ -1542,8 +1542,8 @@ func sanitizeHTTPErrorFields(fields []zap.Field) []zap.Field {
 	}
 	seen := make(map[string]struct{}, len(fields))
 	reversed := make([]zap.Field, 0, len(fields))
-	for i := len(fields) - 1; i >= 0; i-- {
-		field := fields[i]
+	for _, field := range slices.Backward(fields) {
+
 		if _, reserved := reservedHTTPErrorFieldKeys[field.Key]; reserved {
 			continue
 		}

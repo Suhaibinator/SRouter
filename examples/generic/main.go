@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -88,9 +89,7 @@ type userStore struct {
 
 func newUserStore(initial map[string]User, nextID uint64) *userStore {
 	users := make(map[string]User, len(initial))
-	for id, user := range initial {
-		users[id] = user
-	}
+	maps.Copy(users, initial)
 	return &userStore{users: users, nextID: nextID}
 }
 

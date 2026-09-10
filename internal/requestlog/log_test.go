@@ -90,14 +90,12 @@ func TestCheckConcurrentClientIPWritesDoNotDuplicateFields(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
 	ctx := scontext.WithRequestLogger[string, any](context.Background(), scontext.NewRequestLoggerSource[string](zap.New(core), nil))
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for range 500 {
 			scontext.WithClientIP[string, any](ctx, "198.51.100.1")
 			scontext.WithClientIP[string, any](ctx, "")
 		}
-	}()
+	})
 	for range 500 {
 		if ce := Check[string, any](ctx, zapcore.InfoLevel, "concurrent"); ce != nil {
 			ce.Write()
@@ -156,7 +154,7 @@ func TestCheckDisabledWarmPathDoesNotAllocate(t *testing.T) {
 func TestCheckReusesCachedLoggerWithoutClientIP(t *testing.T) {
 	core, logs := observer.New(zapcore.InfoLevel)
 	encodes := 0
-	source := scontext.NewRequestLoggerSource[string](zap.New(core), func(id string) zap.Field {
+	source := scontext.NewRequestLoggerSource(zap.New(core), func(id string) zap.Field {
 		encodes++
 		return zap.String("user_id", id)
 	})
