@@ -339,7 +339,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 							zap.String(logkeys.Actual, "client IP missing"),
 							zap.String(logkeys.Fallback, "remote_addr"),
 							zap.String(logkeys.Bucket, config.BucketName),
-							zap.String(logkeys.RemoteAddr, key),
+							zap.String(logkeys.Key, key),
 							zap.String(logkeys.Method, r.Method),
 							zap.String(logkeys.Path, r.URL.Path),
 						)
@@ -363,7 +363,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 								zap.String(logkeys.Reason, "user key missing"),
 								zap.String(logkeys.Fallback, "remote_addr"),
 								zap.String(logkeys.Bucket, config.BucketName),
-								zap.String(logkeys.RemoteAddr, key),
+								zap.String(logkeys.Key, key),
 								zap.String(logkeys.Method, r.Method),
 								zap.String(logkeys.Path, r.URL.Path),
 							)

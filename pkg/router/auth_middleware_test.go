@@ -328,7 +328,6 @@ func TestAuthRequiredRejectionIsInfoWithBoundaryContext(t *testing.T) {
 		"client_ip",
 		"method",
 		"path",
-		"remote_addr",
 		"error",
 		"status_code",
 	})
@@ -336,7 +335,6 @@ func TestAuthRequiredRejectionIsInfoWithBoundaryContext(t *testing.T) {
 	wants := map[string]any{
 		"method":      http.MethodGet,
 		"path":        "/private",
-		"remote_addr": "203.0.113.9:8080",
 		"client_ip":   "203.0.113.9",
 		"status_code": int64(http.StatusUnauthorized),
 		"trace_id":    "router-auth-trace",

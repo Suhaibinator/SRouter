@@ -83,6 +83,12 @@ func TestRateLimitInvariantViolationsAreSingleStructuredErrors(t *testing.T) {
 				t.Fatalf("Error entries = %d, want exactly 1: %#v", len(entries), observed.AllUntimed())
 			}
 			fields := entries[0].ContextMap()
+			if _, present := fields["remote_addr"]; present {
+				t.Error("rate-limit log includes separate socket address")
+			}
+			if test.config.Strategy == common.StrategyIP && fields["key"] != req.RemoteAddr {
+				t.Errorf("fallback key = %#v, want %q", fields["key"], req.RemoteAddr)
+			}
 			wants := map[string]any{
 				"invariant": test.invariant,
 				"operation": "rate_limit",

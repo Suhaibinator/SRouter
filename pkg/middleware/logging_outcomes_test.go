@@ -69,6 +69,7 @@ func TestAuthenticationRejectionsAreInfoWithRequestContext(t *testing.T) {
 			req.RemoteAddr = "192.0.2.15:4321"
 			ctx := scontext.WithRequestLogger[string, string](req.Context(), scontext.NewRequestLoggerSource[string](zap.New(core), nil))
 			ctx = scontext.WithTraceID[string, string](ctx, "auth-trace")
+			ctx = scontext.WithClientIP[string, string](ctx, "198.51.100.9")
 			req = req.WithContext(ctx)
 			rr := httptest.NewRecorder()
 
@@ -92,10 +93,13 @@ func TestAuthenticationRejectionsAreInfoWithRequestContext(t *testing.T) {
 				t.Errorf("logger name = %q, want SRouter", entry.LoggerName)
 			}
 			fields := entry.ContextMap()
+			if _, present := fields["remote_addr"]; present {
+				t.Error("authentication log includes socket address")
+			}
 			wants := map[string]any{
 				"method":      http.MethodPost,
 				"path":        "/sessions",
-				"remote_addr": "192.0.2.15:4321",
+				"client_ip":   "198.51.100.9",
 				"status_code": int64(http.StatusUnauthorized),
 				"trace_id":    "auth-trace",
 			}

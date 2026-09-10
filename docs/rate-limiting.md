@@ -118,8 +118,9 @@ A nil extractor, extractor error, or empty returned key produces a `500 Internal
 
 Rate-limit warnings and errors use the shared request logger. `client_ip` is the
 resolved request address when available. The `key` field remains the limiter
-identity selected by the strategy, and `remote_addr` remains the original
-socket address; do not treat these fields as aliases. A non-empty context
+identity selected by the strategy, including the raw socket address when the
+limiter falls back to `RemoteAddr`. Logs do not emit a separate `remote_addr`
+field or label this fallback key as a resolved `client_ip`. A non-empty context
 `trace_id` is included even when automatic trace generation is disabled.
 
 The standalone constructor is `middleware.RateLimit[T, U](config, limiter)`;

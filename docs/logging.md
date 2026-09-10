@@ -281,6 +281,11 @@ follows:
 | `middleware.AuthenticationWithUserProvider(provider, logger)` | `middleware.AuthenticationWithUserProvider[UserID, User](provider)` |
 | Bearer/API-key convenience constructor with a final `logger` argument | Remove the final `logger` argument |
 
+Authentication logs use the shared `client_ip` and no longer emit `remote_addr`.
+Rate-limit fallback logs report the selected identity as `key`; when context
+client information is missing, the raw socket fallback is not relabeled as
+`client_ip`. Update queries that previously used `remote_addr` accordingly.
+
 ## Generator lifecycle
 
 An automatic generator starts a background goroutine. `Router.Shutdown` stops it, so applications that enable `TraceIDBufferSize` should call `Shutdown` as part of server shutdown even when the surrounding `http.Server` is managed separately.

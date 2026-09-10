@@ -127,7 +127,6 @@ func AuthenticationWithProvider[T comparable, U any](
 						zap.String(logkeys.Reason, "credentials rejected"),
 						zap.String(logkeys.Method, r.Method),
 						zap.String(logkeys.Path, r.URL.Path),
-						zap.String(logkeys.RemoteAddr, r.RemoteAddr),
 						zap.Int(logkeys.StatusCode, http.StatusUnauthorized),
 					)
 				}
@@ -342,7 +341,6 @@ func AuthenticationWithUserProvider[T comparable, U any](
 						zap.NamedError(logkeys.Error, err),
 						zap.String(logkeys.Method, r.Method),
 						zap.String(logkeys.Path, r.URL.Path),
-						zap.String(logkeys.RemoteAddr, r.RemoteAddr),
 						zap.Int(logkeys.StatusCode, http.StatusUnauthorized),
 					)
 				}

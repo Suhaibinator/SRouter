@@ -376,14 +376,17 @@ func TestRateLimit_UserStrategyFallback(t *testing.T) {
 		logEntries := observedLogs.FilterMessage("User key not found, falling back to RemoteAddr for rate limiting.").All()
 		assert.Equal(t, 1, len(logEntries), "Expected one log entry for RemoteAddr fallback")
 		if len(logEntries) > 0 {
+			fields := logEntries[0].ContextMap()
+			assert.NotContains(t, fields, "remote_addr")
+			assert.NotContains(t, fields, "client_ip")
 			foundAddr := false
 			for _, field := range logEntries[0].Context {
-				if field.Key == "remote_addr" && field.String == "10.0.0.1:54321" {
+				if field.Key == "key" && field.String == "10.0.0.1:54321" {
 					foundAddr = true
 					break
 				}
 			}
-			assert.True(t, foundAddr, "Expected log context to contain correct remote_addr")
+			assert.True(t, foundAddr, "Expected log context to contain correct fallback key")
 		}
 	})
 }

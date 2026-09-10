@@ -1656,7 +1656,6 @@ func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.A
 				traceID := scontext.GetTraceID[T, U](req.Context())
 				if ce := requestlog.Check[T, U](req.Context(), zapcore.InfoLevel, "Authentication failed"); ce != nil {
 					fields := append(r.baseFields(req),
-						zap.String(logkeys.RemoteAddr, req.RemoteAddr),
 						zap.String(logkeys.Error, reason),
 						zap.Int(logkeys.StatusCode, http.StatusUnauthorized),
 					)
