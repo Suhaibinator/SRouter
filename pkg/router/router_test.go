@@ -611,7 +611,7 @@ func TestShutdownWithCancel(t *testing.T) {
 
 // TestShutdownStopsIDGenerator ensures the trace ID generator is stopped on shutdown.
 func TestShutdownStopsIDGenerator(t *testing.T) {
-	r := NewRouter(RouterConfig{Logger: zap.NewNop(), TraceIDBufferSize: 2}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+	r := NewRouter(RouterConfig{Logger: zap.NewNop(), TraceIDConfig: &TraceIDConfig{BufferSize: 2}}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	ctx := context.Background()
 	if err := r.Shutdown(ctx); err != nil {
 		t.Fatalf("Shutdown failed: %v", err)
@@ -925,7 +925,7 @@ func TestWriteJSONError_CORSHeaders(t *testing.T) {
 			err := json.Unmarshal(rr.Body.Bytes(), &body)
 			assert.NoError(err, "Failed to unmarshal error body")
 			assert.Equal("Test Error", body["error"]["message"], "Error message mismatch")
-			// Trace ID check depends on TraceIDBufferSize > 0 in config, which is 0 here, so skip
+			// Trace ID check depends on TraceIDConfig != nil, which is nil here, so skip.
 			// assert.Equal("trace-123", body["error"]["trace_id"], "Trace ID mismatch")
 		})
 	}
@@ -1749,8 +1749,8 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 	// 2. Configure router with tracing, metrics, and observer logger
 	routerConfig := RouterConfig{
 		Logger:             observedLogger,
-		TraceIDBufferSize:  10,   // Enable tracing
-		EnableTraceLogging: true, // <<< ADD THIS LINE to enable the "Request metrics" log block
+		TraceIDConfig:      &TraceIDConfig{BufferSize: 10}, // Enable tracing
+		EnableTraceLogging: true,                           // <<< ADD THIS LINE to enable the "Request metrics" log block
 	}
 	r := NewRouter(routerConfig, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
@@ -1759,20 +1759,8 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 		Path:    "/ping",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
-			// Simulate middleware adding trace ID to context (for testing the logger)
-			// In real execution, the trace middleware does this.
-			// We need to ensure the context passed *down* has the ID.
-			// However, the defer in ServeHTTP captures the *initial* req.
-			// The test should reflect the actual implementation's behavior.
-			// The trace middleware *does* set the response header.
-			traceIDFromHeader := req.Header.Get("X-Trace-ID") // Get ID potentially set by middleware
-			if traceIDFromHeader == "" {
-				// If middleware didn't run/set it (like in this direct ServeHTTP call),
-				// generate one to simulate it being available *somewhere*.
-				// The key is testing if the defer *logs* it if found.
-				traceIDFromHeader = "simulated-trace-id-for-test"
-			}
-			w.Header().Set("X-Trace-ID", traceIDFromHeader) // Ensure header is set for the defer logic
+			// ServeHTTP resolves one ID for the context, response, and summary.
+			assert.Equal(scontext.GetTraceID[string, string](req.Context()), w.Header().Get("X-Trace-ID"))
 
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("pong"))
@@ -1783,9 +1771,7 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 	rr := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/ping", nil)
 
-	// Simulate the trace middleware adding the trace ID to the request context
-	// before ServeHTTP is called internally by the server.
-	// This mimics the state *before* the defer captures `req`.
+	// Supply an upstream context ID before ServeHTTP resolves tracing.
 	initialTraceID := "initial-context-trace-id"                                        // This is what the defer will capture
 	ctxWithTrace := scontext.WithTraceID[string, string](req.Context(), initialTraceID) // Use scontext
 	req = req.WithContext(ctxWithTrace)                                                 // Apply the context with trace ID

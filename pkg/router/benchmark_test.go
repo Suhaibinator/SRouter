@@ -394,9 +394,9 @@ func BenchmarkMemoryUsage(b *testing.B) {
 func BenchmarkInstrumentedAuthRoute(b *testing.B) {
 	authLevel := AuthRequired
 	r := NewRouter(RouterConfig{
-		Logger:            zap.NewNop(),
-		TraceIDBufferSize: 1000,
-		IPConfig:          DefaultIPConfig(),
+		Logger:        zap.NewNop(),
+		TraceIDConfig: &TraceIDConfig{BufferSize: 1000},
+		IPConfig:      DefaultIPConfig(),
 	}, RouterDependencies[string, string]{Authenticate: nopAuthFunc, UserID: userIDFromString})
 
 	r.Route(RouteConfigBase{

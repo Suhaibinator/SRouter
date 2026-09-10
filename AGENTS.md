@@ -50,19 +50,20 @@ comparable user-ID type and `U` is the user object type. Typed
 
 ### Package Structure
 - **pkg/router/**: Core routing engine with generic route registration, middleware orchestration, and request handling
-- **pkg/middleware/**: Authentication providers, rate limiting, tracing, and database transaction middleware
+- **pkg/middleware/**: Authentication providers, rate limiting, and database transaction middleware
 - **pkg/codec/**: Request/response marshaling interfaces and implementations (JSON, Protocol Buffers)
 - **pkg/metrics/**: Interface-based metrics system for pluggable backends
 - **pkg/scontext/**: Centralized context management with SRouterContext[T,U] wrapper
+- **pkg/traceid/**: Extensible upstream ID sources, validation, and synchronous/buffered UUIDv7 generation
 - **pkg/common/**: Shared types like Middleware, RateLimitConfig
 
 ### Request Flow
 1. `Router.ServeHTTP` samples runtime identities and installs the shared request logger, client IP, and user agent in the SRouter context.
-2. The router builds lazily if needed and registers the request for shutdown tracking.
+2. Configured trace IDs resolve once (valid context → configured source → UUIDv7); summary capture starts before lazy build and shutdown tracking.
 3. CORS handling may finish preflight requests before route matching.
-4. An optional request-summary wrapper captures outcomes, including unmatched routes.
+4. The request-summary wrapper captures all outcomes, including early responses and unmatched routes.
 5. `httprouter` matches the request.
-6. Matched routes execute Recovery → Trace ID → built-in Auth → RateLimit → Global/metrics → outer groups → inner groups → Route → Timeout → body limit → Handler.
+6. Matched routes execute Recovery → built-in Auth → RateLimit → Global/metrics → outer groups → inner groups → Route → Timeout → body limit → Handler.
 7. Typed handlers decode, sanitize, invoke, and encode inside the final handler stage.
 
 ### Key Design Patterns
@@ -126,7 +127,15 @@ Generic routes automatically store handler errors in the request context, allowi
 - Error metrics collection
 
 ### Trace ID Generation
-Enable trace ID generation by setting `TraceIDBufferSize > 0` in RouterConfig. This creates a background ID generator for efficient UUID generation and automatic request correlation.
+Use a non-nil `RouterConfig.TraceIDConfig` to enable automatic tracing for every
+request. `BufferSize` zero generates UUIDv7 synchronously, positive values use a
+background buffer, and negative values fail `Build`. Nil disables tracing.
+Use `pkg/traceid` sources for raw headers, W3C traceparent, or custom formats.
+Resolution validates existing context IDs first, then calls the source at most
+once, and falls back to UUIDv7. Mandatory transport safety applies even with a
+custom validator. The final ID is stored with synchronized `scontext.SetTraceID`
+and written only to the canonical response header. `WithTraceID` remains
+non-overwriting. See [Logging](docs/logging.md#trace-id-integration).
 
 ## Documentation Maintenance
 

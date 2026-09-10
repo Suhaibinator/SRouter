@@ -16,7 +16,7 @@ type RouterConfig struct {
 	IPConfig            *IPConfig
 	EnableTraceLogging  bool
 	TraceLoggingUseInfo bool
-	TraceIDBufferSize   int
+	TraceIDConfig       *TraceIDConfig
 	MetricsConfig       *MetricsConfig
 	Middlewares         []common.Middleware
 	AddUserObjectToCtx  bool
@@ -36,6 +36,29 @@ type RouterConfig struct {
 
 Routes do not live inside `RouterConfig`. Add them after `NewRouter` with
 `Router.Route` and `Router.Group`.
+
+## `TraceIDConfig`
+
+```go
+type TraceIDConfig struct {
+	BufferSize     int
+	Source         traceid.Source
+	Validator      traceid.Validator
+	ResponseHeader string
+}
+```
+
+A nil `RouterConfig.TraceIDConfig` disables automatic tracing. A non-nil
+configuration enables it for every request and also enables request summaries.
+`BufferSize` zero generates UUIDv7 synchronously, positive values use a
+background buffer, and negative values fail `Build`. `NewRouter` snapshots
+the trace configuration; later changes to the caller's struct do not affect it.
+
+Nil `Source` reads `X-Trace-ID`; nil `Validator` uses `traceid.IsValid`;
+empty `ResponseHeader` writes `X-Trace-ID`. Use a valid HTTP header name
+for a custom response header. See [Logging](./logging.md#trace-id-integration)
+for precedence, mandatory safety checks, upstream formats, and
+[migration](./logging.md#breaking-changes-and-migration-after-pr-129).
 
 ## `RouterDependencies[T, U]`
 

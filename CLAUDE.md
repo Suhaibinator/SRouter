@@ -62,7 +62,7 @@ comparable user-ID type and `U` is the user object type. Typed
 3. Client IP and user-agent values are stored in the SRouter context.
 4. An optional request-summary wrapper captures outcomes, including unmatched routes.
 5. `httprouter` matches the request.
-6. Matched routes execute Recovery → Trace ID → built-in Auth → RateLimit → Global/metrics → outer groups → inner groups → Route → Timeout → body limit → Handler.
+6. Matched routes execute Recovery → built-in Auth → RateLimit → Global/metrics → outer groups → inner groups → Route → Timeout → body limit → Handler.
 7. Typed handlers decode, sanitize, invoke, and encode inside the final handler stage.
 
 ### Key Design Patterns
@@ -126,7 +126,13 @@ Generic routes automatically store handler errors in the request context, allowi
 - Error metrics collection
 
 ### Trace ID Generation
-Enable trace ID generation by setting `TraceIDBufferSize > 0` in RouterConfig. This creates a background ID generator for efficient UUID generation and automatic request correlation.
+Use a non-nil `RouterConfig.TraceIDConfig` to resolve trace IDs at the request
+boundary, before build, shutdown, CORS, and matching. Zero `BufferSize` generates
+UUIDv7 synchronously, positive values use a background buffer, and negative
+values fail `Build`. Nil disables automatic tracing. Use `pkg/traceid` for raw
+header and W3C sources, custom source/validator types, and standalone generation.
+Resolution uses synchronized `scontext.SetTraceID`; `WithTraceID` still preserves
+an existing ID. See [Logging](docs/logging.md#trace-id-integration).
 
 ## Documentation Maintenance
 

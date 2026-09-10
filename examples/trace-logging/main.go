@@ -10,6 +10,7 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/Suhaibinator/SRouter/pkg/router"
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Keep scontext
+	"github.com/Suhaibinator/SRouter/pkg/traceid"
 	"go.uber.org/zap"
 )
 
@@ -21,14 +22,18 @@ func main() {
 	}
 	defer func() { _ = logger.Sync() }()
 
-	// Create a router configuration with trace middleware
+	// Resolve an upstream ID once for every request, including early responses.
 	routerConfig := router.RouterConfig{
 		ServiceName:       "trace-logging-service", // Added ServiceName
 		Logger:            logger,
 		GlobalTimeout:     2 * time.Second,
 		GlobalMaxBodySize: 1 << 20, // 1 MB
-		TraceIDBufferSize: 1000,    // Enable trace ID with buffer size of 1000
-		// Trace middleware is now added automatically by the router
+		TraceIDConfig: &router.TraceIDConfig{
+			BufferSize: 1000, // Use zero for synchronous generation.
+			Source:     traceid.FromHeader(traceid.HeaderXTraceID),
+			// Use traceid.FromTraceparent to accept W3C traceparent instead.
+			ResponseHeader: traceid.HeaderXTraceID,
+		},
 	}
 
 	// Define the auth function
@@ -118,7 +123,7 @@ func main() {
 			}
 
 			// Propagate the trace ID to the downstream service
-			req.Header.Set("X-Trace-ID", traceID)
+			req.Header.Set(traceid.HeaderXTraceID, traceID)
 
 			// Make the request
 			client := &http.Client{}

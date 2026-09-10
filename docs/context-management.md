@@ -19,7 +19,7 @@ with the wrapper's internal lock.
 | User object (`*U`) | `WithUser` | `GetUser` |
 | Client IP | `WithClientIP`, `WithClientInfo` | `GetClientIP` |
 | User agent | `WithUserAgent`, `WithClientInfo` | `GetUserAgent` |
-| Trace ID | `WithTraceID` | `GetTraceID` |
+| Trace ID | `WithTraceID` / `SetTraceID` | `GetTraceID` |
 | Build identity | `WithBuildID` | `GetBuildID` |
 | Configuration identity | `WithConfigID` | `GetConfigID` |
 | Database transaction | `WithTransaction` | `GetTransaction` |
@@ -33,7 +33,11 @@ with the wrapper's internal lock.
 
 Most getters return `(value, ok)` so an unset value can be distinguished from
 its zero value. The trace-ID getters instead return an empty string when no
-trace ID is set. `WithTraceID` preserves an existing ID rather than overwriting
+trace ID is set. `SetTraceID` unconditionally replaces the ID under the context
+lock, marks it set (even when empty), and invalidates the cached request logger.
+It performs no validation. Automatic tracing uses it after validation at the
+request boundary; see [Logging](./logging.md#trace-id-integration).
+`WithTraceID` preserves an existing ID rather than overwriting
 one propagated by an upstream service.
 
 Applications may configure `RouterDependencies.BuildID` and

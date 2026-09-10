@@ -23,6 +23,7 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/metrics"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
+	"github.com/Suhaibinator/SRouter/pkg/traceid"
 	"github.com/julienschmidt/httprouter"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -60,8 +61,8 @@ type Router[T comparable, U any] struct {
 	wg                sync.WaitGroup
 	shutdown          bool
 	shutdownMu        sync.RWMutex
-	metricsWriterPool sync.Pool               // Pool for reusing metricsResponseWriter objects
-	traceIDGenerator  *middleware.IDGenerator // Generator for trace IDs
+	metricsWriterPool sync.Pool          // Pool for reusing metricsResponseWriter objects
+	traceIDGenerator  *traceid.Generator // Generator for trace IDs
 
 	// Precomputed CORS headers
 	corsAllowMethods  string
@@ -108,6 +109,20 @@ type authTokenExtractor func(*http.Request) (string, bool, string)
 // Authenticate and UserID may be nil when every route resolves to NoAuth. Build
 // rejects an AuthOptional or AuthRequired route if either dependency is nil.
 func NewRouter[T comparable, U any](config RouterConfig, dependencies RouterDependencies[T, U]) *Router[T, U] {
+	// Snapshot trace settings so defaults and generation agree for every request.
+	if config.TraceIDConfig != nil {
+		traceConfig := *config.TraceIDConfig
+		if traceConfig.Source == nil {
+			traceConfig.Source = traceid.FromHeader(traceid.HeaderXTraceID)
+		}
+		if traceConfig.Validator == nil {
+			traceConfig.Validator = traceid.IsValid
+		}
+		if traceConfig.ResponseHeader == "" {
+			traceConfig.ResponseHeader = traceid.HeaderXTraceID
+		}
+		config.TraceIDConfig = &traceConfig
+	}
 	// Set up the logger
 	logger := config.Logger
 	if logger == nil {
@@ -162,9 +177,8 @@ func NewRouter[T comparable, U any](config RouterConfig, dependencies RouterDepe
 	}
 
 	// Initialize trace ID generator if trace ID is enabled
-	if config.TraceIDBufferSize > 0 {
-		r.traceIDGenerator = middleware.NewIDGenerator(config.TraceIDBufferSize)
-		// Note: trace middleware now added in wrapHandler, not here
+	if config.TraceIDConfig != nil && config.TraceIDConfig.BufferSize >= 0 {
+		r.traceIDGenerator, _ = traceid.NewGenerator(config.TraceIDConfig.BufferSize)
 	}
 
 	// Add metrics middleware if configured
@@ -245,6 +259,10 @@ func (r *Router[T, U]) Build() (err error) {
 		}
 	}()
 
+	if r.config.TraceIDConfig != nil && r.config.TraceIDConfig.BufferSize < 0 {
+		tree.buildErr = fmt.Errorf("trace ID buffer size must not be negative")
+		return tree.buildErr
+	}
 	if r.config.GlobalTimeout < 0 {
 		tree.buildErr = fmt.Errorf("global timeout must not be negative")
 		return tree.buildErr
@@ -470,13 +488,7 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLeve
 	// 1. Recovery (outermost, catches panics from the whole chain)
 	chain = chain.Append(r.recoveryMiddleware)
 
-	// 2. Trace middleware (if enabled) - positioned early so all middlewares have access to trace ID
-	if r.traceIDGenerator != nil {
-		traceMW := middleware.CreateTraceMiddleware[T, U](r.traceIDGenerator)
-		chain = chain.Append(traceMW)
-	}
-
-	// 3. Authentication (Runs early)
+	// 2. Authentication (Runs early)
 	if authLevel != nil {
 		switch *authLevel {
 		case AuthRequired:
@@ -486,28 +498,25 @@ func (r *Router[T, U]) wrapHandler(handler http.HandlerFunc, authLevel *AuthLeve
 		}
 	}
 
-	// 4. Rate Limiting
+	// 3. Rate Limiting
 	if rateLimit != nil {
 		// Ensure the rate limiter implementation is compatible
 		// Since r.rateLimiter is common.RateLimiter, this should work directly
 		chain = chain.Append(middleware.RateLimit(rateLimit, r.rateLimiter))
 	}
 
-	// 5. Global middlewares (defined in RouterConfig)
+	// 4. Global middlewares (defined in RouterConfig)
 	chain = chain.Append(r.middlewares...)
 
-	// 6. Route-group middlewares (root to leaf), then route middleware
+	// 5. Route-group middlewares (root to leaf), then route middleware
 	chain = chain.Append(middlewares...)
 
-	// 7. Timeout Handling (Sets context deadline)
+	// 6. Timeout Handling (Sets context deadline)
 	if timeout > 0 {
 		chain = chain.Append(r.timeoutMiddleware(timeout))
 	}
 
-	// 8. Body Size Limit (Applied within the base handler 'h' now)
-	// No separate middleware needed here anymore.
-
-	// 9. Shutdown Handling (Applied within the base handler 'h' now)
+	// 7. Body Size Limit (Applied within the base handler 'h' now)
 	// No separate middleware needed here anymore.
 
 	// Apply the chain to the base handler 'h'
@@ -637,54 +646,21 @@ func combineMiddlewares(parent, child []common.Middleware) []common.Middleware {
 // ServeHTTP implements http.Handler. It builds the route tree lazily, tracks the
 // request for graceful shutdown, handles CORS, adds client information, wraps
 // request-summary logging when enabled, and delegates route matching to
-// httprouter. Trace IDs and configured metrics run inside matched route chains.
+// httprouter. Trace IDs and summaries cover every request; configured metrics
+// run inside matched route chains.
 func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	req = r.withRuntimeIdentities(req)
 	req = r.withRequestLogging(req)
 
-	var buildErr error
-	if r.routeTree.ready.Load() {
-		buildErr = r.routeTree.buildErr
-	} else {
-		buildErr = r.Build()
-	}
-	if buildErr != nil {
-		if ce := requestlog.Check[T, U](req.Context(), zapcore.ErrorLevel, "Failed to build route tree"); ce != nil {
-			fields := append(r.baseFields(req), zap.NamedError(logkeys.Error, buildErr))
-			ce.Write(fields...)
-		}
-		http.Error(w, "Router configuration error", http.StatusInternalServerError)
-		return
-	}
-
-	// Track the in-flight request for graceful shutdown. The Add must happen
-	// under the shutdown lock so it can never race with Shutdown's wg.Wait:
-	// Shutdown takes the write lock before waiting, so either this request is
-	// rejected below, or it is registered before Wait can observe the counter.
-	r.shutdownMu.RLock()
-	if r.shutdown {
-		r.shutdownMu.RUnlock()
-		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	r.wg.Add(1)
-	r.shutdownMu.RUnlock()
-	defer r.wg.Done()
-
-	// Handle CORS first
-	var corsHandled bool
-	req, corsHandled = r.handleCORS(w, req)
-	if corsHandled {
-		return // CORS preflight or invalid origin handled
-	}
+	r.resolveTraceID(w, req)
 
 	// Default to the original writer, override if metrics/tracing enabled
 	rw := w
 
 	// Apply request summary logging and status/bytes capture if enabled.
 	// This is independent of trace IDs: EnableTraceLogging turns it on even
-	// when TraceIDBufferSize is 0; existing context trace IDs are still logged.
-	if r.config.TraceIDBufferSize > 0 || r.config.EnableTraceLogging {
+	// when TraceIDConfig is nil; existing context trace IDs are still logged.
+	if r.config.TraceIDConfig != nil || r.config.EnableTraceLogging {
 		// Get a metricsResponseWriter from the pool
 		mrw := r.metricsWriterPool.Get().(*metricsResponseWriter[T, U])
 
@@ -744,7 +720,42 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			r.metricsWriterPool.Put(mrw)
 		}()
 	}
-	// Note: The 'else' block for rw = w is removed as rw is now defaulted to w earlier.
+
+	var buildErr error
+	if r.routeTree.ready.Load() {
+		buildErr = r.routeTree.buildErr
+	} else {
+		buildErr = r.Build()
+	}
+	if buildErr != nil {
+		if ce := requestlog.Check[T, U](req.Context(), zapcore.ErrorLevel, "Failed to build route tree"); ce != nil {
+			fields := append(r.baseFields(req), zap.NamedError(logkeys.Error, buildErr))
+			ce.Write(fields...)
+		}
+		http.Error(rw, "Router configuration error", http.StatusInternalServerError)
+		return
+	}
+
+	// Track the in-flight request for graceful shutdown. The Add must happen
+	// under the shutdown lock so it can never race with Shutdown's wg.Wait:
+	// Shutdown takes the write lock before waiting, so either this request is
+	// rejected below, or it is registered before Wait can observe the counter.
+	r.shutdownMu.RLock()
+	if r.shutdown {
+		r.shutdownMu.RUnlock()
+		http.Error(rw, "Service Unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	r.wg.Add(1)
+	r.shutdownMu.RUnlock()
+	defer r.wg.Done()
+
+	// Handle CORS first
+	var corsHandled bool
+	req, corsHandled = r.handleCORS(rw, req)
+	if corsHandled {
+		return // CORS preflight or invalid origin handled
+	}
 
 	// Serve the request via the underlying router
 	r.router.ServeHTTP(rw, req)
@@ -1353,7 +1364,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 				"message": message,
 			},
 		}
-		if r.config.TraceIDBufferSize > 0 && traceID != "" {
+		if r.config.TraceIDConfig != nil && traceID != "" {
 			errorMap := errorPayload["error"].(map[string]string)
 			errorMap["trace_id"] = traceID
 		}
@@ -1406,7 +1417,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 	}
 
 	// Add trace ID if enabled and available
-	if r.config.TraceIDBufferSize > 0 && traceID != "" {
+	if r.config.TraceIDConfig != nil && traceID != "" {
 		errorMap := errorPayload["error"].(map[string]string)
 		errorMap["trace_id"] = traceID
 	}

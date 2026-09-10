@@ -26,19 +26,17 @@ r := router.NewRouter(router.RouterConfig{
 
 ## Request summary logging
 
-For requests that reach normal route dispatch, SRouter emits one `"Request summary statistics"` record after the request when either of these settings is enabled. Early responses such as build failures, shutdown rejection, and CORS requests handled before dispatch do not pass through this summary wrapper.
+SRouter emits one `"Request summary statistics"` record for every request when either of these settings is enabled, including build failures, shutdown rejection, and CORS responses.
 
-- `TraceIDBufferSize > 0`, which enables automatic trace IDs on matched routes and request summaries.
+- `TraceIDConfig != nil`, which enables automatic trace IDs and request summaries.
 - `EnableTraceLogging`, which enables request summaries independently of trace IDs.
 
 The summary contains `method`, `path`, `status`, `duration`, `bytes`,
 `client_ip`, and `user_agent`. It also contains configured `build_id` and
 `config_id` values when available. A non-empty `trace_id` already present in
 the request context is included independently of the automatic trace setting.
-For a matched route, automatic tracing creates that ID when one is not already
-present. An unmatched 404 or 405 still receives a summary, but it never enters
-the per-route trace middleware and therefore has no automatically generated
-`trace_id`.
+Automatic tracing resolves the ID before build, shutdown, CORS, and routing, so
+unmatched 404/405 responses and all early returns also carry it.
 
 SRouter adds available runtime identities to its request summaries and
 request-bound authentication, rate-limit, timeout, panic recovery, handled
@@ -74,7 +72,7 @@ config := router.RouterConfig{
 	Logger:              logger,
 	EnableTraceLogging:  true,
 	TraceLoggingUseInfo: false, // successful summaries are Debug
-	TraceIDBufferSize:   0,
+	TraceIDConfig:       nil,
 }
 ```
 
@@ -95,25 +93,64 @@ See [Custom Error Handling](./error-handling.md) for causes, structured fields, 
 
 ## Trace ID integration
 
-Set `TraceIDBufferSize` above zero to create a buffered ID generator and install trace middleware on every route:
+Set a non-nil `TraceIDConfig` to enable tracing. The empty configuration
+generates synchronously; a positive buffer starts a background generator.
 
 ```go
 config := router.RouterConfig{
-	Logger:            logger,
-	TraceIDBufferSize: 1000,
+	Logger: logger,
+	TraceIDConfig: &router.TraceIDConfig{
+		BufferSize:     1000,
+		Source:         traceid.FromHeader(traceid.HeaderXRequestID),
+		ResponseHeader: traceid.HeaderXTraceID,
+	},
 }
 ```
 
-For each request that matches a configured route, the middleware:
+At the start of every request, after context and logger initialization, SRouter:
 
-1. Reuses a valid inbound `X-Trace-ID`, if present. Accepted values are 1–64 ASCII alphanumeric, hyphen, or underscore characters.
-2. Otherwise generates a 32-character hexadecimal UUIDv7 trace ID.
-3. Stores the ID in the SRouter request context.
-4. Sets the response `X-Trace-ID` header.
+1. Reuses an existing context ID if it passes safety checks and validation.
+2. Otherwise calls the configured source once.
+3. Generates a 32-character hexadecimal UUIDv7 if the source reports absence,
+   returns an empty or unsafe value, or the validator rejects it.
+4. Stores the final ID using `scontext.SetTraceID` and writes only the
+   configured canonical response header.
 
-In automatic mode, the same context ID is used by request summaries and router
-error logs for matched routes. JSON error responses include it as
-`error.trace_id`.
+A nil source reads `X-Trace-ID`. A nil validator accepts 1–64 ASCII letters,
+digits, hyphens, and underscores. An empty response-header name uses
+`X-Trace-ID`. Even a custom validator cannot bypass the mandatory non-empty,
+64-byte maximum, valid UTF-8, and no whitespace/control-character checks.
+Generated fallbacks bypass custom validation so resolution always finishes.
+
+The resolved ID is shared by request loggers, summaries, router error logs,
+response headers, and JSON error bodies (`error.trace_id`). This includes
+unmatched routes/methods, CORS, shutdown rejection, and lazy-build failures;
+their existing HTTP status codes and body formats remain unchanged.
+Request headers are never modified. A source header is not automatically
+written back; only `ResponseHeader` is set, even when it differs from the source.
+
+### Upstream sources
+
+Import `github.com/Suhaibinator/SRouter/pkg/traceid`. `FromHeader(name)`
+reads the first raw header value without trimming or validating it. Constants
+include `HeaderXTraceID`, `HeaderXRequestID`, `HeaderXCorrelationID`,
+`HeaderCloudflareRayID`, `HeaderB3TraceID`, and `HeaderTraceparent`.
+
+For W3C input, set `Source: traceid.FromTraceparent`. It validates the
+[W3C traceparent format](https://www.w3.org/TR/trace-context/#traceparent-header),
+including lowercase hex, nonzero trace and parent IDs, version 00's exact
+length, and the forbidden ff version. Future versions accept the base fields
+and an opaque hyphen-delimited suffix. It returns only the 32-character trace
+ID; it does not create spans or emit a complete `traceparent`.
+
+AWS, Google, and other structured formats can use a custom
+`traceid.Source func(*http.Request) (string, bool)` that parses the provider
+header and returns its ID component. Raw custom headers can use `FromHeader`.
+A custom `traceid.Validator func(string) bool` can accept other ID alphabets
+within the mandatory safety limits. Sources and validators must be fast,
+concurrency-safe, and non-panicking; they run before route recovery.
+Source implementations should only extract values; request logging should
+happen after resolution so it receives the final ID.
 
 Retrieve and propagate it with the `pkg/scontext` helpers:
 
@@ -143,12 +180,12 @@ Request logs include a non-empty trace ID already stored in the SRouter context,
 even when automatic tracing is disabled. SRouter does not generate IDs solely
 for logging, so a request without a context trace omits `trace_id`. Log
 enrichment does not create or change response headers or JSON bodies. The
-configured automatic trace stage controls JSON error trace fields, while the
-automatic or manually installed trace middleware controls the response header.
+configured automatic trace stage controls response headers and JSON trace fields.
+With `TraceIDConfig: nil`, existing context IDs are preserved without validation
+or replacement and remain available to logs, but no response ID is added.
 
-Startup and explicit build logs have no request context. A lazy-build failure
-has the request logger, resolved client IP, and any trace inherited from an
-outer SRouter-aware middleware, but automatic route tracing has not run yet.
+Startup and explicit build logs have no request context. Lazy-build failure
+logs use the ID already resolved at the request boundary.
 
 ## Request-scoped logger
 
@@ -263,35 +300,51 @@ client information is missing, the raw socket fallback is not relabeled as
 
 ## Generator lifecycle
 
-An automatic generator starts a background goroutine. `Router.Shutdown` stops it, so applications that enable `TraceIDBufferSize` should call `Shutdown` as part of server shutdown even when the surrounding `http.Server` is managed separately.
+Positive `BufferSize` starts a background worker; zero uses synchronous
+generation without a worker. Negative values fail `Build`.
+`Router.Shutdown` stops the worker. Call it during application shutdown even
+when the surrounding `http.Server` is managed separately. Requests rejected
+after shutdown can still generate an ID synchronously when the buffer is empty.
 
-If you install trace middleware manually, you own the generator and must stop it:
+For use outside the router:
 
 ```go
-idGenerator := middleware.NewIDGenerator(1000)
-defer idGenerator.Stop()
-
-traceMiddleware := middleware.CreateTraceMiddleware[string, User](idGenerator)
-r := router.NewRouter(router.RouterConfig{
-	Logger:             logger,
-	EnableTraceLogging: true,
-}, router.RouterDependencies[string, User]{
-	Authenticate: authenticate,
-	UserID:       userIDFromUser,
-})
-
-handler := traceMiddleware(r)
+generator, err := traceid.NewGenerator(1000)
+if err != nil {
+	return err
+}
+defer generator.Stop()
+id := generator.Next()
 ```
 
-Wrapping the router places the trace ID in the context and response header
-before built-in authentication, rate limiting, CORS, and route dispatch, so
-router logs can reuse it. Adding trace middleware through
-`RouterConfig.Middlewares` runs it later, after built-in authentication and
-rate limiting; failures in those earlier stages will not see its ID.
+`Next` never waits for the worker and remains usable after `Stop`.
+Concurrent calls to `Next` and `Stop` are supported. `traceid.Generate()`
+generates a single UUIDv7 synchronously.
 
-Request summaries include any non-empty trace ID present by the time the
-summary is emitted. The manual wrapper above therefore supplies an ID to
-handlers, router logs, and summaries even with a zero buffer setting. Serve
-`handler` rather than `r` in that example.
+## Breaking changes and migration after PR #129
 
-See `examples/trace-logging` for a runnable example.
+[PR #129](https://github.com/Suhaibinator/SRouter/pull/129) unified request
+logging and preserved the previous tracing API. This follow-up replaces that
+API and moves automatic resolution to the request boundary. Its middleware
+logging migrations above still apply.
+
+| Removed API | Replacement |
+| --- | --- |
+| `RouterConfig.TraceIDBufferSize: 0` | `TraceIDConfig: nil` to keep tracing disabled |
+| `RouterConfig.TraceIDBufferSize: n` for positive n | `TraceIDConfig: &router.TraceIDConfig{BufferSize: n}` |
+| `middleware.CreateTraceMiddleware` | Configure `RouterConfig.TraceIDConfig`; remove the manual wrapper |
+| `middleware.IDGenerator` / `middleware.NewIDGenerator(n)` | `traceid.Generator` / `traceid.NewGenerator(n)`, now returning an error |
+| Generator `GetID()` / `GetIDNonBlocking()` | `Next()`, which never waits for the worker |
+| `middleware.GenerateTraceID()` | `traceid.Generate()` |
+
+Use `&router.TraceIDConfig{}` to enable synchronous generation. A valid context
+ID now takes precedence over an upstream header; an invalid context ID is
+replaced. Automatic tracing also covers early responses and unmatched routes.
+Any non-nil trace configuration enables summaries; `EnableTraceLogging`
+remains independent.
+
+`scontext.WithTraceID` still preserves an already-set ID.
+Use `scontext.SetTraceID` when unconditional replacement is intended; it
+synchronizes the write and invalidates the cached request logger.
+
+See the [trace logging example](../examples/trace-logging/main.go).

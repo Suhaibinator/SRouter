@@ -17,11 +17,11 @@ import (
 
 // --- Tests from trace_test.go ---
 
-// TestTraceIDLogging tests that trace IDs are included in log entries when TraceIDBufferSize > 0
+// TestTraceIDLogging tests that trace IDs are included in log entries when TraceIDConfig != nil
 func TestTraceIDLogging(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1000}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDConfig: &TraceIDConfig{BufferSize: 1000}}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Route(RouteConfigBase{Path: "/test", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }}) // Use HttpMethod enum
 	req, err := http.NewRequest("GET", "/test", nil)
 	if err != nil {
@@ -59,7 +59,7 @@ func TestTraceIDLogging(t *testing.T) {
 func TestTraceIDLoggingDisabledStillUsesExistingTrace(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 0, EnableTraceLogging: true}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDConfig: nil, EnableTraceLogging: true}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Route(RouteConfigBase{Path: "/test", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }}) // Use HttpMethod enum
 	req, err := http.NewRequest("GET", "/test", nil)
 	if err != nil {
@@ -88,11 +88,11 @@ func TestTraceIDLoggingDisabledStillUsesExistingTrace(t *testing.T) {
 	}
 }
 
-// TestHandleErrorWithTraceID tests that handleError includes trace IDs in log entries when TraceIDBufferSize > 0
+// TestHandleErrorWithTraceID tests that handleError includes trace IDs in log entries when TraceIDConfig != nil
 func TestHandleErrorWithTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1000}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDConfig: &TraceIDConfig{BufferSize: 1000}}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	req, err := http.NewRequest("GET", "/test", nil)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
@@ -129,7 +129,7 @@ func TestHandleErrorWithTraceID(t *testing.T) {
 func TestHandleErrorOmitsAbsentTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 0}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDConfig: nil}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	req, err := http.NewRequest("GET", "/test", nil)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
@@ -150,11 +150,11 @@ func TestHandleErrorOmitsAbsentTraceID(t *testing.T) {
 	}
 }
 
-// TestRecoveryMiddlewareWithTraceID tests that recoveryMiddleware includes trace IDs in log entries when TraceIDBufferSize > 0
+// TestRecoveryMiddlewareWithTraceID tests that recoveryMiddleware includes trace IDs in log entries when TraceIDConfig != nil
 func TestRecoveryMiddlewareWithTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1000}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDConfig: &TraceIDConfig{BufferSize: 1000}}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { panic("Test panic") })
 	wrappedHandler := r.recoveryMiddleware(handler)
 	req, err := http.NewRequest("GET", "/test", nil)
@@ -193,7 +193,7 @@ func TestRecoveryMiddlewareWithTraceID(t *testing.T) {
 func TestRecoveryMiddlewareOmitsExplicitlyEmptyTraceID(t *testing.T) {
 	core, logs := observer.New(zap.ErrorLevel)
 	logger := zap.New(core)
-	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 0}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDConfig: nil}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { panic("Test panic") })
 	wrappedHandler := r.recoveryMiddleware(handler)
 	req, err := http.NewRequest("GET", "/test", nil)
@@ -224,8 +224,8 @@ func TestRecoveryMiddlewareOmitsExplicitlyEmptyTraceID(t *testing.T) {
 func TestSlowRequestLogging(t *testing.T) {
 	core, logs := observer.New(zap.WarnLevel) // Observe WarnLevel logs
 	logger := zap.New(core)
-	// Enable tracing so the logging block runs. Use TraceIDBufferSize > 0.
-	r := NewRouter(RouterConfig{Logger: logger, TraceIDBufferSize: 1}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+	// Enable tracing so the logging block runs. Use TraceIDConfig != nil.
+	r := NewRouter(RouterConfig{Logger: logger, TraceIDConfig: &TraceIDConfig{BufferSize: 1}}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	r.Route(RouteConfigBase{
 		Path:    "/slow",
 		Methods: []HttpMethod{MethodGet}, // Use HttpMethod enum
@@ -278,8 +278,8 @@ func TestErrorStatusLogging(t *testing.T) {
 	// Test server error (5xx) -> ERROR level
 	coreErr, logsErr := observer.New(zap.ErrorLevel) // Observe ErrorLevel logs
 	loggerErr := zap.New(coreErr)
-	// Enable tracing so the logging block runs. Use TraceIDBufferSize > 0.
-	rErr := NewRouter(RouterConfig{Logger: loggerErr, TraceIDBufferSize: 1}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+	// Enable tracing so the logging block runs. Use TraceIDConfig != nil.
+	rErr := NewRouter(RouterConfig{Logger: loggerErr, TraceIDConfig: &TraceIDConfig{BufferSize: 1}}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	rErr.Route(RouteConfigBase{Path: "/server-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusInternalServerError) }}) // Use HttpMethod enum
 	reqErr, _ := http.NewRequest("GET", "/server-error", nil)
 	rrErr := httptest.NewRecorder()
@@ -307,8 +307,8 @@ func TestErrorStatusLogging(t *testing.T) {
 	// Test client error (4xx) -> INFO level
 	coreInfo, logsInfo := observer.New(zap.InfoLevel)
 	loggerInfo := zap.New(coreInfo)
-	// Enable tracing so the logging block runs. Use TraceIDBufferSize > 0.
-	rInfo := NewRouter(RouterConfig{Logger: loggerInfo, TraceIDBufferSize: 1}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
+	// Enable tracing so the logging block runs. Use TraceIDConfig != nil.
+	rInfo := NewRouter(RouterConfig{Logger: loggerInfo, TraceIDConfig: &TraceIDConfig{BufferSize: 1}}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 	rInfo.Route(RouteConfigBase{Path: "/client-error", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadRequest) }}) // Use HttpMethod enum
 	reqWarn, _ := http.NewRequest("GET", "/client-error", nil)
 	rrWarn := httptest.NewRecorder()

@@ -200,16 +200,3 @@ func TestRateLimitExceededIsStructuredWarning(t *testing.T) {
 		}
 	}
 }
-
-func TestIDGeneratorBlockingAndFallbackPaths(t *testing.T) {
-	generator := &IDGenerator{idChan: make(chan string, 1), stop: make(chan struct{})}
-	generator.idChan <- "buffered-id"
-	if got := generator.GetID(); got != "buffered-id" {
-		t.Fatalf("GetID() = %q, want buffered ID", got)
-	}
-
-	got := generator.GetIDNonBlocking()
-	if got == "" || got == "buffered-id" {
-		t.Fatalf("GetIDNonBlocking() fallback = %q, want newly generated ID", got)
-	}
-}

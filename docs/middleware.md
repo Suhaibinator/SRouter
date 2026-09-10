@@ -70,17 +70,17 @@ setting route policy does not replace an inherited middleware slice.
 For a matched route, the effective order from outermost to innermost is:
 
 1. panic recovery;
-2. automatic trace-ID injection, when enabled;
-3. built-in authentication, for optional or required routes;
-4. configured rate limiting;
-5. `RouterConfig.Middlewares`, followed by configured metrics;
-6. `Router.Use`, then outer-to-inner group middleware;
-7. route middleware;
-8. timeout handling, when enabled;
-9. request-body limiting and the handler.
+2. built-in authentication, for optional or required routes;
+3. configured rate limiting;
+4. `RouterConfig.Middlewares`, followed by configured metrics;
+5. `Router.Use`, then outer-to-inner group middleware;
+6. route middleware;
+7. timeout handling, when enabled;
+8. request-body limiting and the handler.
 
-CORS processing, client-IP extraction, route matching, shutdown rejection, and
-request-summary logging live in `Router.ServeHTTP` outside this per-route
+Automatic trace-ID resolution, CORS processing, client-IP extraction, route
+matching, shutdown rejection, and request-summary logging live in
+`Router.ServeHTTP` outside this per-route
 chain. A CORS preflight may finish before route middleware runs. Unmatched 404
 and 405 responses do not enter the per-route chain.
 
@@ -125,15 +125,15 @@ The `pkg/middleware` package exports:
 
 - `Chain` for composing middleware;
 - generic `Recovery[T, U]()` and `MaxBodySize` for direct use outside the router;
-- trace-ID generation and propagation helpers;
 - authentication providers and middleware;
 - generic `RateLimit[T, U](config, limiter)` and the built-in rate limiter; and
 - `NewGormTransactionWrapper` for the transaction context interface.
 
-The router installs its own recovery, authentication, trace, rate-limit,
+The router installs its own recovery, authentication, rate-limit,
 timeout, and body-limit stages from configuration. Do not install duplicates
-unless the extra layer is intentional. CORS, IP extraction, and request-summary
-logging are handled automatically by the router.
+unless the extra layer is intentional. Tracing, CORS, IP extraction, and
+request-summary logging are handled automatically by the router. Use
+`pkg/traceid` for standalone ID sources, validation, and generation.
 
 Recovery, rate-limit, and provider-based authentication middleware obtain
 their logger from `scontext.GetLogger`; their constructors do not accept a

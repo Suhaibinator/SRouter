@@ -70,7 +70,7 @@ func TestE2EFullStackAPI(t *testing.T) {
 		Logger:             zap.NewNop(),
 		GlobalTimeout:      2 * time.Second,
 		GlobalMaxBodySize:  1 << 20,
-		TraceIDBufferSize:  10,
+		TraceIDConfig:      &TraceIDConfig{BufferSize: 10},
 		AddUserObjectToCtx: true,
 		Middlewares: []common.Middleware{
 			func(next http.Handler) http.Handler {
@@ -696,9 +696,9 @@ func TestE2EConcurrentRequests(t *testing.T) {
 	authFunc, userIDFunc := newE2EAuthFunctions(nil)
 
 	r := NewRouter(RouterConfig{
-		Logger:            zap.NewNop(),
-		GlobalTimeout:     5 * time.Second,
-		TraceIDBufferSize: 100,
+		Logger:        zap.NewNop(),
+		GlobalTimeout: 5 * time.Second,
+		TraceIDConfig: &TraceIDConfig{BufferSize: 100},
 	}, RouterDependencies[string, e2eUser]{Authenticate: authFunc, UserID: userIDFunc})
 
 	r.Route(RouteConfig[e2eCreateUserRequest, e2eCreateUserResponse]{
