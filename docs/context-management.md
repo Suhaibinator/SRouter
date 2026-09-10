@@ -229,8 +229,8 @@ Contexts created by `EnsureSRouterContext` or a request-field helper alone have
 no logging source; `GetLogger` returns `nil, false`. Existing users of
 `GetCorrelation` can continue applying their own fields in that case.
 
-For background work or standalone middleware, create a source once at
-initialization and reuse it at each request or job boundary:
+For background work, create a source once at initialization and reuse it at
+each job boundary:
 
 ```go
 // At startup, using the application logger before any job fields are added:
@@ -257,11 +257,9 @@ nil configured logger to its production/no-op fallback before creating a source.
 A base must not already carry request fields such as `client_ip`, `trace_id`,
 or `user_id`, since Zap appends fields instead of replacing them.
 
-Standalone middleware that produces logs reads this source through
-`GetLogger`. Attach it with `WithRequestLogger` before the logging middleware
-runs. Without a source, the middleware skips its log records while preserving
-its HTTP behavior. See the [standalone middleware example](./logging.md#standalone-middleware)
-for the full ordering, including client-IP extraction.
+SRouter installs the request logger before running middleware. Middleware
+constructors do not require a logger argument or manual source installation.
+See [Middleware logging](./logging.md#middleware-logging).
 
 ## Database transactions
 
@@ -322,6 +320,5 @@ request logger. Writing another port for the same normalized IP does not
 invalidate the cached logger. Existing IPv6 bracket and zone handling is
 preserved; malformed addresses are retained without reinterpretation.
 
-Standalone HTTP boundaries should initialize client information before invoking
-logging middleware. An uninitialized client IP is omitted from logs; logging
+SRouter initializes client information before invoking middleware. An uninitialized client IP is omitted from logs; logging
 never falls back to `RemoteAddr` or mutates request context.

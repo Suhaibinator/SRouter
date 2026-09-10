@@ -192,8 +192,8 @@ registered for the route; otherwise `httprouter` may generate its automatic
 The `pkg/middleware` package also contains reusable bearer-token, API-key,
 basic-user, and user-provider middleware building blocks. Provider-based
 constructors no longer accept a logger argument. Authentication failures use
-the request logger installed in the SRouter context; without one, authentication
-behavior is unchanged and the middleware skips that log record. Bearer-token
-and API-key convenience constructors follow the same rule. See
-[Standalone middleware logging](./logging.md#standalone-middleware) for setup
-and [Custom Middleware](./middleware.md) for the complete middleware order.
+the request logger installed automatically by SRouter. Register these middleware
+on the router, a group, or a route; no manual logger or client-IP setup is needed.
+Bearer-token and API-key convenience constructors follow the same rule. See
+[Middleware logging](./logging.md#middleware-logging) and
+[Custom Middleware](./middleware.md) for the complete middleware order.

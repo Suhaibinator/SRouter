@@ -51,7 +51,8 @@ func DefaultIPConfig() *IPConfig {
 }
 
 // ClientIPMiddleware creates a middleware that extracts the client IP from the request
-// and adds it to the SRouterContext.
+// and adds it to the SRouterContext. SRouter already initializes this information;
+// configure RouterConfig.IPConfig instead of adding this middleware to a router.
 // T is the User ID type (comparable), U is the User object type (any).
 // It stores the IP address in the SRouterContext.
 func ClientIPMiddleware[T comparable, U any](config *IPConfig) func(http.Handler) http.Handler {

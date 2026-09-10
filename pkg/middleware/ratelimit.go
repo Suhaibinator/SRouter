@@ -305,7 +305,7 @@ func extractUserKey[T comparable, U any](r *http.Request, config *common.RateLim
 // T is the User ID type (comparable).
 // U is the User object type (any).
 //
-// IMPORTANT: When using common.StrategyIP, ensure that router.ClientIPMiddleware is applied *before* this middleware in the chain.
+// Use within SRouter, which initializes the request logger and client IP before middleware runs.
 func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limiter common.RateLimiter) common.Middleware {
 	if config == nil {
 		return func(next http.Handler) http.Handler {
@@ -326,11 +326,11 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 			switch config.Strategy {
 			case common.StrategyIP:
 				strategyUsed = "IP"
-				// Get IP from context (must be set by router.ClientIPMiddleware)
+				// Get the client IP initialized by SRouter.
 				ip, ipFound := scontext.GetClientIP[T, U](r.Context())
 				if !ipFound || ip == "" {
 					key = r.RemoteAddr
-					if ce := requestlog.Check[T, U](r.Context(), zapcore.ErrorLevel, "Client IP not found in context for StrategyIP rate limiting. Ensure router.ClientIPMiddleware is applied first."); ce != nil {
+					if ce := requestlog.Check[T, U](r.Context(), zapcore.ErrorLevel, "Client IP not found in SRouter context for StrategyIP rate limiting; falling back to RemoteAddr."); ce != nil {
 						ce.Write(
 							zap.String(logkeys.Invariant, "rate_limit_client_ip_context_present"),
 							zap.String(logkeys.Operation, "rate_limit"),

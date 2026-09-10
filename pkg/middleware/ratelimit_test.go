@@ -654,7 +654,7 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 	simulatedIPMiddleware := func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Manually add a dummy IP to the context using scontext
-			// In a real scenario, router.ClientIPMiddleware would extract the real IP
+			// SRouter extracts the client IP before invoking middleware
 			ctx := scontext.WithClientIP[uint64, any](r.Context(), "192.168.1.100")
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -726,7 +726,7 @@ func TestRateLimitWithIPMiddleware(t *testing.T) {
 	_ = resp.Body.Close() // Close body
 
 	// Verify that an error log was generated about IP middleware not being configured
-	errorLogs := observed.FilterMessage("Client IP not found in context for StrategyIP rate limiting. Ensure router.ClientIPMiddleware is applied first.").All()
+	errorLogs := observed.FilterMessage("Client IP not found in SRouter context for StrategyIP rate limiting; falling back to RemoteAddr.").All()
 	if len(errorLogs) == 0 {
 		t.Errorf("Expected error log about missing Client IP in context")
 	}

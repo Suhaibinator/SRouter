@@ -60,7 +60,7 @@ If `IPConfig` is non-nil but `Source` is empty or unknown, SRouter treats it as 
 
 SRouter does not reject a malformed, non-empty proxy-header value. It removes a port when the value is a valid host-port pair; otherwise it preserves the value. Header validation and sanitization must therefore happen at the trusted proxy boundary.
 
-`router.DefaultIPConfig()` and the standalone `router.ClientIPMiddleware(nil)` are different from a nil `RouterConfig.IPConfig`: they default to trusted `X-Forwarded-For`. Use that convenience default only behind a trusted proxy.
+`router.DefaultIPConfig()` and `router.ClientIPMiddleware(nil)` are different from a nil `RouterConfig.IPConfig`: they default to trusted `X-Forwarded-For`. Use that convenience default only behind a trusted proxy.
 
 ## Custom header
 
@@ -88,3 +88,6 @@ if !ok {
 ```
 
 The type arguments must match the router's user ID and user object types.
+
+SRouter initializes client IP automatically before middleware runs. Applications
+should configure `RouterConfig.IPConfig` rather than add `ClientIPMiddleware`.

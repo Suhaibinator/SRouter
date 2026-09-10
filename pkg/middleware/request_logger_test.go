@@ -9,7 +9,7 @@ import (
 )
 
 // rateLimitWithLogger preserves the focused rate-limit log assertions while
-// exercising the public middleware API and the standalone request-logger setup.
+// exercising the public middleware API with a router-like request logger.
 func rateLimitWithLogger[T comparable, U any](
 	config *common.RateLimitConfig[T, U],
 	limiter common.RateLimiter,

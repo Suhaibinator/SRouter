@@ -10,8 +10,8 @@ import (
 )
 
 // Check resolves the current request logger at the logging point. It does not
-// install a source or modify request context. Standalone middleware without a
-// source retains its HTTP behavior and emits no logs. Callers must construct
+// install a source or modify request context; SRouter initializes both before
+// middleware runs. A missing source produces no entry. Callers must construct
 // event fields only after Check returns a nonnil entry, then call Write once.
 // Request metadata, including normalized client IP, must be installed at ingress.
 func Check[T comparable, U any](ctx context.Context, level zapcore.Level, message string) *zapcore.CheckedEntry {

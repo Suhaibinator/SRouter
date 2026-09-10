@@ -123,12 +123,11 @@ limiter falls back to `RemoteAddr`. Logs do not emit a separate `remote_addr`
 field or label this fallback key as a resolved `client_ip`. A non-empty context
 `trace_id` is included even when automatic trace generation is disabled.
 
-The standalone constructor is `middleware.RateLimit[T, U](config, limiter)`;
-it no longer accepts a logger. Attach a `RequestLoggerSource` before the
-middleware to enable its logs. Without a source, rate limiting and responses
-work normally and only the middleware's log records are skipped. See
-[Standalone middleware logging](./logging.md#standalone-middleware) for a
-complete chain.
+The constructor is `middleware.RateLimit[T, U](config, limiter)`; it no longer
+accepts a logger. Use it within SRouter, which initializes the shared logger
+and client IP before middleware executes. Configure IP selection through
+`RouterConfig.IPConfig`; no separate client-IP middleware is needed. See
+[Middleware logging](./logging.md#middleware-logging).
 
 ## Shared buckets
 

@@ -230,45 +230,20 @@ semantics and configuring a reusable source for background jobs. Run the
 [request logger example](../examples/request-logger/main.go) to see named service
 logging with a named numeric user-ID type.
 
-### Standalone middleware
+### Middleware logging
 
-Logging middleware in `pkg/middleware` reads the same request logger rather
-than accepting a logger argument. When using it outside `Router`, create one
-source at application startup and attach it before middleware that can log.
-Install client-IP extraction before rate limiting so logs and rate-limit keys
-use the same resolved address:
+Middleware in `pkg/middleware` is intended to run through SRouter. Register it
+on the router, a group, or a route. `Router.ServeHTTP` installs the shared
+request logger and resolved client information before middleware executes;
+applications do not need to attach a logger source or client-IP middleware.
+Configure logging and IP selection through `RouterConfig.Logger` and
+`RouterConfig.IPConfig`.
 
-```go
-source := scontext.NewRequestLoggerSource[string](appLogger, nil)
-
-attachRequestLogger := func(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		ctx := scontext.WithRequestLogger[string, User](req.Context(), source)
-		next.ServeHTTP(w, req.WithContext(ctx))
-	})
-}
-
-handler := middleware.Chain(
-	attachRequestLogger,
-	router.ClientIPMiddleware[string, User](&router.IPConfig{
-		Source: router.IPSourceRemoteAddr,
-	}),
-	middleware.Recovery[string, User](),
-	middleware.RateLimit[string, User](limitConfig, limiter),
-)(applicationHandler)
-```
-
-Run the [standalone middleware example](../examples/standalone-middleware/main.go)
-with `go run .` to see an accepted request and a correlated rate-limit rejection.
-
-If no request logger source is installed, these middleware keep their HTTP
-behavior and skip their own log records. They do not create a fallback logger.
-Initialize client information once at the boundary with `ClientIPMiddleware`,
-`WithClientIP`, or `WithClientInfo`. The context setters normalize the selected
-address before storing it. Logging never reads or cleans `RemoteAddr`, copies
-request context, or invents a client IP; when the context has no client IP,
-`client_ip` is omitted. Rate limiting retains its own existing `RemoteAddr`
-fallback when client information has not been initialized.
+The context setters normalize client information when it is stored. Logging
+reuses that value without reading or cleaning `RemoteAddr`, copying context,
+or inventing a client IP. An unavailable `client_ip` is omitted. Rate limiting
+retains its defensive `RemoteAddr` fallback when context client information
+is missing.
 
 The logger-accepting middleware forms were removed. Update direct calls as
 follows:

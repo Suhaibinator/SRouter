@@ -471,7 +471,7 @@ func TestRateLimit(t *testing.T) {
 
 		// Create a request and add the "blocked" IP to the context
 		req := httptest.NewRequest("GET", "/", nil)
-		// Simulate ClientIPMiddleware having run
+		// Simulate SRouter having initialized client information
 		ctx := scontext.WithClientIP[string, string](req.Context(), "blocked")
 		req = req.WithContext(ctx)
 		rr := httptest.NewRecorder()
@@ -529,7 +529,7 @@ func TestRateLimit(t *testing.T) {
 
 		// Create a request and add the "blocked" IP to the context
 		req := httptest.NewRequest("GET", "/", nil)
-		// Simulate ClientIPMiddleware having run
+		// Simulate SRouter having initialized client information
 		ctx := scontext.WithClientIP[string, string](req.Context(), "blocked")
 		req = req.WithContext(ctx)
 		rr := httptest.NewRecorder()
