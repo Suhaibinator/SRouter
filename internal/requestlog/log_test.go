@@ -14,11 +14,11 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
-func TestCheckUsesRequestSourceAndIsolatesIPFallback(t *testing.T) {
+func TestCheckUsesNormalizedContextIPOnly(t *testing.T) {
 	for _, tc := range []struct{ name, contextIP, remote, wantIP string }{
-		{"context wins", "198.51.100.9", "192.0.2.1:9000", "198.51.100.9"},
-		{"IPv4 peer", "", "192.0.2.1:9000", "192.0.2.1"},
-		{"IPv6 peer", "", "[2001:db8::1]:9000", "[2001:db8::1]"},
+		{"context wins", "198.51.100.9:1234", "192.0.2.1:9000", "198.51.100.9"},
+		{"missing context does not infer peer", "", "192.0.2.1:9000", ""},
+		{"IPv6 context normalized", "[2001:db8::1]:9000", "192.0.2.1:9000", "[2001:db8::1]"},
 		{"missing addresses", "", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -60,8 +60,8 @@ func TestCheckUsesRequestSourceAndIsolatesIPFallback(t *testing.T) {
 			} else if got["client_ip"] != tc.wantIP {
 				t.Errorf("IP = %#v, want %q", got["client_ip"], tc.wantIP)
 			}
-			if ip, _ := scontext.GetClientIP[string, any](ctx); ip != tc.contextIP {
-				t.Errorf("fallback changed context IP to %q", ip)
+			if ip, _ := scontext.GetClientIP[string, any](ctx); ip != tc.wantIP {
+				t.Errorf("stored client IP = %q, want %q", ip, tc.wantIP)
 			}
 			seen := map[string]bool{}
 			for _, field := range entry.Context {
@@ -160,5 +160,36 @@ func TestCheckDisabledWarmPathDoesNotAllocate(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("disabled warm path allocations = %v, want 0", allocs)
+	}
+}
+
+func TestCheckReusesCachedLoggerWithoutClientIP(t *testing.T) {
+	core, logs := observer.New(zapcore.InfoLevel)
+	encodes := 0
+	source := scontext.NewRequestLoggerSource[string](zap.New(core), func(id string) zap.Field {
+		encodes++
+		return zap.String("user_id", id)
+	})
+	ctx := scontext.WithRequestLogger[string, any](context.Background(), source)
+	ctx = scontext.WithUserID[string, any](ctx, "user")
+	warmed, _ := scontext.GetLogger[string, any](ctx)
+	req := httptest.NewRequest("GET", "/test", nil).WithContext(ctx)
+	req.RemoteAddr = "192.0.2.1:1234"
+	for range 5 {
+		if ce := Check[string, any](req, zapcore.InfoLevel, "event"); ce != nil {
+			ce.Write()
+		}
+	}
+	current, _ := scontext.GetLogger[string, any](ctx)
+	if encodes != 1 || current != warmed {
+		t.Fatalf("logging rederived cached fields: encodes=%d", encodes)
+	}
+	if _, ok := scontext.GetClientIP[string, any](ctx); ok {
+		t.Fatal("logging installed a peer IP")
+	}
+	for _, entry := range logs.All() {
+		if _, ok := entry.ContextMap()["client_ip"]; ok {
+			t.Fatal("logging inferred a peer IP")
+		}
 	}
 }

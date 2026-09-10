@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Suhaibinator/SRouter/internal/clientip"
-
 	"github.com/Suhaibinator/SRouter/pkg/scontext" // Updated import
 )
 
@@ -84,11 +82,12 @@ func ClientIPMiddleware[T comparable, U any](config *IPConfig) func(http.Handler
 	}
 }
 
-// extractClientIP extracts the client IP address from the request based on the IPConfig.
+// extractClientIP selects the configured address. The context setter normalizes
+// it once when storing client information.
 func extractClientIP(r *http.Request, config *IPConfig) string {
 	var ip string
 	if config == nil {
-		return cleanIP(r.RemoteAddr)
+		return r.RemoteAddr
 	}
 	// Determine IP based on configured source
 	switch config.Source {
@@ -109,8 +108,7 @@ func extractClientIP(r *http.Request, config *IPConfig) string {
 		ip = r.RemoteAddr
 	}
 
-	// Clean up the IP address (remove port if present)
-	return cleanIP(ip)
+	return ip
 }
 
 // extractIPFromXForwardedFor extracts the client IP from the X-Forwarded-For header.
@@ -138,6 +136,3 @@ func extractIPFromXForwardedFor(r *http.Request) string {
 		xff = xff[:comma]
 	}
 }
-
-// cleanIP preserves the router's address normalization contract.
-func cleanIP(ip string) string { return clientip.Clean(ip) }

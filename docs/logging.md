@@ -263,9 +263,12 @@ with `go run .` to see an accepted request and a correlated rate-limit rejection
 
 If no request logger source is installed, these middleware keep their HTTP
 behavior and skip their own log records. They do not create a fallback logger.
-When a standalone logging middleware has a logger but no context client IP, its
-record uses a cleaned `RemoteAddr` as `client_ip`; this does not populate the
-context or change the rate-limit key selection rules.
+Initialize client information once at the boundary with `ClientIPMiddleware`,
+`WithClientIP`, or `WithClientInfo`. The context setters normalize the selected
+address before storing it. Logging never reads or cleans `RemoteAddr`, copies
+request context, or invents a client IP; when the context has no client IP,
+`client_ip` is omitted. Rate limiting retains its own existing `RemoteAddr`
+fallback when client information has not been initialized.
 
 The logger-accepting middleware forms were removed. Update direct calls as
 follows:

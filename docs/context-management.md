@@ -312,3 +312,16 @@ and `PathParams` slice. Other fields are assigned normally. Consequently,
 reference-bearing values—including `User`, `Transaction`, `HandlerError`, and
 any pointer-bearing user ID—still refer to the same underlying objects. These
 functions are therefore not recursive deep-copy operations.
+
+### Client IP normalization
+
+`WithClientIP` and `WithClientInfo` remove a valid socket port before storing
+client information. This happens once per context write, not per log record.
+The normalized value is shared by `GetClientIP`, rate limiting, and the cached
+request logger. Writing another port for the same normalized IP does not
+invalidate the cached logger. Existing IPv6 bracket and zone handling is
+preserved; malformed addresses are retained without reinterpretation.
+
+Standalone HTTP boundaries should initialize client information before invoking
+logging middleware. An uninitialized client IP is omitted from logs; logging
+never falls back to `RemoteAddr` or mutates request context.

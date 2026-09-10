@@ -317,14 +317,14 @@ func TestExtractIPFromXForwardedForBlankEntries(t *testing.T) {
 		}
 	}
 
-	// End to end: with a blank XFF the extracted client IP must fall back to
+	// With a blank XFF the selected address must fall back to
 	// RemoteAddr even when proxy headers are trusted.
 	req := httptest.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "203.0.113.9:1234"
 	req.Header.Set("X-Forwarded-For", " , ")
 	ip := extractClientIP(req, &IPConfig{Source: IPSourceXForwardedFor, TrustProxy: true})
-	if ip != "203.0.113.9" {
-		t.Errorf("extractClientIP with blank XFF = %q, want RemoteAddr fallback %q", ip, "203.0.113.9")
+	if ip != req.RemoteAddr {
+		t.Errorf("extractClientIP with blank XFF = %q, want raw RemoteAddr fallback %q", ip, req.RemoteAddr)
 	}
 }
 

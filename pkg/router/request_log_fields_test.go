@@ -15,6 +15,8 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
+const deprecatedIPLogField = "ip"
+
 func assertObservedFieldOnce(t *testing.T, entry observer.LoggedEntry, key string, want any) {
 	t.Helper()
 	if got := entry.ContextMap()[key]; got != want {
@@ -130,8 +132,8 @@ func TestRateLimitAndSummaryShareRequestCorrelation(t *testing.T) {
 	assertObservedFieldOnce(t, rejectedSummary, logkeys.TraceID, "rejected-trace")
 	assertObservedFieldOnce(t, rejectedSummary, logkeys.Method, http.MethodGet)
 	assertObservedFieldOnce(t, rejectedSummary, logkeys.Path, "/limited")
-	if _, present := rejectedSummary.ContextMap()[logkeys.IP]; present {
-		t.Errorf("deprecated %q field is still emitted: %#v", logkeys.IP, rejectedSummary.Context)
+	if _, present := rejectedSummary.ContextMap()[deprecatedIPLogField]; present {
+		t.Errorf("deprecated %q field is still emitted: %#v", deprecatedIPLogField, rejectedSummary.Context)
 	}
 }
 
@@ -195,8 +197,8 @@ func TestUnmatchedRequestSummaryUsesCanonicalRequestFields(t *testing.T) {
 	assertObservedFieldOnce(t, entry, logkeys.TraceID, "missing-trace")
 	assertObservedFieldOnce(t, entry, logkeys.Method, http.MethodGet)
 	assertObservedFieldOnce(t, entry, logkeys.Path, "/missing")
-	if _, present := entry.ContextMap()[logkeys.IP]; present {
-		t.Errorf("deprecated %q field is still emitted: %#v", logkeys.IP, entry.Context)
+	if _, present := entry.ContextMap()[deprecatedIPLogField]; present {
+		t.Errorf("deprecated %q field is still emitted: %#v", deprecatedIPLogField, entry.Context)
 	}
 }
 
@@ -258,8 +260,8 @@ func TestRequestSummaryClientIPHonorsProxyTrust(t *testing.T) {
 			}
 			assertObservedFieldOnce(t, entries[0], logkeys.ClientIP, tt.wantIP)
 			assertObservedFieldOnce(t, entries[0], logkeys.TraceID, tt.traceID)
-			if _, present := entries[0].ContextMap()[logkeys.IP]; present {
-				t.Errorf("deprecated %q field is still emitted: %#v", logkeys.IP, entries[0].Context)
+			if _, present := entries[0].ContextMap()[deprecatedIPLogField]; present {
+				t.Errorf("deprecated %q field is still emitted: %#v", deprecatedIPLogField, entries[0].Context)
 			}
 		})
 	}

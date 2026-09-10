@@ -290,8 +290,13 @@ func GetFlag[T comparable, U any](ctx context.Context, name string) (bool, bool)
 // WithClientIP adds the client IP address to the context.
 // The IP is typically extracted by the router based on IPConfig settings,
 // considering headers like X-Forwarded-For, X-Real-IP, or RemoteAddr.
+// Valid socket addresses are normalized before storage by removing their port.
+// Bracketed IPv6 addresses retain brackets, while IPv6 zone addresses retain
+// their zone without brackets. Values that are not valid IP socket addresses
+// are stored unchanged.
 // T is the User ID type (comparable), U is the User object type (any).
 func WithClientIP[T comparable, U any](ctx context.Context, ip string) context.Context {
+	ip = cleanClientIP(ip)
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
 	if !rc.ClientIPSet || rc.ClientIP != ip {
@@ -306,7 +311,9 @@ func WithClientIP[T comparable, U any](ctx context.Context, ip string) context.C
 // WithClientInfo adds the client IP address and user agent to the context in a
 // single initialization step. Routers should prefer this when both values are
 // available so the shared request context is resolved and locked only once.
+// The client IP is normalized using the same rules as WithClientIP.
 func WithClientInfo[T comparable, U any](ctx context.Context, ip, userAgent string) context.Context {
+	ip = cleanClientIP(ip)
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
 	if !rc.ClientIPSet || rc.ClientIP != ip {
@@ -323,6 +330,7 @@ func WithClientInfo[T comparable, U any](ctx context.Context, ip, userAgent stri
 // GetClientIP retrieves the client IP address from the context.
 // It returns the IP address and a boolean indicating whether it was found.
 // If no client IP is set, it returns an empty string and false.
+// IP socket addresses written through this package have their port removed.
 // T is the User ID type (comparable), U is the User object type (any).
 func GetClientIP[T comparable, U any](ctx context.Context) (string, bool) {
 	rc, ok := GetSRouterContext[T, U](ctx)
