@@ -307,7 +307,7 @@ func (r *Router[T, U]) warnMissingSanitizer(path string, methods []HttpMethod) {
 	for i, method := range methods {
 		methodNames[i] = string(method)
 	}
-	r.logger.Warn("Route registered without sanitizer function",
+	r.warnProcess("Route registered without sanitizer function",
 		zap.String(logkeys.Path, path),
 		zap.Strings(logkeys.Methods, methodNames),
 	)
