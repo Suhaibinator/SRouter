@@ -162,7 +162,7 @@ func NewRouter[T comparable, U any](config RouterConfig, dependencies RouterDepe
 		// credentials with a wildcard origin, so the credentials header will
 		// never be emitted for wildcard matches.
 		if config.CORSConfig.AllowCredentials && slices.Contains(config.CORSConfig.Origins, "*") {
-			r.logger.Warn("CORS config combines wildcard origin with AllowCredentials; " +
+			r.warnProcess("CORS config combines wildcard origin with AllowCredentials; " +
 				"credentials are never allowed for wildcard origins per the CORS spec. " +
 				"List explicit origins to enable credentials.")
 		}
@@ -785,6 +785,29 @@ func (r *Router[T, U]) withRuntimeIdentities(req *http.Request) *http.Request {
 	return req.WithContext(ctx)
 }
 
+// warnProcess logs a warning that belongs to no request, such as a startup or
+// route-registration diagnostic. It samples the configured runtime identities
+// at log time, after the level check, so these records carry the same build_id
+// and config_id as request logs. They have no trace or user correlation.
+func (r *Router[T, U]) warnProcess(msg string, fields ...zap.Field) {
+	ce := r.logger.Check(zapcore.WarnLevel, msg)
+	if ce == nil {
+		return
+	}
+	identities := make([]zap.Field, 0, 2+len(fields))
+	if provider := r.dependencies.BuildID; provider != nil {
+		if buildID := provider(); buildID != "" {
+			identities = append(identities, zap.String(logkeys.BuildID, buildID))
+		}
+	}
+	if provider := r.dependencies.ConfigID; provider != nil {
+		if configID := provider(); configID != "" {
+			identities = append(identities, zap.String(logkeys.ConfigID, configID))
+		}
+	}
+	ce.Write(append(identities, fields...)...)
+}
+
 // handleCORS applies CORS logic based on the router's configuration.
 // It checks the origin, sets appropriate headers, handles preflight requests,
 // and stores CORS information in the request context using the router's T and U types.
@@ -1119,7 +1142,7 @@ func normalizeAuthTokenConfig(config common.AuthTokenConfig) common.AuthTokenCon
 
 func (r *Router[T, U]) warnOnInvalidAuthTokenConfig(config common.AuthTokenConfig) {
 	if config.Source == common.AuthTokenSourceCookie && config.CookieName == "" {
-		r.logger.Warn("Auth token cookie name not configured")
+		r.warnProcess("Auth token cookie name not configured")
 	}
 }
 
@@ -1136,7 +1159,7 @@ func (r *Router[T, U]) warnOnBuiltinAuthTokenFallback(path string, methods []Htt
 		return
 	}
 
-	r.logger.Warn("Auth-required route using built-in default auth token source",
+	r.warnProcess("Auth-required route using built-in default auth token source",
 		zap.String(logkeys.Path, path),
 		zap.Strings(logkeys.Methods, routeMethodStrings(methods)),
 		zap.String(logkeys.AuthTokenSource, "header"),

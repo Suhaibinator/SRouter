@@ -41,7 +41,10 @@ unmatched 404/405 responses and all early returns also carry it.
 SRouter adds available runtime identities to its request summaries and
 request-bound authentication, rate-limit, timeout, panic recovery, handled
 HTTP error, lazy-build failure, and JSON-response write-failure logs. Startup
-and route-registration logs have no request context and remain unchanged.
+and route-registration warnings, such as a route without a sanitizer or an
+insecure CORS configuration, belong to no request: they sample the identity
+callbacks when the record is written and carry `build_id` and `config_id`, but
+no trace or user fields. The callbacks are skipped when `Warn` is disabled.
 
 Runtime identities are opaque, log-safe application values. SRouter samples
 them once per request and does not propagate them through headers. Background
