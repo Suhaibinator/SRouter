@@ -93,14 +93,12 @@ func TestGetCorrelationMatchesIndividualAccessors(t *testing.T) {
 // TestCorrelationDoesNotObserveLaterWrites pins the point-in-time semantics
 // the documentation promises.
 func TestCorrelationDoesNotObserveLaterWrites(t *testing.T) {
-	rc, ctx := EnsureSRouterContext[int, testUser](context.Background())
+	_, ctx := EnsureSRouterContext[int, testUser](context.Background())
 	ctx = WithBuildID[int, testUser](ctx, "build-1")
 
 	c, _ := GetCorrelation[int](ctx)
 
-	rc.mu.Lock()
-	rc.BuildID = "build-2"
-	rc.mu.Unlock()
+	WithBuildID[int, testUser](ctx, "build-2")
 
 	if c.BuildID != "build-1" {
 		t.Errorf("BuildID = %q after a later write, want the value read at call time", c.BuildID)
