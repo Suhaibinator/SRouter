@@ -16,7 +16,7 @@ func TestHandlerError(t *testing.T) {
 		// Test setting and getting handler error
 		ctx = WithHandlerError[int, string](ctx, testErr)
 
-		err, ok := GetHandlerError[int, string](ctx)
+		err, ok := GetHandlerError[int](ctx)
 		if !ok {
 			t.Error("Expected handler error to be set")
 		}
@@ -28,7 +28,7 @@ func TestHandlerError(t *testing.T) {
 	t.Run("GetHandlerError with no error set", func(t *testing.T) {
 		ctx := context.Background()
 
-		err, ok := GetHandlerError[int, string](ctx)
+		err, ok := GetHandlerError[int](ctx)
 		if ok {
 			t.Error("Expected no handler error to be found")
 		}
@@ -43,7 +43,7 @@ func TestHandlerError(t *testing.T) {
 		// Explicitly set nil error
 		ctx = WithHandlerError[int, string](ctx, nil)
 
-		err, ok := GetHandlerError[int, string](ctx)
+		err, ok := GetHandlerError[int](ctx)
 		if !ok {
 			t.Error("Expected handler error to be set (even if nil)")
 		}
@@ -60,7 +60,7 @@ func TestHandlerError(t *testing.T) {
 		ctx = WithHandlerError[int, string](ctx, err1)
 		ctx = WithHandlerError[int, string](ctx, err2)
 
-		err, ok := GetHandlerError[int, string](ctx)
+		err, ok := GetHandlerError[int](ctx)
 		if !ok {
 			t.Error("Expected handler error to be set")
 		}
@@ -77,13 +77,13 @@ func TestHandlerError(t *testing.T) {
 		ctx = WithHandlerError[string, any](ctx, testErr)
 
 		// Try to get with different type parameters - should not find it
-		_, ok := GetHandlerError[int, string](ctx)
+		_, ok := GetHandlerError[int](ctx)
 		if ok {
 			t.Error("Expected no error when using different type parameters")
 		}
 
 		// Get with correct type parameters
-		err, ok := GetHandlerError[string, any](ctx)
+		err, ok := GetHandlerError[string](ctx)
 		if !ok {
 			t.Error("Expected handler error to be found with correct type parameters")
 		}
@@ -101,7 +101,7 @@ func TestHandlerErrorInMiddleware(t *testing.T) {
 			next.ServeHTTP(w, r)
 
 			// After handler execution, check for errors
-			if err, ok := GetHandlerError[int, string](r.Context()); ok && err != nil {
+			if err, ok := GetHandlerError[int](r.Context()); ok && err != nil {
 				// In real middleware, you might rollback a transaction here
 				w.Header().Set("X-Handler-Error", err.Error())
 			}

@@ -39,7 +39,7 @@ func TestTraceResolution(t *testing.T) {
 			core, logs := observer.New(zap.DebugLevel)
 			config := &TraceIDConfig{Validator: tc.validator, ResponseHeader: "X-Canonical", Source: func(req *http.Request) (string, bool) {
 				calls++
-				if _, ok := scontext.GetLogger[string, string](req.Context()); !ok {
+				if _, ok := scontext.GetLogger[string](req.Context()); !ok {
 					t.Error("logger not initialized")
 				}
 				return tc.candidate, tc.present
@@ -48,8 +48,8 @@ func TestTraceResolution(t *testing.T) {
 			t.Cleanup(func() { _ = r.Shutdown(context.Background()) })
 			var got string
 			r.Route(RouteConfigBase{Path: "/", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) {
-				got = scontext.GetTraceID[string, string](req.Context())
-				logger, _ := scontext.GetLogger[string, string](req.Context())
+				got = scontext.GetTraceID[string](req.Context())
+				logger, _ := scontext.GetLogger[string](req.Context())
 				logger.Info("handler")
 				r.handleError(w, req, errors.New("test error"), http.StatusBadRequest, "bad request")
 			}})
@@ -57,7 +57,7 @@ func TestTraceResolution(t *testing.T) {
 			// Also exercise explicitly set empty IDs and previously cached loggers.
 			ctx := scontext.SetTraceID[string, string](req.Context(), tc.contextID)
 			ctx = scontext.WithRequestLogger[string, string](ctx, scontext.NewRequestLoggerSource[string](zap.New(core), nil))
-			_, _ = scontext.GetLogger[string, string](ctx)
+			_, _ = scontext.GetLogger[string](ctx)
 			req = req.WithContext(ctx)
 			req.Header.Set(traceid.HeaderXTraceID, "untouched-inbound")
 			rr := httptest.NewRecorder()
@@ -145,7 +145,7 @@ func TestTraceBoundaryOutcomes(t *testing.T) {
 				r := NewRouter(config, RouterDependencies[string, string]{})
 				defer func() { _ = r.Shutdown(context.Background()) }()
 				r.Route(RouteConfigBase{Path: "/", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) {
-					if id := scontext.GetTraceID[string, string](req.Context()); id == "" || id != w.Header().Get(traceid.HeaderXTraceID) {
+					if id := scontext.GetTraceID[string](req.Context()); id == "" || id != w.Header().Get(traceid.HeaderXTraceID) {
 						t.Error("handler missing trace")
 					}
 					w.WriteHeader(200)
@@ -218,7 +218,7 @@ func TestTraceDisabledPreservesContextWithoutResponse(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	r := NewRouter(RouterConfig{Logger: zap.New(core), EnableTraceLogging: true}, RouterDependencies[string, string]{})
 	r.Route(RouteConfigBase{Path: "/", Methods: []HttpMethod{MethodGet}, Handler: func(w http.ResponseWriter, req *http.Request) {
-		if got := scontext.GetTraceID[string, string](req.Context()); got != "existing" {
+		if got := scontext.GetTraceID[string](req.Context()); got != "existing" {
 			t.Errorf("context = %q", got)
 		}
 		r.handleError(w, req, errors.New("test"), 400, "bad request")

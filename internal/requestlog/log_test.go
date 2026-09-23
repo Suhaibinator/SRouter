@@ -54,7 +54,7 @@ func TestCheckUsesNormalizedContextIPOnly(t *testing.T) {
 			} else if got["client_ip"] != tc.wantIP {
 				t.Errorf("IP = %#v, want %q", got["client_ip"], tc.wantIP)
 			}
-			if ip, _ := scontext.GetClientIP[string, any](ctx); ip != tc.wantIP {
+			if ip, _ := scontext.GetClientIP[string](ctx); ip != tc.wantIP {
 				t.Errorf("stored client IP = %q, want %q", ip, tc.wantIP)
 			}
 			seen := map[string]bool{}
@@ -160,17 +160,17 @@ func TestCheckReusesCachedLoggerWithoutClientIP(t *testing.T) {
 	})
 	ctx := scontext.WithRequestLogger[string, any](context.Background(), source)
 	ctx = scontext.WithUserID[string, any](ctx, "user")
-	warmed, _ := scontext.GetLogger[string, any](ctx)
+	warmed, _ := scontext.GetLogger[string](ctx)
 	for range 5 {
 		if ce := Check[string, any](ctx, zapcore.InfoLevel, "event"); ce != nil {
 			ce.Write()
 		}
 	}
-	current, _ := scontext.GetLogger[string, any](ctx)
+	current, _ := scontext.GetLogger[string](ctx)
 	if encodes != 1 || current != warmed {
 		t.Fatalf("logging rederived cached fields: encodes=%d", encodes)
 	}
-	if _, ok := scontext.GetClientIP[string, any](ctx); ok {
+	if _, ok := scontext.GetClientIP[string](ctx); ok {
 		t.Fatal("logging installed a peer IP")
 	}
 	for _, entry := range logs.All() {

@@ -15,7 +15,7 @@ import (
 // event fields only after Check returns a nonnil entry, then call Write once.
 // Request metadata, including normalized client IP, must be installed at ingress.
 func Check[T comparable, U any](ctx context.Context, level zapcore.Level, message string) *zapcore.CheckedEntry {
-	logger, ok := scontext.GetLogger[T, U](ctx)
+	logger, ok := scontext.GetLogger[T](ctx)
 	if !ok || !logger.Core().Enabled(level) {
 		return nil
 	}

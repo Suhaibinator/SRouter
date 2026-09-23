@@ -14,7 +14,7 @@ func TestAuthenticationGeneric(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodOptions {
 			// Get the user ID from the context only for non-OPTIONS requests
-			userID, ok := scontext.GetUserID[string, any](r.Context()) // Use scontext
+			userID, ok := scontext.GetUserID[string](r.Context()) // Use scontext
 			if !ok {
 				t.Error("Expected user ID in context for non-OPTIONS request, but not found")
 			}
@@ -100,7 +100,7 @@ func TestAuthenticationWithProvider_OptionsBypass(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// For non-OPTIONS requests, check if user ID is in context
 		if r.Method != http.MethodOptions {
-			userID, ok := scontext.GetUserID[string, any](r.Context()) // Use scontext
+			userID, ok := scontext.GetUserID[string](r.Context()) // Use scontext
 			if !ok {
 				t.Error("Expected user ID in context for non-OPTIONS request, but not found")
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError) // Fail test

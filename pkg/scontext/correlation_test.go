@@ -15,7 +15,7 @@ func TestGetCorrelationReturnsEveryValue(t *testing.T) {
 	ctx = WithBuildID[int, testUser](ctx, "build-1")
 	ctx = WithConfigID[int, testUser](ctx, "config-1")
 
-	c, ok := GetCorrelation[int, testUser](ctx)
+	c, ok := GetCorrelation[int](ctx)
 	if !ok {
 		t.Fatal("GetCorrelation returned false, want true")
 	}
@@ -36,7 +36,7 @@ func TestGetCorrelationReturnsEveryValue(t *testing.T) {
 func TestGetCorrelationReportsUnsetValues(t *testing.T) {
 	ctx := WithTraceID[int, testUser](context.Background(), "trace-only")
 
-	c, ok := GetCorrelation[int, testUser](ctx)
+	c, ok := GetCorrelation[int](ctx)
 	if !ok {
 		t.Fatal("GetCorrelation returned false, want true")
 	}
@@ -57,7 +57,7 @@ func TestGetCorrelationDistinguishesSetEmptyValues(t *testing.T) {
 	ctx = WithConfigID[int, testUser](ctx, "")
 	ctx = WithUserID[int, testUser](ctx, 0)
 
-	c, ok := GetCorrelation[int, testUser](ctx)
+	c, ok := GetCorrelation[int](ctx)
 	if !ok {
 		t.Fatal("GetCorrelation returned false, want true")
 	}
@@ -69,22 +69,22 @@ func TestGetCorrelationDistinguishesSetEmptyValues(t *testing.T) {
 func TestGetCorrelationMatchesIndividualAccessors(t *testing.T) {
 	ctx := createFullSRouterContext()
 
-	c, ok := GetCorrelation[int, testUser](ctx)
+	c, ok := GetCorrelation[int](ctx)
 	if !ok {
 		t.Fatal("GetCorrelation returned false, want true")
 	}
-	if want := GetTraceID[int, testUser](ctx); c.TraceID != want {
+	if want := GetTraceID[int](ctx); c.TraceID != want {
 		t.Errorf("TraceID = %q, want %q", c.TraceID, want)
 	}
-	buildID, buildIDSet := GetBuildID[int, testUser](ctx)
+	buildID, buildIDSet := GetBuildID[int](ctx)
 	if c.BuildID != buildID || c.BuildIDSet != buildIDSet {
 		t.Errorf("BuildID = (%q, %v), want (%q, %v)", c.BuildID, c.BuildIDSet, buildID, buildIDSet)
 	}
-	configID, configIDSet := GetConfigID[int, testUser](ctx)
+	configID, configIDSet := GetConfigID[int](ctx)
 	if c.ConfigID != configID || c.ConfigIDSet != configIDSet {
 		t.Errorf("ConfigID = (%q, %v), want (%q, %v)", c.ConfigID, c.ConfigIDSet, configID, configIDSet)
 	}
-	userID, userIDSet := GetUserID[int, testUser](ctx)
+	userID, userIDSet := GetUserID[int](ctx)
 	if c.UserID != userID || c.UserIDSet != userIDSet {
 		t.Errorf("UserID = (%d, %v), want (%d, %v)", c.UserID, c.UserIDSet, userID, userIDSet)
 	}
@@ -96,7 +96,7 @@ func TestCorrelationDoesNotObserveLaterWrites(t *testing.T) {
 	rc, ctx := EnsureSRouterContext[int, testUser](context.Background())
 	ctx = WithBuildID[int, testUser](ctx, "build-1")
 
-	c, _ := GetCorrelation[int, testUser](ctx)
+	c, _ := GetCorrelation[int](ctx)
 
 	rc.mu.Lock()
 	rc.BuildID = "build-2"
@@ -108,7 +108,7 @@ func TestCorrelationDoesNotObserveLaterWrites(t *testing.T) {
 }
 
 func TestGetCorrelationWithoutSRouterContext(t *testing.T) {
-	c, ok := GetCorrelation[int, testUser](context.Background())
+	c, ok := GetCorrelation[int](context.Background())
 	if ok {
 		t.Fatal("GetCorrelation returned true, want false")
 	}
@@ -133,7 +133,7 @@ func TestGetCorrelationConcurrentWithWrites(t *testing.T) {
 		}(i)
 		go func() {
 			defer wg.Done()
-			GetCorrelation[int, testUser](ctx)
+			GetCorrelation[int](ctx)
 		}()
 	}
 	wg.Wait()
@@ -168,16 +168,16 @@ func BenchmarkCorrelation(b *testing.B) {
 		b.Run(fmt.Sprintf("individual/depth=%d", depth), func(b *testing.B) {
 			for b.Loop() {
 				fields := make([]zap.Field, 0, 4)
-				if traceID := GetTraceID[int, testUser](ctx); traceID != "" {
+				if traceID := GetTraceID[int](ctx); traceID != "" {
 					fields = append(fields, zap.String("trace_id", traceID))
 				}
-				if buildID, ok := GetBuildID[int, testUser](ctx); ok {
+				if buildID, ok := GetBuildID[int](ctx); ok {
 					fields = append(fields, zap.String("build_id", buildID))
 				}
-				if configID, ok := GetConfigID[int, testUser](ctx); ok {
+				if configID, ok := GetConfigID[int](ctx); ok {
 					fields = append(fields, zap.String("config_id", configID))
 				}
-				if userID, ok := GetUserID[int, testUser](ctx); ok {
+				if userID, ok := GetUserID[int](ctx); ok {
 					fields = append(fields, zap.Int("user_id", userID))
 				}
 				benchFields = fields
@@ -187,7 +187,7 @@ func BenchmarkCorrelation(b *testing.B) {
 		b.Run(fmt.Sprintf("correlation/depth=%d", depth), func(b *testing.B) {
 			for b.Loop() {
 				var fields []zap.Field
-				if c, ok := GetCorrelation[int, testUser](ctx); ok {
+				if c, ok := GetCorrelation[int](ctx); ok {
 					fields = make([]zap.Field, 0, 4)
 					if c.TraceIDSet {
 						fields = append(fields, zap.String("trace_id", c.TraceID))

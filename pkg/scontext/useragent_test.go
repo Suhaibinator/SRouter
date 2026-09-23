@@ -10,14 +10,14 @@ func TestUserAgentContext(t *testing.T) {
 	ctx := context.Background()
 
 	// Should not find a user agent in a new context
-	if ua, ok := GetUserAgent[string, any](ctx); ok || ua != "" {
+	if ua, ok := GetUserAgent[string](ctx); ok || ua != "" {
 		t.Errorf("expected empty user agent, got %q", ua)
 	}
 
 	expected := "TestAgent/1.0"
 	ctx = WithUserAgent[string, any](ctx, expected)
 
-	ua, ok := GetUserAgent[string, any](ctx)
+	ua, ok := GetUserAgent[string](ctx)
 	if !ok {
 		t.Errorf("expected user agent to be set")
 	}
@@ -37,10 +37,10 @@ func TestUserAgentContext(t *testing.T) {
 func TestWithClientInfo(t *testing.T) {
 	ctx := WithClientInfo[string, any](context.Background(), "192.0.2.1", "CombinedAgent/1.0")
 
-	if ip, ok := GetClientIP[string, any](ctx); !ok || ip != "192.0.2.1" {
+	if ip, ok := GetClientIP[string](ctx); !ok || ip != "192.0.2.1" {
 		t.Fatalf("GetClientIP = (%q, %v), want (%q, true)", ip, ok, "192.0.2.1")
 	}
-	if userAgent, ok := GetUserAgent[string, any](ctx); !ok || userAgent != "CombinedAgent/1.0" {
+	if userAgent, ok := GetUserAgent[string](ctx); !ok || userAgent != "CombinedAgent/1.0" {
 		t.Fatalf("GetUserAgent = (%q, %v), want (%q, true)", userAgent, ok, "CombinedAgent/1.0")
 	}
 }

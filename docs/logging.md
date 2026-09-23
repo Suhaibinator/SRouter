@@ -159,7 +159,7 @@ Retrieve and propagate it with the `pkg/scontext` helpers:
 
 ```go
 func callDownstream(r *http.Request) (*http.Response, error) {
-	traceID := scontext.GetTraceID[string, User](r.Context())
+	traceID := scontext.GetTraceID[string](r.Context())
 
 	req, err := http.NewRequestWithContext(
 		r.Context(),
@@ -177,7 +177,7 @@ func callDownstream(r *http.Request) (*http.Response, error) {
 }
 ```
 
-`scontext.GetTraceID[T, U]` provides the same value when only a `context.Context` is available.
+`scontext.GetTraceID[T]` provides the same value when only a `context.Context` is available.
 
 Request logs include a non-empty trace ID already stored in the SRouter context,
 even when automatic tracing is disabled. SRouter does not generate IDs solely
@@ -199,7 +199,7 @@ names and apply them with Zap's `Named` method:
 
 ```go
 func (h *AdminHandler) handle(ctx context.Context) {
-	logger, ok := scontext.GetLogger[UserID, User](ctx)
+	logger, ok := scontext.GetLogger[UserID](ctx)
 	if ok {
 		logger = logger.Named("common_service.admin")
 	} else {

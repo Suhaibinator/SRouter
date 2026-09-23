@@ -111,11 +111,11 @@ freeze at `Build` or the first request.
 ### Context Access
 Always use scontext package helpers for type-safe context access:
 ```go
-userID, ok := scontext.GetUserID[T, U](r.Context())
+userID, ok := scontext.GetUserID[T](r.Context())
 user, ok := scontext.GetUser[T, U](r.Context())  // Returns *U
 traceID := scontext.GetTraceIDFromContext[T, U](r.Context())
-handlerErr, ok := scontext.GetHandlerError[T, U](r.Context())  // For generic routes
-logger, ok := scontext.GetLogger[T, U](r.Context())  // Request-scoped *zap.Logger stamped with correlation
+handlerErr, ok := scontext.GetHandlerError[T](r.Context())  // For generic routes
+logger, ok := scontext.GetLogger[T](r.Context())  // Request-scoped *zap.Logger stamped with correlation
 ```
 
 ### Handler Error Context

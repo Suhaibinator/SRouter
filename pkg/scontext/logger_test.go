@@ -42,7 +42,7 @@ func fieldKeys(fields []zapcore.Field) []string {
 }
 
 func TestGetLoggerWithoutSRouterContext(t *testing.T) {
-	logger, ok := GetLogger[int, testUser](context.Background())
+	logger, ok := GetLogger[int](context.Background())
 	if ok {
 		t.Error("GetLogger returned true on a plain context, want false")
 	}
@@ -56,7 +56,7 @@ func TestGetLoggerWithoutSRouterContext(t *testing.T) {
 func TestGetLoggerWithoutBase(t *testing.T) {
 	_, ctx := EnsureSRouterContext[int, testUser](context.Background())
 
-	if logger, ok := GetLogger[int, testUser](ctx); ok || logger != nil {
+	if logger, ok := GetLogger[int](ctx); ok || logger != nil {
 		t.Fatalf("GetLogger = (%v, %v) before correlation writes, want (nil, false)", logger, ok)
 	}
 
@@ -65,7 +65,7 @@ func TestGetLoggerWithoutBase(t *testing.T) {
 	ctx = WithConfigID[int, testUser](ctx, "config-1")
 	ctx = WithUserID[int, testUser](ctx, 123)
 
-	if logger, ok := GetLogger[int, testUser](ctx); ok || logger != nil {
+	if logger, ok := GetLogger[int](ctx); ok || logger != nil {
 		t.Fatalf("GetLogger = (%v, %v) after correlation writes, want (nil, false)", logger, ok)
 	}
 }
@@ -75,7 +75,7 @@ func TestGetLoggerWithBaseAndNoCorrelation(t *testing.T) {
 	source := NewRequestLoggerSource[int](base, nil)
 	ctx := WithRequestLogger[int, testUser](context.Background(), source)
 
-	logger, ok := GetLogger[int, testUser](ctx)
+	logger, ok := GetLogger[int](ctx)
 	if !ok {
 		t.Fatal("GetLogger returned false with a base installed, want true")
 	}
@@ -88,7 +88,7 @@ func TestGetLoggerWithBaseAndNoCorrelation(t *testing.T) {
 	}
 	if allocs := testing.AllocsPerRun(1000, func() {
 		WithRequestLogger[int, testUser](ctx, source)
-		loggerSink, _ = GetLogger[int, testUser](ctx)
+		loggerSink, _ = GetLogger[int](ctx)
 	}); allocs != 0 {
 		t.Errorf("empty correlation derivation = %.1f allocs/op, want 0", allocs)
 	}
@@ -106,7 +106,7 @@ func TestGetLoggerStampsCorrelationInOrder(t *testing.T) {
 	base, logs := newObservedLogger()
 	ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 
-	previous, ok := GetLogger[int, testUser](ctx)
+	previous, ok := GetLogger[int](ctx)
 	if !ok {
 		t.Fatal("GetLogger returned false with a base installed, want true")
 	}
@@ -152,7 +152,7 @@ func TestGetLoggerStampsCorrelationInOrder(t *testing.T) {
 	for _, step := range steps {
 		ctx = step.write(ctx)
 
-		logger, ok := GetLogger[int, testUser](ctx)
+		logger, ok := GetLogger[int](ctx)
 		if !ok {
 			t.Fatalf("%s: GetLogger returned false, want true", step.name)
 		}
@@ -196,14 +196,14 @@ func TestGetLoggerTraceIDPreservedDoesNotRebuild(t *testing.T) {
 	ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 	ctx = WithTraceID[int, testUser](ctx, "trace-original")
 
-	first, ok := GetLogger[int, testUser](ctx)
+	first, ok := GetLogger[int](ctx)
 	if !ok {
 		t.Fatal("GetLogger returned false, want true")
 	}
 
 	ctx = WithTraceID[int, testUser](ctx, "trace-second")
 
-	second, ok := GetLogger[int, testUser](ctx)
+	second, ok := GetLogger[int](ctx)
 	if !ok {
 		t.Fatal("GetLogger returned false after the second trace ID write, want true")
 	}
@@ -226,7 +226,7 @@ func TestGetLoggerOmitsEmptyRequestStrings(t *testing.T) {
 	ctx = WithTraceID[int, testUser](ctx, "")
 	ctx = WithClientIP[int, testUser](ctx, "")
 
-	logger, ok := GetLogger[int, testUser](ctx)
+	logger, ok := GetLogger[int](ctx)
 	if !ok {
 		t.Fatal("GetLogger returned false, want true")
 	}
@@ -237,11 +237,11 @@ func TestGetLoggerOmitsEmptyRequestStrings(t *testing.T) {
 			t.Errorf("entry fields = %v, want %q omitted", fieldKeys(entry.Context), key)
 		}
 	}
-	correlation, _ := GetCorrelation[int, testUser](ctx)
+	correlation, _ := GetCorrelation[int](ctx)
 	if !correlation.TraceIDSet || correlation.TraceID != "" {
 		t.Errorf("correlation trace = (%q, %v), want (empty, true)", correlation.TraceID, correlation.TraceIDSet)
 	}
-	if ip, set := GetClientIP[int, testUser](ctx); !set || ip != "" {
+	if ip, set := GetClientIP[int](ctx); !set || ip != "" {
 		t.Errorf("client IP = (%q, %v), want (empty, true)", ip, set)
 	}
 }
@@ -249,10 +249,10 @@ func TestGetLoggerOmitsEmptyRequestStrings(t *testing.T) {
 func TestClientIPWritesInvalidateOnlyWhenLoggerFieldChanges(t *testing.T) {
 	base, logs := newObservedLogger()
 	ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
-	initial, _ := GetLogger[int, testUser](ctx)
+	initial, _ := GetLogger[int](ctx)
 
 	ctx = WithClientIP[int, testUser](ctx, "192.0.2.1")
-	withIP, _ := GetLogger[int, testUser](ctx)
+	withIP, _ := GetLogger[int](ctx)
 	if withIP == initial {
 		t.Fatal("setting client IP did not invalidate the cached logger")
 	}
@@ -261,13 +261,13 @@ func TestClientIPWritesInvalidateOnlyWhenLoggerFieldChanges(t *testing.T) {
 	}
 
 	ctx = WithClientIP[int, testUser](ctx, "192.0.2.1")
-	sameIP, _ := GetLogger[int, testUser](ctx)
+	sameIP, _ := GetLogger[int](ctx)
 	if sameIP != withIP {
 		t.Fatal("writing the same client IP rebuilt the cached logger")
 	}
 
 	ctx = WithClientInfo[int, testUser](ctx, "198.51.100.2", "agent-1")
-	updated, _ := GetLogger[int, testUser](ctx)
+	updated, _ := GetLogger[int](ctx)
 	if updated == sameIP {
 		t.Fatal("WithClientInfo client IP update did not invalidate the cached logger")
 	}
@@ -276,7 +276,7 @@ func TestClientIPWritesInvalidateOnlyWhenLoggerFieldChanges(t *testing.T) {
 	}
 
 	ctx = WithClientInfo[int, testUser](ctx, "198.51.100.2", "agent-2")
-	userAgentOnly, _ := GetLogger[int, testUser](ctx)
+	userAgentOnly, _ := GetLogger[int](ctx)
 	if userAgentOnly != updated {
 		t.Fatal("user-agent-only update rebuilt the cached logger")
 	}
@@ -290,7 +290,7 @@ func TestGetLoggerUsesUserIDField(t *testing.T) {
 	ctx := WithRequestLogger[uint64, testUser](context.Background(), NewRequestLoggerSource(base, userIDField))
 	ctx = WithUserID[uint64, testUser](ctx, 42)
 
-	logger, ok := GetLogger[uint64, testUser](ctx)
+	logger, ok := GetLogger[uint64](ctx)
 	if !ok {
 		t.Fatal("GetLogger returned false, want true")
 	}
@@ -311,7 +311,7 @@ func TestGetLoggerUserIDDefaultUint64(t *testing.T) {
 	ctx := WithRequestLogger[uint64, testUser](context.Background(), NewRequestLoggerSource[uint64](base, nil))
 	ctx = WithUserID[uint64, testUser](ctx, 42)
 
-	logger, ok := GetLogger[uint64, testUser](ctx)
+	logger, ok := GetLogger[uint64](ctx)
 	if !ok {
 		t.Fatal("GetLogger returned false, want true")
 	}
@@ -329,7 +329,7 @@ func TestGetLoggerUserIDDefaultString(t *testing.T) {
 	ctx := WithRequestLogger[string, testUser](context.Background(), NewRequestLoggerSource[string](base, nil))
 	ctx = WithUserID[string, testUser](ctx, "user-42")
 
-	logger, ok := GetLogger[string, testUser](ctx)
+	logger, ok := GetLogger[string](ctx)
 	if !ok {
 		t.Fatal("GetLogger returned false, want true")
 	}
@@ -347,13 +347,13 @@ func TestWithRequestLoggerNilRemovesLogger(t *testing.T) {
 	ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 	ctx = WithTraceID[int, testUser](ctx, "trace-1")
 
-	if _, ok := GetLogger[int, testUser](ctx); !ok {
+	if _, ok := GetLogger[int](ctx); !ok {
 		t.Fatal("GetLogger returned false with a base installed, want true")
 	}
 
 	ctx = WithRequestLogger[int, testUser](ctx, nil)
 
-	logger, ok := GetLogger[int, testUser](ctx)
+	logger, ok := GetLogger[int](ctx)
 	if ok || logger != nil {
 		t.Fatalf("GetLogger = (%v, %v) after removal, want (nil, false)", logger, ok)
 	}
@@ -372,7 +372,7 @@ func TestGetLoggerConcurrentWithWrites(t *testing.T) {
 	for range 8 {
 		readers.Go(func() {
 			for range 200 {
-				logger, ok := GetLogger[int, testUser](ctx)
+				logger, ok := GetLogger[int](ctx)
 				if !ok || logger == nil {
 					t.Errorf("GetLogger = (%v, %v) during concurrent writes, want a logger", logger, ok)
 					return
@@ -410,7 +410,7 @@ func TestCopySRouterContextPreservesLogger(t *testing.T) {
 
 	dst := CopySRouterContext[int, testUser](context.Background(), src)
 
-	logger, ok := GetLogger[int, testUser](dst)
+	logger, ok := GetLogger[int](dst)
 	if !ok {
 		t.Fatal("GetLogger on the copy returned false, want true")
 	}
@@ -436,7 +436,7 @@ func benchLoggerContext() context.Context {
 	ctx = WithConfigID[uint64, testUser](ctx, "config-1")
 	ctx = WithClientIP[uint64, testUser](ctx, "192.0.2.1")
 	ctx = WithUserID[uint64, testUser](ctx, 123)
-	loggerSink, _ = GetLogger[uint64, testUser](ctx)
+	loggerSink, _ = GetLogger[uint64](ctx)
 	return ctx
 }
 
@@ -449,7 +449,7 @@ func TestGetLoggerFastPathAllocs(t *testing.T) {
 	}
 
 	allocs := testing.AllocsPerRun(1000, func() {
-		loggerSink, _ = GetLogger[uint64, testUser](ctx)
+		loggerSink, _ = GetLogger[uint64](ctx)
 	})
 	if allocs != 0 {
 		t.Errorf("GetLogger fast path = %.1f allocs/op, want 0", allocs)
@@ -463,6 +463,6 @@ func BenchmarkGetLoggerFastPath(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		loggerSink, _ = GetLogger[uint64, testUser](ctx)
+		loggerSink, _ = GetLogger[uint64](ctx)
 	}
 }
