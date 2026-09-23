@@ -86,7 +86,7 @@ func TestRequestLoggerCarriesCorrelationOnAuthRequiredRoute(t *testing.T) {
 		AuthLevel: &authLevel,
 		Handler: func(w http.ResponseWriter, req *http.Request) {
 			handlerRan = true
-			logger, ok := scontext.GetLogger[uint64](req.Context())
+			logger, ok := scontext.GetLogger(req.Context())
 			if !ok || logger == nil {
 				t.Errorf("GetLogger = (%v, %v), want a non-nil logger", logger, ok)
 				return
@@ -188,7 +188,7 @@ func TestRequestLoggerOmitsUserIDOnAuthOptionalWithoutToken(t *testing.T) {
 		AuthLevel: &authLevel,
 		Handler: func(w http.ResponseWriter, req *http.Request) {
 			handlerRan = true
-			logger, ok := scontext.GetLogger[uint64](req.Context())
+			logger, ok := scontext.GetLogger(req.Context())
 			if !ok || logger == nil {
 				t.Errorf("GetLogger = (%v, %v), want a non-nil logger", logger, ok)
 				return
@@ -245,7 +245,7 @@ func TestRequestLoggerFallsBackToDefaultLoggerWhenConfigLoggerNil(t *testing.T) 
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
 			handlerRan = true
-			logger, ok := scontext.GetLogger[string](req.Context())
+			logger, ok := scontext.GetLogger(req.Context())
 			if !ok {
 				t.Error("GetLogger reported no request logger, want one derived from the fallback logger")
 				return
@@ -313,7 +313,7 @@ func TestRequestLoggerUserIDFieldDefaultString(t *testing.T) {
 		AuthLevel: &authLevel,
 		Handler: func(w http.ResponseWriter, req *http.Request) {
 			handlerRan = true
-			logger, ok := scontext.GetLogger[string](req.Context())
+			logger, ok := scontext.GetLogger(req.Context())
 			if !ok || logger == nil {
 				t.Errorf("GetLogger = (%v, %v), want a non-nil logger", logger, ok)
 				return
@@ -371,7 +371,7 @@ func TestRequestLoggerNamedServicesAndNamedUserID(t *testing.T) {
 		Methods:   []HttpMethod{MethodGet},
 		AuthLevel: &auth,
 		Handler: func(w http.ResponseWriter, req *http.Request) {
-			logger, ok := scontext.GetLogger[userID](req.Context())
+			logger, ok := scontext.GetLogger(req.Context())
 			if !ok {
 				t.Error("missing request logger")
 				return

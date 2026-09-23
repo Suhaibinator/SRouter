@@ -73,14 +73,14 @@ func TestGetCorrelationMatchesIndividualAccessors(t *testing.T) {
 	if !ok {
 		t.Fatal("GetCorrelation returned false, want true")
 	}
-	if want := GetTraceID[int](ctx); c.TraceID != want {
+	if want := GetTraceID(ctx); c.TraceID != want {
 		t.Errorf("TraceID = %q, want %q", c.TraceID, want)
 	}
-	buildID, buildIDSet := GetBuildID[int](ctx)
+	buildID, buildIDSet := GetBuildID(ctx)
 	if c.BuildID != buildID || c.BuildIDSet != buildIDSet {
 		t.Errorf("BuildID = (%q, %v), want (%q, %v)", c.BuildID, c.BuildIDSet, buildID, buildIDSet)
 	}
-	configID, configIDSet := GetConfigID[int](ctx)
+	configID, configIDSet := GetConfigID(ctx)
 	if c.ConfigID != configID || c.ConfigIDSet != configIDSet {
 		t.Errorf("ConfigID = (%q, %v), want (%q, %v)", c.ConfigID, c.ConfigIDSet, configID, configIDSet)
 	}
@@ -166,13 +166,13 @@ func BenchmarkCorrelation(b *testing.B) {
 		b.Run(fmt.Sprintf("individual/depth=%d", depth), func(b *testing.B) {
 			for b.Loop() {
 				fields := make([]zap.Field, 0, 4)
-				if traceID := GetTraceID[int](ctx); traceID != "" {
+				if traceID := GetTraceID(ctx); traceID != "" {
 					fields = append(fields, zap.String("trace_id", traceID))
 				}
-				if buildID, ok := GetBuildID[int](ctx); ok {
+				if buildID, ok := GetBuildID(ctx); ok {
 					fields = append(fields, zap.String("build_id", buildID))
 				}
-				if configID, ok := GetConfigID[int](ctx); ok {
+				if configID, ok := GetConfigID(ctx); ok {
 					fields = append(fields, zap.String("config_id", configID))
 				}
 				if userID, ok := GetUserID[int](ctx); ok {

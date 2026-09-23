@@ -51,8 +51,8 @@ func TestRuntimeIdentityProvidersSampleOncePerRequest(t *testing.T) {
 		Path:    "/identities",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
-			gotBuildID, _ := scontext.GetBuildID[string](req.Context())
-			gotConfigID, _ := scontext.GetConfigID[string](req.Context())
+			gotBuildID, _ := scontext.GetBuildID(req.Context())
+			gotConfigID, _ := scontext.GetConfigID(req.Context())
 			seen = append(seen, [2]string{gotBuildID, gotConfigID})
 			w.WriteHeader(http.StatusNoContent)
 		},
@@ -87,8 +87,8 @@ func TestRuntimeIdentityProvidersReplaceOnlyNonEmptyValues(t *testing.T) {
 		Path:    "/identities",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
-			buildID, buildOK := scontext.GetBuildID[string](req.Context())
-			configID, configOK := scontext.GetConfigID[string](req.Context())
+			buildID, buildOK := scontext.GetBuildID(req.Context())
+			configID, configOK := scontext.GetConfigID(req.Context())
 			if !buildOK || buildID != "local-build" {
 				t.Errorf("build identity = (%q, %v)", buildID, buildOK)
 			}
@@ -117,10 +117,10 @@ func TestRuntimeIdentityProvidersLeaveAbsentValuesUnset(t *testing.T) {
 		Path:    "/identities",
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
-			if buildID, ok := scontext.GetBuildID[string](req.Context()); ok || buildID != "" {
+			if buildID, ok := scontext.GetBuildID(req.Context()); ok || buildID != "" {
 				t.Errorf("build identity = (%q, %v), want absent", buildID, ok)
 			}
-			if configID, ok := scontext.GetConfigID[string](req.Context()); ok || configID != "" {
+			if configID, ok := scontext.GetConfigID(req.Context()); ok || configID != "" {
 				t.Errorf("config identity = (%q, %v), want absent", configID, ok)
 			}
 			w.WriteHeader(http.StatusNoContent)

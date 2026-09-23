@@ -102,7 +102,7 @@ func TestRequestLoggerSourceReuseAndDisabledSources(t *testing.T) {
 	second := WithRequestLogger[namedUintID, testUser](context.Background(), source)
 	second = WithUserID[namedUintID, testUser](second, 2000)
 	for i, ctx := range []context.Context{first, second, first} {
-		logger, ok := GetLogger[namedUintID](ctx)
+		logger, ok := GetLogger(ctx)
 		if !ok {
 			t.Fatal("source did not install a logger")
 		}
@@ -113,7 +113,7 @@ func TestRequestLoggerSourceReuseAndDisabledSources(t *testing.T) {
 	}
 	for _, disabled := range []*RequestLoggerSource[namedUintID]{nil, {}, NewRequestLoggerSource[namedUintID](nil, nil)} {
 		first = WithRequestLogger[namedUintID, testUser](first, disabled)
-		if logger, ok := GetLogger[namedUintID](first); ok || logger != nil {
+		if logger, ok := GetLogger(first); ok || logger != nil {
 			t.Fatalf("disabled source produced (%v, %v)", logger, ok)
 		}
 	}
@@ -142,7 +142,7 @@ func TestGetLoggerDerivationCanReadContext(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				if _, ok := GetLogger[int](ctx); !ok {
+				if _, ok := GetLogger(ctx); !ok {
 					t.Error("no logger")
 				}
 			}()
@@ -167,7 +167,7 @@ func TestGetLoggerPanicDoesNotPublishStaleLogger(t *testing.T) {
 	})
 	ctx := WithRequestLogger[int, testUser](context.Background(), source)
 	ctx = WithUserID[int, testUser](ctx, 1)
-	previous, _ := GetLogger[int](ctx)
+	previous, _ := GetLogger(ctx)
 	ctx = WithUserID[int, testUser](ctx, 2)
 	func() {
 		defer func() {
@@ -175,9 +175,9 @@ func TestGetLoggerPanicDoesNotPublishStaleLogger(t *testing.T) {
 				t.Error("expected formatter panic")
 			}
 		}()
-		GetLogger[int](ctx)
+		GetLogger(ctx)
 	}()
-	current, ok := GetLogger[int](ctx)
+	current, ok := GetLogger(ctx)
 	if !ok || current == previous {
 		t.Fatal("failed derivation marked the old logger current")
 	}
@@ -204,7 +204,7 @@ func TestGetLoggerDiscardsDerivationAfterConcurrentWrite(t *testing.T) {
 			ctx = WithUserID[int, testUser](ctx, 1)
 			result := make(chan *zap.Logger, 1)
 			go func() {
-				logger, _ := GetLogger[int](ctx)
+				logger, _ := GetLogger(ctx)
 				result <- logger
 			}()
 			<-started
@@ -220,7 +220,7 @@ func TestGetLoggerDiscardsDerivationAfterConcurrentWrite(t *testing.T) {
 				case "remove source":
 					WithRequestLogger[int, testUser](ctx, nil)
 				}
-				logger, _ := GetLogger[int](ctx)
+				logger, _ := GetLogger(ctx)
 				updated <- logger
 			}()
 			var current *zap.Logger
@@ -258,17 +258,17 @@ func TestCopySRouterContextCachedLoggerIsIndependent(t *testing.T) {
 	src := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 	src = WithUserID[int, testUser](src, 1)
 	src = WithClientIP[int, testUser](src, "192.0.2.1")
-	original, _ := GetLogger[int](src)
+	original, _ := GetLogger(src)
 	dst := CopySRouterContext[int, testUser](context.Background(), src)
-	copied, _ := GetLogger[int](dst)
+	copied, _ := GetLogger(dst)
 	if copied != original {
 		t.Fatal("copy did not retain immutable cached logger")
 	}
 	WithUserID[int, testUser](src, 2)
 	WithClientIP[int, testUser](src, "198.51.100.2")
 	WithRequestLogger[int, testUser](dst, NewRequestLoggerSource[int](base.Named("copy"), nil))
-	current, _ := GetLogger[int](src)
-	copied, _ = GetLogger[int](dst)
+	current, _ := GetLogger(src)
+	copied, _ = GetLogger(dst)
 	entry := logAndTake(t, current, logs, "source")
 	if entry.LoggerName != "" || entry.ContextMap()[logkeys.UserID] != int64(2) || entry.ContextMap()[logkeys.ClientIP] != "198.51.100.2" {
 		t.Fatalf("source changed with copy: %#v", entry)
@@ -286,7 +286,7 @@ func TestNamedRequestLoggersShareCoreAndPreserveApplicationName(t *testing.T) {
 	ctx = WithTraceID[int, testUser](ctx, "trace-1")
 	ctx = WithClientIP[int, testUser](ctx, "192.0.2.1")
 	ctx = WithUserID[int, testUser](ctx, 42)
-	request, _ := GetLogger[int](ctx)
+	request, _ := GetLogger(ctx)
 	admin := request.Named("common_service.admin")
 	permissions := request.Named("common_service.permission")
 	if admin.Core() != request.Core() || permissions.Core() != request.Core() {
@@ -306,7 +306,7 @@ func TestNamedRequestLoggersShareCoreAndPreserveApplicationName(t *testing.T) {
 	}
 	WithUserID[int, testUser](ctx, 43)
 	WithClientIP[int, testUser](ctx, "198.51.100.2")
-	latest, _ := GetLogger[int](ctx)
+	latest, _ := GetLogger(ctx)
 	oldFields := logAndTake(t, admin, logs, "old child").ContextMap()
 	if oldFields[logkeys.UserID] != int64(42) || oldFields[logkeys.ClientIP] != "192.0.2.1" {
 		t.Fatalf("named snapshot changed: %v", oldFields)
@@ -331,9 +331,9 @@ func TestGetLoggerDefersFormattingUntilRead(t *testing.T) {
 	if calls != 0 {
 		t.Fatal("correlation writes invoked formatter before logging")
 	}
-	first, _ := GetLogger[int](ctx)
+	first, _ := GetLogger(ctx)
 	WithUserAgent[int, testUser](ctx, "agent")
-	second, _ := GetLogger[int](ctx)
+	second, _ := GetLogger(ctx)
 	if calls != 1 || first != second {
 		t.Fatal("cached read or unrelated write caused another derivation")
 	}
@@ -352,7 +352,7 @@ func TestGetLoggerConcurrentFirstReadersSharePublishedLogger(t *testing.T) {
 	results := make(chan *zap.Logger, readers)
 	for range readers {
 		go func() {
-			logger, _ := GetLogger[int](ctx)
+			logger, _ := GetLogger(ctx)
 			results <- logger
 		}()
 	}
@@ -392,7 +392,7 @@ func TestGetLoggerStopsRetryingUnderSustainedWrites(t *testing.T) {
 	ctx = WithRequestLogger[int, testUser](context.Background(), source)
 	ctx = WithUserID[int, testUser](ctx, 7)
 
-	logger, ok := GetLogger[int](ctx)
+	logger, ok := GetLogger(ctx)
 	if !ok || logger == nil {
 		t.Fatal("no logger returned under sustained writes")
 	}
@@ -412,11 +412,11 @@ func TestGetLoggerStopsRetryingUnderSustainedWrites(t *testing.T) {
 	// The uncached result left the cache invalid. Once the writer stops, one
 	// more derivation publishes and later calls hit the cache.
 	hostile = false
-	published, _ := GetLogger[int](ctx)
+	published, _ := GetLogger(ctx)
 	if derivations != maxLoggerDerivations+1 {
 		t.Fatalf("derivations after writer stopped = %d, want %d", derivations, maxLoggerDerivations+1)
 	}
-	if again, _ := GetLogger[int](ctx); again != published {
+	if again, _ := GetLogger(ctx); again != published {
 		t.Fatal("logger was not cached after the writer stopped")
 	}
 	entry = logAndTake(t, published, logs, "after contention")

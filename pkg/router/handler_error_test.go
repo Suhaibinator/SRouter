@@ -42,7 +42,7 @@ func TestGenericRouteHandlerError(t *testing.T) {
 
 			// Check if handler set an error
 			middlewareExecuted = true
-			middlewareSawError, _ = scontext.GetHandlerError[int](r.Context())
+			middlewareSawError, _ = scontext.GetHandlerError(r.Context())
 		})
 	}
 	newTestRouter := func(route RouteConfig[TestRequest, TestResponse]) *Router[int, any] {
@@ -201,7 +201,7 @@ func TestHandlerErrorWithMultipleMiddleware(t *testing.T) {
 				next.ServeHTTP(w, r)
 
 				executionOrder = append(executionOrder, name+"-after")
-				if err, ok := scontext.GetHandlerError[int](r.Context()); ok {
+				if err, ok := scontext.GetHandlerError(r.Context()); ok {
 					errorsSeen = append(errorsSeen, err)
 				}
 			})

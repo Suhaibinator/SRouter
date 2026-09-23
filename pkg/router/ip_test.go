@@ -131,7 +131,7 @@ func TestClientIPSelectionAndNormalization(t *testing.T) {
 			req.RemoteAddr = tc.remoteAddr
 
 			handler := ClientIPMiddleware[string, any](tc.config)(http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
-				ip, _ := scontext.GetClientIP[string](req.Context())
+				ip, _ := scontext.GetClientIP(req.Context())
 				if ip != tc.expectedIP {
 					t.Errorf("Expected IP %q, got %q", tc.expectedIP, ip)
 				}
@@ -149,7 +149,7 @@ func TestClientIPRetrieval(t *testing.T) {
 	ctx := scontext.WithClientIP[string, any](req.Context(), expectedIP)
 	req = req.WithContext(ctx)
 
-	ip, ok := scontext.GetClientIP[string](req.Context())
+	ip, ok := scontext.GetClientIP(req.Context())
 	if !ok {
 		t.Errorf("Expected to find IP in context, but ok was false")
 	}
@@ -159,7 +159,7 @@ func TestClientIPRetrieval(t *testing.T) {
 
 	// Test getting IP when it's not set
 	req = httptest.NewRequest("GET", "/test", nil) // Fresh request without IP in context
-	ip, ok = scontext.GetClientIP[string](req.Context())
+	ip, ok = scontext.GetClientIP(req.Context())
 	if ok {
 		t.Errorf("Expected not to find IP in context, but ok was true")
 	}

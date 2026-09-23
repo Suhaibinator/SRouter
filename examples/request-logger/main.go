@@ -35,7 +35,7 @@ func newAdminHandler(appLogger *zap.Logger) *adminHandler {
 }
 
 func (h *adminHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	logger, ok := scontext.GetLogger[userID](req.Context())
+	logger, ok := scontext.GetLogger(req.Context())
 	if ok {
 		logger = logger.Named(adminName)
 	} else {

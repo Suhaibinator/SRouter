@@ -80,9 +80,8 @@ func WithRequestLogger[T comparable, U any](ctx context.Context, source *Request
 //
 // The returned logger is an immutable snapshot. A later correlation write is
 // visible only through another GetLogger call, including for named children.
-// T is the user ID type.
-func GetLogger[T comparable](ctx context.Context) (*zap.Logger, bool) {
-	r, ok := getReader[T](ctx)
+func GetLogger(ctx context.Context) (*zap.Logger, bool) {
+	r, ok := getReader(ctx)
 	if !ok {
 		return nil, false
 	}

@@ -114,9 +114,9 @@ Always use scontext package helpers for type-safe context access:
 ```go
 userID, ok := scontext.GetUserID[T](r.Context())
 user, ok := scontext.GetUser[T, U](r.Context())  // Returns *U
-traceID := scontext.GetTraceIDFromContext[T, U](r.Context())
-handlerErr, ok := scontext.GetHandlerError[T](r.Context())  // For generic routes
-logger, ok := scontext.GetLogger[T](r.Context())  // Request-scoped *zap.Logger stamped with client_ip and correlation
+traceID := scontext.GetTraceID(r.Context())
+handlerErr, ok := scontext.GetHandlerError(r.Context())  // For generic routes
+logger, ok := scontext.GetLogger(r.Context())  // Request-scoped *zap.Logger stamped with client_ip and correlation
 ```
 
 ### Handler Error Context

@@ -19,25 +19,25 @@ func TestGettersWithoutSRouterContext(t *testing.T) {
 	if user, ok := GetUser[string, any](ctx); ok || user != nil {
 		t.Errorf("GetUser = (%v, %v), want (nil, false)", user, ok)
 	}
-	if buildID, ok := GetBuildID[string](ctx); ok || buildID != "" {
+	if buildID, ok := GetBuildID(ctx); ok || buildID != "" {
 		t.Errorf("GetBuildID = (%q, %v), want (empty, false)", buildID, ok)
 	}
-	if configID, ok := GetConfigID[string](ctx); ok || configID != "" {
+	if configID, ok := GetConfigID(ctx); ok || configID != "" {
 		t.Errorf("GetConfigID = (%q, %v), want (empty, false)", configID, ok)
 	}
-	if value, exists := GetFlag[string](ctx, "feature"); exists || value {
+	if value, exists := GetFlag(ctx, "feature"); exists || value {
 		t.Errorf("GetFlag = (%v, %v), want (false, false)", value, exists)
 	}
-	if ip, ok := GetClientIP[string](ctx); ok || ip != "" {
+	if ip, ok := GetClientIP(ctx); ok || ip != "" {
 		t.Errorf("GetClientIP = (%q, %v), want (\"\", false)", ip, ok)
 	}
-	if ua, ok := GetUserAgent[string](ctx); ok || ua != "" {
+	if ua, ok := GetUserAgent(ctx); ok || ua != "" {
 		t.Errorf("GetUserAgent = (%q, %v), want (\"\", false)", ua, ok)
 	}
-	if tx, ok := GetTransaction[string](ctx); ok || tx != nil {
+	if tx, ok := GetTransaction(ctx); ok || tx != nil {
 		t.Errorf("GetTransaction = (%v, %v), want (nil, false)", tx, ok)
 	}
-	if traceID := GetTraceID[string](ctx); traceID != "" {
+	if traceID := GetTraceID(ctx); traceID != "" {
 		t.Errorf("GetTraceID = %q, want \"\"", traceID)
 	}
 	if tmpl, ok := GetRouteTemplate(ctx); ok || tmpl != "" {
@@ -46,13 +46,13 @@ func TestGettersWithoutSRouterContext(t *testing.T) {
 	if params, ok := GetPathParams(ctx); ok || params != nil {
 		t.Errorf("GetPathParams = (%v, %v), want (nil, false)", params, ok)
 	}
-	if origin, creds, ok := GetCORSInfo[string](ctx); ok || origin != "" || creds {
+	if origin, creds, ok := GetCORSInfo(ctx); ok || origin != "" || creds {
 		t.Errorf("GetCORSInfo = (%q, %v, %v), want (\"\", false, false)", origin, creds, ok)
 	}
-	if hdrs, ok := GetCORSRequestedHeaders[string](ctx); ok || hdrs != "" {
+	if hdrs, ok := GetCORSRequestedHeaders(ctx); ok || hdrs != "" {
 		t.Errorf("GetCORSRequestedHeaders = (%q, %v), want (\"\", false)", hdrs, ok)
 	}
-	if err, ok := GetHandlerError[string](ctx); ok || err != nil {
+	if err, ok := GetHandlerError(ctx); ok || err != nil {
 		t.Errorf("GetHandlerError = (%v, %v), want (nil, false)", err, ok)
 	}
 }
@@ -66,19 +66,19 @@ func TestGettersWithSRouterContextButUnsetValues(t *testing.T) {
 	if id, ok := GetUserID[string](ctx); ok || id != "" {
 		t.Errorf("GetUserID = (%q, %v), want (\"\", false)", id, ok)
 	}
-	if buildID, ok := GetBuildID[string](ctx); ok || buildID != "" {
+	if buildID, ok := GetBuildID(ctx); ok || buildID != "" {
 		t.Errorf("GetBuildID = (%q, %v), want (empty, false)", buildID, ok)
 	}
-	if configID, ok := GetConfigID[string](ctx); ok || configID != "" {
+	if configID, ok := GetConfigID(ctx); ok || configID != "" {
 		t.Errorf("GetConfigID = (%q, %v), want (empty, false)", configID, ok)
 	}
-	if value, exists := GetFlag[string](ctx, "feature"); exists || value {
+	if value, exists := GetFlag(ctx, "feature"); exists || value {
 		t.Errorf("GetFlag = (%v, %v), want (false, false)", value, exists)
 	}
-	if traceID := GetTraceID[string](ctx); traceID != "" {
+	if traceID := GetTraceID(ctx); traceID != "" {
 		t.Errorf("GetTraceID = %q, want \"\"", traceID)
 	}
-	if origin, creds, ok := GetCORSInfo[string](ctx); ok || origin != "" || creds {
+	if origin, creds, ok := GetCORSInfo(ctx); ok || origin != "" || creds {
 		t.Errorf("GetCORSInfo = (%q, %v, %v), want (\"\", false, false)", origin, creds, ok)
 	}
 }

@@ -10,10 +10,10 @@ func TestRuntimeIdentityHelpers(t *testing.T) {
 	ctx = WithBuildID[string, testUser](ctx, "build-1")
 	ctx = WithConfigID[string, testUser](ctx, "config-1")
 
-	if buildID, ok := GetBuildID[string](ctx); !ok || buildID != "build-1" {
+	if buildID, ok := GetBuildID(ctx); !ok || buildID != "build-1" {
 		t.Fatalf("GetBuildID = (%q, %v), want (build-1, true)", buildID, ok)
 	}
-	if configID, ok := GetConfigID[string](ctx); !ok || configID != "config-1" {
+	if configID, ok := GetConfigID(ctx); !ok || configID != "config-1" {
 		t.Fatalf("GetConfigID = (%q, %v), want (config-1, true)", configID, ok)
 	}
 }
@@ -22,10 +22,10 @@ func TestRuntimeIdentityHelpersDistinguishSetEmptyValues(t *testing.T) {
 	ctx := WithBuildID[string, testUser](context.Background(), "")
 	ctx = WithConfigID[string, testUser](ctx, "")
 
-	if buildID, ok := GetBuildID[string](ctx); !ok || buildID != "" {
+	if buildID, ok := GetBuildID(ctx); !ok || buildID != "" {
 		t.Fatalf("GetBuildID = (%q, %v), want (empty, true)", buildID, ok)
 	}
-	if configID, ok := GetConfigID[string](ctx); !ok || configID != "" {
+	if configID, ok := GetConfigID(ctx); !ok || configID != "" {
 		t.Fatalf("GetConfigID = (%q, %v), want (empty, true)", configID, ok)
 	}
 }
