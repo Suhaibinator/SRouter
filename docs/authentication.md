@@ -111,7 +111,7 @@ during deployment.
 Use the typed context helpers:
 
 ```go
-userID, authenticated := scontext.GetUserID[string, User](req.Context())
+userID, authenticated := scontext.GetUserID[string](req.Context())
 user, userStored := scontext.GetUser[string, User](req.Context())
 ```
 

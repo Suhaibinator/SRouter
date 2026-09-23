@@ -1394,7 +1394,7 @@ func TestAuthRequiredMiddleware_OptionsRequireAuth(t *testing.T) {
 	// Simple handler that checks for user ID if not OPTIONS
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodOptions {
-			userID, ok := scontext.GetUserID[string, string](req.Context()) // Use scontext
+			userID, ok := scontext.GetUserID[string](req.Context()) // Use scontext
 			if !ok {
 				t.Error("Expected user ID in context for non-OPTIONS request")
 				return // Return immediately after reporting the test error
@@ -1478,7 +1478,7 @@ func TestAuthOptionalMiddleware_OptionsBypass(t *testing.T) {
 	// Simple handler that checks for user ID if present (and method is not OPTIONS)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodOptions {
-			userID, ok := scontext.GetUserID[string, string](req.Context()) // Use scontext
+			userID, ok := scontext.GetUserID[string](req.Context()) // Use scontext
 			authHeader := req.Header.Get("Authorization")
 			token := strings.TrimPrefix(authHeader, "Bearer ")
 
@@ -1760,7 +1760,7 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
 			// ServeHTTP resolves one ID for the context, response, and summary.
-			assert.Equal(scontext.GetTraceID[string, string](req.Context()), w.Header().Get("X-Trace-ID"))
+			assert.Equal(scontext.GetTraceID[string](req.Context()), w.Header().Get("X-Trace-ID"))
 
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("pong"))

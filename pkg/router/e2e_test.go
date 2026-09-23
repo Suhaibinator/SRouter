@@ -102,7 +102,7 @@ func TestE2EFullStackAPI(t *testing.T) {
 			Methods:   []HttpMethod{MethodGet},
 			AuthLevel: new(AuthRequired),
 			Handler: func(w http.ResponseWriter, req *http.Request) {
-				userID, ok := scontext.GetUserID[string, e2eUser](req.Context())
+				userID, ok := scontext.GetUserID[string](req.Context())
 				if !ok {
 					http.Error(w, "no user in context", http.StatusInternalServerError)
 					return

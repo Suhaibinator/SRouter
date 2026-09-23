@@ -63,7 +63,7 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 		// Special handler to check context
 		validTokenHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			handlerCalled = true
-			userID, ok := scontext.GetUserID[string, string](r.Context()) // Use scontext
+			userID, ok := scontext.GetUserID[string](r.Context()) // Use scontext
 			if !ok {
 				t.Error("Expected user ID in context, but not found")
 			} else if userID != "user123" {
@@ -106,7 +106,7 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 			t.Errorf("Expected response body %q, got %q", "OK", rr.Body.String())
 		}
 		// Check context - should not have user ID
-		_, ok := scontext.GetUserID[string, string](req.Context()) // Use scontext
+		_, ok := scontext.GetUserID[string](req.Context()) // Use scontext
 		if ok {
 			t.Error("Expected user ID not to be in context, but found")
 		}
@@ -126,7 +126,7 @@ func TestAuthOptionalMiddleware(t *testing.T) {
 			t.Errorf("Expected response body %q, got %q", "OK", rr.Body.String())
 		}
 		// Check context - should not have user ID
-		_, ok := scontext.GetUserID[string, string](req.Context()) // Use scontext
+		_, ok := scontext.GetUserID[string](req.Context()) // Use scontext
 		if ok {
 			t.Error("Expected user ID not to be in context, but found")
 		}
@@ -186,7 +186,7 @@ func TestAuthRequiredMiddleware(t *testing.T) {
 	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := scontext.GetUserID[string, string](r.Context()) // Use scontext
+		userID, ok := scontext.GetUserID[string](r.Context()) // Use scontext
 		if !ok {
 			t.Error("Expected user ID to be in context")
 		}
@@ -379,7 +379,7 @@ func TestAuthRequiredMiddlewareWithUserObject(t *testing.T) {
 	// Handler that checks both user ID and user object in context
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check user ID
-		userID, ok := scontext.GetUserID[string, string](r.Context())
+		userID, ok := scontext.GetUserID[string](r.Context())
 		if !ok {
 			t.Error("Expected user ID to be in context")
 		}
@@ -422,7 +422,7 @@ func TestAuthRequiredMiddlewareWithCookieSource(t *testing.T) {
 	r := NewRouter(RouterConfig{Logger: logger}, RouterDependencies[string, string]{Authenticate: mocks.MockAuthFunction, UserID: mocks.MockUserIDFromUser})
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userID, ok := scontext.GetUserID[string, string](r.Context())
+		userID, ok := scontext.GetUserID[string](r.Context())
 		if !ok {
 			t.Error("Expected user ID to be in context")
 		}

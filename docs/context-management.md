@@ -5,6 +5,14 @@ attached to the standard `context.Context`. `T` is the router's user ID type and
 `U` is its user object type. Middleware and handlers must use the same type
 arguments that were passed to `router.NewRouter[T, U]`.
 
+Write helpers take both type arguments because they may create the wrapper.
+Read helpers take only `T`, except `GetUser[T, U]`, which returns the user
+object, and `GetSRouterContext[T, U]`, which returns the wrapper itself. Code
+that never touches the user object, such as a library or background worker, can
+therefore read the trace ID, transaction, or request logger without knowing
+`U`. A read with a different `T` than the wrapper was created with reports the
+value as absent.
+
 Use the helpers in `pkg/scontext` instead of reading or writing
 `SRouterContext` fields directly. The wrapper is shared by pointer across the
 middleware chain, and a handler that has timed out may briefly continue in a
@@ -93,7 +101,7 @@ ctx := scontext.WithFlag[string, User](r.Context(), "audited", true)
 nextRequest := r.WithContext(ctx)
 next.ServeHTTP(w, nextRequest)
 
-handlerErr, failed := scontext.GetHandlerError[string, User](nextRequest.Context())
+handlerErr, failed := scontext.GetHandlerError[string](nextRequest.Context())
 _ = handlerErr
 _ = failed
 ```
@@ -102,14 +110,14 @@ _ = failed
 
 ```go
 func accountHandler(w http.ResponseWriter, r *http.Request) {
-	userID, authenticated := scontext.GetUserID[string, User](r.Context())
+	userID, authenticated := scontext.GetUserID[string](r.Context())
 	if !authenticated {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	user, hasUser := scontext.GetUser[string, User](r.Context())
-	clientIP, _ := scontext.GetClientIP[string, User](r.Context())
+	clientIP, _ := scontext.GetClientIP[string](r.Context())
 	routeTemplate, _ := scontext.GetRouteTemplate(r.Context())
 
 	_, _, _ = userID, user, hasUser
@@ -127,7 +135,7 @@ one chain walk, one read lock — and returns them as a plain value:
 
 ```go
 func logFields(ctx context.Context) []zap.Field {
-	c, ok := scontext.GetCorrelation[uint64, User](ctx)
+	c, ok := scontext.GetCorrelation[uint64](ctx)
 	if !ok {
 		return nil
 	}
@@ -175,11 +183,11 @@ runtime identities are also installed at that boundary. The source holds the
 application logger and user-ID encoder; it contains no request values or
 per-request cache.
 
-`GetLogger[T, U](ctx)` returns the shared request logger. Use `Named` with a
+`GetLogger[T](ctx)` returns the shared request logger. Use `Named` with a
 relative service name and reuse that child within the operation:
 
 ```go
-logger, ok := scontext.GetLogger[uint64, User](ctx)
+logger, ok := scontext.GetLogger[uint64](ctx)
 if ok {
 	logger = logger.Named("common_service.admin")
 } else {

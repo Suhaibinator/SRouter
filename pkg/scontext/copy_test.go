@@ -86,7 +86,7 @@ func verifyFullSRouterContext(t *testing.T, ctx context.Context, testName string
 	handlerErr := errors.New("test error")
 
 	// Verify all values were copied correctly
-	copiedUserID, ok := GetUserID[int, testUser](ctx)
+	copiedUserID, ok := GetUserID[int](ctx)
 	if !ok || copiedUserID != userID {
 		t.Errorf("%s: UserID not copied correctly. Expected %d, got %d (ok: %v)", testName, userID, copiedUserID, ok)
 	}
@@ -96,32 +96,32 @@ func verifyFullSRouterContext(t *testing.T, ctx context.Context, testName string
 		t.Errorf("%s: User not copied correctly. Expected %+v, got %+v (ok: %v)", testName, user, copiedUser, ok)
 	}
 
-	copiedBuildID, ok := GetBuildID[int, testUser](ctx)
+	copiedBuildID, ok := GetBuildID[int](ctx)
 	if !ok || copiedBuildID != buildID {
 		t.Errorf("%s: BuildID not copied correctly. Expected %s, got %s (ok: %v)", testName, buildID, copiedBuildID, ok)
 	}
 
-	copiedConfigID, ok := GetConfigID[int, testUser](ctx)
+	copiedConfigID, ok := GetConfigID[int](ctx)
 	if !ok || copiedConfigID != configID {
 		t.Errorf("%s: ConfigID not copied correctly. Expected %s, got %s (ok: %v)", testName, configID, copiedConfigID, ok)
 	}
 
-	copiedTraceID := GetTraceID[int, testUser](ctx)
+	copiedTraceID := GetTraceID[int](ctx)
 	if copiedTraceID != traceID {
 		t.Errorf("%s: TraceID not copied correctly. Expected %s, got %s", testName, traceID, copiedTraceID)
 	}
 
-	copiedClientIP, ok := GetClientIP[int, testUser](ctx)
+	copiedClientIP, ok := GetClientIP[int](ctx)
 	if !ok || copiedClientIP != clientIP {
 		t.Errorf("%s: ClientIP not copied correctly. Expected %s, got %s (ok: %v)", testName, clientIP, copiedClientIP, ok)
 	}
 
-	copiedUserAgent, ok := GetUserAgent[int, testUser](ctx)
+	copiedUserAgent, ok := GetUserAgent[int](ctx)
 	if !ok || copiedUserAgent != userAgent {
 		t.Errorf("%s: UserAgent not copied correctly. Expected %s, got %s (ok: %v)", testName, userAgent, copiedUserAgent, ok)
 	}
 
-	copiedTx, ok := GetTransaction[int, testUser](ctx)
+	copiedTx, ok := GetTransaction[int](ctx)
 	if !ok || copiedTx == nil {
 		t.Errorf("%s: Transaction not copied correctly. Expected non-nil, got %v (ok: %v)", testName, copiedTx, ok)
 	}
@@ -141,28 +141,28 @@ func verifyFullSRouterContext(t *testing.T, ctx context.Context, testName string
 		}
 	}
 
-	copiedOrigin, copiedCreds, ok := GetCORSInfo[int, testUser](ctx)
+	copiedOrigin, copiedCreds, ok := GetCORSInfo[int](ctx)
 	if !ok || copiedOrigin != allowedOrigin || copiedCreds != credentialsAllowed {
 		t.Errorf("%s: CORS info not copied correctly. Expected (%s, %v), got (%s, %v) (ok: %v)",
 			testName, allowedOrigin, credentialsAllowed, copiedOrigin, copiedCreds, ok)
 	}
 
-	copiedHeaders, ok := GetCORSRequestedHeaders[int, testUser](ctx)
+	copiedHeaders, ok := GetCORSRequestedHeaders[int](ctx)
 	if !ok || copiedHeaders != requestedHeaders {
 		t.Errorf("%s: CORS requested headers not copied correctly. Expected %s, got %s (ok: %v)", testName, requestedHeaders, copiedHeaders, ok)
 	}
 
-	copiedHandlerErr, ok := GetHandlerError[int, testUser](ctx)
+	copiedHandlerErr, ok := GetHandlerError[int](ctx)
 	if !ok || copiedHandlerErr.Error() != handlerErr.Error() {
 		t.Errorf("%s: Handler error not copied correctly. Expected %v, got %v (ok: %v)", testName, handlerErr, copiedHandlerErr, ok)
 	}
 
-	copiedFlag1, ok := GetFlag[int, testUser](ctx, "test-flag")
+	copiedFlag1, ok := GetFlag[int](ctx, "test-flag")
 	if !ok || !copiedFlag1 {
 		t.Errorf("%s: Flag 'test-flag' not copied correctly. Expected true, got %v (ok: %v)", testName, copiedFlag1, ok)
 	}
 
-	copiedFlag2, ok := GetFlag[int, testUser](ctx, "another-flag")
+	copiedFlag2, ok := GetFlag[int](ctx, "another-flag")
 	if !ok || copiedFlag2 {
 		t.Errorf("%s: Flag 'another-flag' not copied correctly. Expected false, got %v (ok: %v)", testName, copiedFlag2, ok)
 	}
@@ -214,24 +214,24 @@ func TestCopySRouterContext_Independence(t *testing.T) {
 	copiedCtx = WithFlag[int, testUser](copiedCtx, "copied-only", true)
 
 	// Verify independence
-	srcFlag, ok := GetFlag[int, testUser](srcCtx, "shared-flag")
+	srcFlag, ok := GetFlag[int](srcCtx, "shared-flag")
 	if !ok || srcFlag {
 		t.Errorf("Source context flag should be false, got %v (ok: %v)", srcFlag, ok)
 	}
 
-	copiedFlag, ok := GetFlag[int, testUser](copiedCtx, "shared-flag")
+	copiedFlag, ok := GetFlag[int](copiedCtx, "shared-flag")
 	if !ok || !copiedFlag {
 		t.Errorf("Copied context flag should be true, got %v (ok: %v)", copiedFlag, ok)
 	}
 
 	// Verify source-only flag doesn't exist in copied context
-	_, ok = GetFlag[int, testUser](copiedCtx, "source-only")
+	_, ok = GetFlag[int](copiedCtx, "source-only")
 	if ok {
 		t.Error("Source-only flag should not exist in copied context")
 	}
 
 	// Verify copied-only flag doesn't exist in source context
-	_, ok = GetFlag[int, testUser](srcCtx, "copied-only")
+	_, ok = GetFlag[int](srcCtx, "copied-only")
 	if ok {
 		t.Error("Copied-only flag should not exist in source context")
 	}
@@ -252,7 +252,7 @@ func TestCopySRouterContextOverlay(t *testing.T) {
 		verifyFullSRouterContext(t, copiedCtx, "CopySRouterContextOverlay")
 
 		// Original destination flag should be overwritten
-		_, ok := GetFlag[int, testUser](copiedCtx, "dst-flag")
+		_, ok := GetFlag[int](copiedCtx, "dst-flag")
 		if ok {
 			t.Error("Destination flag should have been overwritten")
 		}
@@ -273,7 +273,7 @@ func TestCopySRouterContextOverlay(t *testing.T) {
 		}
 
 		// Should still have original destination values
-		userID, ok := GetUserID[int, testUser](copiedCtx)
+		userID, ok := GetUserID[int](copiedCtx)
 		if !ok || userID != 999 {
 			t.Errorf("Expected original destination UserID to be preserved. Got %d (ok: %v)", userID, ok)
 		}
@@ -314,8 +314,8 @@ func TestCopySRouterContextOverlay(t *testing.T) {
 		copiedCtx = WithFlag[int, testUser](copiedCtx, "copied-only", true)
 
 		// Verify independence
-		srcFlag, _ := GetFlag[int, testUser](srcCtx, "shared-flag")
-		copiedFlag, _ := GetFlag[int, testUser](copiedCtx, "shared-flag")
+		srcFlag, _ := GetFlag[int](srcCtx, "shared-flag")
+		copiedFlag, _ := GetFlag[int](copiedCtx, "shared-flag")
 
 		if srcFlag || !copiedFlag {
 			t.Errorf("Contexts should be independent. Source flag: %v, Copied flag: %v", srcFlag, copiedFlag)

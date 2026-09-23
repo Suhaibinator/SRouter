@@ -175,7 +175,7 @@ func TestAuthenticationWithProvider(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := scontext.GetUserID[string, any](r.Context()) // Use scontext
+		userID, ok := scontext.GetUserID[string](r.Context()) // Use scontext
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}
@@ -230,7 +230,7 @@ func TestNewBearerTokenMiddleware(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := scontext.GetUserID[string, any](r.Context()) // Use scontext
+		userID, ok := scontext.GetUserID[string](r.Context()) // Use scontext
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}
@@ -269,7 +269,7 @@ func TestNewBearerTokenValidatorMiddleware(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := scontext.GetUserID[string, any](r.Context()) // Use scontext
+		userID, ok := scontext.GetUserID[string](r.Context()) // Use scontext
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}
@@ -310,7 +310,7 @@ func TestNewAPIKeyMiddleware(t *testing.T) {
 	// Create a test handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Get the user ID from the context
-		userID, ok := scontext.GetUserID[string, any](r.Context()) // Use scontext
+		userID, ok := scontext.GetUserID[string](r.Context()) // Use scontext
 		if !ok {
 			t.Error("Expected user ID in context, but not found")
 		}

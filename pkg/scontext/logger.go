@@ -80,12 +80,16 @@ func WithRequestLogger[T comparable, U any](ctx context.Context, source *Request
 //
 // The returned logger is an immutable snapshot. A later correlation write is
 // visible only through another GetLogger call, including for named children.
-// T is the user ID type, U the user type.
-func GetLogger[T comparable, U any](ctx context.Context) (*zap.Logger, bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
+// T is the user ID type.
+func GetLogger[T comparable](ctx context.Context) (*zap.Logger, bool) {
+	r, ok := getReader[T](ctx)
 	if !ok {
 		return nil, false
 	}
+	return r.requestLogger()
+}
+
+func (rc *SRouterContext[T, U]) requestLogger() (*zap.Logger, bool) {
 	var logger *zap.Logger
 	for range maxLoggerDerivations {
 		rc.mu.RLock()

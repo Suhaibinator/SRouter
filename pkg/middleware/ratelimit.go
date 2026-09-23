@@ -293,7 +293,7 @@ func extractUserKey[T comparable, U any](r *http.Request, config *common.RateLim
 	}
 
 	// Otherwise use the user ID directly from the context.
-	userID, idOk := scontext.GetUserID[T, U](r.Context())
+	userID, idOk := scontext.GetUserID[T](r.Context())
 	if idOk {
 		return userIDToString(userID)
 	}
@@ -327,7 +327,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 			case common.StrategyIP:
 				strategyUsed = "IP"
 				// Get the client IP initialized by SRouter.
-				ip, ipFound := scontext.GetClientIP[T, U](r.Context())
+				ip, ipFound := scontext.GetClientIP[T](r.Context())
 				if !ipFound || ip == "" {
 					key = r.RemoteAddr
 					if ce := requestlog.Check[T, U](r.Context(), zapcore.ErrorLevel, "Client IP not found in SRouter context for StrategyIP rate limiting; falling back to RemoteAddr."); ce != nil {
@@ -354,7 +354,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 				// If no user key found, fall back to IP strategy as a safety measure
 				if key == "" {
 					strategyUsed = "User (fallback to IP)"
-					ip, ipFound := scontext.GetClientIP[T, U](r.Context())
+					ip, ipFound := scontext.GetClientIP[T](r.Context())
 					if !ipFound || ip == "" {
 						key = r.RemoteAddr
 						if ce := requestlog.Check[T, U](r.Context(), zapcore.WarnLevel, "User key not found, falling back to RemoteAddr for rate limiting."); ce != nil {
@@ -435,7 +435,7 @@ func RateLimit[T comparable, U any](config *common.RateLimitConfig[T, U], limite
 			default:
 				strategyUsed = "Unknown (defaulting to IP)"
 				fallback := "client_ip"
-				ip, ipFound := scontext.GetClientIP[T, U](r.Context())
+				ip, ipFound := scontext.GetClientIP[T](r.Context())
 				if !ipFound || ip == "" {
 					key = r.RemoteAddr
 					fallback = "remote_addr"

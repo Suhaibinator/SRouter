@@ -17,7 +17,7 @@ func (r *Router[T, U]) resolveTraceID(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 	valid := func(id string) bool { return safeTraceID(id) && config.Validator(id) }
-	id := scontext.GetTraceID[T, U](req.Context())
+	id := scontext.GetTraceID[T](req.Context())
 	if !valid(id) {
 		var ok bool
 		id, ok = config.Source(req)

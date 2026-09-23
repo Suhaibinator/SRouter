@@ -127,6 +127,32 @@ func WithSRouterContext[T comparable, U any](ctx context.Context, rc *SRouterCon
 	return context.WithValue(ctx, sRouterContextKey{}, rc)
 }
 
+// reader is the read side of every *SRouterContext[T, U] with user ID type T,
+// whatever its user object type U. Getters that never return the user object
+// assert to it, so callers name only T. Each method takes the context lock.
+type reader[T comparable] interface {
+	buildID() (string, bool)
+	configID() (string, bool)
+	userID() (T, bool)
+	flag(name string) (bool, bool)
+	clientIP() (string, bool)
+	userAgent() (string, bool)
+	transaction() (DatabaseTransaction, bool)
+	traceID() string
+	correlation() Correlation[T]
+	corsInfo() (string, bool, bool)
+	corsRequestedHeaders() (string, bool)
+	handlerError() (error, bool)
+	requestLogger() (*zap.Logger, bool)
+}
+
+// getReader returns the context's SRouterContext when its user ID type is T.
+// A wrapper created with a different user ID type is reported as absent.
+func getReader[T comparable](ctx context.Context) (reader[T], bool) {
+	r, ok := ctx.Value(sRouterContextKey{}).(reader[T])
+	return r, ok
+}
+
 // EnsureSRouterContext retrieves an existing SRouterContext or creates a new one if none exists.
 // It returns both the SRouterContext and the potentially updated context.
 // This is used internally by With* functions to ensure a context exists before setting values.
@@ -154,11 +180,15 @@ func WithBuildID[T comparable, U any](ctx context.Context, buildID string) conte
 
 // GetBuildID retrieves the opaque application build identity from the context.
 // It returns an empty string and false when no build identity has been set.
-func GetBuildID[T comparable, U any](ctx context.Context) (string, bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
+func GetBuildID[T comparable](ctx context.Context) (string, bool) {
+	r, ok := getReader[T](ctx)
 	if !ok {
 		return "", false
 	}
+	return r.buildID()
+}
+
+func (rc *SRouterContext[T, U]) buildID() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if !rc.BuildIDSet {
@@ -181,11 +211,15 @@ func WithConfigID[T comparable, U any](ctx context.Context, configID string) con
 
 // GetConfigID retrieves the opaque configuration identity from the context.
 // It returns an empty string and false when no configuration identity has been set.
-func GetConfigID[T comparable, U any](ctx context.Context) (string, bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
+func GetConfigID[T comparable](ctx context.Context) (string, bool) {
+	r, ok := getReader[T](ctx)
 	if !ok {
 		return "", false
 	}
+	return r.configID()
+}
+
+func (rc *SRouterContext[T, U]) configID() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if !rc.ConfigIDSet {
@@ -210,13 +244,18 @@ func WithUserID[T comparable, U any](ctx context.Context, userID T) context.Cont
 // GetUserID retrieves the user ID from the context.
 // It returns the user ID and a boolean indicating whether it was found.
 // If no user ID is set, it returns the zero value of T and false.
-// T is the User ID type (comparable), U is the User object type (any).
-func GetUserID[T comparable, U any](ctx context.Context) (T, bool) {
-	var zero T
-	rc, ok := GetSRouterContext[T, U](ctx)
+// T is the User ID type (comparable).
+func GetUserID[T comparable](ctx context.Context) (T, bool) {
+	r, ok := getReader[T](ctx)
 	if !ok {
+		var zero T
 		return zero, false
 	}
+	return r.userID()
+}
+
+func (rc *SRouterContext[T, U]) userID() (T, bool) {
+	var zero T
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if !rc.UserIDSet {
@@ -272,12 +311,16 @@ func WithFlag[T comparable, U any](ctx context.Context, name string, value bool)
 // GetFlag retrieves a boolean flag from the context.
 // It returns the flag value and a boolean indicating whether the flag exists.
 // If the flag doesn't exist, it returns false, false.
-// T is the User ID type (comparable), U is the User object type (any).
-func GetFlag[T comparable, U any](ctx context.Context, name string) (bool, bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
+// T is the User ID type (comparable).
+func GetFlag[T comparable](ctx context.Context, name string) (bool, bool) {
+	r, ok := getReader[T](ctx)
 	if !ok {
 		return false, false
 	}
+	return r.flag(name)
+}
+
+func (rc *SRouterContext[T, U]) flag(name string) (bool, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if rc.Flags == nil {
@@ -331,12 +374,16 @@ func WithClientInfo[T comparable, U any](ctx context.Context, ip, userAgent stri
 // It returns the IP address and a boolean indicating whether it was found.
 // If no client IP is set, it returns an empty string and false.
 // IP socket addresses written through this package have their port removed.
-// T is the User ID type (comparable), U is the User object type (any).
-func GetClientIP[T comparable, U any](ctx context.Context) (string, bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
+// T is the User ID type (comparable).
+func GetClientIP[T comparable](ctx context.Context) (string, bool) {
+	r, ok := getReader[T](ctx)
 	if !ok {
 		return "", false
 	}
+	return r.clientIP()
+}
+
+func (rc *SRouterContext[T, U]) clientIP() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if !rc.ClientIPSet {
@@ -360,12 +407,16 @@ func WithUserAgent[T comparable, U any](ctx context.Context, ua string) context.
 // GetUserAgent retrieves the User-Agent string from the context.
 // It returns the User-Agent and a boolean indicating whether it was found.
 // If no User-Agent is set, it returns an empty string and false.
-// T is the User ID type (comparable), U is the User object type (any).
-func GetUserAgent[T comparable, U any](ctx context.Context) (string, bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
+// T is the User ID type (comparable).
+func GetUserAgent[T comparable](ctx context.Context) (string, bool) {
+	r, ok := getReader[T](ctx)
 	if !ok {
 		return "", false
 	}
+	return r.userAgent()
+}
+
+func (rc *SRouterContext[T, U]) userAgent() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if !rc.UserAgentSet {
@@ -391,12 +442,16 @@ func WithTransaction[T comparable, U any](ctx context.Context, tx DatabaseTransa
 // GetTransaction retrieves a database transaction from the context.
 // It returns the transaction and a boolean indicating whether it was found.
 // If no transaction is set, it returns nil and false.
-// T is the User ID type (comparable), U is the User object type (any).
-func GetTransaction[T comparable, U any](ctx context.Context) (DatabaseTransaction, bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
+// T is the User ID type (comparable).
+func GetTransaction[T comparable](ctx context.Context) (DatabaseTransaction, bool) {
+	r, ok := getReader[T](ctx)
 	if !ok {
 		return nil, false
 	}
+	return r.transaction()
+}
+
+func (rc *SRouterContext[T, U]) transaction() (DatabaseTransaction, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if !rc.TransactionSet {
@@ -441,12 +496,16 @@ func SetTraceID[T comparable, U any](ctx context.Context, traceID string) contex
 // GetTraceID retrieves the trace ID from the context.
 // It returns the trace ID if set, or an empty string if not found.
 // This function never returns an error; absence is indicated by an empty string.
-// T is the User ID type (comparable), U is the User object type (any).
-func GetTraceID[T comparable, U any](ctx context.Context) string {
-	rc, ok := GetSRouterContext[T, U](ctx)
+// T is the User ID type (comparable).
+func GetTraceID[T comparable](ctx context.Context) string {
+	r, ok := getReader[T](ctx)
 	if !ok {
 		return ""
 	}
+	return r.traceID()
+}
+
+func (rc *SRouterContext[T, U]) traceID() string {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if !rc.TraceIDSet {
@@ -483,7 +542,7 @@ type Correlation[T comparable] struct {
 // that stamps correlation onto log entries or metrics should prefer it, and
 // unpack the result with the typed constructors its own logger wants:
 //
-//	if c, ok := scontext.GetCorrelation[uint64, User](ctx); ok {
+//	if c, ok := scontext.GetCorrelation[uint64](ctx); ok {
 //		fields := make([]zap.Field, 0, 4)
 //		if c.TraceIDSet {
 //			fields = append(fields, zap.String(logkeys.TraceID, c.TraceID))
@@ -501,19 +560,22 @@ type Correlation[T comparable] struct {
 // SRouterContext. The result is a copy taken at the moment of the call: a
 // later write through a With* helper does not change it, and two separate
 // calls are not an atomic pair.
-// T is the User ID type (comparable), U is the User object type (any).
-func GetCorrelation[T comparable, U any](ctx context.Context) (Correlation[T], bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
+// T is the User ID type (comparable).
+func GetCorrelation[T comparable](ctx context.Context) (Correlation[T], bool) {
+	r, ok := getReader[T](ctx)
 	if !ok {
 		return Correlation[T]{}, false
 	}
+	return r.correlation(), true
+}
 
+func (rc *SRouterContext[T, U]) correlation() Correlation[T] {
 	// Hold the lock only long enough to copy the values out. Nothing between
 	// the two calls can panic, so the unlock does not need to be deferred.
 	rc.mu.RLock()
 	c := rc.correlationLocked()
 	rc.mu.RUnlock()
-	return c, true
+	return c
 }
 
 // correlationLocked copies correlation while the caller holds mu for reading
@@ -621,12 +683,16 @@ func WithCORSInfo[T comparable, U any](ctx context.Context, allowedOrigin string
 // - allowedOrigin: The origin that should be set in Access-Control-Allow-Origin header
 // - credentialsAllowed: Whether Access-Control-Allow-Credentials should be "true"
 // - ok: Whether CORS information was found in the context
-// T is the User ID type (comparable), U is the User object type (any).
-func GetCORSInfo[T comparable, U any](ctx context.Context) (allowedOrigin string, credentialsAllowed bool, ok bool) {
-	rc, found := GetSRouterContext[T, U](ctx)
-	if !found {
+// T is the User ID type (comparable).
+func GetCORSInfo[T comparable](ctx context.Context) (allowedOrigin string, credentialsAllowed bool, ok bool) {
+	r, ok := getReader[T](ctx)
+	if !ok {
 		return "", false, false
 	}
+	return r.corsInfo()
+}
+
+func (rc *SRouterContext[T, U]) corsInfo() (string, bool, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if !rc.AllowedOriginSet { // Check if origin was set as the primary indicator
@@ -653,12 +719,16 @@ func WithCORSRequestedHeaders[T comparable, U any](ctx context.Context, requeste
 // This is used internally by the CORS handler to echo back the requested headers
 // when wildcard headers are allowed in the configuration.
 // It returns the headers string and a boolean indicating whether it was found.
-// T is the User ID type (comparable), U is the User object type (any).
-func GetCORSRequestedHeaders[T comparable, U any](ctx context.Context) (string, bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
+// T is the User ID type (comparable).
+func GetCORSRequestedHeaders[T comparable](ctx context.Context) (string, bool) {
+	r, ok := getReader[T](ctx)
 	if !ok {
 		return "", false
 	}
+	return r.corsRequestedHeaders()
+}
+
+func (rc *SRouterContext[T, U]) corsRequestedHeaders() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if !rc.RequestedHeadersSet {
@@ -682,12 +752,16 @@ func WithHandlerError[T comparable, U any](ctx context.Context, err error) conte
 // GetHandlerError retrieves the handler error from the context if one was set.
 // This is useful for middleware that needs to react to errors returned by route handlers,
 // such as transaction middleware that might rollback on errors.
-// T is the User ID type (comparable), U is the User object type (any).
-func GetHandlerError[T comparable, U any](ctx context.Context) (error, bool) {
-	rc, ok := GetSRouterContext[T, U](ctx)
+// T is the User ID type (comparable).
+func GetHandlerError[T comparable](ctx context.Context) (error, bool) {
+	r, ok := getReader[T](ctx)
 	if !ok {
 		return nil, false
 	}
+	return r.handlerError()
+}
+
+func (rc *SRouterContext[T, U]) handlerError() (error, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if !rc.HandlerErrorSet {

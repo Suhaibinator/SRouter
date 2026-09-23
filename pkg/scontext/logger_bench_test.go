@@ -37,7 +37,7 @@ func BenchmarkGetLoggerDerivation(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				WithUserID[namedUintID, testUser](ctx, 4242)
-				loggerSink, _ = GetLogger[namedUintID, testUser](ctx)
+				loggerSink, _ = GetLogger[namedUintID](ctx)
 			}
 		})
 	}
@@ -48,10 +48,10 @@ func BenchmarkRequestLoggerNamedChild(b *testing.B) {
 	ctx := WithRequestLogger[namedUintID, testUser](context.Background(), source)
 	ctx = WithTraceID[namedUintID, testUser](ctx, "trace-1")
 	ctx = WithUserID[namedUintID, testUser](ctx, 4242)
-	_, _ = GetLogger[namedUintID, testUser](ctx)
+	_, _ = GetLogger[namedUintID](ctx)
 	b.ReportAllocs()
 	for b.Loop() {
-		logger, _ := GetLogger[namedUintID, testUser](ctx)
+		logger, _ := GetLogger[namedUintID](ctx)
 		loggerSink = logger.Named("common_service.admin")
 	}
 }

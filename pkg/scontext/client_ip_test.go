@@ -36,7 +36,7 @@ func TestClientIPSettersNormalizeSocketAddresses(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(setterName+"/"+tt.name, func(t *testing.T) {
 				ctx := set(context.Background(), tt.in)
-				got, ok := GetClientIP[int, testUser](ctx)
+				got, ok := GetClientIP[int](ctx)
 				if !ok || got != tt.want {
 					t.Fatalf("GetClientIP = (%q, %v), want (%q, true)", got, ok, tt.want)
 				}
@@ -60,10 +60,10 @@ func TestEquivalentClientIPSocketAddressesReuseCachedLogger(t *testing.T) {
 			base, logs := newObservedLogger()
 			ctx := WithRequestLogger[int, testUser](context.Background(), NewRequestLoggerSource[int](base, nil))
 			ctx = set(ctx, "192.0.2.1:1234")
-			first, _ := GetLogger[int, testUser](ctx)
+			first, _ := GetLogger[int](ctx)
 
 			ctx = set(ctx, "192.0.2.1:5678")
-			second, _ := GetLogger[int, testUser](ctx)
+			second, _ := GetLogger[int](ctx)
 			if second != first {
 				t.Fatal("equivalent normalized client IP rebuilt the cached logger")
 			}

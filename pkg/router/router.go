@@ -607,7 +607,7 @@ func (r *Router[T, U]) timeoutMiddleware(timeout time.Duration) common.Middlewar
 
 				// Serialize the timeout response write with any handler goroutine currently inside rw methods.
 				wrappedW.mu.Lock()
-				traceID := scontext.GetTraceID[T, U](req.Context())
+				traceID := scontext.GetTraceID[T](req.Context())
 				r.writeJSONError(wrappedW.ResponseWriter, req, http.StatusRequestTimeout, "Request Timeout", traceID)
 				wrappedW.mu.Unlock()
 
@@ -696,7 +696,7 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 
 			if ce := requestlog.Check[T, U](req.Context(), lvl, "Request summary statistics"); ce != nil {
-				ua, _ := scontext.GetUserAgent[T, U](req.Context())
+				ua, _ := scontext.GetUserAgent[T](req.Context())
 				fields := make([]zap.Field, 0, 6)
 				fields = append(fields,
 					zap.String(logkeys.Method, req.Method),
@@ -960,7 +960,7 @@ func (r *Router[T, U]) handleCORS(w http.ResponseWriter, req *http.Request) (*ht
 				}
 
 				// Check if we have stored requested headers to echo back (for wildcard case)
-				if requestedHeaders, ok := scontext.GetCORSRequestedHeaders[T, U](ctx); ok && requestedHeaders != "" {
+				if requestedHeaders, ok := scontext.GetCORSRequestedHeaders[T](ctx); ok && requestedHeaders != "" {
 					// Echo back the exact headers the browser requested
 					w.Header().Set("Access-Control-Allow-Headers", requestedHeaders)
 				} else if r.corsAllowHeaders != "" {
@@ -1326,7 +1326,7 @@ func (r *Router[T, U]) handleError(w http.ResponseWriter, req *http.Request, err
 		level = zapcore.InfoLevel
 	}
 
-	traceID := scontext.GetTraceID[T, U](req.Context())
+	traceID := scontext.GetTraceID[T](req.Context())
 	if ce := requestlog.Check[T, U](req.Context(), level, logMessage); ce != nil {
 		var attachedFields []zap.Field
 		if httpError != nil {
@@ -1364,7 +1364,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 		mrw.mu.Lock()
 		defer mrw.mu.Unlock()
 
-		allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfo[T, U](req.Context())
+		allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfo[T](req.Context())
 		header := mrw.ResponseWriter.Header()
 
 		if corsOK {
@@ -1399,7 +1399,7 @@ func (r *Router[T, U]) writeJSONError(w http.ResponseWriter, req *http.Request, 
 	}
 
 	// Retrieve CORS info from context using the passed-in request
-	allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfo[T, U](req.Context())
+	allowedOrigin, credentialsAllowed, corsOK := scontext.GetCORSInfo[T](req.Context())
 
 	// Set CORS headers if applicable BEFORE writing status code or body
 	if corsOK {
@@ -1618,7 +1618,7 @@ func (r *Router[T, U]) recoveryMiddleware(next http.Handler) http.Handler {
 				}
 
 				// Return a 500 Internal Server Error as JSON
-				traceID := scontext.GetTraceID[T, U](req.Context())
+				traceID := scontext.GetTraceID[T](req.Context())
 				r.writeJSONError(rw, req, http.StatusInternalServerError, "Internal Server Error", traceID)
 			}
 		}()
@@ -1687,7 +1687,7 @@ func (r *Router[T, U]) authRequiredMiddlewareWithConfig(authTokenConfig common.A
 			var reason string
 			req, ok, reason = r.authenticateRequest(req, extractToken)
 			if !ok {
-				traceID := scontext.GetTraceID[T, U](req.Context())
+				traceID := scontext.GetTraceID[T](req.Context())
 				if ce := requestlog.Check[T, U](req.Context(), zapcore.InfoLevel, "Authentication failed"); ce != nil {
 					fields := append(r.baseFields(req),
 						zap.String(logkeys.Error, reason),
