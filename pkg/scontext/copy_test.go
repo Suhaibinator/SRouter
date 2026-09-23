@@ -343,55 +343,55 @@ func TestCloneSRouterContext(t *testing.T) {
 		clonedRC := cloneSRouterContext(srcRC)
 
 		// Modify original
-		srcRC.Flags["shared-flag"] = false
-		srcRC.Flags["source-only"] = true
+		srcRC.flags["shared-flag"] = false
+		srcRC.flags["source-only"] = true
 
 		// Modify clone
-		clonedRC.Flags["copied-only"] = true
+		clonedRC.flags["copied-only"] = true
 
 		// Verify independence
-		if srcRC.Flags["shared-flag"] || !clonedRC.Flags["shared-flag"] {
+		if srcRC.flags["shared-flag"] || !clonedRC.flags["shared-flag"] {
 			t.Error("Clone should be independent of source")
 		}
 
-		if _, exists := clonedRC.Flags["source-only"]; exists {
+		if _, exists := clonedRC.flags["source-only"]; exists {
 			t.Error("Source-only flag should not exist in clone")
 		}
 
-		if _, exists := srcRC.Flags["copied-only"]; exists {
+		if _, exists := srcRC.flags["copied-only"]; exists {
 			t.Error("Clone-only flag should not exist in source")
 		}
 	})
 
 	t.Run("NilFlags", func(t *testing.T) {
 		srcRC := &SRouterContext[int, testUser]{
-			UserID:    123,
-			UserIDSet: true,
-			Flags:     nil,
+			userID:    123,
+			userIDSet: true,
+			flags:     nil,
 		}
 
 		clonedRC := cloneSRouterContext(srcRC)
 
-		if clonedRC.Flags == nil {
+		if clonedRC.flags == nil {
 			t.Error("Clone should have initialized Flags map even when source is nil")
 		}
 
-		if len(clonedRC.Flags) != 0 {
+		if len(clonedRC.flags) != 0 {
 			t.Error("Clone should have empty Flags map when source is nil")
 		}
 	})
 
 	t.Run("NilPathParams", func(t *testing.T) {
 		srcRC := &SRouterContext[int, testUser]{
-			UserID:     123,
-			UserIDSet:  true,
-			PathParams: nil,
-			Flags:      make(map[string]bool),
+			userID:     123,
+			userIDSet:  true,
+			pathParams: nil,
+			flags:      make(map[string]bool),
 		}
 
 		clonedRC := cloneSRouterContext(srcRC)
 
-		if clonedRC.PathParams != nil {
+		if clonedRC.pathParams != nil {
 			t.Error("Clone should have nil PathParams when source is nil")
 		}
 	})

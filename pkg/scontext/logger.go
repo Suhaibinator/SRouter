@@ -148,8 +148,8 @@ type requestLoggerSnapshot[T comparable] struct {
 func (rc *SRouterContext[T, U]) requestLoggerSnapshotLocked() requestLoggerSnapshot[T] {
 	return requestLoggerSnapshot[T]{
 		correlation: rc.correlationLocked(),
-		clientIP:    rc.ClientIP,
-		clientIPSet: rc.ClientIPSet,
+		clientIP:    rc.clientIP,
+		clientIPSet: rc.clientIPSet,
 	}
 }
 

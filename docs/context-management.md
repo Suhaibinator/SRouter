@@ -13,8 +13,8 @@ therefore read the trace ID, transaction, or request logger without knowing
 `U`. A read with a different `T` than the wrapper was created with reports the
 value as absent.
 
-Use the helpers in `pkg/scontext` instead of reading or writing
-`SRouterContext` fields directly. The wrapper is shared by pointer across the
+All `SRouterContext` fields are private. Use the helpers in `pkg/scontext`
+to read and write request state. The wrapper is shared by pointer across the
 middleware chain, and a handler that has timed out may briefly continue in a
 goroutine while the router reads request state. The helpers synchronize access
 with the wrapper's internal lock.
@@ -30,7 +30,7 @@ with the wrapper's internal lock.
 | Trace ID | `WithTraceID` / `SetTraceID` | `GetTraceID` |
 | Build identity | `WithBuildID` | `GetBuildID` |
 | Configuration identity | `WithConfigID` | `GetConfigID` |
-| Database transaction | `WithTransaction` | `GetTransaction` |
+| Database transaction | `WithTransaction`, `ClearTransaction` | `GetTransaction` |
 | Route template and path parameters | `WithRouteInfo`, `SetRouteInfo` | `GetRouteTemplate`, `GetPathParams` |
 | Allowed CORS origin and credentials | `WithCORSInfo` | `GetCORSInfo` |
 | Requested CORS headers | `WithCORSRequestedHeaders` | `GetCORSRequestedHeaders` |
@@ -234,8 +234,7 @@ stamped-field write, call `GetLogger` again and derive a new named child to see
 the change. Copying an SRouter context shares the immutable source and any
 current logger, but future request-field/source writes and cache updates are
 independent.
-Use the `With*` helpers for writes; direct struct-field writes bypass cache
-invalidation and synchronization.
+Use the write helpers to preserve cache invalidation and synchronization.
 
 Contexts created by `EnsureSRouterContext` or a request-field helper alone have
 no logging source; `GetLogger` returns `nil, false`. Existing users of
@@ -307,6 +306,63 @@ next.ServeHTTP(w, r.WithContext(ctx))
 Use `Commit`, `Rollback`, `SavePoint`, and `RollbackTo` through the interface.
 Call `GetDB()` when handler code needs the underlying GORM transaction.
 
+### Clearing or replacing a transaction in a child operation
+
+`WithTransaction` and `ClearTransaction` mutate an existing matching wrapper.
+Derived contexts normally share that wrapper: adding a deadline or calling
+`context.WithValue` does not isolate SRouter state. Request middleware can
+deliberately populate the shared wrapper with `WithTransaction`.
+
+For post-commit callbacks or follow-up work that must not inherit the parent's
+transaction, clone first:
+
+```go
+child := scontext.CopySRouterContext[T, U](ctx, ctx)
+child = scontext.ClearTransaction[T, U](child)
+// GetTransaction[T](child) returns (nil, false).
+// The parent and its other children keep their transaction.
+```
+
+For a child operation that uses a different transaction, also clone first:
+
+```go
+child := scontext.CopySRouterContext[T, U](ctx, ctx)
+child = scontext.WithTransaction[T, U](child, childTransaction)
+```
+
+`ClearTransaction[T, U]` clears the reference and presence flag under the
+wrapper's lock. It returns the supplied context and does not create a wrapper
+when none exists. A wrapper with a different `T` or `U` is left unchanged.
+Clearing is idempotent and never commits, rolls back, or calls any other method
+on the transaction. Other request state, including the cached logger, is
+preserved. `WithTransaction(ctx, nil)` continues to mean explicitly present
+nil, so `GetTransaction` returns `(nil, true)` until cleared.
+
+See the [transaction context example](../examples/transaction-context/main.go);
+run it with `go run .` from `examples/transaction-context`.
+
+## Breaking change: private context fields
+
+`SRouterContext` now has no exported fields. Code that reads or writes fields
+directly, or uses populated struct literals, must migrate to the helpers in the
+stored-values table above. For example, use `GetUserID[T]` to read both the
+value and presence instead of reading `UserID` and `UserIDSet`; initialize
+values through `WithUserID[T, U]` rather than a struct literal. Use
+`WithFlag` and `GetFlag` for named flags instead of accessing the map.
+
+Replace manual assignments to `Transaction` and `TransactionSet` with
+`ClearTransaction[T, U]`, retaining any clone-first isolation. No general
+field or presence-flag mutation API is provided.
+
+The type, its zero value, constructors, attachment helpers, and existing helper
+signatures remain available. Do not copy a wrapper by value; it contains a
+mutex. Use `CopySRouterContext` or `CopySRouterContextOverlay` instead.
+`Correlation[T]` remains a public value snapshot with exported fields.
+
+Private fields do not change reference-sharing semantics: user objects,
+transactions, and slices returned by getters still require caller coordination
+when mutated. Encapsulation does not recursively copy those objects.
+
 ## Copying SRouter context values
 
 `CopySRouterContext[T, U](dst, src)` attaches a new wrapper containing the
@@ -317,9 +373,9 @@ If `src` has no SRouter context, it returns `dst` unchanged.
 when both contexts already contain an SRouter context. It is a no-op when either
 wrapper is absent. It replaces the destination values; it does not merge them.
 
-Both functions create an independent wrapper and copy the mutable `Flags` map
-and `PathParams` slice. Other fields are assigned normally. Consequently,
-reference-bearing values—including `User`, `Transaction`, `HandlerError`, and
+Both functions create an independent wrapper and copy the mutable flags map
+and path-parameter slice. Other fields are assigned normally. Consequently,
+reference-bearing values—including the user, transaction, handler error, and
 any pointer-bearing user ID—still refer to the same underlying objects. These
 functions are therefore not recursive deep-copy operations.
 

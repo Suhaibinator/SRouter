@@ -37,59 +37,60 @@ type DatabaseTransaction interface {
 //
 // The struct is shared by pointer across the request's middleware chain, and
 // a timed-out request's handler goroutine may still be mutating it while the
-// router goroutine reads it. All access through this package's With*/Get*
-// helpers is therefore synchronized by an internal lock; prefer the helpers
-// over touching fields directly.
+// router goroutine reads it. All access through this package's read/write
+// helpers is therefore synchronized by an internal lock. All fields are
+// private; use the helpers to read and write request state. The zero value is
+// ready to use. Do not copy a wrapper by value; use CopySRouterContext instead.
 type SRouterContext[T comparable, U any] struct {
-	// mu guards all fields below. The With*/Get* helper functions in this
+	// mu guards all fields below. The read/write helper functions in this
 	// package take it automatically.
 	mu sync.RWMutex
 
-	UserID T
-	User   *U
+	userID T
+	user   *U
 
-	// BuildID and ConfigID are opaque runtime identities supplied by the
+	// buildID and configID are opaque runtime identities supplied by the
 	// application. SRouter stores them without parsing or normalization.
-	BuildID  string
-	ConfigID string
+	buildID  string
+	configID string
 
-	TraceID string
+	traceID string
 
-	ClientIP string
+	clientIP string
 
-	// UserAgent holds the user agent string from the request.
-	UserAgent string
+	// userAgent holds the user agent string from the request.
+	userAgent string
 
-	Transaction DatabaseTransaction
+	transaction DatabaseTransaction
 
 	// Route information
-	RouteTemplate string
-	PathParams    httprouter.Params
+	routeTemplate string
+	pathParams    httprouter.Params
 
 	// CORS information determined by middleware
-	AllowedOrigin      string
-	CredentialsAllowed bool
-	RequestedHeaders   string // Stores the requested headers from CORS preflight requests
+	allowedOrigin      string
+	credentialsAllowed bool
+	requestedHeaders   string // Stores the requested headers from CORS preflight requests
 
-	// HandlerError stores any error returned by the route handler
-	HandlerError error
+	// handlerError stores any error returned by the route handler
+	handlerError error
 
-	UserIDSet             bool
-	UserSet               bool
-	BuildIDSet            bool
-	ConfigIDSet           bool
-	ClientIPSet           bool
-	UserAgentSet          bool
-	TraceIDSet            bool
-	TransactionSet        bool
-	RouteTemplateSet      bool
-	AllowedOriginSet      bool
-	CredentialsAllowedSet bool
-	RequestedHeadersSet   bool // Flag for RequestedHeaders
-	// HandlerErrorSet is used to distinguish between an unset error and an explicitly set nil error.
-	HandlerErrorSet bool
+	userIDSet             bool
+	userSet               bool
+	buildIDSet            bool
+	configIDSet           bool
+	clientIPSet           bool
+	userAgentSet          bool
+	traceIDSet            bool
+	transactionSet        bool
+	routeTemplateSet      bool
+	allowedOriginSet      bool
+	credentialsAllowedSet bool
+	requestedHeadersSet   bool // Flag for requestedHeaders
+	// handlerErrorSet is used to distinguish between an unset error and an explicitly set nil error.
+	handlerErrorSet bool
 
-	Flags map[string]bool
+	flags map[string]bool
 
 	// logSource is immutable application configuration shared across requests.
 	// logger is this context's cached request-correlated snapshot. The versions
@@ -103,7 +104,7 @@ type SRouterContext[T comparable, U any] struct {
 }
 
 // NewSRouterContext creates a new SRouterContext instance.
-// The Flags map is allocated lazily by WithFlag on first use, so contexts on
+// The flags map is allocated lazily by WithFlag on first use, so contexts on
 // requests that never set a flag (the common case) avoid the map allocation.
 // T is the User ID type (comparable), U is the User object type (any).
 func NewSRouterContext[T comparable, U any]() *SRouterContext[T, U] {
@@ -131,18 +132,18 @@ func WithSRouterContext[T comparable, U any](ctx context.Context, rc *SRouterCon
 // whatever its user object type U. Getters that never return the user object
 // assert to it, so callers name only T. Each method takes the context lock.
 type reader[T comparable] interface {
-	buildID() (string, bool)
-	configID() (string, bool)
-	userID() (T, bool)
+	getBuildID() (string, bool)
+	getConfigID() (string, bool)
+	getUserID() (T, bool)
 	flag(name string) (bool, bool)
-	clientIP() (string, bool)
-	userAgent() (string, bool)
-	transaction() (DatabaseTransaction, bool)
-	traceID() string
+	getClientIP() (string, bool)
+	getUserAgent() (string, bool)
+	getTransaction() (DatabaseTransaction, bool)
+	getTraceID() string
 	correlation() Correlation[T]
 	corsInfo() (string, bool, bool)
 	corsRequestedHeaders() (string, bool)
-	handlerError() (error, bool)
+	getHandlerError() (error, bool)
 	requestLogger() (*zap.Logger, bool)
 }
 
@@ -171,8 +172,8 @@ func EnsureSRouterContext[T comparable, U any](ctx context.Context) (*SRouterCon
 func WithBuildID[T comparable, U any](ctx context.Context, buildID string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	rc.BuildID = buildID
-	rc.BuildIDSet = true
+	rc.buildID = buildID
+	rc.buildIDSet = true
 	rc.logVersion++
 	rc.mu.Unlock()
 	return ctx
@@ -185,16 +186,16 @@ func GetBuildID[T comparable](ctx context.Context) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return r.buildID()
+	return r.getBuildID()
 }
 
-func (rc *SRouterContext[T, U]) buildID() (string, bool) {
+func (rc *SRouterContext[T, U]) getBuildID() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.BuildIDSet {
+	if !rc.buildIDSet {
 		return "", false
 	}
-	return rc.BuildID, true
+	return rc.buildID, true
 }
 
 // WithConfigID adds or replaces the opaque configuration identity in the context.
@@ -202,8 +203,8 @@ func (rc *SRouterContext[T, U]) buildID() (string, bool) {
 func WithConfigID[T comparable, U any](ctx context.Context, configID string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	rc.ConfigID = configID
-	rc.ConfigIDSet = true
+	rc.configID = configID
+	rc.configIDSet = true
 	rc.logVersion++
 	rc.mu.Unlock()
 	return ctx
@@ -216,16 +217,16 @@ func GetConfigID[T comparable](ctx context.Context) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return r.configID()
+	return r.getConfigID()
 }
 
-func (rc *SRouterContext[T, U]) configID() (string, bool) {
+func (rc *SRouterContext[T, U]) getConfigID() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.ConfigIDSet {
+	if !rc.configIDSet {
 		return "", false
 	}
-	return rc.ConfigID, true
+	return rc.configID, true
 }
 
 // WithUserID adds a user ID to the context.
@@ -234,8 +235,8 @@ func (rc *SRouterContext[T, U]) configID() (string, bool) {
 func WithUserID[T comparable, U any](ctx context.Context, userID T) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	rc.UserID = userID
-	rc.UserIDSet = true
+	rc.userID = userID
+	rc.userIDSet = true
 	rc.logVersion++
 	rc.mu.Unlock()
 	return ctx
@@ -251,17 +252,17 @@ func GetUserID[T comparable](ctx context.Context) (T, bool) {
 		var zero T
 		return zero, false
 	}
-	return r.userID()
+	return r.getUserID()
 }
 
-func (rc *SRouterContext[T, U]) userID() (T, bool) {
+func (rc *SRouterContext[T, U]) getUserID() (T, bool) {
 	var zero T
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.UserIDSet {
+	if !rc.userIDSet {
 		return zero, false
 	}
-	return rc.UserID, true
+	return rc.userID, true
 }
 
 // WithUser adds a user object to the context.
@@ -270,8 +271,8 @@ func (rc *SRouterContext[T, U]) userID() (T, bool) {
 func WithUser[T comparable, U any](ctx context.Context, user *U) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	rc.User = user
-	rc.UserSet = true
+	rc.user = user
+	rc.userSet = true
 	rc.mu.Unlock()
 	return ctx
 }
@@ -287,10 +288,10 @@ func GetUser[T comparable, U any](ctx context.Context) (*U, bool) {
 	}
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.UserSet {
+	if !rc.userSet {
 		return nil, false
 	}
-	return rc.User, true
+	return rc.user, true
 }
 
 // WithFlag adds a boolean flag to the context.
@@ -300,10 +301,10 @@ func GetUser[T comparable, U any](ctx context.Context) (*U, bool) {
 func WithFlag[T comparable, U any](ctx context.Context, name string, value bool) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	if rc.Flags == nil {
-		rc.Flags = make(map[string]bool)
+	if rc.flags == nil {
+		rc.flags = make(map[string]bool)
 	}
-	rc.Flags[name] = value
+	rc.flags[name] = value
 	rc.mu.Unlock()
 	return ctx
 }
@@ -323,10 +324,10 @@ func GetFlag[T comparable](ctx context.Context, name string) (bool, bool) {
 func (rc *SRouterContext[T, U]) flag(name string) (bool, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if rc.Flags == nil {
+	if rc.flags == nil {
 		return false, false
 	}
-	value, exists := rc.Flags[name]
+	value, exists := rc.flags[name]
 	return value, exists
 }
 
@@ -342,11 +343,11 @@ func WithClientIP[T comparable, U any](ctx context.Context, ip string) context.C
 	ip = cleanClientIP(ip)
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	if !rc.ClientIPSet || rc.ClientIP != ip {
+	if !rc.clientIPSet || rc.clientIP != ip {
 		rc.logVersion++
 	}
-	rc.ClientIP = ip
-	rc.ClientIPSet = true
+	rc.clientIP = ip
+	rc.clientIPSet = true
 	rc.mu.Unlock()
 	return ctx
 }
@@ -359,13 +360,13 @@ func WithClientInfo[T comparable, U any](ctx context.Context, ip, userAgent stri
 	ip = cleanClientIP(ip)
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	if !rc.ClientIPSet || rc.ClientIP != ip {
+	if !rc.clientIPSet || rc.clientIP != ip {
 		rc.logVersion++
 	}
-	rc.ClientIP = ip
-	rc.ClientIPSet = true
-	rc.UserAgent = userAgent
-	rc.UserAgentSet = true
+	rc.clientIP = ip
+	rc.clientIPSet = true
+	rc.userAgent = userAgent
+	rc.userAgentSet = true
 	rc.mu.Unlock()
 	return ctx
 }
@@ -380,16 +381,16 @@ func GetClientIP[T comparable](ctx context.Context) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return r.clientIP()
+	return r.getClientIP()
 }
 
-func (rc *SRouterContext[T, U]) clientIP() (string, bool) {
+func (rc *SRouterContext[T, U]) getClientIP() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.ClientIPSet {
+	if !rc.clientIPSet {
 		return "", false
 	}
-	return rc.ClientIP, true
+	return rc.clientIP, true
 }
 
 // WithUserAgent adds the User-Agent string to the context.
@@ -398,8 +399,8 @@ func (rc *SRouterContext[T, U]) clientIP() (string, bool) {
 func WithUserAgent[T comparable, U any](ctx context.Context, ua string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	rc.UserAgent = ua
-	rc.UserAgentSet = true
+	rc.userAgent = ua
+	rc.userAgentSet = true
 	rc.mu.Unlock()
 	return ctx
 }
@@ -413,28 +414,48 @@ func GetUserAgent[T comparable](ctx context.Context) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return r.userAgent()
+	return r.getUserAgent()
 }
 
-func (rc *SRouterContext[T, U]) userAgent() (string, bool) {
+func (rc *SRouterContext[T, U]) getUserAgent() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.UserAgentSet {
+	if !rc.userAgentSet {
 		return "", false
 	}
-	return rc.UserAgent, true
+	return rc.userAgent, true
 }
 
 // WithTransaction adds a database transaction to the context.
 // This is typically used by database middleware to make a transaction available
 // to handlers for transactional operations. The transaction should implement
 // the DatabaseTransaction interface.
+// This mutates an existing matching wrapper shared by the context chain. To
+// replace a transaction only for a child operation, call CopySRouterContext
+// first. A nil transaction is still present; use ClearTransaction to remove it.
 // T is the User ID type (comparable), U is the User object type (any).
 func WithTransaction[T comparable, U any](ctx context.Context, tx DatabaseTransaction) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	rc.Transaction = tx
-	rc.TransactionSet = true
+	rc.transaction = tx
+	rc.transactionSet = true
+	rc.mu.Unlock()
+	return ctx
+}
+
+// ClearTransaction removes the transaction reference and its presence flag.
+// It mutates the shared wrapper only when its types match T and U, and returns
+// ctx unchanged without creating a wrapper. Clone with CopySRouterContext first
+// when parent or sibling operations must retain their transaction.
+// It does not invoke transaction methods or change any other request state.
+func ClearTransaction[T comparable, U any](ctx context.Context) context.Context {
+	rc, ok := GetSRouterContext[T, U](ctx)
+	if !ok {
+		return ctx
+	}
+	rc.mu.Lock()
+	rc.transaction = nil
+	rc.transactionSet = false
 	rc.mu.Unlock()
 	return ctx
 }
@@ -448,16 +469,16 @@ func GetTransaction[T comparable](ctx context.Context) (DatabaseTransaction, boo
 	if !ok {
 		return nil, false
 	}
-	return r.transaction()
+	return r.getTransaction()
 }
 
-func (rc *SRouterContext[T, U]) transaction() (DatabaseTransaction, bool) {
+func (rc *SRouterContext[T, U]) getTransaction() (DatabaseTransaction, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.TransactionSet {
+	if !rc.transactionSet {
 		return nil, false
 	}
-	return rc.Transaction, true
+	return rc.transaction, true
 }
 
 // WithTraceID adds a trace ID to the context.
@@ -470,12 +491,12 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 	// If TraceID is already set, do not overwrite it.
-	if rc.TraceIDSet {
+	if rc.traceIDSet {
 		return ctx
 	}
 	// Otherwise, set the trace ID and the flag.
-	rc.TraceID = traceID
-	rc.TraceIDSet = true
+	rc.traceID = traceID
+	rc.traceIDSet = true
 	rc.logVersion++
 	return ctx
 }
@@ -487,8 +508,8 @@ func SetTraceID[T comparable, U any](ctx context.Context, traceID string) contex
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
-	rc.TraceID = traceID
-	rc.TraceIDSet = true
+	rc.traceID = traceID
+	rc.traceIDSet = true
 	rc.logVersion++
 	return ctx
 }
@@ -502,16 +523,16 @@ func GetTraceID[T comparable](ctx context.Context) string {
 	if !ok {
 		return ""
 	}
-	return r.traceID()
+	return r.getTraceID()
 }
 
-func (rc *SRouterContext[T, U]) traceID() string {
+func (rc *SRouterContext[T, U]) getTraceID() string {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.TraceIDSet {
+	if !rc.traceIDSet {
 		return ""
 	}
-	return rc.TraceID
+	return rc.traceID
 }
 
 // Correlation carries the per-operation values used to correlate log entries
@@ -582,15 +603,15 @@ func (rc *SRouterContext[T, U]) correlation() Correlation[T] {
 // or writing. It does not invoke application code.
 func (rc *SRouterContext[T, U]) correlationLocked() Correlation[T] {
 	return Correlation[T]{
-		TraceID:  rc.TraceID,
-		BuildID:  rc.BuildID,
-		ConfigID: rc.ConfigID,
-		UserID:   rc.UserID,
+		TraceID:  rc.traceID,
+		BuildID:  rc.buildID,
+		ConfigID: rc.configID,
+		UserID:   rc.userID,
 
-		TraceIDSet:  rc.TraceIDSet,
-		BuildIDSet:  rc.BuildIDSet,
-		ConfigIDSet: rc.ConfigIDSet,
-		UserIDSet:   rc.UserIDSet,
+		TraceIDSet:  rc.traceIDSet,
+		BuildIDSet:  rc.buildIDSet,
+		ConfigIDSet: rc.configIDSet,
+		UserIDSet:   rc.userIDSet,
 	}
 }
 
@@ -610,9 +631,9 @@ func WithRouteInfo[T comparable, U any](ctx context.Context, params httprouter.P
 // metadata has initialized the shared context.
 func SetRouteInfo[T comparable, U any](rc *SRouterContext[T, U], params httprouter.Params, routeTemplate string) {
 	rc.mu.Lock()
-	rc.PathParams = params
-	rc.RouteTemplate = routeTemplate
-	rc.RouteTemplateSet = true
+	rc.pathParams = params
+	rc.routeTemplate = routeTemplate
+	rc.routeTemplateSet = true
 	rc.mu.Unlock()
 }
 
@@ -624,19 +645,19 @@ type routeInfoProvider interface {
 func (rc *SRouterContext[T, U]) getPathParams() (httprouter.Params, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.RouteTemplateSet {
+	if !rc.routeTemplateSet {
 		return nil, false
 	}
-	return rc.PathParams, true
+	return rc.pathParams, true
 }
 
 func (rc *SRouterContext[T, U]) getRouteTemplate() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.RouteTemplateSet {
+	if !rc.routeTemplateSet {
 		return "", false
 	}
-	return rc.RouteTemplate, true
+	return rc.routeTemplate, true
 }
 
 // GetRouteTemplate retrieves the route template from the context.
@@ -670,10 +691,10 @@ func GetPathParams(ctx context.Context) (httprouter.Params, bool) {
 func WithCORSInfo[T comparable, U any](ctx context.Context, allowedOrigin string, credentialsAllowed bool) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	rc.AllowedOrigin = allowedOrigin
-	rc.CredentialsAllowed = credentialsAllowed
-	rc.AllowedOriginSet = true
-	rc.CredentialsAllowedSet = true // Set both flags when info is added
+	rc.allowedOrigin = allowedOrigin
+	rc.credentialsAllowed = credentialsAllowed
+	rc.allowedOriginSet = true
+	rc.credentialsAllowedSet = true // Set both flags when info is added
 	rc.mu.Unlock()
 	return ctx
 }
@@ -695,11 +716,11 @@ func GetCORSInfo[T comparable](ctx context.Context) (allowedOrigin string, crede
 func (rc *SRouterContext[T, U]) corsInfo() (string, bool, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.AllowedOriginSet { // Check if origin was set as the primary indicator
+	if !rc.allowedOriginSet { // Check if origin was set as the primary indicator
 		return "", false, false
 	}
 	// Return the stored values. CredentialsAllowedSet is implicitly true if AllowedOriginSet is true based on WithCORSInfo logic.
-	return rc.AllowedOrigin, rc.CredentialsAllowed, true
+	return rc.allowedOrigin, rc.credentialsAllowed, true
 }
 
 // WithCORSRequestedHeaders stores the Access-Control-Request-Headers value from a CORS preflight request.
@@ -709,8 +730,8 @@ func (rc *SRouterContext[T, U]) corsInfo() (string, bool, bool) {
 func WithCORSRequestedHeaders[T comparable, U any](ctx context.Context, requestedHeaders string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	rc.RequestedHeaders = requestedHeaders
-	rc.RequestedHeadersSet = true
+	rc.requestedHeaders = requestedHeaders
+	rc.requestedHeadersSet = true
 	rc.mu.Unlock()
 	return ctx
 }
@@ -731,10 +752,10 @@ func GetCORSRequestedHeaders[T comparable](ctx context.Context) (string, bool) {
 func (rc *SRouterContext[T, U]) corsRequestedHeaders() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.RequestedHeadersSet {
+	if !rc.requestedHeadersSet {
 		return "", false
 	}
-	return rc.RequestedHeaders, true
+	return rc.requestedHeaders, true
 }
 
 // WithHandlerError sets the handler error in the context. This is typically used by the framework
@@ -743,8 +764,8 @@ func (rc *SRouterContext[T, U]) corsRequestedHeaders() (string, bool) {
 func WithHandlerError[T comparable, U any](ctx context.Context, err error) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	rc.HandlerError = err
-	rc.HandlerErrorSet = true
+	rc.handlerError = err
+	rc.handlerErrorSet = true
 	rc.mu.Unlock()
 	return ctx
 }
@@ -758,16 +779,16 @@ func GetHandlerError[T comparable](ctx context.Context) (error, bool) {
 	if !ok {
 		return nil, false
 	}
-	return r.handlerError()
+	return r.getHandlerError()
 }
 
-func (rc *SRouterContext[T, U]) handlerError() (error, bool) {
+func (rc *SRouterContext[T, U]) getHandlerError() (error, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.HandlerErrorSet {
+	if !rc.handlerErrorSet {
 		return nil, false
 	}
-	return rc.HandlerError, true
+	return rc.handlerError, true
 }
 
 // SRouter context copying functions
@@ -785,63 +806,63 @@ func (rc *SRouterContext[T, U]) handlerError() (error, bool) {
 //    - No-op if destination lacks SRouterContext (preserves original destination)
 //    - Use when you want to update existing context without creating new structures
 //
-// Both functions allocate an independent wrapper and clone Flags and PathParams.
+// Both functions allocate an independent wrapper and clone flags and pathParams.
 // Pointer- and interface-valued fields continue to refer to the same underlying objects.
 
 // cloneSRouterContext creates a new wrapper containing a snapshot of src.
-// Flags and PathParams are cloned because they are mutable collections. Values
-// such as User, Transaction, and HandlerError are assigned normally, so any
+// flags and pathParams are cloned because they are mutable collections. Values
+// such as user, transaction, and handlerError are assigned normally, so any
 // objects referenced by those fields remain shared with src.
 // T is the User ID type (comparable), U is the User object type (any).
 func cloneSRouterContext[T comparable, U any](src *SRouterContext[T, U]) *SRouterContext[T, U] {
 	src.mu.RLock()
 	defer src.mu.RUnlock()
 	dst := &SRouterContext[T, U]{
-		UserID:                src.UserID,
-		User:                  src.User,
-		BuildID:               src.BuildID,
-		ConfigID:              src.ConfigID,
-		TraceID:               src.TraceID,
-		ClientIP:              src.ClientIP,
-		UserAgent:             src.UserAgent,
-		Transaction:           src.Transaction,
-		RouteTemplate:         src.RouteTemplate,
-		PathParams:            src.PathParams, // Will be deep copied below
-		AllowedOrigin:         src.AllowedOrigin,
-		CredentialsAllowed:    src.CredentialsAllowed,
-		RequestedHeaders:      src.RequestedHeaders,
-		HandlerError:          src.HandlerError,
-		UserIDSet:             src.UserIDSet,
-		UserSet:               src.UserSet,
-		BuildIDSet:            src.BuildIDSet,
-		ConfigIDSet:           src.ConfigIDSet,
-		ClientIPSet:           src.ClientIPSet,
-		UserAgentSet:          src.UserAgentSet,
-		TraceIDSet:            src.TraceIDSet,
-		TransactionSet:        src.TransactionSet,
-		RouteTemplateSet:      src.RouteTemplateSet,
-		AllowedOriginSet:      src.AllowedOriginSet,
-		CredentialsAllowedSet: src.CredentialsAllowedSet,
-		RequestedHeadersSet:   src.RequestedHeadersSet,
-		HandlerErrorSet:       src.HandlerErrorSet,
+		userID:                src.userID,
+		user:                  src.user,
+		buildID:               src.buildID,
+		configID:              src.configID,
+		traceID:               src.traceID,
+		clientIP:              src.clientIP,
+		userAgent:             src.userAgent,
+		transaction:           src.transaction,
+		routeTemplate:         src.routeTemplate,
+		pathParams:            src.pathParams, // Will be deep copied below
+		allowedOrigin:         src.allowedOrigin,
+		credentialsAllowed:    src.credentialsAllowed,
+		requestedHeaders:      src.requestedHeaders,
+		handlerError:          src.handlerError,
+		userIDSet:             src.userIDSet,
+		userSet:               src.userSet,
+		buildIDSet:            src.buildIDSet,
+		configIDSet:           src.configIDSet,
+		clientIPSet:           src.clientIPSet,
+		userAgentSet:          src.userAgentSet,
+		traceIDSet:            src.traceIDSet,
+		transactionSet:        src.transactionSet,
+		routeTemplateSet:      src.routeTemplateSet,
+		allowedOriginSet:      src.allowedOriginSet,
+		credentialsAllowedSet: src.credentialsAllowedSet,
+		requestedHeadersSet:   src.requestedHeadersSet,
+		handlerErrorSet:       src.handlerErrorSet,
 		logSource:             src.logSource,
 		logger:                src.logger,
 		logVersion:            src.logVersion,
 		loggerVersion:         src.loggerVersion,
 	}
 
-	// Deep copy the Flags map
-	if src.Flags != nil {
-		dst.Flags = make(map[string]bool, len(src.Flags))
-		maps.Copy(dst.Flags, src.Flags)
+	// Deep copy the flags map
+	if src.flags != nil {
+		dst.flags = make(map[string]bool, len(src.flags))
+		maps.Copy(dst.flags, src.flags)
 	} else {
-		dst.Flags = make(map[string]bool)
+		dst.flags = make(map[string]bool)
 	}
 
-	// Deep copy PathParams slice
-	if src.PathParams != nil {
-		dst.PathParams = make(httprouter.Params, len(src.PathParams))
-		copy(dst.PathParams, src.PathParams)
+	// Deep copy pathParams slice
+	if src.pathParams != nil {
+		dst.pathParams = make(httprouter.Params, len(src.pathParams))
+		copy(dst.pathParams, src.pathParams)
 	}
 
 	return dst
@@ -851,8 +872,8 @@ func cloneSRouterContext[T comparable, U any](src *SRouterContext[T, U]) *SRoute
 // copy to dst. The returned context retains dst's cancellation and deadline chain.
 //
 // If src has no SRouterContext, dst is returned unchanged. The new wrapper has
-// independent Flags and PathParams collections. Reference-bearing fields such
-// as User, Transaction, and HandlerError still refer to the same underlying
+// independent flags and pathParams collections. Reference-bearing fields such
+// as user, transaction, and handlerError still refer to the same underlying
 // objects; this is not a recursive deep copy.
 //
 // T is the User ID type (comparable), U is the User object type (any).
@@ -871,7 +892,7 @@ func CopySRouterContext[T comparable, U any](dst, src context.Context) context.C
 //
 // If either context lacks an SRouterContext, dst is returned unchanged. This
 // function replaces rather than merges destination values. The new wrapper has
-// independent Flags and PathParams collections, but reference-bearing fields
+// independent flags and pathParams collections, but reference-bearing fields
 // still refer to the same underlying objects as src.
 //
 // T is the User ID type (comparable), U is the User object type (any).

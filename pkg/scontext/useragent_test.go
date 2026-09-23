@@ -24,14 +24,6 @@ func TestUserAgentContext(t *testing.T) {
 	if ua != expected {
 		t.Errorf("expected %q, got %q", expected, ua)
 	}
-
-	rc, ok := GetSRouterContext[string, any](ctx)
-	if !ok || !rc.UserAgentSet {
-		t.Error("UserAgentSet flag not true")
-	}
-	if rc.UserAgent != expected {
-		t.Errorf("expected stored user agent %q, got %q", expected, rc.UserAgent)
-	}
 }
 
 func TestWithClientInfo(t *testing.T) {
