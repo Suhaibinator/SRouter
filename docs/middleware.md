@@ -104,7 +104,7 @@ func ObserveResult(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		next.ServeHTTP(w, req)
 
-		if err, ok := scontext.GetHandlerError[string](req.Context()); ok {
+		if err, ok := scontext.GetHandlerError(req.Context()); ok {
 			log.Printf("typed handler failed: %v", err)
 		}
 	})

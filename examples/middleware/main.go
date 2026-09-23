@@ -110,7 +110,7 @@ func DetailedLoggingMiddleware() common.Middleware {
 			}
 
 			// Log the request
-			if logger, ok := scontext.GetLogger[string](r.Context()); ok {
+			if logger, ok := scontext.GetLogger(r.Context()); ok {
 				if ce := logger.Check(zap.InfoLevel, "Request received"); ce != nil {
 					ce.Write(
 						zap.String(logkeys.Method, r.Method),
@@ -124,7 +124,7 @@ func DetailedLoggingMiddleware() common.Middleware {
 			next.ServeHTTP(lrw, r)
 
 			// Log the response
-			if logger, ok := scontext.GetLogger[string](r.Context()); ok {
+			if logger, ok := scontext.GetLogger(r.Context()); ok {
 				if ce := logger.Check(zap.InfoLevel, "Response sent"); ce != nil {
 					ce.Write(
 						zap.String(logkeys.Method, r.Method),

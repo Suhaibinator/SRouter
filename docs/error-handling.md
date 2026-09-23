@@ -8,7 +8,7 @@ func handleCreate(r *http.Request, req CreateRequest) (CreateResponse, error) {
 }
 ```
 
-Use `scontext.GetHandlerError[T]` in middleware that needs to decide whether to commit, roll back, or record an outcome. See [Context Management](./context-management.md) for the context API.
+Use `scontext.GetHandlerError` in middleware that needs to decide whether to commit, roll back, or record an outcome. See [Context Management](./context-management.md) for the context API.
 
 ## Default errors
 

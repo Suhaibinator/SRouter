@@ -6,12 +6,12 @@ attached to the standard `context.Context`. `T` is the router's user ID type and
 arguments that were passed to `router.NewRouter[T, U]`.
 
 Write helpers take both type arguments because they may create the wrapper.
-Read helpers take only `T`, except `GetUser[T, U]`, which returns the user
-object, and `GetSRouterContext[T, U]`, which returns the wrapper itself. Code
-that never touches the user object, such as a library or background worker, can
-therefore read the trace ID, transaction, or request logger without knowing
-`U`. A read with a different `T` than the wrapper was created with reports the
-value as absent.
+Read helpers are non-generic unless their result depends on a user type:
+`GetUserID[T]` and `GetCorrelation[T]` return values containing `T`;
+`GetUser[T, U]` returns `*U`; and `GetSRouterContext[T, U]` returns the
+typed wrapper. These typed reads report mismatched types as absent.
+All other getters read whichever SRouter carrier is present, without requiring
+callers to know its user ID or user object types.
 
 All `SRouterContext` fields are private. Use the helpers in `pkg/scontext`
 to read and write request state. The wrapper is shared by pointer across the
@@ -101,7 +101,7 @@ ctx := scontext.WithFlag[string, User](r.Context(), "audited", true)
 nextRequest := r.WithContext(ctx)
 next.ServeHTTP(w, nextRequest)
 
-handlerErr, failed := scontext.GetHandlerError[string](nextRequest.Context())
+handlerErr, failed := scontext.GetHandlerError(nextRequest.Context())
 _ = handlerErr
 _ = failed
 ```
@@ -117,7 +117,7 @@ func accountHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, hasUser := scontext.GetUser[string, User](r.Context())
-	clientIP, _ := scontext.GetClientIP[string](r.Context())
+	clientIP, _ := scontext.GetClientIP(r.Context())
 	routeTemplate, _ := scontext.GetRouteTemplate(r.Context())
 
 	_, _, _ = userID, user, hasUser
@@ -183,11 +183,11 @@ runtime identities are also installed at that boundary. The source holds the
 application logger and user-ID encoder; it contains no request values or
 per-request cache.
 
-`GetLogger[T](ctx)` returns the shared request logger. Use `Named` with a
+`GetLogger(ctx)` returns the shared request logger. Use `Named` with a
 relative service name and reuse that child within the operation:
 
 ```go
-logger, ok := scontext.GetLogger[uint64](ctx)
+logger, ok := scontext.GetLogger(ctx)
 if ok {
 	logger = logger.Named("common_service.admin")
 } else {
@@ -319,7 +319,7 @@ transaction, clone first:
 ```go
 child := scontext.CopySRouterContext[T, U](ctx, ctx)
 child = scontext.ClearTransaction[T, U](child)
-// GetTransaction[T](child) returns (nil, false).
+// GetTransaction(child) returns (nil, false).
 // The parent and its other children keep their transaction.
 ```
 
@@ -340,6 +340,19 @@ nil, so `GetTransaction` returns `(nil, true)` until cleared.
 
 See the [transaction context example](../examples/transaction-context/main.go);
 run it with `go run .` from `examples/transaction-context`.
+
+## Breaking change: non-generic metadata getters
+
+Remove type arguments from `GetBuildID`, `GetConfigID`, `GetFlag`,
+`GetClientIP`, `GetUserAgent`, `GetTransaction`, `GetTraceID`,
+`GetCORSInfo`, `GetCORSRequestedHeaders`, `GetHandlerError`, and `GetLogger`.
+For example, a transaction read is now `scontext.GetTransaction(ctx)`.
+
+These getters no longer filter carriers by user ID type. Return types,
+synchronization, unset-value behavior, and logger caching are unchanged.
+`GetRouteTemplate` and `GetPathParams` were already non-generic.
+Typed getters listed at the top of this guide retain their type parameters,
+as do setters, copy helpers, and `ClearTransaction[T, U]`.
 
 ## Breaking change: private context fields
 

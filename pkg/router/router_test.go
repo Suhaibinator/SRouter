@@ -1760,7 +1760,7 @@ func TestServeHTTP_MetricsLoggingWithTraceID(t *testing.T) {
 		Methods: []HttpMethod{MethodGet},
 		Handler: func(w http.ResponseWriter, req *http.Request) {
 			// ServeHTTP resolves one ID for the context, response, and summary.
-			assert.Equal(scontext.GetTraceID[string](req.Context()), w.Header().Get("X-Trace-ID"))
+			assert.Equal(scontext.GetTraceID(req.Context()), w.Header().Get("X-Trace-ID"))
 
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte("pong"))

@@ -128,29 +128,37 @@ func WithSRouterContext[T comparable, U any](ctx context.Context, rc *SRouterCon
 	return context.WithValue(ctx, sRouterContextKey{}, rc)
 }
 
-// reader is the read side of every *SRouterContext[T, U] with user ID type T,
-// whatever its user object type U. Getters that never return the user object
-// assert to it, so callers name only T. Each method takes the context lock.
-type reader[T comparable] interface {
+// reader exposes request values whose types do not depend on T or U.
+// Every *SRouterContext[T, U] implements it; each method takes the context lock.
+type reader interface {
 	getBuildID() (string, bool)
 	getConfigID() (string, bool)
-	getUserID() (T, bool)
 	flag(name string) (bool, bool)
 	getClientIP() (string, bool)
 	getUserAgent() (string, bool)
 	getTransaction() (DatabaseTransaction, bool)
 	getTraceID() string
-	correlation() Correlation[T]
 	corsInfo() (string, bool, bool)
 	corsRequestedHeaders() (string, bool)
 	getHandlerError() (error, bool)
 	requestLogger() (*zap.Logger, bool)
 }
 
-// getReader returns the context's SRouterContext when its user ID type is T.
-// A wrapper created with a different user ID type is reported as absent.
-func getReader[T comparable](ctx context.Context) (reader[T], bool) {
-	r, ok := ctx.Value(sRouterContextKey{}).(reader[T])
+// getReader accepts a carrier regardless of its user ID and user object types.
+func getReader(ctx context.Context) (reader, bool) {
+	r, ok := ctx.Value(sRouterContextKey{}).(reader)
+	return r, ok
+}
+
+// typedReader exposes values whose return types depend on the user ID type.
+type typedReader[T comparable] interface {
+	getUserID() (T, bool)
+	correlation() Correlation[T]
+}
+
+// getTypedReader reports carriers with a different user ID type as absent.
+func getTypedReader[T comparable](ctx context.Context) (typedReader[T], bool) {
+	r, ok := ctx.Value(sRouterContextKey{}).(typedReader[T])
 	return r, ok
 }
 
@@ -181,8 +189,8 @@ func WithBuildID[T comparable, U any](ctx context.Context, buildID string) conte
 
 // GetBuildID retrieves the opaque application build identity from the context.
 // It returns an empty string and false when no build identity has been set.
-func GetBuildID[T comparable](ctx context.Context) (string, bool) {
-	r, ok := getReader[T](ctx)
+func GetBuildID(ctx context.Context) (string, bool) {
+	r, ok := getReader(ctx)
 	if !ok {
 		return "", false
 	}
@@ -212,8 +220,8 @@ func WithConfigID[T comparable, U any](ctx context.Context, configID string) con
 
 // GetConfigID retrieves the opaque configuration identity from the context.
 // It returns an empty string and false when no configuration identity has been set.
-func GetConfigID[T comparable](ctx context.Context) (string, bool) {
-	r, ok := getReader[T](ctx)
+func GetConfigID(ctx context.Context) (string, bool) {
+	r, ok := getReader(ctx)
 	if !ok {
 		return "", false
 	}
@@ -247,7 +255,7 @@ func WithUserID[T comparable, U any](ctx context.Context, userID T) context.Cont
 // If no user ID is set, it returns the zero value of T and false.
 // T is the User ID type (comparable).
 func GetUserID[T comparable](ctx context.Context) (T, bool) {
-	r, ok := getReader[T](ctx)
+	r, ok := getTypedReader[T](ctx)
 	if !ok {
 		var zero T
 		return zero, false
@@ -312,9 +320,8 @@ func WithFlag[T comparable, U any](ctx context.Context, name string, value bool)
 // GetFlag retrieves a boolean flag from the context.
 // It returns the flag value and a boolean indicating whether the flag exists.
 // If the flag doesn't exist, it returns false, false.
-// T is the User ID type (comparable).
-func GetFlag[T comparable](ctx context.Context, name string) (bool, bool) {
-	r, ok := getReader[T](ctx)
+func GetFlag(ctx context.Context, name string) (bool, bool) {
+	r, ok := getReader(ctx)
 	if !ok {
 		return false, false
 	}
@@ -375,9 +382,8 @@ func WithClientInfo[T comparable, U any](ctx context.Context, ip, userAgent stri
 // It returns the IP address and a boolean indicating whether it was found.
 // If no client IP is set, it returns an empty string and false.
 // IP socket addresses written through this package have their port removed.
-// T is the User ID type (comparable).
-func GetClientIP[T comparable](ctx context.Context) (string, bool) {
-	r, ok := getReader[T](ctx)
+func GetClientIP(ctx context.Context) (string, bool) {
+	r, ok := getReader(ctx)
 	if !ok {
 		return "", false
 	}
@@ -408,9 +414,8 @@ func WithUserAgent[T comparable, U any](ctx context.Context, ua string) context.
 // GetUserAgent retrieves the User-Agent string from the context.
 // It returns the User-Agent and a boolean indicating whether it was found.
 // If no User-Agent is set, it returns an empty string and false.
-// T is the User ID type (comparable).
-func GetUserAgent[T comparable](ctx context.Context) (string, bool) {
-	r, ok := getReader[T](ctx)
+func GetUserAgent(ctx context.Context) (string, bool) {
+	r, ok := getReader(ctx)
 	if !ok {
 		return "", false
 	}
@@ -463,9 +468,8 @@ func ClearTransaction[T comparable, U any](ctx context.Context) context.Context 
 // GetTransaction retrieves a database transaction from the context.
 // It returns the transaction and a boolean indicating whether it was found.
 // If no transaction is set, it returns nil and false.
-// T is the User ID type (comparable).
-func GetTransaction[T comparable](ctx context.Context) (DatabaseTransaction, bool) {
-	r, ok := getReader[T](ctx)
+func GetTransaction(ctx context.Context) (DatabaseTransaction, bool) {
+	r, ok := getReader(ctx)
 	if !ok {
 		return nil, false
 	}
@@ -517,9 +521,8 @@ func SetTraceID[T comparable, U any](ctx context.Context, traceID string) contex
 // GetTraceID retrieves the trace ID from the context.
 // It returns the trace ID if set, or an empty string if not found.
 // This function never returns an error; absence is indicated by an empty string.
-// T is the User ID type (comparable).
-func GetTraceID[T comparable](ctx context.Context) string {
-	r, ok := getReader[T](ctx)
+func GetTraceID(ctx context.Context) string {
+	r, ok := getReader(ctx)
 	if !ok {
 		return ""
 	}
@@ -583,7 +586,7 @@ type Correlation[T comparable] struct {
 // calls are not an atomic pair.
 // T is the User ID type (comparable).
 func GetCorrelation[T comparable](ctx context.Context) (Correlation[T], bool) {
-	r, ok := getReader[T](ctx)
+	r, ok := getTypedReader[T](ctx)
 	if !ok {
 		return Correlation[T]{}, false
 	}
@@ -704,9 +707,8 @@ func WithCORSInfo[T comparable, U any](ctx context.Context, allowedOrigin string
 // - allowedOrigin: The origin that should be set in Access-Control-Allow-Origin header
 // - credentialsAllowed: Whether Access-Control-Allow-Credentials should be "true"
 // - ok: Whether CORS information was found in the context
-// T is the User ID type (comparable).
-func GetCORSInfo[T comparable](ctx context.Context) (allowedOrigin string, credentialsAllowed bool, ok bool) {
-	r, ok := getReader[T](ctx)
+func GetCORSInfo(ctx context.Context) (allowedOrigin string, credentialsAllowed bool, ok bool) {
+	r, ok := getReader(ctx)
 	if !ok {
 		return "", false, false
 	}
@@ -740,9 +742,8 @@ func WithCORSRequestedHeaders[T comparable, U any](ctx context.Context, requeste
 // This is used internally by the CORS handler to echo back the requested headers
 // when wildcard headers are allowed in the configuration.
 // It returns the headers string and a boolean indicating whether it was found.
-// T is the User ID type (comparable).
-func GetCORSRequestedHeaders[T comparable](ctx context.Context) (string, bool) {
-	r, ok := getReader[T](ctx)
+func GetCORSRequestedHeaders(ctx context.Context) (string, bool) {
+	r, ok := getReader(ctx)
 	if !ok {
 		return "", false
 	}
@@ -773,9 +774,8 @@ func WithHandlerError[T comparable, U any](ctx context.Context, err error) conte
 // GetHandlerError retrieves the handler error from the context if one was set.
 // This is useful for middleware that needs to react to errors returned by route handlers,
 // such as transaction middleware that might rollback on errors.
-// T is the User ID type (comparable).
-func GetHandlerError[T comparable](ctx context.Context) (error, bool) {
-	r, ok := getReader[T](ctx)
+func GetHandlerError(ctx context.Context) (error, bool) {
+	r, ok := getReader(ctx)
 	if !ok {
 		return nil, false
 	}

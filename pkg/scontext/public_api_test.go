@@ -29,8 +29,8 @@ func ExampleClearTransaction() {
 	parent := scontext.WithTransaction[int, string](context.Background(), nil)
 	child := scontext.CopySRouterContext[int, string](parent, parent)
 	child = scontext.ClearTransaction[int, string](child)
-	_, parentHasTransaction := scontext.GetTransaction[int](parent)
-	_, childHasTransaction := scontext.GetTransaction[int](child)
+	_, parentHasTransaction := scontext.GetTransaction(parent)
+	_, childHasTransaction := scontext.GetTransaction(child)
 	fmt.Println("parent:", parentHasTransaction)
 	fmt.Println("child:", childHasTransaction)
 	// Output:
