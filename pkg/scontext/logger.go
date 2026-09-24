@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/Suhaibinator/SRouter/internal/loghook"
 	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -127,6 +128,55 @@ func (rc *SRouterContext[T, U]) requestLogger() (*zap.Logger, bool) {
 	// Deriving under the write lock instead would deadlock a formatter that
 	// reads the context, which the formatter contract allows.
 	return logger, true
+}
+
+func init() {
+	loghook.LibraryLogger = libraryLogger
+}
+
+// libraryLogger backs requestlog.Check. See loghook.LibraryLogger.
+func libraryLogger(ctx context.Context, level zapcore.Level) *zap.Logger {
+	r, ok := getReader(ctx)
+	if !ok {
+		return nil
+	}
+	return r.libraryLogger(level)
+}
+
+// libraryLogger checks level against the source's base core before deriving,
+// so disabled library records skip correlation encoding. Deriving adds fields
+// through Core.With, which keeps the base core's level for Zap's cores and
+// wrappers; the caller's Check still applies the derived core's decision. The
+// "SRouter" child, with one caller skip for requestlog.Check, is cached against
+// the same version as the request logger.
+func (rc *SRouterContext[T, U]) libraryLogger(level zapcore.Level) *zap.Logger {
+	rc.mu.RLock()
+	source := rc.logSource
+	cached, fresh := rc.libLogger, rc.libLoggerVersion == rc.logVersion
+	rc.mu.RUnlock()
+	// Enabled runs outside the lock, like derivation, in case a custom core
+	// reads context.
+	if source == nil || source.base == nil || !source.base.Core().Enabled(level) {
+		return nil
+	}
+	if fresh && cached != nil {
+		return cached
+	}
+
+	logger, ok := rc.requestLogger()
+	if !ok {
+		return nil
+	}
+	named := logger.Named("SRouter").WithOptions(zap.AddCallerSkip(1))
+	rc.mu.Lock()
+	// Publish only a child of the currently cached request logger. An
+	// uncached snapshot from a raced derivation is used once and dropped.
+	if rc.logger == logger && rc.loggerVersion == rc.logVersion {
+		rc.libLogger = named
+		rc.libLoggerVersion = rc.logVersion
+	}
+	rc.mu.Unlock()
+	return named
 }
 
 // maxLoggerDerivations bounds how many times GetLogger derives a logger in one

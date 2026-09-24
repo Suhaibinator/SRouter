@@ -12,6 +12,7 @@ import (
 
 	"github.com/julienschmidt/httprouter" // Import for Params type
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"gorm.io/gorm" // Needed for DatabaseTransaction
 )
 
@@ -108,6 +109,10 @@ type SRouterContext[T comparable, U any] struct {
 	logger        *zap.Logger
 	logVersion    uint64
 	loggerVersion uint64
+	// libLogger caches logger's "SRouter" child for internal records.
+	// It is valid only while libLoggerVersion equals logVersion.
+	libLogger        *zap.Logger
+	libLoggerVersion uint64
 }
 
 // NewSRouterContext creates a new SRouterContext instance.
@@ -149,6 +154,7 @@ type reader interface {
 	corsRequestedHeaders() (string, bool)
 	getHandlerError() (error, bool)
 	requestLogger() (*zap.Logger, bool)
+	libraryLogger(level zapcore.Level) *zap.Logger
 }
 
 // getReader accepts a carrier regardless of its user ID and user object types.
@@ -861,14 +867,14 @@ func cloneSRouterContext[T comparable, U any](src *SRouterContext[T, U]) *SRoute
 		logger:             src.logger,
 		logVersion:         src.logVersion,
 		loggerVersion:      src.loggerVersion,
+		libLogger:          src.libLogger,
+		libLoggerVersion:   src.libLoggerVersion,
 	}
 
-	// Deep copy the flags map
-	if src.flags != nil {
-		dst.flags = make(map[string]bool, len(src.flags))
-		maps.Copy(dst.flags, src.flags)
-	} else {
-		dst.flags = make(map[string]bool)
+	// Deep copy the flags map. An empty source stays nil; WithFlag allocates
+	// on first write, as it does for new contexts.
+	if len(src.flags) > 0 {
+		dst.flags = maps.Clone(src.flags)
 	}
 
 	// Deep copy pathParams slice

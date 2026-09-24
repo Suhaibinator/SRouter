@@ -466,3 +466,34 @@ func BenchmarkGetLoggerFastPath(b *testing.B) {
 		loggerSink, _ = GetLogger(ctx)
 	}
 }
+
+// onEnabledCore runs a callback from Enabled, which libraryLogger calls
+// outside the context lock.
+type onEnabledCore struct {
+	zapcore.Core
+	onEnabled func()
+}
+
+func (c onEnabledCore) Enabled(level zapcore.Level) bool {
+	c.onEnabled()
+	return c.Core.Enabled(level)
+}
+
+// A source removed between the level check and derivation yields no logger
+// and caches nothing.
+func TestLibraryLoggerSourceClearedDuringLevelCheck(t *testing.T) {
+	core, _ := observer.New(zapcore.InfoLevel)
+	var ctx context.Context
+	source := NewRequestLoggerSource[int](zap.New(onEnabledCore{
+		Core:      core,
+		onEnabled: func() { ClearRequestLogger[int, testUser](ctx) },
+	}), nil)
+	ctx = WithRequestLogger[int, testUser](context.Background(), source)
+	if logger := libraryLogger(ctx, zapcore.InfoLevel); logger != nil {
+		t.Fatal("library logger derived from a cleared source")
+	}
+	rc, _ := GetSRouterContext[int, testUser](ctx)
+	if rc.libLogger != nil {
+		t.Fatal("library logger cached after the source was cleared")
+	}
+}

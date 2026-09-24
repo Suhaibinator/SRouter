@@ -2,6 +2,8 @@ package scontext
 
 import (
 	"context"
+	"net"
+	"strings"
 	"testing"
 
 	"github.com/Suhaibinator/SRouter/pkg/logkeys"
@@ -71,5 +73,49 @@ func TestEquivalentClientIPSocketAddressesReuseCachedLogger(t *testing.T) {
 				t.Fatalf("client_ip = %v, want 192.0.2.1", got)
 			}
 		})
+	}
+}
+
+// referenceCleanClientIP is cleanClientIP without its fast paths; the
+// optimized version must be indistinguishable from it.
+func referenceCleanClientIP(ip string) string {
+	host, _, err := net.SplitHostPort(ip)
+	if err != nil {
+		return ip
+	}
+	if strings.Contains(host, "%") {
+		return host
+	}
+	if net.ParseIP(host) != nil {
+		if strings.HasPrefix(ip, "[") && strings.Contains(ip, "]") {
+			return "[" + host + "]"
+		}
+		return host
+	}
+	return ip
+}
+
+func FuzzCleanClientIPMatchesReference(f *testing.F) {
+	for _, seed := range []string{
+		"", ":", "::", "[", "]", "[]", "[]:", "[]:80", "[:]", "a:b:c",
+		"192.0.2.1", "192.0.2.1:1234", "192.0.2.1:", ":1234",
+		"2001:db8::1", "[2001:db8::1]", "[2001:db8::1]:1234", "[2001:db8::1]:",
+		"[2001:db8::1]]:80", "[[2001:db8::1]:80", "[2001:db8::1]x", "[192.0.2.1]:80",
+		"fe80::1%eth0", "[fe80::1%eth0]:80", "[fe80::1%eth0]", "host:80", "[host]:80",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, ip string) {
+		if got, want := cleanClientIP(ip), referenceCleanClientIP(ip); got != want {
+			t.Fatalf("cleanClientIP(%q) = %q, want %q", ip, got, want)
+		}
+	})
+}
+
+func TestCleanClientIPDoesNotAllocate(t *testing.T) {
+	for _, ip := range []string{"192.0.2.1", "192.0.2.1:1234", "2001:db8::1", "[2001:db8::1]", "[2001:db8::1]:1234"} {
+		if allocs := testing.AllocsPerRun(100, func() { _ = cleanClientIP(ip) }); allocs != 0 {
+			t.Errorf("cleanClientIP(%q) allocs = %v, want 0", ip, allocs)
+		}
 	}
 }

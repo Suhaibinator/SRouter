@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	json "encoding/json/v2"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/common" // Re-add common import
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -697,5 +699,51 @@ func BenchmarkCompiledRouteParamAccess(b *testing.B) {
 				r.router.ServeHTTP(writer, req)
 			}
 		})
+	}
+}
+
+type headerBenchmarkResponseWriter struct{ header http.Header }
+
+func (w *headerBenchmarkResponseWriter) Header() http.Header          { return w.header }
+func (*headerBenchmarkResponseWriter) Write(body []byte) (int, error) { return len(body), nil }
+func (*headerBenchmarkResponseWriter) WriteHeader(int)                {}
+
+// BenchmarkProductionAuthRoute measures request ingress with the pieces a
+// production deployment typically enables: runtime identities, a proxy-header
+// client IP, trace IDs, and an Info-level JSON logger, so the per-request
+// "Authentication successful" Debug record is disabled.
+func BenchmarkProductionAuthRoute(b *testing.B) {
+	authLevel := AuthRequired
+	logger := zap.New(zapcore.NewCore(
+		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
+		zapcore.AddSync(io.Discard), zapcore.InfoLevel,
+	))
+	r := NewRouter(RouterConfig{
+		Logger:        logger,
+		TraceIDConfig: &TraceIDConfig{},
+		IPConfig:      &IPConfig{Source: IPSourceXRealIP, TrustProxy: true},
+	}, RouterDependencies[string, string]{
+		Authenticate: nopAuthFunc,
+		UserID:       userIDFromString,
+		BuildID:      func() string { return "build-1" },
+		ConfigID:     func() string { return "config-1" },
+	})
+	r.Route(RouteConfigBase{
+		Path:      "/secure",
+		Methods:   []HttpMethod{MethodGet},
+		AuthLevel: &authLevel,
+		Handler:   benchmarkRouteHandler,
+	})
+	if err := r.Build(); err != nil {
+		b.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/secure", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	req.Header.Set("X-Real-IP", "203.0.113.7")
+	w := &headerBenchmarkResponseWriter{header: make(http.Header)}
+	b.ReportAllocs()
+	for b.Loop() {
+		r.ServeHTTP(w, req)
 	}
 }
