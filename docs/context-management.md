@@ -21,23 +21,23 @@ with the wrapper's internal lock.
 
 ## Stored values
 
-| Value | Write helper | Read helper |
-| --- | --- | --- |
-| User ID | `WithUserID` | `GetUserID` |
-| User object (`*U`) | `WithUser` | `GetUser` |
-| Client IP | `WithClientIP`, `WithClientInfo` | `GetClientIP` |
-| User agent | `WithUserAgent`, `WithClientInfo` | `GetUserAgent` |
-| Trace ID | `WithTraceID` / `SetTraceID` | `GetTraceID` |
-| Build identity | `WithBuildID` | `GetBuildID` |
-| Configuration identity | `WithConfigID` | `GetConfigID` |
-| Database transaction | `WithTransaction`, `ClearTransaction` | `GetTransaction` |
-| Route template and path parameters | `WithRouteInfo`, `SetRouteInfo` | `GetRouteTemplate`, `GetPathParams` |
-| Allowed CORS origin and credentials | `WithCORSInfo` | `GetCORSInfo` |
-| Requested CORS headers | `WithCORSRequestedHeaders` | `GetCORSRequestedHeaders` |
-| Generic-handler error | `WithHandlerError` | `GetHandlerError` |
-| Application boolean flag | `WithFlag` | `GetFlag` |
-| All correlation values at once | (see individual writers) | `GetCorrelation` |
-| Request-scoped logger | `WithRequestLogger` | `GetLogger` |
+| Value | Write helper | Read helper | Clear helper |
+| --- | --- | --- | --- |
+| User ID | `WithUserID` | `GetUserID` | `ClearUserID`, `ClearIdentity` |
+| User object (`*U`) | `WithUser` | `GetUser` | `ClearUser`, `ClearIdentity` |
+| Client IP | `WithClientIP`, `WithClientInfo` | `GetClientIP` | `ClearClientIP`, `ClearClientInfo` |
+| User agent | `WithUserAgent`, `WithClientInfo` | `GetUserAgent` | `ClearUserAgent`, `ClearClientInfo` |
+| Trace ID | `WithTraceID` / `SetTraceID` | `GetTraceID` | `ClearTraceID` |
+| Build identity | `WithBuildID` | `GetBuildID` | `ClearBuildID` |
+| Configuration identity | `WithConfigID` | `GetConfigID` | `ClearConfigID` |
+| Database transaction | `WithTransaction` | `GetTransaction` | `ClearTransaction` |
+| Route template and path parameters | `WithRouteInfo`, `SetRouteInfo` | `GetRouteTemplate`, `GetPathParams` | `ClearRouteInfo` |
+| Allowed CORS origin and credentials | `WithCORSInfo` | `GetCORSInfo` | `ClearCORSInfo` |
+| Requested CORS headers | `WithCORSRequestedHeaders` | `GetCORSRequestedHeaders` | `ClearCORSRequestedHeaders` |
+| Generic-handler error | `WithHandlerError` | `GetHandlerError` | `ClearHandlerError` |
+| Application boolean flag | `WithFlag` | `GetFlag` | `ClearFlag` |
+| All correlation values at once | (see individual writers) | `GetCorrelation` | (see individual clears) |
+| Request-scoped logger | `WithRequestLogger` | `GetLogger` | `ClearRequestLogger` |
 
 Most getters return `(value, ok)` so an unset value can be distinguished from
 its zero value. The trace-ID getters instead return an empty string when no
@@ -71,6 +71,40 @@ Values returned by the helpers can themselves be references. In particular,
 the user is a `*U`, the transaction is an interface, and path parameters are a
 slice. Treat those referenced values as shared unless your application makes
 its own copy.
+
+## Clearing values
+
+Every clear helper takes `[T, U]` and returns the supplied context unchanged.
+It mutates an existing matching wrapper under its lock, resetting both the
+stored value and its presence. Missing wrappers and mismatched types are no-ops;
+clearing never creates a wrapper. Repeated clears leave values absent.
+`ClearFlag(ctx, name)` deletes only that named flag.
+
+A zero or nil write still means present: for example, `WithUserID(ctx, 0)`
+and `WithUser(ctx, nil)` do not remove identity. Use `ClearIdentity` to remove
+both the user ID and user object atomically. `ClearClientInfo`, `ClearRouteInfo`,
+and `ClearCORSInfo` likewise clear their related values under one lock.
+
+Derived contexts share the wrapper unless explicitly copied. For follow-up work
+that must run without the parent's actor, clone first:
+
+```go
+child := scontext.CopySRouterContext[T, U](ctx, ctx)
+child = scontext.ClearIdentity[T, U](child)
+// GetUserID[T](child) and GetUser[T, U](child) now report absent.
+// The parent and its other children retain their identity.
+```
+
+This removes the stored identity only; application flags and other context
+values remain. See the [identity context example](../examples/identity-context/main.go);
+run it with `go run .` from `examples/identity-context`.
+
+Clearing user ID, trace/build/config ID, or client IP invalidates the cached
+request logger, including through grouped clears. Reacquire `GetLogger` and
+any named child afterward: previously returned loggers are immutable snapshots
+and still carry their original fields. `ClearRequestLogger` removes the source
+and cache; `WithRequestLogger` can attach a source again. Other clears preserve
+the cache. `ClearTraceID` also allows a subsequent `WithTraceID` to install an ID.
 
 ## Writing values in middleware
 
@@ -163,8 +197,8 @@ rendering for the user ID. Client IP remains available through `GetClientIP`;
 it is part of `GetLogger` derivation but is not added to the public
 `Correlation` value.
 
-Each field carries a `Set` flag, so a value that was written empty on purpose
-stays distinguishable from one that was never written. The result is a copy
+Each field carries a `Set` flag indicating whether it is currently set, so an
+explicitly empty value stays distinguishable from an absent or cleared one. The result is a copy
 taken at the moment of the call: a later write through a `With*` helper does
 not change it, and two separate calls are not an atomic pair. Scalar values and
 presence flags are copied; references inside a generic user ID retain their
@@ -352,7 +386,7 @@ These getters no longer filter carriers by user ID type. Return types,
 synchronization, unset-value behavior, and logger caching are unchanged.
 `GetRouteTemplate` and `GetPathParams` were already non-generic.
 Typed getters listed at the top of this guide retain their type parameters,
-as do setters, copy helpers, and `ClearTransaction[T, U]`.
+as do setters, copy helpers, and all `Clear*` helpers.
 
 ## Breaking change: private context fields
 
@@ -363,9 +397,11 @@ value and presence instead of reading `UserID` and `UserIDSet`; initialize
 values through `WithUserID[T, U]` rather than a struct literal. Use
 `WithFlag` and `GetFlag` for named flags instead of accessing the map.
 
-Replace manual assignments to `Transaction` and `TransactionSet` with
-`ClearTransaction[T, U]`, retaining any clone-first isolation. No general
-field or presence-flag mutation API is provided.
+Replace manual field and presence resets with the corresponding `Clear*`
+helper, retaining any clone-first isolation. In particular, use
+`ClearIdentity[T, U]` to remove both actor fields and `ClearTransaction[T, U]`
+to remove the transaction. The internal presence mask is private;
+`Correlation[T]` retains its exported boolean presence fields.
 
 The type, its zero value, constructors, attachment helpers, and existing helper
 signatures remain available. Do not copy a wrapper by value; it contains a

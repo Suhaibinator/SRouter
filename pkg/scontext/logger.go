@@ -148,7 +148,7 @@ func (rc *SRouterContext[T, U]) requestLoggerSnapshotLocked() requestLoggerSnaps
 	return requestLoggerSnapshot[T]{
 		correlation: rc.correlationLocked(),
 		clientIP:    rc.clientIP,
-		clientIPSet: rc.clientIPSet,
+		clientIPSet: rc.presence&presentClientIP != 0,
 	}
 }
 

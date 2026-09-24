@@ -365,9 +365,9 @@ func TestCloneSRouterContext(t *testing.T) {
 
 	t.Run("NilFlags", func(t *testing.T) {
 		srcRC := &SRouterContext[int, testUser]{
-			userID:    123,
-			userIDSet: true,
-			flags:     nil,
+			userID:   123,
+			presence: presentUserID,
+			flags:    nil,
 		}
 
 		clonedRC := cloneSRouterContext(srcRC)
@@ -384,7 +384,7 @@ func TestCloneSRouterContext(t *testing.T) {
 	t.Run("NilPathParams", func(t *testing.T) {
 		srcRC := &SRouterContext[int, testUser]{
 			userID:     123,
-			userIDSet:  true,
+			presence:   presentUserID,
 			pathParams: nil,
 			flags:      make(map[string]bool),
 		}

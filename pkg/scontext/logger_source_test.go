@@ -187,7 +187,7 @@ func TestGetLoggerPanicDoesNotPublishStaleLogger(t *testing.T) {
 }
 
 func TestGetLoggerDiscardsDerivationAfterConcurrentWrite(t *testing.T) {
-	for _, change := range []string{"correlation", "source", "remove source"} {
+	for _, change := range []string{"correlation", "source", "remove source", "clear identity", "clear source"} {
 		t.Run(change, func(t *testing.T) {
 			base, logs := newObservedLogger()
 			started, release := make(chan struct{}), make(chan struct{})
@@ -217,6 +217,10 @@ func TestGetLoggerDiscardsDerivationAfterConcurrentWrite(t *testing.T) {
 					WithUserID[int, testUser](ctx, 2)
 				case "source":
 					WithRequestLogger[int, testUser](ctx, NewRequestLoggerSource[int](base.Named("replacement"), nil))
+				case "clear identity":
+					ClearIdentity[int, testUser](ctx)
+				case "clear source":
+					ClearRequestLogger[int, testUser](ctx)
 				case "remove source":
 					WithRequestLogger[int, testUser](ctx, nil)
 				}
@@ -233,7 +237,7 @@ func TestGetLoggerDiscardsDerivationAfterConcurrentWrite(t *testing.T) {
 			if got := <-result; got != current {
 				t.Fatal("in-flight derivation returned an obsolete logger")
 			}
-			if change == "remove source" {
+			if change == "remove source" || change == "clear source" {
 				if current != nil {
 					t.Fatal("removed source still returned a logger")
 				}
@@ -245,6 +249,11 @@ func TestGetLoggerDiscardsDerivationAfterConcurrentWrite(t *testing.T) {
 			entry := logAndTake(t, current, logs, "after write")
 			if change == "correlation" && entry.ContextMap()[logkeys.UserID] != int64(2) {
 				t.Fatalf("stale user_id: %v", entry.ContextMap())
+			}
+			if change == "clear identity" {
+				if _, ok := entry.ContextMap()[logkeys.UserID]; ok {
+					t.Fatal("cleared identity in logger")
+				}
 			}
 			if change == "source" && entry.LoggerName != "replacement" {
 				t.Fatalf("stale source: %q", entry.LoggerName)
