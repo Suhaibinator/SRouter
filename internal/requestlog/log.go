@@ -4,8 +4,9 @@ package requestlog
 import (
 	"context"
 
-	"github.com/Suhaibinator/SRouter/pkg/scontext"
-	"go.uber.org/zap"
+	"github.com/Suhaibinator/SRouter/internal/loghook"
+	// scontext installs loghook.LibraryLogger during initialization.
+	_ "github.com/Suhaibinator/SRouter/pkg/scontext"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -14,10 +15,13 @@ import (
 // middleware runs. A missing source produces no entry. Callers must construct
 // event fields only after Check returns a nonnil entry, then call Write once.
 // Request metadata, including normalized client IP, must be installed at ingress.
+//
+// A level the source's core disables returns nil before the correlated logger
+// is derived, so disabled records cost no field encoding.
 func Check[T comparable, U any](ctx context.Context, level zapcore.Level, message string) *zapcore.CheckedEntry {
-	logger, ok := scontext.GetLogger(ctx)
-	if !ok || !logger.Core().Enabled(level) {
+	logger := loghook.LibraryLogger(ctx, level)
+	if logger == nil {
 		return nil
 	}
-	return logger.Named("SRouter").WithOptions(zap.AddCallerSkip(1)).Check(level, message)
+	return logger.Check(level, message)
 }

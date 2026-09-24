@@ -14,6 +14,13 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
+// withRequestLogging installs only the request logger and client information,
+// letting tests that call handlers directly supply runtime identities on the
+// incoming context instead of through the router's providers.
+func (r *Router[T, U]) withRequestLogging(req *http.Request) *http.Request {
+	return req.WithContext(r.requestLoggingContext(req.Context(), req))
+}
+
 // reqLogUser is the user object used by the request-scoped logger tests.
 type reqLogUser struct {
 	id   uint64

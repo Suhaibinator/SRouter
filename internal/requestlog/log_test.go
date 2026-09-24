@@ -2,6 +2,7 @@ package requestlog
 
 import (
 	"context"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -176,6 +177,76 @@ func TestCheckReusesCachedLoggerWithoutClientIP(t *testing.T) {
 	for _, entry := range logs.All() {
 		if _, ok := entry.ContextMap()["client_ip"]; ok {
 			t.Fatal("logging inferred a peer IP")
+		}
+	}
+}
+
+// A disabled level must be rejected before the first derivation, so requests
+// whose only library record is disabled never encode correlation fields.
+func TestCheckDisabledColdPathSkipsDerivation(t *testing.T) {
+	core, _ := observer.New(zapcore.InfoLevel)
+	encodes := 0
+	source := scontext.NewRequestLoggerSource(zap.New(core), func(id string) zap.Field {
+		encodes++
+		return zap.String("user_id", id)
+	})
+	ctx := scontext.WithRequestLogger[string, any](context.Background(), source)
+	ctx = scontext.WithUserID[string, any](ctx, "user")
+	if ce := Check[string, any](ctx, zapcore.DebugLevel, "disabled"); ce != nil {
+		t.Fatal("disabled entry was checked")
+	}
+	if encodes != 0 {
+		t.Fatalf("disabled check derived the request logger: encodes=%d", encodes)
+	}
+}
+
+func TestCheckEnabledWarmPathDoesNotAllocate(t *testing.T) {
+	if raceEnabled {
+		t.Skip("the race detector drops pooled Zap entries")
+	}
+	core := zapcore.NewCore(zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), zapcore.AddSync(io.Discard), zapcore.InfoLevel)
+	ctx := scontext.WithRequestLogger[string, any](context.Background(), scontext.NewRequestLoggerSource[string](zap.New(core), nil))
+	ctx = scontext.WithTraceID[string, any](ctx, "trace")
+	_ = Check[string, any](ctx, zapcore.InfoLevel, "warm")
+	allocs := testing.AllocsPerRun(1000, func() {
+		ce := Check[string, any](ctx, zapcore.InfoLevel, "enabled")
+		if ce == nil {
+			panic("missing enabled entry")
+		}
+		// Write returns Zap's pooled CheckedEntry and encoder buffer.
+		ce.Write()
+	})
+	// The cached library logger adds nothing to Zap's own write path.
+	if allocs != 0 {
+		t.Fatalf("enabled warm path allocations = %v, want 0", allocs)
+	}
+}
+
+func TestCheckLibraryLoggerFollowsCorrelationWrites(t *testing.T) {
+	core, logs := observer.New(zapcore.InfoLevel)
+	ctx := scontext.WithRequestLogger[string, any](context.Background(), scontext.NewRequestLoggerSource[string](zap.New(core), nil))
+	for _, user := range []string{"first", "second"} {
+		scontext.WithUserID[string, any](ctx, user)
+		for range 2 {
+			if ce := Check[string, any](ctx, zapcore.InfoLevel, user); ce != nil {
+				ce.Write()
+			}
+		}
+	}
+	scontext.ClearRequestLogger[string, any](ctx)
+	if ce := Check[string, any](ctx, zapcore.InfoLevel, "cleared"); ce != nil {
+		t.Fatal("cleared request logger still produced an entry")
+	}
+	entries := logs.All()
+	if len(entries) != 4 {
+		t.Fatalf("logs = %d, want 4", len(entries))
+	}
+	for _, entry := range entries {
+		if got := entry.ContextMap()["user_id"]; got != entry.Message {
+			t.Errorf("%s entry user_id = %#v", entry.Message, got)
+		}
+		if entry.LoggerName != "SRouter" {
+			t.Errorf("logger name = %q", entry.LoggerName)
 		}
 	}
 }

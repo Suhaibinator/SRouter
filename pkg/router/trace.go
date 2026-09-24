@@ -30,7 +30,7 @@ func (r *Router[T, U]) resolveTraceID(w http.ResponseWriter, req *http.Request) 
 			}
 		}
 	}
-	// withRequestLogging has already installed the shared mutable context.
+	// withRequestContext has already installed the shared mutable context.
 	scontext.SetTraceID[T, U](req.Context(), id)
 	w.Header().Set(config.ResponseHeader, id)
 }

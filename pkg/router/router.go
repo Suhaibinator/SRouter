@@ -649,8 +649,7 @@ func combineMiddlewares(parent, child []common.Middleware) []common.Middleware {
 // httprouter. Trace IDs and summaries cover every request; configured metrics
 // run inside matched route chains.
 func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	req = r.withRuntimeIdentities(req)
-	req = r.withRequestLogging(req)
+	req = r.withRequestContext(req)
 
 	r.resolveTraceID(w, req)
 
@@ -761,28 +760,28 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.router.ServeHTTP(rw, req)
 }
 
-// withRuntimeIdentities samples each configured provider once for this request
+// withRequestContext installs request-scoped metadata in the shared SRouter
+// context and copies the request once for the whole set.
+func (r *Router[T, U]) withRequestContext(req *http.Request) *http.Request {
+	ctx := r.runtimeIdentityContext(req.Context())
+	return req.WithContext(r.requestLoggingContext(ctx, req))
+}
+
+// runtimeIdentityContext samples each configured provider once for this request
 // and stores non-empty opaque identities in the shared SRouter context. Local
 // provider values replace identities inherited on the incoming context.
-func (r *Router[T, U]) withRuntimeIdentities(req *http.Request) *http.Request {
-	ctx := req.Context()
-	changed := false
+func (r *Router[T, U]) runtimeIdentityContext(ctx context.Context) context.Context {
 	if provider := r.dependencies.BuildID; provider != nil {
 		if buildID := provider(); buildID != "" {
 			ctx = scontext.WithBuildID[T, U](ctx, buildID)
-			changed = true
 		}
 	}
 	if provider := r.dependencies.ConfigID; provider != nil {
 		if configID := provider(); configID != "" {
 			ctx = scontext.WithConfigID[T, U](ctx, configID)
-			changed = true
 		}
 	}
-	if !changed {
-		return req
-	}
-	return req.WithContext(ctx)
+	return ctx
 }
 
 // warnProcess logs a warning that belongs to no request, such as a startup or
@@ -1254,12 +1253,11 @@ func (r *Router[T, U]) convertRateLimit(config *common.RateLimitConfig[any, any]
 	}
 }
 
-// withRequestLogging installs the configured source and client information
+// requestLoggingContext installs the configured source and client information
 // before any request-bound log, including a lazy-build failure. Derivation stays lazy.
-func (r *Router[T, U]) withRequestLogging(req *http.Request) *http.Request {
-	ctx := scontext.WithRequestLogger[T, U](req.Context(), r.requestLogSource)
-	ctx = scontext.WithClientInfo[T, U](ctx, extractClientIP(req, r.config.IPConfig), req.UserAgent())
-	return req.WithContext(ctx)
+func (r *Router[T, U]) requestLoggingContext(ctx context.Context, req *http.Request) context.Context {
+	ctx = scontext.WithRequestLogger[T, U](ctx, r.requestLogSource)
+	return scontext.WithClientInfo[T, U](ctx, extractClientIP(req, r.config.IPConfig), req.UserAgent())
 }
 
 // baseFields contains event location only; the request logger owns correlation.

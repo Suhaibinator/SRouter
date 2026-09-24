@@ -264,7 +264,12 @@ propagate and leave the cache invalidated for a subsequent call.
 A warmed `GetLogger` allocates nothing. A later stamped-field write invalidates
 the cache; this includes `WithClientIP` and `WithClientInfo` when they change
 the client IP. A user-agent-only change does not rebuild the logger. Previously
-returned loggers remain unchanged. See
+returned loggers remain unchanged. SRouter's own records check their level
+against the source's base core first, so a disabled record, such as the
+per-request Debug "Authentication successful", never triggers derivation;
+enabled records reuse a cached `SRouter` child. This assumes a custom core's
+`With` does not enable levels its base core disables, which holds for Zap's
+cores and wrappers. See
 [Context management](./context-management.md#request-scoped-logger) for cache
 semantics and configuring a reusable source for background jobs. Run the
 [request logger example](../examples/request-logger/main.go) to see named service

@@ -370,14 +370,20 @@ func TestCloneSRouterContext(t *testing.T) {
 			flags:    nil,
 		}
 
-		clonedRC := cloneSRouterContext(srcRC)
-
-		if clonedRC.flags == nil {
-			t.Error("Clone should have initialized Flags map even when source is nil")
-		}
-
-		if len(clonedRC.flags) != 0 {
-			t.Error("Clone should have empty Flags map when source is nil")
+		for name, flags := range map[string]map[string]bool{"nil": nil, "empty": {}} {
+			srcRC.flags = flags
+			clonedRC := cloneSRouterContext(srcRC)
+			if clonedRC.flags != nil {
+				t.Errorf("%s source: clone allocated an empty Flags map", name)
+			}
+			ctx := WithSRouterContext(context.Background(), clonedRC)
+			WithFlag[int, testUser](ctx, "later", true)
+			if value, ok := GetFlag(ctx, "later"); !ok || !value {
+				t.Errorf("%s source: flag written after clone = (%v, %v), want (true, true)", name, value, ok)
+			}
+			if len(srcRC.flags) != 0 {
+				t.Errorf("%s source: clone write reached the source", name)
+			}
 		}
 	})
 
