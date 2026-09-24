@@ -175,16 +175,16 @@ func logFields(ctx context.Context) []zap.Field {
 	}
 
 	fields := make([]zap.Field, 0, 4)
-	if c.TraceIDSet {
+	if c.HasTraceID() {
 		fields = append(fields, zap.String(logkeys.TraceID, c.TraceID))
 	}
-	if c.BuildIDSet {
+	if c.HasBuildID() {
 		fields = append(fields, zap.String(logkeys.BuildID, c.BuildID))
 	}
-	if c.ConfigIDSet {
+	if c.HasConfigID() {
 		fields = append(fields, zap.String(logkeys.ConfigID, c.ConfigID))
 	}
-	if c.UserIDSet {
+	if c.HasUserID() {
 		fields = append(fields, zap.Uint64("user_id", c.UserID))
 	}
 	return fields
@@ -197,10 +197,11 @@ rendering for the user ID. Client IP remains available through `GetClientIP`;
 it is part of `GetLogger` derivation but is not added to the public
 `Correlation` value.
 
-Each field carries a `Set` flag indicating whether it is currently set, so an
-explicitly empty value stays distinguishable from an absent or cleared one. The result is a copy
-taken at the moment of the call: a later write through a `With*` helper does
-not change it, and two separate calls are not an atomic pair. Scalar values and
+`HasTraceID()`, `HasBuildID()`, `HasConfigID()`, and `HasUserID()` read the
+snapshot's private presence mask. An explicitly empty value stays distinguishable
+from an absent or cleared one. The zero snapshot reports all values absent.
+The result is a copy taken at the moment of the call: a later write or clear
+does not change it, and two separate calls are not an atomic pair. Scalar values and
 presence flags are copied; references inside a generic user ID retain their
 normal Go sharing semantics.
 
@@ -375,6 +376,19 @@ nil, so `GetTransaction` returns `(nil, true)` until cleared.
 See the [transaction context example](../examples/transaction-context/main.go);
 run it with `go run .` from `examples/transaction-context`.
 
+## Breaking change: correlation presence methods
+
+Replace `c.TraceIDSet`, `c.BuildIDSet`, `c.ConfigIDSet`, and `c.UserIDSet` with
+`c.HasTraceID()`, `c.HasBuildID()`, `c.HasConfigID()`, and `c.HasUserID()`.
+The value fields (`TraceID`, `BuildID`, `ConfigID`, `UserID`) remain exported.
+Presence is stored in a private bitmask; assigning a value field does not mark
+it present. Obtain populated snapshots through `GetCorrelation` after using
+the context's `With*` helpers instead of constructing literals with presence
+booleans. Copies retain their presence independently of later context changes.
+The removed exported presence fields are also no longer included by default
+struct serialization, such as `encoding/json`; use an application-owned DTO
+when a serialized presence representation is needed.
+
 ## Breaking change: non-generic metadata getters
 
 Remove type arguments from `GetBuildID`, `GetConfigID`, `GetFlag`,
@@ -401,12 +415,12 @@ Replace manual field and presence resets with the corresponding `Clear*`
 helper, retaining any clone-first isolation. In particular, use
 `ClearIdentity[T, U]` to remove both actor fields and `ClearTransaction[T, U]`
 to remove the transaction. The internal presence mask is private;
-`Correlation[T]` retains its exported boolean presence fields.
+`Correlation[T]` exposes presence through its `Has*` methods.
 
 The type, its zero value, constructors, attachment helpers, and existing helper
 signatures remain available. Do not copy a wrapper by value; it contains a
 mutex. Use `CopySRouterContext` or `CopySRouterContextOverlay` instead.
-`Correlation[T]` remains a public value snapshot with exported fields.
+`Correlation[T]` remains a public value snapshot with exported value fields.
 
 Private fields do not change reference-sharing semantics: user objects,
 transactions, and slices returned by getters still require caller coordination

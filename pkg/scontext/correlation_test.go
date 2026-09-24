@@ -19,17 +19,17 @@ func TestGetCorrelationReturnsEveryValue(t *testing.T) {
 	if !ok {
 		t.Fatal("GetCorrelation returned false, want true")
 	}
-	if c.TraceID != "trace-1" || !c.TraceIDSet {
-		t.Errorf("TraceID = (%q, %v), want (trace-1, true)", c.TraceID, c.TraceIDSet)
+	if c.TraceID != "trace-1" || !c.HasTraceID() {
+		t.Errorf("TraceID = (%q, %v), want (trace-1, true)", c.TraceID, c.HasTraceID())
 	}
-	if c.BuildID != "build-1" || !c.BuildIDSet {
-		t.Errorf("BuildID = (%q, %v), want (build-1, true)", c.BuildID, c.BuildIDSet)
+	if c.BuildID != "build-1" || !c.HasBuildID() {
+		t.Errorf("BuildID = (%q, %v), want (build-1, true)", c.BuildID, c.HasBuildID())
 	}
-	if c.ConfigID != "config-1" || !c.ConfigIDSet {
-		t.Errorf("ConfigID = (%q, %v), want (config-1, true)", c.ConfigID, c.ConfigIDSet)
+	if c.ConfigID != "config-1" || !c.HasConfigID() {
+		t.Errorf("ConfigID = (%q, %v), want (config-1, true)", c.ConfigID, c.HasConfigID())
 	}
-	if c.UserID != 123 || !c.UserIDSet {
-		t.Errorf("UserID = (%d, %v), want (123, true)", c.UserID, c.UserIDSet)
+	if c.UserID != 123 || !c.HasUserID() {
+		t.Errorf("UserID = (%d, %v), want (123, true)", c.UserID, c.HasUserID())
 	}
 }
 
@@ -40,10 +40,10 @@ func TestGetCorrelationReportsUnsetValues(t *testing.T) {
 	if !ok {
 		t.Fatal("GetCorrelation returned false, want true")
 	}
-	if !c.TraceIDSet {
-		t.Error("TraceIDSet = false, want true")
+	if !c.HasTraceID() {
+		t.Error("HasTraceID() = false, want true")
 	}
-	if c.BuildIDSet || c.ConfigIDSet || c.UserIDSet {
+	if c.HasBuildID() || c.HasConfigID() || c.HasUserID() {
 		t.Errorf("set flags = %+v, want only the trace ID set", c)
 	}
 	if c.BuildID != "" || c.ConfigID != "" || c.UserID != 0 {
@@ -61,7 +61,7 @@ func TestGetCorrelationDistinguishesSetEmptyValues(t *testing.T) {
 	if !ok {
 		t.Fatal("GetCorrelation returned false, want true")
 	}
-	if !c.TraceIDSet || !c.BuildIDSet || !c.ConfigIDSet || !c.UserIDSet {
+	if !c.HasTraceID() || !c.HasBuildID() || !c.HasConfigID() || !c.HasUserID() {
 		t.Errorf("set flags = %+v, want all true for explicitly set zero values", c)
 	}
 }
@@ -77,16 +77,16 @@ func TestGetCorrelationMatchesIndividualAccessors(t *testing.T) {
 		t.Errorf("TraceID = %q, want %q", c.TraceID, want)
 	}
 	buildID, buildIDSet := GetBuildID(ctx)
-	if c.BuildID != buildID || c.BuildIDSet != buildIDSet {
-		t.Errorf("BuildID = (%q, %v), want (%q, %v)", c.BuildID, c.BuildIDSet, buildID, buildIDSet)
+	if c.BuildID != buildID || c.HasBuildID() != buildIDSet {
+		t.Errorf("BuildID = (%q, %v), want (%q, %v)", c.BuildID, c.HasBuildID(), buildID, buildIDSet)
 	}
 	configID, configIDSet := GetConfigID(ctx)
-	if c.ConfigID != configID || c.ConfigIDSet != configIDSet {
-		t.Errorf("ConfigID = (%q, %v), want (%q, %v)", c.ConfigID, c.ConfigIDSet, configID, configIDSet)
+	if c.ConfigID != configID || c.HasConfigID() != configIDSet {
+		t.Errorf("ConfigID = (%q, %v), want (%q, %v)", c.ConfigID, c.HasConfigID(), configID, configIDSet)
 	}
 	userID, userIDSet := GetUserID[int](ctx)
-	if c.UserID != userID || c.UserIDSet != userIDSet {
-		t.Errorf("UserID = (%d, %v), want (%d, %v)", c.UserID, c.UserIDSet, userID, userIDSet)
+	if c.UserID != userID || c.HasUserID() != userIDSet {
+		t.Errorf("UserID = (%d, %v), want (%d, %v)", c.UserID, c.HasUserID(), userID, userIDSet)
 	}
 }
 
@@ -187,21 +187,90 @@ func BenchmarkCorrelation(b *testing.B) {
 				var fields []zap.Field
 				if c, ok := GetCorrelation[int](ctx); ok {
 					fields = make([]zap.Field, 0, 4)
-					if c.TraceIDSet {
+					if c.HasTraceID() {
 						fields = append(fields, zap.String("trace_id", c.TraceID))
 					}
-					if c.BuildIDSet {
+					if c.HasBuildID() {
 						fields = append(fields, zap.String("build_id", c.BuildID))
 					}
-					if c.ConfigIDSet {
+					if c.HasConfigID() {
 						fields = append(fields, zap.String("config_id", c.ConfigID))
 					}
-					if c.UserIDSet {
+					if c.HasUserID() {
 						fields = append(fields, zap.Int("user_id", c.UserID))
 					}
 				}
 				benchFields = fields
 			}
 		})
+	}
+}
+
+func TestCorrelationPresenceCombinations(t *testing.T) {
+	setters := []func(context.Context) context.Context{
+		func(ctx context.Context) context.Context { return WithTraceID[int, testUser](ctx, "") },
+		func(ctx context.Context) context.Context { return WithBuildID[int, testUser](ctx, "") },
+		func(ctx context.Context) context.Context { return WithConfigID[int, testUser](ctx, "") },
+		func(ctx context.Context) context.Context { return WithUserID[int, testUser](ctx, 0) },
+	}
+	clears := []func(context.Context) context.Context{
+		ClearTraceID[int, testUser], ClearBuildID[int, testUser],
+		ClearConfigID[int, testUser], ClearUserID[int, testUser],
+	}
+	presence := func(c Correlation[int]) [4]bool {
+		return [4]bool{c.HasTraceID(), c.HasBuildID(), c.HasConfigID(), c.HasUserID()}
+	}
+	if got := presence(Correlation[int]{}); got != ([4]bool{}) {
+		t.Fatalf("zero snapshot presence = %v", got)
+	}
+	for combination := range 16 {
+		_, ctx := EnsureSRouterContext[int, testUser](context.Background())
+		var want [4]bool
+		for i, set := range setters {
+			if combination&(1<<i) != 0 {
+				ctx = set(ctx)
+				want[i] = true
+			}
+		}
+		snapshot, ok := GetCorrelation[int](ctx)
+		if !ok || presence(snapshot) != want {
+			t.Fatalf("combination %d: presence = %v, want %v", combination, presence(snapshot), want)
+		}
+		for i, clear := range clears {
+			clear(ctx)
+			want[i] = false
+			current, _ := GetCorrelation[int](ctx)
+			if presence(current) != want {
+				t.Fatalf("combination %d, clear %d: presence = %v, want %v", combination, i, presence(current), want)
+			}
+		}
+		for i, has := range presence(snapshot) {
+			if has != (combination&(1<<i) != 0) {
+				t.Fatal("clear mutated existing snapshot")
+			}
+		}
+	}
+}
+
+func TestCorrelationIgnoresUnrelatedPresence(t *testing.T) {
+	ctx := WithUserID[int, testUser](context.Background(), 42)
+	before, _ := GetCorrelation[int](ctx)
+	// Populate every non-correlation presence bit; snapshot equality must depend
+	// only on correlation, not other state on the source wrapper.
+	WithUser[int, testUser](ctx, new(testUser))
+	WithClientInfo[int, testUser](ctx, "127.0.0.1", "agent")
+	WithTransaction[int, testUser](ctx, nil)
+	WithRouteInfo[int, testUser](ctx, nil, "/users")
+	WithCORSInfo[int, testUser](ctx, "", false)
+	WithCORSRequestedHeaders[int, testUser](ctx, "")
+	WithHandlerError[int, testUser](ctx, nil)
+	after, _ := GetCorrelation[int](ctx)
+	if before != after {
+		t.Fatal("unrelated presence changed correlation snapshot")
+	}
+	ClearIdentity[int, testUser](ctx)
+	cleared, _ := GetCorrelation[int](ctx)
+	if cleared != (Correlation[int]{}) {
+		t.Fatal("cleared correlation differs from zero snapshot")
 	}
 }

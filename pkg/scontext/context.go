@@ -546,12 +546,13 @@ func (rc *SRouterContext[T, U]) getTraceID() string {
 
 // Correlation carries the per-operation values used to correlate log entries
 // and metrics: the trace ID, the opaque build and configuration identities,
-// and the user ID. Each Set flag reports whether the corresponding value is
-// currently set, so a deliberately empty value stays distinguishable from an
-// absent one.
+// and the user ID. The Has* methods report presence, so a deliberately empty
+// value stays distinguishable from an absent one. The zero value has no values
+// present. Obtain populated snapshots with GetCorrelation; assigning exported
+// value fields does not change their presence.
 //
-// It is a plain value copy with no reference-typed members, so passing it
-// around costs nothing beyond the copy and it cannot alias the wrapper.
+// It is a value snapshot independent of later wrapper mutations. References
+// inside T retain their normal Go sharing semantics.
 // T is the User ID type (comparable).
 type Correlation[T comparable] struct {
 	TraceID  string
@@ -559,10 +560,29 @@ type Correlation[T comparable] struct {
 	ConfigID string
 	UserID   T
 
-	TraceIDSet  bool
-	BuildIDSet  bool
-	ConfigIDSet bool
-	UserIDSet   bool
+	presence presenceBits
+}
+
+const correlationPresence = presentTraceID | presentBuildID | presentConfigID | presentUserID
+
+// HasTraceID reports whether the snapshot contains a trace ID, including its zero value.
+func (c Correlation[T]) HasTraceID() bool {
+	return c.presence&presentTraceID != 0
+}
+
+// HasBuildID reports whether the snapshot contains a build identity, including its zero value.
+func (c Correlation[T]) HasBuildID() bool {
+	return c.presence&presentBuildID != 0
+}
+
+// HasConfigID reports whether the snapshot contains a configuration identity, including its zero value.
+func (c Correlation[T]) HasConfigID() bool {
+	return c.presence&presentConfigID != 0
+}
+
+// HasUserID reports whether the snapshot contains a user ID, including its zero value.
+func (c Correlation[T]) HasUserID() bool {
+	return c.presence&presentUserID != 0
 }
 
 // GetCorrelation returns the correlation values carried by the context.
@@ -574,10 +594,10 @@ type Correlation[T comparable] struct {
 //
 //	if c, ok := scontext.GetCorrelation[uint64](ctx); ok {
 //		fields := make([]zap.Field, 0, 4)
-//		if c.TraceIDSet {
+//		if c.HasTraceID() {
 //			fields = append(fields, zap.String(logkeys.TraceID, c.TraceID))
 //		}
-//		if c.UserIDSet {
+//		if c.HasUserID() {
 //			fields = append(fields, zap.Uint64("user_id", c.UserID))
 //		}
 //		// ...
@@ -617,10 +637,9 @@ func (rc *SRouterContext[T, U]) correlationLocked() Correlation[T] {
 		ConfigID: rc.configID,
 		UserID:   rc.userID,
 
-		TraceIDSet:  rc.presence&presentTraceID != 0,
-		BuildIDSet:  rc.presence&presentBuildID != 0,
-		ConfigIDSet: rc.presence&presentConfigID != 0,
-		UserIDSet:   rc.presence&presentUserID != 0,
+		// Exclude unrelated context state so equal correlation snapshots remain
+		// equal even when client, route, or other metadata differs.
+		presence: rc.presence & correlationPresence,
 	}
 }
 

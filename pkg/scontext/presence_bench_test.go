@@ -28,3 +28,20 @@ func BenchmarkContextCopy(b *testing.B) {
 		contextSink = CopySRouterContext[int, testUser](ctx, ctx)
 	}
 }
+
+var correlationSink Correlation[int]
+
+func TestCorrelationSize(t *testing.T) {
+	t.Logf("correlation bytes: int=%d string=%d uuid=%d", unsafe.Sizeof(Correlation[int]{}), unsafe.Sizeof(Correlation[string]{}), unsafe.Sizeof(Correlation[[16]byte]{}))
+}
+
+func BenchmarkGetCorrelation(b *testing.B) {
+	ctx := WithUserID[int, testUser](context.Background(), 42)
+	ctx = WithTraceID[int, testUser](ctx, "trace")
+	ctx = WithBuildID[int, testUser](ctx, "build")
+	ctx = WithConfigID[int, testUser](ctx, "config")
+	b.ReportAllocs()
+	for b.Loop() {
+		correlationSink, _ = GetCorrelation[int](ctx)
+	}
+}

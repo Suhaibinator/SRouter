@@ -154,21 +154,21 @@ func (rc *SRouterContext[T, U]) requestLoggerSnapshotLocked() requestLoggerSnaps
 
 func (source *RequestLoggerSource[T]) derive(snapshot requestLoggerSnapshot[T]) *zap.Logger {
 	c := snapshot.correlation
-	if (!c.TraceIDSet || c.TraceID == "") && !c.BuildIDSet && !c.ConfigIDSet &&
-		(!snapshot.clientIPSet || snapshot.clientIP == "") && !c.UserIDSet {
+	if (!c.HasTraceID() || c.TraceID == "") && !c.HasBuildID() && !c.HasConfigID() &&
+		(!snapshot.clientIPSet || snapshot.clientIP == "") && !c.HasUserID() {
 		return source.base
 	}
 	var fields [5]zap.Field
 	n := 0
-	if c.TraceIDSet && c.TraceID != "" {
+	if c.HasTraceID() && c.TraceID != "" {
 		fields[n] = zap.String(logkeys.TraceID, c.TraceID)
 		n++
 	}
-	if c.BuildIDSet {
+	if c.HasBuildID() {
 		fields[n] = zap.String(logkeys.BuildID, c.BuildID)
 		n++
 	}
-	if c.ConfigIDSet {
+	if c.HasConfigID() {
 		fields[n] = zap.String(logkeys.ConfigID, c.ConfigID)
 		n++
 	}
@@ -176,7 +176,7 @@ func (source *RequestLoggerSource[T]) derive(snapshot requestLoggerSnapshot[T]) 
 		fields[n] = zap.String(logkeys.ClientIP, snapshot.clientIP)
 		n++
 	}
-	if c.UserIDSet {
+	if c.HasUserID() {
 		fields[n] = source.userIDField(c.UserID)
 		n++
 	}

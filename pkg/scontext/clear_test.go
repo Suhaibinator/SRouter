@@ -53,7 +53,7 @@ func clearState(ctx context.Context) map[string]any {
 		"id": pair(GetUserID[int](ctx)), "user": pair(GetUser[int, testUser](ctx)),
 		"build": pair(GetBuildID(ctx)), "config": pair(GetConfigID(ctx)),
 		"ip": pair(GetClientIP(ctx)), "ua": pair(GetUserAgent(ctx)),
-		"trace": GetTraceID(ctx), "tracePresence": c.TraceIDSet,
+		"trace": GetTraceID(ctx), "tracePresence": c.HasTraceID(),
 		"tx": pair(GetTransaction(ctx)), "route": pair(GetRouteTemplate(ctx)), "params": pair(GetPathParams(ctx)),
 		"cors": []any{origin, credentials, ok}, "headers": pair(GetCORSRequestedHeaders(ctx)),
 		"error": pair(GetHandlerError(ctx)), "flag": pair(GetFlag(ctx, "target")), "otherFlag": pair(GetFlag(ctx, "other")),
