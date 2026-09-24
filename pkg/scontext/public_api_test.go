@@ -11,8 +11,8 @@ import (
 
 func TestSRouterContextFieldsArePrivate(t *testing.T) {
 	typ := reflect.TypeFor[scontext.SRouterContext[int, string]]()
-	for i := range typ.NumField() {
-		if field := typ.Field(i); field.IsExported() {
+	for field := range typ.Fields() {
+		if field := field; field.IsExported() {
 			t.Errorf("SRouterContext exposes field %s", field.Name)
 		}
 	}
