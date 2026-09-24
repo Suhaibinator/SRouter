@@ -11,8 +11,8 @@ import (
 
 func TestSRouterContextFieldsArePrivate(t *testing.T) {
 	typ := reflect.TypeFor[scontext.SRouterContext[int, string]]()
-	for i := range typ.NumField() {
-		if field := typ.Field(i); field.IsExported() {
+	for field := range typ.Fields() {
+		if field := field; field.IsExported() {
 			t.Errorf("SRouterContext exposes field %s", field.Name)
 		}
 	}
@@ -36,4 +36,18 @@ func ExampleClearTransaction() {
 	// Output:
 	// parent: true
 	// child: false
+}
+
+func ExampleGetCorrelation() {
+	ctx := scontext.WithUserID[int, string](context.Background(), 0)
+	snapshot, _ := scontext.GetCorrelation[int](ctx)
+	fmt.Println("user:", snapshot.UserID, snapshot.HasUserID())
+	fmt.Println("trace:", snapshot.HasTraceID())
+	scontext.ClearUserID[int, string](ctx)
+	current, _ := scontext.GetCorrelation[int](ctx)
+	fmt.Println("snapshot:", snapshot.HasUserID(), "current:", current.HasUserID())
+	// Output:
+	// user: 0 true
+	// trace: false
+	// snapshot: true current: false
 }

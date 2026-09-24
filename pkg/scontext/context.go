@@ -30,6 +30,25 @@ type DatabaseTransaction interface {
 	GetDB() *gorm.DB
 }
 
+// presenceBits is guarded by the wrapper mutex, along with its values.
+type presenceBits uint16
+
+const (
+	presentUserID presenceBits = 1 << iota
+	presentUser
+	presentBuildID
+	presentConfigID
+	presentClientIP
+	presentUserAgent
+	presentTraceID
+	presentTransaction
+	presentRouteTemplate
+	presentAllowedOrigin
+	presentCredentialsAllowed
+	presentRequestedHeaders
+	presentHandlerError
+)
+
 // SRouterContext holds all values that SRouter adds to request contexts.
 // It provides a centralized storage for all request-scoped data, avoiding
 // the need for multiple context.WithValue calls and deep context nesting.
@@ -70,25 +89,13 @@ type SRouterContext[T comparable, U any] struct {
 	// CORS information determined by middleware
 	allowedOrigin      string
 	credentialsAllowed bool
-	requestedHeaders   string // Stores the requested headers from CORS preflight requests
+	// presence distinguishes absent values from explicitly stored zero values.
+	// Keep it next to credentialsAllowed to share alignment padding.
+	presence         presenceBits
+	requestedHeaders string // Stores the requested headers from CORS preflight requests
 
 	// handlerError stores any error returned by the route handler
 	handlerError error
-
-	userIDSet             bool
-	userSet               bool
-	buildIDSet            bool
-	configIDSet           bool
-	clientIPSet           bool
-	userAgentSet          bool
-	traceIDSet            bool
-	transactionSet        bool
-	routeTemplateSet      bool
-	allowedOriginSet      bool
-	credentialsAllowedSet bool
-	requestedHeadersSet   bool // Flag for requestedHeaders
-	// handlerErrorSet is used to distinguish between an unset error and an explicitly set nil error.
-	handlerErrorSet bool
 
 	flags map[string]bool
 
@@ -181,7 +188,7 @@ func WithBuildID[T comparable, U any](ctx context.Context, buildID string) conte
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
 	rc.buildID = buildID
-	rc.buildIDSet = true
+	rc.presence |= presentBuildID
 	rc.logVersion++
 	rc.mu.Unlock()
 	return ctx
@@ -200,7 +207,7 @@ func GetBuildID(ctx context.Context) (string, bool) {
 func (rc *SRouterContext[T, U]) getBuildID() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.buildIDSet {
+	if rc.presence&presentBuildID == 0 {
 		return "", false
 	}
 	return rc.buildID, true
@@ -212,7 +219,7 @@ func WithConfigID[T comparable, U any](ctx context.Context, configID string) con
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
 	rc.configID = configID
-	rc.configIDSet = true
+	rc.presence |= presentConfigID
 	rc.logVersion++
 	rc.mu.Unlock()
 	return ctx
@@ -231,7 +238,7 @@ func GetConfigID(ctx context.Context) (string, bool) {
 func (rc *SRouterContext[T, U]) getConfigID() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.configIDSet {
+	if rc.presence&presentConfigID == 0 {
 		return "", false
 	}
 	return rc.configID, true
@@ -244,7 +251,7 @@ func WithUserID[T comparable, U any](ctx context.Context, userID T) context.Cont
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
 	rc.userID = userID
-	rc.userIDSet = true
+	rc.presence |= presentUserID
 	rc.logVersion++
 	rc.mu.Unlock()
 	return ctx
@@ -267,7 +274,7 @@ func (rc *SRouterContext[T, U]) getUserID() (T, bool) {
 	var zero T
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.userIDSet {
+	if rc.presence&presentUserID == 0 {
 		return zero, false
 	}
 	return rc.userID, true
@@ -280,7 +287,7 @@ func WithUser[T comparable, U any](ctx context.Context, user *U) context.Context
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
 	rc.user = user
-	rc.userSet = true
+	rc.presence |= presentUser
 	rc.mu.Unlock()
 	return ctx
 }
@@ -296,7 +303,7 @@ func GetUser[T comparable, U any](ctx context.Context) (*U, bool) {
 	}
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.userSet {
+	if rc.presence&presentUser == 0 {
 		return nil, false
 	}
 	return rc.user, true
@@ -350,11 +357,11 @@ func WithClientIP[T comparable, U any](ctx context.Context, ip string) context.C
 	ip = cleanClientIP(ip)
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	if !rc.clientIPSet || rc.clientIP != ip {
+	if rc.presence&presentClientIP == 0 || rc.clientIP != ip {
 		rc.logVersion++
 	}
 	rc.clientIP = ip
-	rc.clientIPSet = true
+	rc.presence |= presentClientIP
 	rc.mu.Unlock()
 	return ctx
 }
@@ -367,13 +374,12 @@ func WithClientInfo[T comparable, U any](ctx context.Context, ip, userAgent stri
 	ip = cleanClientIP(ip)
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
-	if !rc.clientIPSet || rc.clientIP != ip {
+	if rc.presence&presentClientIP == 0 || rc.clientIP != ip {
 		rc.logVersion++
 	}
 	rc.clientIP = ip
-	rc.clientIPSet = true
 	rc.userAgent = userAgent
-	rc.userAgentSet = true
+	rc.presence |= presentClientIP | presentUserAgent
 	rc.mu.Unlock()
 	return ctx
 }
@@ -393,7 +399,7 @@ func GetClientIP(ctx context.Context) (string, bool) {
 func (rc *SRouterContext[T, U]) getClientIP() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.clientIPSet {
+	if rc.presence&presentClientIP == 0 {
 		return "", false
 	}
 	return rc.clientIP, true
@@ -406,7 +412,7 @@ func WithUserAgent[T comparable, U any](ctx context.Context, ua string) context.
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
 	rc.userAgent = ua
-	rc.userAgentSet = true
+	rc.presence |= presentUserAgent
 	rc.mu.Unlock()
 	return ctx
 }
@@ -425,7 +431,7 @@ func GetUserAgent(ctx context.Context) (string, bool) {
 func (rc *SRouterContext[T, U]) getUserAgent() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.userAgentSet {
+	if rc.presence&presentUserAgent == 0 {
 		return "", false
 	}
 	return rc.userAgent, true
@@ -443,7 +449,7 @@ func WithTransaction[T comparable, U any](ctx context.Context, tx DatabaseTransa
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
 	rc.transaction = tx
-	rc.transactionSet = true
+	rc.presence |= presentTransaction
 	rc.mu.Unlock()
 	return ctx
 }
@@ -460,7 +466,7 @@ func ClearTransaction[T comparable, U any](ctx context.Context) context.Context 
 	}
 	rc.mu.Lock()
 	rc.transaction = nil
-	rc.transactionSet = false
+	rc.presence &^= presentTransaction
 	rc.mu.Unlock()
 	return ctx
 }
@@ -479,7 +485,7 @@ func GetTransaction(ctx context.Context) (DatabaseTransaction, bool) {
 func (rc *SRouterContext[T, U]) getTransaction() (DatabaseTransaction, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.transactionSet {
+	if rc.presence&presentTransaction == 0 {
 		return nil, false
 	}
 	return rc.transaction, true
@@ -495,12 +501,12 @@ func WithTraceID[T comparable, U any](ctx context.Context, traceID string) conte
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 	// If TraceID is already set, do not overwrite it.
-	if rc.traceIDSet {
+	if rc.presence&presentTraceID != 0 {
 		return ctx
 	}
 	// Otherwise, set the trace ID and the flag.
 	rc.traceID = traceID
-	rc.traceIDSet = true
+	rc.presence |= presentTraceID
 	rc.logVersion++
 	return ctx
 }
@@ -513,7 +519,7 @@ func SetTraceID[T comparable, U any](ctx context.Context, traceID string) contex
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 	rc.traceID = traceID
-	rc.traceIDSet = true
+	rc.presence |= presentTraceID
 	rc.logVersion++
 	return ctx
 }
@@ -532,7 +538,7 @@ func GetTraceID(ctx context.Context) string {
 func (rc *SRouterContext[T, U]) getTraceID() string {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.traceIDSet {
+	if rc.presence&presentTraceID == 0 {
 		return ""
 	}
 	return rc.traceID
@@ -540,12 +546,13 @@ func (rc *SRouterContext[T, U]) getTraceID() string {
 
 // Correlation carries the per-operation values used to correlate log entries
 // and metrics: the trace ID, the opaque build and configuration identities,
-// and the user ID. Each Set flag reports whether the corresponding value was
-// ever written, so a deliberately empty value stays distinguishable from an
-// absent one.
+// and the user ID. The Has* methods report presence, so a deliberately empty
+// value stays distinguishable from an absent one. The zero value has no values
+// present. Obtain populated snapshots with GetCorrelation; assigning exported
+// value fields does not change their presence.
 //
-// It is a plain value copy with no reference-typed members, so passing it
-// around costs nothing beyond the copy and it cannot alias the wrapper.
+// It is a value snapshot independent of later wrapper mutations. References
+// inside T retain their normal Go sharing semantics.
 // T is the User ID type (comparable).
 type Correlation[T comparable] struct {
 	TraceID  string
@@ -553,10 +560,29 @@ type Correlation[T comparable] struct {
 	ConfigID string
 	UserID   T
 
-	TraceIDSet  bool
-	BuildIDSet  bool
-	ConfigIDSet bool
-	UserIDSet   bool
+	presence presenceBits
+}
+
+const correlationPresence = presentTraceID | presentBuildID | presentConfigID | presentUserID
+
+// HasTraceID reports whether the snapshot contains a trace ID, including its zero value.
+func (c Correlation[T]) HasTraceID() bool {
+	return c.presence&presentTraceID != 0
+}
+
+// HasBuildID reports whether the snapshot contains a build identity, including its zero value.
+func (c Correlation[T]) HasBuildID() bool {
+	return c.presence&presentBuildID != 0
+}
+
+// HasConfigID reports whether the snapshot contains a configuration identity, including its zero value.
+func (c Correlation[T]) HasConfigID() bool {
+	return c.presence&presentConfigID != 0
+}
+
+// HasUserID reports whether the snapshot contains a user ID, including its zero value.
+func (c Correlation[T]) HasUserID() bool {
+	return c.presence&presentUserID != 0
 }
 
 // GetCorrelation returns the correlation values carried by the context.
@@ -568,10 +594,10 @@ type Correlation[T comparable] struct {
 //
 //	if c, ok := scontext.GetCorrelation[uint64](ctx); ok {
 //		fields := make([]zap.Field, 0, 4)
-//		if c.TraceIDSet {
+//		if c.HasTraceID() {
 //			fields = append(fields, zap.String(logkeys.TraceID, c.TraceID))
 //		}
-//		if c.UserIDSet {
+//		if c.HasUserID() {
 //			fields = append(fields, zap.Uint64("user_id", c.UserID))
 //		}
 //		// ...
@@ -611,10 +637,9 @@ func (rc *SRouterContext[T, U]) correlationLocked() Correlation[T] {
 		ConfigID: rc.configID,
 		UserID:   rc.userID,
 
-		TraceIDSet:  rc.traceIDSet,
-		BuildIDSet:  rc.buildIDSet,
-		ConfigIDSet: rc.configIDSet,
-		UserIDSet:   rc.userIDSet,
+		// Exclude unrelated context state so equal correlation snapshots remain
+		// equal even when client, route, or other metadata differs.
+		presence: rc.presence & correlationPresence,
 	}
 }
 
@@ -636,7 +661,7 @@ func SetRouteInfo[T comparable, U any](rc *SRouterContext[T, U], params httprout
 	rc.mu.Lock()
 	rc.pathParams = params
 	rc.routeTemplate = routeTemplate
-	rc.routeTemplateSet = true
+	rc.presence |= presentRouteTemplate
 	rc.mu.Unlock()
 }
 
@@ -648,7 +673,7 @@ type routeInfoProvider interface {
 func (rc *SRouterContext[T, U]) getPathParams() (httprouter.Params, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.routeTemplateSet {
+	if rc.presence&presentRouteTemplate == 0 {
 		return nil, false
 	}
 	return rc.pathParams, true
@@ -657,7 +682,7 @@ func (rc *SRouterContext[T, U]) getPathParams() (httprouter.Params, bool) {
 func (rc *SRouterContext[T, U]) getRouteTemplate() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.routeTemplateSet {
+	if rc.presence&presentRouteTemplate == 0 {
 		return "", false
 	}
 	return rc.routeTemplate, true
@@ -696,8 +721,7 @@ func WithCORSInfo[T comparable, U any](ctx context.Context, allowedOrigin string
 	rc.mu.Lock()
 	rc.allowedOrigin = allowedOrigin
 	rc.credentialsAllowed = credentialsAllowed
-	rc.allowedOriginSet = true
-	rc.credentialsAllowedSet = true // Set both flags when info is added
+	rc.presence |= presentAllowedOrigin | presentCredentialsAllowed
 	rc.mu.Unlock()
 	return ctx
 }
@@ -718,10 +742,10 @@ func GetCORSInfo(ctx context.Context) (allowedOrigin string, credentialsAllowed 
 func (rc *SRouterContext[T, U]) corsInfo() (string, bool, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.allowedOriginSet { // Check if origin was set as the primary indicator
+	if rc.presence&presentAllowedOrigin == 0 { // Check if origin was set as the primary indicator
 		return "", false, false
 	}
-	// Return the stored values. CredentialsAllowedSet is implicitly true if AllowedOriginSet is true based on WithCORSInfo logic.
+	// Return the stored values. Credential presence is implied by origin presence based on WithCORSInfo logic.
 	return rc.allowedOrigin, rc.credentialsAllowed, true
 }
 
@@ -733,7 +757,7 @@ func WithCORSRequestedHeaders[T comparable, U any](ctx context.Context, requeste
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
 	rc.requestedHeaders = requestedHeaders
-	rc.requestedHeadersSet = true
+	rc.presence |= presentRequestedHeaders
 	rc.mu.Unlock()
 	return ctx
 }
@@ -753,7 +777,7 @@ func GetCORSRequestedHeaders(ctx context.Context) (string, bool) {
 func (rc *SRouterContext[T, U]) corsRequestedHeaders() (string, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.requestedHeadersSet {
+	if rc.presence&presentRequestedHeaders == 0 {
 		return "", false
 	}
 	return rc.requestedHeaders, true
@@ -766,7 +790,7 @@ func WithHandlerError[T comparable, U any](ctx context.Context, err error) conte
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	rc.mu.Lock()
 	rc.handlerError = err
-	rc.handlerErrorSet = true
+	rc.presence |= presentHandlerError
 	rc.mu.Unlock()
 	return ctx
 }
@@ -785,7 +809,7 @@ func GetHandlerError(ctx context.Context) (error, bool) {
 func (rc *SRouterContext[T, U]) getHandlerError() (error, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
-	if !rc.handlerErrorSet {
+	if rc.presence&presentHandlerError == 0 {
 		return nil, false
 	}
 	return rc.handlerError, true
@@ -818,37 +842,25 @@ func cloneSRouterContext[T comparable, U any](src *SRouterContext[T, U]) *SRoute
 	src.mu.RLock()
 	defer src.mu.RUnlock()
 	dst := &SRouterContext[T, U]{
-		userID:                src.userID,
-		user:                  src.user,
-		buildID:               src.buildID,
-		configID:              src.configID,
-		traceID:               src.traceID,
-		clientIP:              src.clientIP,
-		userAgent:             src.userAgent,
-		transaction:           src.transaction,
-		routeTemplate:         src.routeTemplate,
-		pathParams:            src.pathParams, // Will be deep copied below
-		allowedOrigin:         src.allowedOrigin,
-		credentialsAllowed:    src.credentialsAllowed,
-		requestedHeaders:      src.requestedHeaders,
-		handlerError:          src.handlerError,
-		userIDSet:             src.userIDSet,
-		userSet:               src.userSet,
-		buildIDSet:            src.buildIDSet,
-		configIDSet:           src.configIDSet,
-		clientIPSet:           src.clientIPSet,
-		userAgentSet:          src.userAgentSet,
-		traceIDSet:            src.traceIDSet,
-		transactionSet:        src.transactionSet,
-		routeTemplateSet:      src.routeTemplateSet,
-		allowedOriginSet:      src.allowedOriginSet,
-		credentialsAllowedSet: src.credentialsAllowedSet,
-		requestedHeadersSet:   src.requestedHeadersSet,
-		handlerErrorSet:       src.handlerErrorSet,
-		logSource:             src.logSource,
-		logger:                src.logger,
-		logVersion:            src.logVersion,
-		loggerVersion:         src.loggerVersion,
+		presence:           src.presence,
+		userID:             src.userID,
+		user:               src.user,
+		buildID:            src.buildID,
+		configID:           src.configID,
+		traceID:            src.traceID,
+		clientIP:           src.clientIP,
+		userAgent:          src.userAgent,
+		transaction:        src.transaction,
+		routeTemplate:      src.routeTemplate,
+		pathParams:         src.pathParams, // Will be deep copied below
+		allowedOrigin:      src.allowedOrigin,
+		credentialsAllowed: src.credentialsAllowed,
+		requestedHeaders:   src.requestedHeaders,
+		handlerError:       src.handlerError,
+		logSource:          src.logSource,
+		logger:             src.logger,
+		logVersion:         src.logVersion,
+		loggerVersion:      src.loggerVersion,
 	}
 
 	// Deep copy the flags map

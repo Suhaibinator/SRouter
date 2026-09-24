@@ -351,3 +351,11 @@ Use `scontext.SetTraceID` when unconditional replacement is intended; it
 synchronizes the write and invalidates the cached request logger.
 
 See the [trace logging example](../examples/trace-logging/main.go).
+
+### Clearing request correlation
+
+Use the `scontext.Clear*` helpers to remove stored correlation values, and
+`ClearRequestLogger[T, U]` to remove the logging source and cache. Reacquire
+`GetLogger` and any named child after clearing: previously returned loggers
+retain their original fields. Clone first when the parent must keep its state;
+see [Clearing values](./context-management.md#clearing-values).

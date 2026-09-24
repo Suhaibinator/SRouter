@@ -238,8 +238,8 @@ func TestGetLoggerOmitsEmptyRequestStrings(t *testing.T) {
 		}
 	}
 	correlation, _ := GetCorrelation[int](ctx)
-	if !correlation.TraceIDSet || correlation.TraceID != "" {
-		t.Errorf("correlation trace = (%q, %v), want (empty, true)", correlation.TraceID, correlation.TraceIDSet)
+	if !correlation.HasTraceID() || correlation.TraceID != "" {
+		t.Errorf("correlation trace = (%q, %v), want (empty, true)", correlation.TraceID, correlation.HasTraceID())
 	}
 	if ip, set := GetClientIP(ctx); !set || ip != "" {
 		t.Errorf("client IP = (%q, %v), want (empty, true)", ip, set)
