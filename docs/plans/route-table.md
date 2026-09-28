@@ -197,7 +197,9 @@ below is covered by a test in `routetree`.
 A differential test then served 120,000 random requests against 3,000 random
 route sets through both routers. Every difference fell into one of the
 deliberate changes listed under
-[Changed on purpose](#changed-on-purpose).
+[Changed on purpose](#changed-on-purpose). That test and a side-by-side
+benchmark suite were removed with the dependency; they remain in the commit
+that introduced the route table.
 
 ### Kept
 

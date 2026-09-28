@@ -1,10 +1,7 @@
 package routetree
 
-// Temporary benchmarks against httprouter, used only through its public API.
-// Delete this file when the dependency is removed. Compare with:
-//
-//	go test -run '^$' -bench Compare -benchmem -count 10 . > bench.txt
-//	benchstat -col /router bench.txt
+// Route table benchmarks. The route sets model a small REST API, the GitHub
+// REST API, and large flat and deep static sets.
 
 import (
 	"fmt"
@@ -14,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
-	"github.com/julienschmidt/httprouter"
 )
 
 var benchSink string
@@ -25,13 +21,7 @@ func (w *benchWriter) Header() http.Header         { return w.header }
 func (w *benchWriter) Write(b []byte) (int, error) { return len(b), nil }
 func (w *benchWriter) WriteHeader(int)             {}
 
-func legacyBenchHandle(_ http.ResponseWriter, _ *http.Request, ps httprouter.Params) {
-	if len(ps) > 0 {
-		benchSink = ps[0].Value
-	}
-}
-
-func newBenchHandle(_ http.ResponseWriter, _ *http.Request, ps scontext.Params) {
+func benchHandle(_ http.ResponseWriter, _ *http.Request, ps scontext.Params) {
 	if len(ps) > 0 {
 		benchSink = ps[0].Value
 	}
@@ -313,26 +303,14 @@ func fillPattern(pattern string) string {
 	return b.String()
 }
 
-type benchRouters struct {
-	legacy http.Handler
-	table  http.Handler
-}
-
-func buildBenchRouters(tb testing.TB, routes []testRoute) benchRouters {
-	legacy := httprouter.New()
+func buildBenchTable(tb testing.TB, routes []testRoute) *Table {
 	table := New()
 	for _, r := range routes {
-		legacy.Handle(r.method, r.pattern, legacyBenchHandle)
-		if err := table.Add(r.method, r.pattern, newBenchHandle); err != nil {
+		if err := table.Add(r.method, r.pattern, benchHandle); err != nil {
 			tb.Fatalf("Add(%s %s): %v", r.method, r.pattern, err)
 		}
 	}
-	return benchRouters{legacy: legacy, table: table}
-}
-
-func (r benchRouters) each(b *testing.B, name string, run func(*testing.B, http.Handler)) {
-	b.Run(name+"/router=httprouter", func(b *testing.B) { run(b, r.legacy) })
-	b.Run(name+"/router=routetree", func(b *testing.B) { run(b, r.table) })
+	return table
 }
 
 func serveOne(method, path string) func(*testing.B, http.Handler) {
@@ -341,7 +319,6 @@ func serveOne(method, path string) func(*testing.B, http.Handler) {
 		w := &benchWriter{header: http.Header{}}
 		b.ReportAllocs()
 		for b.Loop() {
-			// httprouter rewrites req.URL.Path when it redirects.
 			req.URL.Path = path
 			h.ServeHTTP(w, req)
 		}
@@ -382,37 +359,41 @@ func serveAll(routes []testRoute) func(*testing.B, http.Handler) {
 	}
 }
 
-func BenchmarkCompareMatch(b *testing.B) {
-	rest := buildBenchRouters(b, restRoutes())
-	rest.each(b, "case=rest_static", serveOne(http.MethodGet, "/api/v1/res17"))
-	rest.each(b, "case=rest_param1", serveOne(http.MethodGet, "/api/v1/res17/12345"))
-	rest.each(b, "case=rest_param2", serveOne(http.MethodGet, "/api/v1/res17/12345/items/678"))
-	rest.each(b, "case=rest_param5", serveOne(http.MethodGet, "/p5/a/b/c/d/e"))
-	rest.each(b, "case=rest_catchall", serveOne(http.MethodGet, "/static/css/app/main.css"))
-	rest.each(b, "case=rest_404", serveOne(http.MethodGet, "/api/v2/nothing/here"))
-	rest.each(b, "case=rest_405", serveOne(http.MethodDelete, "/api/v1/res17/12345"))
-	rest.each(b, "case=rest_redirect", serveOne(http.MethodGet, "/api/v1/res17/12345/"))
-	rest.each(b, "case=rest_static_parallel", serveOneParallel(http.MethodGet, "/api/v1/res17"))
-	rest.each(b, "case=rest_param2_parallel", serveOneParallel(http.MethodGet, "/api/v1/res17/12345/items/678"))
+func BenchmarkMatch(b *testing.B) {
+	run := func(name string, h http.Handler, bench func(*testing.B, http.Handler)) {
+		b.Run(name, func(b *testing.B) { bench(b, h) })
+	}
+
+	rest := buildBenchTable(b, restRoutes())
+	run("case=rest_static", rest, serveOne(http.MethodGet, "/api/v1/res17"))
+	run("case=rest_param1", rest, serveOne(http.MethodGet, "/api/v1/res17/12345"))
+	run("case=rest_param2", rest, serveOne(http.MethodGet, "/api/v1/res17/12345/items/678"))
+	run("case=rest_param5", rest, serveOne(http.MethodGet, "/p5/a/b/c/d/e"))
+	run("case=rest_catchall", rest, serveOne(http.MethodGet, "/static/css/app/main.css"))
+	run("case=rest_404", rest, serveOne(http.MethodGet, "/api/v2/nothing/here"))
+	run("case=rest_405", rest, serveOne(http.MethodDelete, "/api/v1/res17/12345"))
+	run("case=rest_redirect", rest, serveOne(http.MethodGet, "/api/v1/res17/12345/"))
+	run("case=rest_static_parallel", rest, serveOneParallel(http.MethodGet, "/api/v1/res17"))
+	run("case=rest_param2_parallel", rest, serveOneParallel(http.MethodGet, "/api/v1/res17/12345/items/678"))
 
 	githubList := githubRoutes()
-	github := buildBenchRouters(b, githubList)
-	github.each(b, "case=github_static", serveOne(http.MethodGet, "/user/repos"))
-	github.each(b, "case=github_param1", serveOne(http.MethodGet, "/users/octocat"))
-	github.each(b, "case=github_param2", serveOne(http.MethodGet, "/repos/octocat/hello-world"))
-	github.each(b, "case=github_param4", serveOne(http.MethodGet, "/legacy/issues/search/o/r/open/bug"))
-	github.each(b, "case=github_catchall", serveOne(http.MethodGet, "/repos/octocat/hello/contents/docs/readme.md"))
-	github.each(b, "case=github_all", serveAll(githubList))
+	github := buildBenchTable(b, githubList)
+	run("case=github_static", github, serveOne(http.MethodGet, "/user/repos"))
+	run("case=github_param1", github, serveOne(http.MethodGet, "/users/octocat"))
+	run("case=github_param2", github, serveOne(http.MethodGet, "/repos/octocat/hello-world"))
+	run("case=github_param4", github, serveOne(http.MethodGet, "/legacy/issues/search/o/r/open/bug"))
+	run("case=github_catchall", github, serveOne(http.MethodGet, "/repos/octocat/hello/contents/docs/readme.md"))
+	run("case=github_all", github, serveAll(githubList))
 
-	flat := buildBenchRouters(b, flatRoutes(1000))
-	flat.each(b, "case=flat1000_first", serveOne(http.MethodGet, "/route0"))
-	flat.each(b, "case=flat1000_last", serveOne(http.MethodGet, "/route999"))
+	flat := buildBenchTable(b, flatRoutes(1000))
+	run("case=flat1000_first", flat, serveOne(http.MethodGet, "/route0"))
+	run("case=flat1000_last", flat, serveOne(http.MethodGet, "/route999"))
 
-	deep := buildBenchRouters(b, deepRoutes())
-	deep.each(b, "case=deep9_static", serveOne(http.MethodGet, deepRoutes()[5].pattern))
+	deep := buildBenchTable(b, deepRoutes())
+	run("case=deep9_static", deep, serveOne(http.MethodGet, deepRoutes()[5].pattern))
 }
 
-func BenchmarkCompareBuild(b *testing.B) {
+func BenchmarkBuild(b *testing.B) {
 	sets := []struct {
 		name   string
 		routes []testRoute
@@ -422,44 +403,26 @@ func BenchmarkCompareBuild(b *testing.B) {
 		{"github", githubRoutes()},
 	}
 	for _, set := range sets {
-		b.Run("case="+set.name+"/router=httprouter", func(b *testing.B) {
+		build := func() any {
+			t := New()
+			for _, route := range set.routes {
+				_ = t.Add(route.method, route.pattern, benchHandle)
+			}
+			return t
+		}
+		b.Run("case="+set.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				r := httprouter.New()
-				for _, route := range set.routes {
-					r.Handle(route.method, route.pattern, legacyBenchHandle)
-				}
+				build()
 			}
-			reportRetainedHeap(b, func() any {
-				r := httprouter.New()
-				for _, route := range set.routes {
-					r.Handle(route.method, route.pattern, legacyBenchHandle)
-				}
-				return r
-			})
-		})
-		b.Run("case="+set.name+"/router=routetree", func(b *testing.B) {
-			b.ReportAllocs()
-			for b.Loop() {
-				t := New()
-				for _, route := range set.routes {
-					_ = t.Add(route.method, route.pattern, newBenchHandle)
-				}
-			}
-			reportRetainedHeap(b, func() any {
-				t := New()
-				for _, route := range set.routes {
-					_ = t.Add(route.method, route.pattern, newBenchHandle)
-				}
-				return t
-			})
+			reportRetainedHeap(b, build)
 		})
 	}
 }
 
 var retained any
 
-// reportRetainedHeap reports the live heap held by one built router.
+// reportRetainedHeap reports the live heap held by one built table.
 func reportRetainedHeap(b *testing.B, build func() any) {
 	var before, after runtime.MemStats
 	runtime.GC()
