@@ -22,7 +22,8 @@ topology, and all auth-token choices still require application review. Without
 an explicit call, the first request builds the tree and a configuration error
 becomes a 500 response.
 
-SRouter uses `julienschmidt/httprouter`'s radix-tree matching. Treat performance claims as workload-dependent: benchmark complete handlers and middleware with representative paths and payloads rather than assuming a constant lookup cost.
+SRouter matches routes with its own segment trie; static routes are a single
+map lookup and do not allocate. Treat performance claims as workload-dependent: benchmark complete handlers and middleware with representative paths and payloads rather than assuming a constant lookup cost.
 
 ### Bound request work
 

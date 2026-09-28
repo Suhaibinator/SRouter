@@ -245,6 +245,6 @@ groups before either event; mutation after the first build attempt panics.
 
 Build errors include invalid paths, negative timeout/body-size values, missing
 handlers or methods, nil middleware, missing authentication callbacks for
-authenticated routes, duplicate routes, and underlying path conflicts. Rate
+authenticated routes, duplicate routes, and route pattern conflicts. Rate
 limit values such as `Limit`, `Window`, and a custom key extractor are not
 validated by `Build`; validate them while constructing application config.

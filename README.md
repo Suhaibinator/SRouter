@@ -1,8 +1,7 @@
 # SRouter
 
-SRouter is an HTTP router for Go built on
-[`julienschmidt/httprouter`](https://github.com/julienschmidt/httprouter). It adds
-recursive route groups, inherited route policy, typed request/response handlers,
+SRouter is an HTTP router for Go with its own segment-trie route table. It
+provides recursive route groups, inherited route policy, typed request/response handlers,
 authentication, rate limiting, metrics, structured logging, and graceful
 shutdown support.
 
@@ -90,7 +89,8 @@ not called. A failed build is terminal for that router; later mutation panics.
 
 ## Features
 
-- Radix-tree HTTP routing with path parameters
+- Segment-trie HTTP routing with path parameters, catch-alls, and static
+  segments that coexist with wildcards
 - Recursive groups with inherited authentication, timeout, body-size, and
   rate-limit policy
 - Standard `http.HandlerFunc` routes and generic typed routes in the same tree

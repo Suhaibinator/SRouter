@@ -115,7 +115,7 @@ func TestRegisterTypedRoute_MissingPathParam(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	// Serve the request using the router
-	// httprouter will populate context with {"actualParam": "someValue"}
+	// The route table will populate context with {"actualParam": "someValue"}
 	// Inside the typed route pipeline, GetParam(req, "missingKey") will be called.
 	// Since "missingKey" is not in the context, GetParam returns "".
 	r.ServeHTTP(rr, req)
@@ -145,7 +145,7 @@ func TestRegisterTypedRoute_PathParamDecodeError(t *testing.T) {
 	validBase64 := base64.StdEncoding.EncodeToString([]byte("trigger decode error"))
 	targetURL := "/test/" + validBase64 // Path with the parameter value
 
-	// Use r.ServeHTTP for this test as it involves path params processed by httprouter
+	// Use r.ServeHTTP for this test as it involves path params captured by the route table
 	req := httptest.NewRequest("GET", targetURL, nil)
 	rr := httptest.NewRecorder()
 	r.Route(routeConfig) // Register the route

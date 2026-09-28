@@ -68,10 +68,11 @@ explicit disabling, and the build/freeze lifecycle.
 
 ## Path parameters
 
-The underlying `httprouter` syntax is preserved:
+Wildcards fill a whole path segment:
 
-- `:name` captures one path segment.
-- `*name` captures the remaining path.
+- `:name` captures one non-empty path segment.
+- `*name` captures the remaining path, including its leading `/`. It must be
+  the final segment.
 
 ```go
 r.Route(router.RouteConfigBase{
@@ -85,9 +86,50 @@ r.Route(router.RouteConfigBase{
 })
 ```
 
-`router.GetParams(req)` returns all parameters. SRouter also stores the compiled
-route template in its request context for built-in metrics and application
-middleware or logging.
+`router.GetParams(req)` returns all parameters as `scontext.Params`, in pattern
+order; `router.GetParam(req, name)` returns one value. Parameters are taken
+from the decoded request path, so `%20` becomes a space. SRouter also stores
+the compiled route template in its request context for built-in metrics and
+application middleware or logging.
+
+A catch-all value is not cleaned: `/files/*path` matches `/files/../x` with
+`path=/../x`. Clean it before using it as a file path.
+
+## Matching precedence
+
+A static segment and a wildcard can share a position. At each segment the
+router tries a static match first, then a `:name` parameter, then a `*name`
+catch-all, and backtracks when a choice fails deeper in the path:
+
+```go
+get := []router.HttpMethod{router.MethodGet}
+r.Route(
+	router.RouteConfigBase{Path: "/users/new", Methods: get, Handler: newUserForm},
+	router.RouteConfigBase{Path: "/users/:id", Methods: get, Handler: showUser},
+)
+```
+
+`/users/new` reaches `newUserForm` and `/users/42` reaches `showUser`. The
+result never depends on registration order.
+
+## Unmatched requests
+
+When no route matches the method and path, the router responds in this order:
+
+1. `301` (for `GET`) or `307` (other methods) to the same path with the
+   trailing slash added or removed, when that path matches a route for the
+   request method.
+2. The same redirect to the cleaned path, with repeated slashes, `.` and `..`
+   resolved. Matching stays case-sensitive; there is no case-correcting
+   redirect.
+3. For `OPTIONS`, `200` with an `Allow` header when other methods match the
+   path.
+4. `405 Method Not Allowed` with an `Allow` header when other methods match.
+5. `404 Not Found`.
+
+Redirects keep the query string and only point at routes that exist on the
+same host. `HEAD` is not routed to `GET` handlers. The full rules are in the
+[route table specification](plans/route-table.md#unmatched-requests).
 
 ## Methods and conflicts
 
@@ -101,8 +143,9 @@ r.Route(router.RouteConfigBase{
 })
 ```
 
-`Build` rejects missing/empty methods, duplicate method/path pairs, and path
-patterns that conflict under `httprouter` rules.
+`Build` rejects missing/empty methods, duplicate method/path pairs, invalid
+wildcards (such as `/user_:name` or a repeated name), and two different
+parameter or catch-all names at the same position for the same method.
 
 ## Build before serving
 

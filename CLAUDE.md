@@ -41,7 +41,7 @@ golangci-lint run
 
 ## Architecture Overview
 
-SRouter is a high-performance HTTP router framework built on `julienschmidt/httprouter` with Go generics support (requires Go 1.27+). The codebase follows a layered architecture with clear separation of concerns.
+SRouter is a high-performance HTTP router framework with its own route table (`pkg/router/internal/routetree`) and Go generics support (requires Go 1.27+). The codebase follows a layered architecture with clear separation of concerns.
 
 ### Core Type Parameters
 For `Router[T, U]`, middleware, and `SRouterContext[T, U]`, `T` is the
@@ -61,7 +61,7 @@ comparable user-ID type and `U` is the user object type. Typed
 2. CORS handling may finish preflight requests before route matching.
 3. Client IP and user-agent values are stored in the SRouter context.
 4. An optional request-summary wrapper captures outcomes, including unmatched routes.
-5. `httprouter` matches the request.
+5. The route table matches the request, or answers with a redirect, automatic `OPTIONS`, 405, or 404.
 6. Matched routes execute Recovery → built-in Auth → RateLimit → Global/metrics → outer groups → inner groups → Route → Timeout → body limit → Handler.
 7. Typed handlers decode, sanitize, invoke, and encode inside the final handler stage.
 

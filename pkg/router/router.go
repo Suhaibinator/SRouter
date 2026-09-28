@@ -22,9 +22,9 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/logkeys"
 	"github.com/Suhaibinator/SRouter/pkg/metrics"
 	"github.com/Suhaibinator/SRouter/pkg/middleware"
+	"github.com/Suhaibinator/SRouter/pkg/router/internal/routetree"
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
 	"github.com/Suhaibinator/SRouter/pkg/traceid"
-	"github.com/julienschmidt/httprouter"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -52,7 +52,7 @@ type RouterDependencies[T comparable, U any] struct {
 type Router[T comparable, U any] struct {
 	config            RouterConfig
 	dependencies      RouterDependencies[T, U]
-	router            *httprouter.Router
+	router            *routetree.Table
 	routeTree         *routeTree[T, U]
 	logger            *zap.Logger
 	requestLogSource  *scontext.RequestLoggerSource[T] // Shared application logging configuration
@@ -276,7 +276,7 @@ func (r *Router[T, U]) Build() (err error) {
 		return err
 	}
 
-	candidate := httprouter.New()
+	candidate := routetree.New()
 	initial := resolvedGroup[T, U]{
 		timeout:     r.config.GlobalTimeout,
 		maxBodySize: r.config.GlobalMaxBodySize,
@@ -291,7 +291,7 @@ func (r *Router[T, U]) Build() (err error) {
 	return nil
 }
 
-func (r *Router[T, U]) buildGroup(candidate *httprouter.Router, group *RouteGroup[T, U], inherited resolvedGroup[T, U], root bool) error {
+func (r *Router[T, U]) buildGroup(candidate *routetree.Table, group *RouteGroup[T, U], inherited resolvedGroup[T, U], root bool) error {
 	resolved := inherited
 	if !root {
 		if err := validateGroupPrefix(group.prefix); err != nil {
@@ -353,7 +353,7 @@ func (r *Router[T, U]) buildGroup(candidate *httprouter.Router, group *RouteGrou
 	return nil
 }
 
-func (r *Router[T, U]) registerCompiledRoute(candidate *httprouter.Router, route RouteConfigBase, group resolvedGroup[T, U]) error {
+func (r *Router[T, U]) registerCompiledRoute(candidate *routetree.Table, route RouteConfigBase, group resolvedGroup[T, U]) error {
 	fullPath, err := joinRoutePath(group.prefix, route.Path)
 	if err != nil {
 		return err
@@ -424,20 +424,23 @@ func (r *Router[T, U]) registerCompiledRoute(candidate *httprouter.Router, route
 	return nil
 }
 
-func (r *Router[T, U]) handleRoute(candidate *httprouter.Router, method, path string, handler http.Handler) (err error) {
+func (r *Router[T, U]) handleRoute(candidate *routetree.Table, method, path string, handler http.Handler) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("register %s %s: %v", method, path, recovered)
 		}
 	}()
-	candidate.Handle(method, path, r.convertToHTTPRouterHandle(handler, path))
+	if err := candidate.Add(method, path, r.routeHandle(handler, path)); err != nil {
+		return fmt.Errorf("register %s %s: %w", method, path, err)
+	}
 	return nil
 }
 
-// convertToHTTPRouterHandle converts an http.Handler to an httprouter.Handle.
-// It stores the route parameters and route template in the request context so they can be accessed by handlers.
-func (r *Router[T, U]) convertToHTTPRouterHandle(handler http.Handler, routeTemplate string) httprouter.Handle {
-	return func(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
+// routeHandle adapts an http.Handler to a route table handle. It stores the
+// route parameters and route template in the request context so they can be
+// accessed by handlers.
+func (r *Router[T, U]) routeHandle(handler http.Handler, routeTemplate string) routetree.Handle {
+	return func(w http.ResponseWriter, req *http.Request, ps scontext.Params) {
 		if routerContext, ok := scontext.GetSRouterContext[T, U](req.Context()); ok {
 			scontext.SetRouteInfo(routerContext, ps, routeTemplate)
 			handler.ServeHTTP(w, req)
@@ -645,8 +648,8 @@ func combineMiddlewares(parent, child []common.Middleware) []common.Middleware {
 
 // ServeHTTP implements http.Handler. It builds the route tree lazily, tracks the
 // request for graceful shutdown, handles CORS, adds client information, wraps
-// request-summary logging when enabled, and delegates route matching to
-// httprouter. Trace IDs and summaries cover every request; configured metrics
+// request-summary logging when enabled, and delegates route matching to the
+// route table. Trace IDs and summaries cover every request; configured metrics
 // run inside matched route chains.
 func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	req = r.withRequestContext(req)
