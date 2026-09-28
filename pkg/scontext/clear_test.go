@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/julienschmidt/httprouter"
 	"go.uber.org/zap"
 )
 
@@ -61,7 +60,7 @@ func clearState(ctx context.Context) map[string]any {
 }
 
 func populateClearContext(ctx context.Context, zero bool) context.Context {
-	id, text, user, params, err := 7, "value", new(testUser), httprouter.Params{{Key: "id", Value: "7"}}, error(errors.New("handler"))
+	id, text, user, params, err := 7, "value", new(testUser), Params{{Key: "id", Value: "7"}}, error(errors.New("handler"))
 	var tx DatabaseTransaction = &mockTransaction{}
 	if zero {
 		id, text, user, params, err, tx = 0, "", nil, nil, nil, nil

@@ -104,7 +104,7 @@ func TestGettersIgnoreUserTypes(t *testing.T) {
 func TestTypedGettersMatchUserTypes(t *testing.T) {
 	ctx := populateAll[uint64, readerStructUser](t, 42, &mockTransaction{}, errors.New("handler failed"))
 	user := &readerStructUser{Name: "user"}
-	ctx = WithUser[uint64, readerStructUser](ctx, user)
+	ctx = WithUser[uint64](ctx, user)
 	if id, ok := GetUserID[uint64](ctx); !ok || id != 42 {
 		t.Fatal("matching user ID not found")
 	}

@@ -16,8 +16,8 @@ import (
 // Router so user-based rate-limit policies remain type-safe.
 //
 // A route tree is mutable until Router.Build is called (explicitly or by the
-// first request). Mutating a frozen tree panics because httprouter does not
-// support concurrent route registration.
+// first request). Mutating a frozen tree panics because the route table does
+// not support concurrent route registration.
 type RouteGroup[UserID comparable, User any] struct {
 	tree        *routeTree[UserID, User]
 	prefix      string

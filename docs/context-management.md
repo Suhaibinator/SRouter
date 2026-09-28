@@ -402,6 +402,28 @@ synchronization, unset-value behavior, and logger caching are unchanged.
 Typed getters listed at the top of this guide retain their type parameters,
 as do setters, copy helpers, and all `Clear*` helpers.
 
+## Breaking change: path parameter type
+
+`GetPathParams`, `WithRouteInfo`, `SetRouteInfo`, and `router.GetParams` now use
+`scontext.Params` instead of `httprouter.Params`. SRouter no longer depends on
+`github.com/julienschmidt/httprouter`.
+
+| Before | After |
+|---|---|
+| `httprouter.Params` | `scontext.Params` |
+| `httprouter.Param{Key: k, Value: v}` | `scontext.Param{Key: k, Value: v}` |
+| `params.ByName(name)` | unchanged; `params.Get(name)` also reports presence |
+
+Code that only calls `ByName`, indexes, or ranges over the parameters compiles
+unchanged. Replace the type name where it is written out, and drop the
+`httprouter` import.
+
+The route table also changed some unmatched-request and registration
+behaviour; see [Compatibility](plans/route-table.md#compatibility). Notably,
+`/users/new` and `/users/:id` can now be registered together, requests whose
+letter case differs from a route are no longer redirected, and mid-segment
+wildcards such as `/user_:name` are rejected at `Build`.
+
 ## Breaking change: private context fields
 
 `SRouterContext` now has no exported fields. Code that reads or writes fields

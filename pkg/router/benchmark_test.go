@@ -256,8 +256,6 @@ func BenchmarkGenericRoutePathParam(b *testing.B) {
 					break
 				}
 			}
-			// params := ctx.Value(httprouter.ParamsKey).(httprouter.Params) // Old way
-			// encodedData := params.ByName("data") // Old way
 
 			if encodedData == "" {
 				// This shouldn't happen if the route matched, but handle defensively
@@ -477,7 +475,7 @@ func newRouteTreeBenchmarkRouter(routeCount, depth int, withMiddleware bool) *Ro
 
 // BenchmarkRouteTreeBuild measures the complete route definition and build
 // lifecycle. build-ns/op separately reports validation and compilation into
-// the underlying httprouter, without making untimed setup dominate wall time.
+// the route table, without making untimed setup dominate wall time.
 func BenchmarkRouteTreeBuild(b *testing.B) {
 	benchmarks := []struct {
 		name           string
@@ -636,7 +634,7 @@ func BenchmarkBuiltRouteGroupServeHTTP(b *testing.B) {
 }
 
 // BenchmarkCompiledRouteGroupDispatch bypasses Router.ServeHTTP's common
-// request bookkeeping and dispatches through the built httprouter directly.
+// request bookkeeping and dispatches through the built route table directly.
 // This isolates the handler produced by route-group compilation and verifies
 // that group depth and resolved no-op policy do not remain on the hot path.
 func BenchmarkCompiledRouteGroupDispatch(b *testing.B) {

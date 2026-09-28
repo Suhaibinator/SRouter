@@ -10,7 +10,6 @@ import (
 	"maps"
 	"sync"
 
-	"github.com/julienschmidt/httprouter" // Import for Params type
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gorm.io/gorm" // Needed for DatabaseTransaction
@@ -85,7 +84,7 @@ type SRouterContext[T comparable, U any] struct {
 
 	// Route information
 	routeTemplate string
-	pathParams    httprouter.Params
+	pathParams    Params
 
 	// CORS information determined by middleware
 	allowedOrigin      string
@@ -650,11 +649,11 @@ func (rc *SRouterContext[T, U]) correlationLocked() Correlation[T] {
 }
 
 // WithRouteInfo adds route information to the context.
-// This includes path parameters extracted by httprouter and the route template string.
+// This includes the path parameters captured by the matched route and the route template string.
 // This function is called internally by the router when a route is matched.
 // The route template is the original path pattern (e.g., "/users/:id") used for metrics and logging.
 // T is the User ID type (comparable), U is the User object type (any).
-func WithRouteInfo[T comparable, U any](ctx context.Context, params httprouter.Params, routeTemplate string) context.Context {
+func WithRouteInfo[T comparable, U any](ctx context.Context, params Params, routeTemplate string) context.Context {
 	rc, ctx := EnsureSRouterContext[T, U](ctx)
 	SetRouteInfo(rc, params, routeTemplate)
 	return ctx
@@ -663,7 +662,7 @@ func WithRouteInfo[T comparable, U any](ctx context.Context, params httprouter.P
 // SetRouteInfo updates route information on an existing SRouterContext without
 // creating another context wrapper. Router dispatch uses this after request
 // metadata has initialized the shared context.
-func SetRouteInfo[T comparable, U any](rc *SRouterContext[T, U], params httprouter.Params, routeTemplate string) {
+func SetRouteInfo[T comparable, U any](rc *SRouterContext[T, U], params Params, routeTemplate string) {
 	rc.mu.Lock()
 	rc.pathParams = params
 	rc.routeTemplate = routeTemplate
@@ -672,11 +671,11 @@ func SetRouteInfo[T comparable, U any](rc *SRouterContext[T, U], params httprout
 }
 
 type routeInfoProvider interface {
-	getPathParams() (httprouter.Params, bool)
+	getPathParams() (Params, bool)
 	getRouteTemplate() (string, bool)
 }
 
-func (rc *SRouterContext[T, U]) getPathParams() (httprouter.Params, bool) {
+func (rc *SRouterContext[T, U]) getPathParams() (Params, bool) {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 	if rc.presence&presentRouteTemplate == 0 {
@@ -707,9 +706,9 @@ func GetRouteTemplate(ctx context.Context) (string, bool) {
 }
 
 // GetPathParams retrieves the path parameters from the context.
-// Path parameters are extracted by httprouter from the URL path (e.g., :id in "/users/:id").
+// Path parameters are captured from the URL path by the matched route (e.g., :id in "/users/:id").
 // It returns the parameters and a boolean indicating whether they were found.
-func GetPathParams(ctx context.Context) (httprouter.Params, bool) {
+func GetPathParams(ctx context.Context) (Params, bool) {
 	provider, ok := ctx.Value(sRouterContextKey{}).(routeInfoProvider)
 	if !ok {
 		return nil, false
@@ -879,7 +878,7 @@ func cloneSRouterContext[T comparable, U any](src *SRouterContext[T, U]) *SRoute
 
 	// Deep copy pathParams slice
 	if src.pathParams != nil {
-		dst.pathParams = make(httprouter.Params, len(src.pathParams))
+		dst.pathParams = make(Params, len(src.pathParams))
 		copy(dst.pathParams, src.pathParams)
 	}
 

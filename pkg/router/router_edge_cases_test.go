@@ -14,7 +14,6 @@ import (
 	"github.com/Suhaibinator/SRouter/pkg/common"
 	"github.com/Suhaibinator/SRouter/pkg/router/internal/mocks"
 	"github.com/Suhaibinator/SRouter/pkg/scontext"
-	"github.com/julienschmidt/httprouter"
 	"go.uber.org/zap"
 )
 
@@ -204,7 +203,7 @@ func TestRouterBuiltInMetricsRegistryMiddlewareIsApplied(t *testing.T) {
 func TestRouterDirectDispatcherAddsRouteContext(t *testing.T) {
 	r := NewRouter(RouterConfig{Logger: zap.NewNop()}, RouterDependencies[string, string]{})
 	called := false
-	handle := r.convertToHTTPRouterHandle(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	handle := r.routeHandle(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		called = true
 		if got := GetParam(req, "id"); got != "42" {
 			t.Errorf("GetParam(id) = %q, want %q", got, "42")
@@ -216,7 +215,7 @@ func TestRouterDirectDispatcherAddsRouteContext(t *testing.T) {
 	}), "/users/:id")
 
 	recorder := httptest.NewRecorder()
-	handle(recorder, httptest.NewRequest(http.MethodGet, "/users/42", nil), httprouter.Params{{Key: "id", Value: "42"}})
+	handle(recorder, httptest.NewRequest(http.MethodGet, "/users/42", nil), scontext.Params{{Key: "id", Value: "42"}})
 	if !called {
 		t.Fatal("converted handler was not called")
 	}

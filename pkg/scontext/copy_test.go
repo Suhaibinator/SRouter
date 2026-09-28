@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/julienschmidt/httprouter"
 	"gorm.io/gorm"
 )
 
@@ -35,7 +34,7 @@ func createFullSRouterContext() context.Context {
 	userAgent := "test-agent"
 	tx := &mockTransaction{}
 	routeTemplate := "/users/:id"
-	params := httprouter.Params{
+	params := Params{
 		{Key: "id", Value: "123"},
 		{Key: "name", Value: "test"},
 	}
@@ -76,7 +75,7 @@ func verifyFullSRouterContext(t *testing.T, ctx context.Context, testName string
 	clientIP := "192.168.1.1"
 	userAgent := "test-agent"
 	routeTemplate := "/users/:id"
-	params := httprouter.Params{
+	params := Params{
 		{Key: "id", Value: "123"},
 		{Key: "name", Value: "test"},
 	}

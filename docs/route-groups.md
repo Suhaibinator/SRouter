@@ -1,6 +1,6 @@
 # Route groups
 
-SRouter has one runtime `Router` and one underlying `httprouter` dispatcher.
+SRouter has one runtime `Router` and one underlying route table.
 `RouteGroup` values organize that router into a recursive route tree; they are
 not independent HTTP handlers.
 
@@ -93,7 +93,7 @@ support concurrent mutation. Create a new router after correcting a failed
 build.
 
 Build validates paths, methods, handlers, middleware, negative timeout and body
-limits, authentication levels and callbacks, duplicate routes, and `httprouter`
-path conflicts. It does not validate rate-limit values or a custom key
+limits, authentication levels and callbacks, duplicate routes, and route
+pattern conflicts. It does not validate rate-limit values or a custom key
 extractor. Groups compile away after startup; steady-state dispatch uses the
 single underlying router with no group traversal.

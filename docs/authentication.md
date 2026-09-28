@@ -184,10 +184,10 @@ does not guarantee preflight interception. An alternative is an external CORS
 layer placed outside authentication.
 
 CORS preflight requests are handled before either built-in or router-scoped
-custom authentication. Other `OPTIONS` requests are delegated to `httprouter`.
-They enter the normal route middleware chain only when `OPTIONS` is explicitly
-registered for the route; otherwise `httprouter` may generate its automatic
-`OPTIONS`/`Allow` response or return 404.
+custom authentication. Other `OPTIONS` requests go to the route table. They
+enter the normal route middleware chain only when `OPTIONS` is explicitly
+registered for the route; otherwise the router answers with its automatic
+`OPTIONS`/`Allow` response or returns 404.
 
 The `pkg/middleware` package also contains reusable bearer-token, API-key,
 basic-user, and user-provider middleware building blocks. Provider-based
