@@ -65,7 +65,7 @@ func (t *Table) redirectTarget(method, path string, searched *methodTable, tsrAd
 			_, tsrAdd, tsrRemove = mt.has(path)
 		}
 		if mt.hasToggled(path, tsrAdd, tsrRemove) {
-			return toggleTrailingSlash(path)
+			return toggleTrailingSlash(path), true
 		}
 	}
 	if !clean {
@@ -75,7 +75,7 @@ func (t *Table) redirectTarget(method, path string, searched *methodTable, tsrAd
 			return cleaned, true
 		}
 		if cleaned != "/" && mt.hasToggled(cleaned, tsrAdd, tsrRemove) {
-			return toggleTrailingSlash(cleaned)
+			return toggleTrailingSlash(cleaned), true
 		}
 	}
 	return "", false
@@ -209,16 +209,13 @@ func (t *Table) allowed(path, exclude string) string {
 	return strings.Join(methods, ", ")
 }
 
-// toggleTrailingSlash adds or removes the final slash. The root path has no
-// alternate.
-func toggleTrailingSlash(path string) (string, bool) {
-	if len(path) <= 1 {
-		return "", false
-	}
+// toggleTrailingSlash adds or removes the final slash. Callers never pass the
+// root path, which has no alternate.
+func toggleTrailingSlash(path string) string {
 	if path[len(path)-1] == '/' {
-		return path[:len(path)-1], true
+		return path[:len(path)-1]
 	}
-	return path + "/", true
+	return path + "/"
 }
 
 // isCleanPath reports whether cleanPath would return path unchanged: it is
