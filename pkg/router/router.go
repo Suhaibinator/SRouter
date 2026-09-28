@@ -424,12 +424,9 @@ func (r *Router[T, U]) registerCompiledRoute(candidate *routetree.Table, route R
 	return nil
 }
 
-func (r *Router[T, U]) handleRoute(candidate *routetree.Table, method, path string, handler http.Handler) (err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = fmt.Errorf("register %s %s: %v", method, path, recovered)
-		}
-	}()
+// handleRoute registers handler on the route table. The table reports invalid
+// or conflicting patterns as errors; it never panics.
+func (r *Router[T, U]) handleRoute(candidate *routetree.Table, method, path string, handler http.Handler) error {
 	if err := candidate.Add(method, path, r.routeHandle(handler, path)); err != nil {
 		return fmt.Errorf("register %s %s: %w", method, path, err)
 	}
