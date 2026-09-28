@@ -257,7 +257,7 @@ func TestCorrelationIgnoresUnrelatedPresence(t *testing.T) {
 	before, _ := GetCorrelation[int](ctx)
 	// Populate every non-correlation presence bit; snapshot equality must depend
 	// only on correlation, not other state on the source wrapper.
-	WithUser[int, testUser](ctx, new(testUser))
+	WithUser[int](ctx, new(testUser))
 	WithClientInfo[int, testUser](ctx, "127.0.0.1", "agent")
 	WithTransaction[int, testUser](ctx, nil)
 	WithRouteInfo[int, testUser](ctx, nil, "/users")
