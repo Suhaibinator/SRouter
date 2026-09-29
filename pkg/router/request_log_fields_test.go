@@ -124,7 +124,7 @@ func TestRateLimitAndSummaryShareRequestCorrelation(t *testing.T) {
 		logkeys.Method,
 		logkeys.Path,
 		logkeys.Status,
-		logkeys.Duration,
+		logkeys.DurationMS,
 		logkeys.Bytes,
 		logkeys.UserAgent,
 	})

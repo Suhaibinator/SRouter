@@ -671,42 +671,16 @@ func (r *Router[T, U]) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		mrw.request = req
 		mrw.router = r
 		mrw.bytesWritten = 0
+		mrw.hijacked = false
 
 		rw = mrw
 
 		// Defer logging, metrics collection, and returning the writer to the pool
 		defer func() {
-			// 1) Capture the completed request outcome
-			duration := time.Since(mrw.startTime)
-
-			// Decide severity before constructing any log fields.
-			var lvl zapcore.Level
-			switch {
-			case mrw.statusCode >= 500:
-				lvl = zapcore.ErrorLevel
-			case duration > 500*time.Millisecond:
-				lvl = zapcore.WarnLevel
-			case mrw.statusCode >= 400:
-				lvl = zapcore.InfoLevel
-			case r.config.TraceLoggingUseInfo:
-				lvl = zapcore.InfoLevel
-			default:
-				lvl = zapcore.DebugLevel
-			}
-
-			if ce := requestlog.Check[T, U](req.Context(), lvl, "Request summary statistics"); ce != nil {
-				ua, _ := scontext.GetUserAgent(req.Context())
-				fields := make([]zap.Field, 0, 6)
-				fields = append(fields,
-					zap.String(logkeys.Method, req.Method),
-					zap.String(logkeys.Path, req.URL.Path),
-					zap.Int(logkeys.Status, mrw.statusCode),
-					zap.Duration(logkeys.Duration, duration),
-					zap.Int64(logkeys.Bytes, mrw.bytesWritten),
-					zap.String(logkeys.UserAgent, ua),
-				)
-
-				ce.Write(fields...)
+			// A hijacked connection was summarized at the handoff; its
+			// remaining lifetime is not request latency.
+			if !mrw.hijacked {
+				mrw.logSummary(req)
 			}
 
 			// Reset fields that might hold references to prevent memory leaks
@@ -1040,6 +1014,60 @@ type metricsResponseWriter[T comparable, U any] struct {
 	startTime    time.Time
 	request      *http.Request
 	router       *Router[T, U]
+	hijacked     bool
+}
+
+// logSummary writes the request summary for req, measuring the duration from
+// the writer's start time.
+func (rw *metricsResponseWriter[T, U]) logSummary(req *http.Request) {
+	duration := time.Since(rw.startTime)
+
+	// Decide severity before constructing any log fields.
+	var lvl zapcore.Level
+	switch {
+	case rw.statusCode >= 500:
+		lvl = zapcore.ErrorLevel
+	case duration > 500*time.Millisecond:
+		lvl = zapcore.WarnLevel
+	case rw.statusCode >= 400:
+		lvl = zapcore.InfoLevel
+	case rw.router.config.TraceLoggingUseInfo:
+		lvl = zapcore.InfoLevel
+	default:
+		lvl = zapcore.DebugLevel
+	}
+
+	ce := requestlog.Check[T, U](req.Context(), lvl, "Request summary statistics")
+	if ce == nil {
+		return
+	}
+	ua, _ := scontext.GetUserAgent(req.Context())
+	fields := make([]zap.Field, 0, 7)
+	fields = append(fields,
+		zap.String(logkeys.Method, req.Method),
+		zap.String(logkeys.Path, req.URL.Path),
+		zap.Int(logkeys.Status, rw.statusCode),
+		zap.Float64(logkeys.DurationMS, float64(duration)/float64(time.Millisecond)),
+		zap.Int64(logkeys.Bytes, rw.bytesWritten),
+		zap.String(logkeys.UserAgent, ua),
+	)
+	if rw.hijacked {
+		fields = append(fields, zap.Bool(logkeys.Hijacked, true))
+	}
+	ce.Write(fields...)
+}
+
+// Hijack delegates to the underlying writer and, on success, writes the request
+// summary at the handoff. The handler owns the connection from then on, so a
+// long-lived WebSocket does not inflate the summary duration or severity.
+func (rw *metricsResponseWriter[T, U]) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, brw, err := rw.baseResponseWriter.Hijack()
+	if err != nil || rw.hijacked {
+		return conn, brw, err
+	}
+	rw.hijacked = true
+	rw.logSummary(rw.request)
+	return conn, brw, nil
 }
 
 // WriteHeader forwards informational responses, then captures and forwards the
