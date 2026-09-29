@@ -31,9 +31,13 @@ SRouter emits one `"Request summary statistics"` record for every request when e
 - `TraceIDConfig != nil`, which enables automatic trace IDs and request summaries.
 - `EnableTraceLogging`, which enables request summaries independently of trace IDs.
 
-The summary contains `method`, `path`, `status`, `duration`, `bytes`,
+The summary contains `method`, `path`, `status`, `duration_ms`, `bytes`,
 `client_ip`, and `user_agent`. It also contains configured `build_id` and
-`config_id` values when available. A non-empty `trace_id` already present in
+`config_id` values when available. `duration_ms` is a floating-point number of
+milliseconds, so log search tools can sort, filter, and aggregate it regardless
+of the application's Zap duration encoder. It replaces the former `duration`
+field, which Zap rendered according to `EncodeDuration`; replace uses of the
+removed `logkeys.Duration` constant with `logkeys.DurationMS`. A non-empty `trace_id` already present in
 the request context is included independently of the automatic trace setting.
 Automatic tracing resolves the ID before build, shutdown, CORS, and routing, so
 unmatched 404/405 responses and all early returns also carry it.
@@ -67,6 +71,15 @@ Its level is chosen in this priority order:
 5. `Debug` otherwise.
 
 Thus `TraceLoggingUseInfo` changes only otherwise-successful summaries. A slow 4xx request is `Warn`, while a fast 4xx request is `Info`.
+
+When a handler hijacks the connection, as WebSocket upgrades do, SRouter writes
+the summary at the successful hijack instead of when the handler returns. Its
+`duration_ms` and level therefore describe the upgrade, not the connection
+lifetime, and the summary adds `hijacked: true`. The handler writes its own
+protocol response after hijacking, so `status` is `101` only when the handler
+called `WriteHeader(http.StatusSwitchingProtocols)` before hijacking; otherwise
+it keeps the default `200`. No second summary is written when the connection
+closes. A failed hijack leaves the normal end-of-request summary in place.
 
 To emit summaries without generating trace IDs:
 
